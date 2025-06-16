@@ -1,0 +1,210 @@
+
+#
+# 
+# 1. Install system dependencies first:
+# 2. Create virtual environment:
+# 3. Install packages in order:
+# 4. For GUI components, ensure Qt5 is installed:
+# 5. For CUDA support (ML modules):
+# 6. SQLite is built-in to Python (no installation needed)
+aiocache
+aiofiles
+aiohttp
+aioredis
+alembic
+alive-progress
+# - All versions are pinned or bounded to ensure stability
+apscheduler
+arch
+arctic
+# ASYNC UTILITIES
+backoff
+# BACKTESTING & STRATEGY VALIDATION (RobolaI_Backtest modules)
+backtrader
+bcrypt
+black
+bokeh
+bottleneck
+bt
+cachetools
+# CACHING & PERSISTENCE
+catboost
+cerberus
+circuit-breaker
+# Classical ML
+# CODE QUALITY & LINTING (Development)
+colorlog
+configparser
+# CONFIGURATION & ENVIRONMENT
+copulas
+# CORE DEPENDENCIES
+# Core Python Data Science Stack
+cryptography
+cython
+# DATABASE & STORAGE
+# DATA VALIDATION & SERIALIZATION
+# DATA VISUALIZATION & CHARTING
+# DATE/TIME & SCHEDULING
+# Deep Learning
+discord.py
+diskcache
+dnspython
+# DOCUMENTATION (Development)
+empyrical
+# ENCRYPTION & SECURITY (RobolaU04_Encryption.py)
+# Enhanced with institutional-grade capabilities
+# ERROR HANDLING & DEBUGGING
+fastparquet
+fbprophet
+# FILE I/O & DATA EXPORT
+# FINANCIAL DATA & TECHNICAL ANALYSIS
+flake8
+# For Ubuntu 25.04:
+GPUtil
+grpcio
+# GUI FRAMEWORK - PyQt5
+hmmlearn
+holidays
+hypothesis
+ibapi
+ib_insync
+imbalanced-learn
+#    Install CUDA toolkit if using GPU acceleration
+# INTERACTIVE BROKERS INTEGRATION
+isort
+jaeger-client
+joblib
+keras
+lightgbm
+# LOGGING & MONITORING
+loguru
+# MACHINE LEARNING & AI (Enhanced for L modules)
+# MARKET MICROSTRUCTURE & ORDER FLOW
+marshmallow
+matplotlib
+mkdocs
+mkdocs-material
+# ML Utilities
+# MONITORING & OBSERVABILITY (Production)
+mplfinance
+msgpack
+mypy
+nelson_siegel_svensson
+netifaces
+# NETWORKING & API COMMUNICATION
+# NETWORK UTILITIES
+networkx
+# NOTIFICATIONS & ALERTS (RobolaJ_Alerts modules)
+numba
+numexpr
+numpy
+openpyxl
+opentelemetry-api
+opentelemetry-instrumentation
+opentelemetry-sdk
+# OPTIONS ANALYTICS
+optuna
+orjson
+pandas
+pandas-ta
+# PERFORMANCE & OPTIMIZATION
+# PERFORMANCE & RISK ANALYSIS
+Pillow
+ping3
+#    pip install numpy scipy
+#    pip install QuantLib-Python
+#    pip install -r requirements.txt
+#    pip install --upgrade pip setuptools wheel
+# PLATFORM-SPECIFIC NOTES
+plotly
+plyer
+pre-commit
+# PROGRESS & UI ENHANCEMENTS
+prometheus-client
+psutil
+pyarrow
+py-cpuinfo
+pydantic
+pydantic-settings
+pyfolio
+pykalman
+py_lets_be_rational
+pylint
+PyQt5
+PyQt5-Qt5
+# - PyQt5 requires system Qt5 libraries
+PyQt5-sip
+pyqtgraph
+pytest
+pytest-asyncio
+pytest-benchmark
+pytest-cov
+pytest-mock
+pytest-qt
+# - Python 3.8+ required (tested up to 3.11)
+#    python3 -m venv .venv
+python-dateutil
+python-decouple
+python-dotenv
+python-json-logger
+python-telegram-bot
+pytz
+py_vollib
+pyyaml
+# QUANTITATIVE LIBRARIES (NEW for Q modules)
+QuantLib
+# - QuantLib 1.31 requires specific compiler versions
+# QuantLib for advanced options pricing (Heston Model, Greeks)
+redis
+redis-py-cluster
+reportlab
+requests
+# Requirements File - Updated 2025-06-13
+# RETRY LOGIC & RESILIENCE
+rich
+riskfolio-lib
+scikit-learn
+scipy
+seaborn
+secrets
+sentry-sdk
+shap
+slack-sdk
+# - Some packages may require additional system libraries
+#    source .venv/bin/activate
+sphinx
+sphinx-rtd-theme
+# SPYDER v4 - Automated SPY Options Trading System
+sqlalchemy
+# SQLite is built-in to Python
+statsmodels
+structlog
+#    sudo apt-get install -y libpq-dev  # For PostgreSQL if needed
+#    sudo apt-get install -y python3-dev g++ libboost-all-dev
+#    sudo apt-get install -y qt5-default libxcb-xinerama0
+#    sudo apt-get install -y quantlib-python libquantlib0-dev
+#    sudo apt-get install -y ta-lib     # For TA-Lib
+#    sudo apt-get update
+sympy
+ta
+ta-lib
+tenacity
+tensorflow
+# - TensorFlow/PyTorch have specific CUDA requirements for GPU
+# TESTING FRAMEWORK (Development)
+toml
+torch
+# Total Modules: 112 across 18 functional groups
+tqdm
+tulipy
+twilio
+tzdata
+urllib3
+vectorbt
+# VERSION COMPATIBILITY NOTES
+websocket-client
+websockets
+xgboost
+XlsxWriter
+yfinance
+zipline-reloaded

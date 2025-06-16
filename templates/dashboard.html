@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spyder Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(45deg, #2196F3, #21CBF3);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        .status-card,
+        .control-card,
+        .positions-card,
+        .logs-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+
+        .logs-card {
+            grid-column: 1 / -1;
+        }
+
+        .positions-card {
+            grid-column: 1 / -1;
+        }
+
+        .card-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+
+        .status-connected {
+            border-left-color: #27ae60;
+        }
+
+        .status-disconnected {
+            border-left-color: #e74c3c;
+        }
+
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+            min-width: 200px;
+        }
+
+        .btn-start {
+            background: linear-gradient(45deg, #27ae60, #2ecc71);
+            color: white;
+            font-size: 1.3em;
+            padding: 20px 40px;
+        }
+
+        .btn-stop {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            color: white;
+            font-size: 1.3em;
+            padding: 20px 40px;
+        }
+
+        .btn-option {
+            background: linear-gradient(45deg, #f39c12, #e67e22);
+            color: white;
+            padding: 12px 25px;
+            font-size: 1em;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .positions-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .positions-table th,
+        .positions-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .positions-table th {
+            background: #3498db;
+            color: white;
+        }
+
+        .position-positive {
+            color: #27ae60;
+            font-weight: bold;
+        }
+
+        .position-negative {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 80%;
+            max-width: 600px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+
+        .logs-container {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            max-height: 400px;
+            overflow-y: auto;
+            line-height: 1.4;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .time-info {
+            background: linear-gradient(45deg, #8e44ad, #9b59b6);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: center;
+        }
+
+        .spyder-controls {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(45deg, #34495e, #2c3e50);
+            border-radius: 10px;
+            color: white;
+        }
+
+        /* Add these additional styles */
+        .position-row {
+            border: 2px solid transparent;
+            border-radius: 8px;
+            margin: 5px 0;
+            transition: all 0.3s ease;
+        }
+
+        .position-row.selected {
+            border-color: #e74c3c;
+            background-color: #fdf2f2;
+        }
+
+        .position-row:hover {
+            background-color: #f8f9fa;
+            cursor: pointer;
+        }
+
+        .position-checkbox {
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+
+        .position-action-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+
+        .position-action-btn:hover {
+            background: #2980b9;
+        }
+
+        .selection-summary {
+            background: #e8f4f8;
+            border: 1px solid #3498db;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Spyder Trading Dashboard</h1>
+            <p>Advanced Trading Robot with Position Management</p>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="status-card">
+                <div class="card-title">📊 System Status</div>
+                <div id="status-content">
+                    <div class="status-item">
+                        <span>Loading status...</span>
+                        <div class="loading"></div>
+                    </div>
+                </div>
+
+                <div class="time-info">
+                    <strong>📅 Auto Schedule:</strong><br>
+                    Connect: 1:00 PM EST | Disconnect: 4:30 PM EST
+                </div>
+            </div>
+
+            <div class="control-card">
+                <div class="card-title">🎮 Spyder Controls</div>
+
+                <div class="spyder-controls">
+                    <button id="start-spyder-btn" class="btn btn-start" onclick="startRobola()">
+                        🚀 Start Spyder
+                    </button>
+
+                    <button id="stop-spyder-btn" class="btn btn-stop" onclick="stopRobola()">
+                        🛑 Stop Spyder
+                    </button>
+
+                    <div id="control-message"></div>
+
+                    <div
+                        style="margin-top: 20px; padding: 15px; background: rgba(255, 255, 255, 0.1); border-radius: 8px;">
+                        <strong>📱 Mobile 2FA Required</strong><br>
+                        <small>You'll need to approve the connection on your mobile device when starting Spyder</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="positions-card">
+                <div class="card-title">💼 Current Positions</div>
+                <div id="positions-content">
+                    <p>Loading positions...</p>
+                </div>
+            </div>
+
+            <div class="logs-card">
+                <div class="card-title">📋 System Logs</div>
+                <div id="logs-container" class="logs-container">
+                    Loading logs...
+                </div>
+                <button class="btn" onclick="refreshLogs()"
+                    style="background: #34495e; color: white; margin-top: 10px;">
+                    🔄 Refresh Logs
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Enhanced Position Management Modal -->
+    <div id="position-modal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">🛑 Stop Spyder - Advanced Position Management</div>
+            <div id="modal-positions-content"></div>
+            <div style="text-align: center; margin-top: 30px;">
+                <button class="btn btn-option" onclick="stopWithSelectedPositions()">
+                    🎯 Close Selected & Stop
+                </button>
+                <button class="btn btn-option" onclick="stopWithAction('keep_positions')">
+                    🔒 Keep All Positions
+                </button>
+                <button class="btn btn-option" onclick="stopWithAction('close_positions')">
+                    ❌ Close All Positions
+                </button>
+                <button class="btn" onclick="closeModal()" style="background: #95a5a6; color: white;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Individual Position Management Modal -->
+    <div id="single-position-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">💼 Manage Individual Position</div>
+            <div id="single-position-content"></div>
+            <div style="text-align: center; margin-top: 20px;">
+                <button id="close-single-btn" class="btn btn-option" onclick="closeSinglePosition()">
+                    ❌ Close This Position
+                </button>
+                <button class="btn" onclick="closeSinglePositionModal()" style="background: #95a5a6; color: white;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let statusInterval;
+
+        function updateStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    updateStatusDisplay(data);
+                    updatePositionsDisplay(data);
+                    updateControlButtons(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                });
+        }
+
+        function updateStatusDisplay(data) {
+            const statusContent = document.getElementById('status-content');
+            const statusClass = data.connected ? 'status-connected' : 'status-disconnected';
+            const connectionIcon = data.connected ? '✅' : '❌';
+            const shouldBeIcon = data.should_be_connected ? '✅' : '❌';
+            const newsIcon = data.news_gathering ? '✅' : '❌';
+            const weekendIcon = data.is_weekend ? '🏖️' : '📈';
+
+            statusContent.innerHTML = `
+                <div class="status-item ${statusClass}">
+                    <span>Spyder Status</span>
+                    <span>${connectionIcon} ${data.connected ? 'Running' : 'Stopped'}</span>
+                </div>
+                <div class="status-item">
+                    <span>Current Time</span>
+                    <span>🕐 ${data.current_time}</span>
+                </div>
+                <div class="status-item">
+                    <span>Open Positions</span>
+                    <span>💼 ${data.total_positions || 0}</span>
+                </div>
+                <div class="status-item">
+                    <span>News Gathering</span>
+                    <span>${newsIcon} ${data.news_gathering ? 'Active' : 'Inactive'}</span>
+                </div>
+                <div class="status-item">
+                    <span>Market Day</span>
+                    <span>${weekendIcon} ${data.is_weekend ? 'Weekend' : 'Trading Day'}</span>
+                </div>
+            `;
+        }
+
+        let selectedPositions = [];
+        let currentPositions = [];
+
+        function updatePositionsDisplay(data) {
+            const positionsContent = document.getElementById('positions-content');
+            currentPositions = data.positions || [];
+
+            if (currentPositions.length === 0) {
+                positionsContent.innerHTML = '<p style="text-align: center; color: #7f8c8d;">No open positions</p>';
+                return;
+            }
+
+            let tableHTML = `
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Position</th>
+                            <th>Market Value</th>
+                            <th>Unrealized P&L</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            currentPositions.forEach(pos => {
+                const pnlClass = pos.unrealized_pnl >= 0 ? 'position-positive' : 'position-negative';
+                tableHTML += `
+                    <tr>
+                        <td><strong>${pos.symbol}</strong></td>
+                        <td>${pos.position}</td>
+                        <td>$${pos.market_value?.toFixed(2) || 'N/A'}</td>
+                        <td class="${pnlClass}">$${pos.unrealized_pnl?.toFixed(2) || 'N/A'}</td>
+                        <td>
+                            <button class="position-action-btn" onclick="showSinglePositionModal('${pos.symbol}', ${pos.contract_id})">
+                                Manage
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tableHTML += '</tbody></table>';
+            positionsContent.innerHTML = tableHTML;
+        }
+
+        function updateControlButtons(data) {
+            const startBtn = document.getElementById('start-spyder-btn');
+            const stopBtn = document.getElementById('stop-spyder-btn');
+
+            startBtn.disabled = data.connected;
+            stopBtn.disabled = !data.connected;
+
+            if (data.connected) {
+                startBtn.innerHTML = '✅ Spyder Running';
+                stopBtn.innerHTML = '🛑 Stop Spyder';
+            } else {
+                startBtn.innerHTML = '🚀 Start Spyder';
+                stopBtn.innerHTML = '⚫ Spyder Stopped';
+            }
+        }
+
+        function startRobola() {
+            const controlMessage = document.getElementById('control-message');
+            const startBtn = document.getElementById('start-spyder-btn');
+
+            startBtn.disabled = true;
+            startBtn.innerHTML = '🔄 Starting Spyder...';
+
+            fetch('/api/start_robola', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    const messageClass = data.success ? 'success' : 'error';
+                    controlMessage.innerHTML = `<div class="message ${messageClass}">${data.message}</div>`;
+
+                    setTimeout(updateStatus, 2000);
+                })
+                .catch(error => {
+                    controlMessage.innerHTML = '<div class="message error">Failed to start Spyder</div>';
+                })
+                .finally(() => {
+                    startBtn.disabled = false;
+                });
+        }
+
+        function stopRobola() {
+            fetch('/api/stop_robola', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ action: 'check_positions' })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.has_positions) {
+                        showPositionModal(data.positions);
+                    } else {
+                        const controlMessage = document.getElementById('control-message');
+                        const messageClass = data.success ? 'success' : 'error';
+                        controlMessage.innerHTML = `<div class="message ${messageClass}">${data.message}</div>`;
+                        updateStatus();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error stopping Spyder:', error);
+                });
+        }
+
+        function showPositionModal(positions) {
+            const modal = document.getElementById('position-modal');
+            const modalContent = document.getElementById('modal-positions-content');
+            selectedPositions = []; // Reset selection
+
+            let contentHTML = `
+        <p><strong>You have ${positions.length} open positions. Select which ones to close:</strong></p>
+        <div class="selection-summary" id="selection-summary">
+            <strong>Selected to close: 0 positions</strong>
+        </div>
+    `;
+
+            contentHTML += '<table class="positions-table" style="margin: 15px 0;">';
+            contentHTML += '<thead><tr><th>Select</th><th>Symbol</th><th>Position</th><th>P&L</th><th>Action</th></tr></thead><tbody>';
+
+            positions.forEach((pos, index) => {
+                const pnlClass = pos.unrealized_pnl >= 0 ? 'position-positive' : 'position-negative';
+                contentHTML += `
+            <tr class="position-row" id="row-${pos.symbol}" onclick="togglePositionSelection('${pos.symbol}')">
+                <td>
+                    <input type="checkbox" class="position-checkbox" id="checkbox-${pos.symbol}"
+                           onchange="togglePositionSelection('${pos.symbol}')">
+                </td>
+                <td><strong>${pos.symbol}</strong></td>
+                <td>${pos.position}</td>
+                <td class="${pnlClass}">$${pos.unrealized_pnl?.toFixed(2) || 'N/A'}</td>
+                <td>
+                    <button class="position-action-btn" onclick="showSinglePositionModal('${pos.symbol}', ${pos.contract_id || 0}); event.stopPropagation();">
+                        Details
+                    </button>
+                </td>
+            </tr>
+        `;
+            });
+
+            contentHTML += '</tbody></table>';
+
+            modalContent.innerHTML = contentHTML;
+            updateSelectionSummary();
+            modal.style.display = 'block';
+        }
+
+        function togglePositionSelection(symbol) {
+            const checkbox = document.getElementById(`checkbox-${symbol}`);
+            const row = document.getElementById(`row-${symbol}`);
+
+            if (selectedPositions.includes(symbol)) {
+                // Remove from selection
+                selectedPositions = selectedPositions.filter(s => s !== symbol);
+                checkbox.checked = false;
+                row.classList.remove('selected');
+            } else {
+                // Add to selection
+                selectedPositions.push(symbol);
+                checkbox.checked = true;
+                row.classList.add('selected');
+            }
+
+            updateSelectionSummary();
+        }
+
+        function updateSelectionSummary() {
+            const summary = document.getElementById('selection-summary');
+            if (summary) {
+                const count = selectedPositions.length;
+                const symbolList = count > 0 ? ` (${selectedPositions.join(', ')})` : '';
+                summary.innerHTML = `<strong>Selected to close: ${count} positions${symbolList}</strong>`;
+            }
+        }
+
+        function stopWithSelectedPositions() {
+            if (selectedPositions.length === 0) {
+                alert('Please select at least one position to close, or use "Keep All Positions"');
+                return;
+            }
+
+            const modal = document.getElementById('position-modal');
+
+            fetch('/api/stop_robola_selective', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    close_positions: selectedPositions
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    const controlMessage = document.getElementById('control-message');
+                    const messageClass = data.success ? 'success' : 'error';
+                    controlMessage.innerHTML = `<div class="message ${messageClass}">${data.message}</div>`;
+
+                    modal.style.display = 'none';
+                    selectedPositions = [];
+                    updateStatus();
+                })
+                .catch(error => {
+                    console.error('Error with selective stop:', error);
+                    modal.style.display = 'none';
+                });
+        }
+
+        function showSinglePositionModal(symbol, contractId) {
+            const modal = document.getElementById('single-position-modal');
+            const content = document.getElementById('single-position-content');
+
+            // Find the position details
+            const position = currentPositions.find(p => p.symbol === symbol);
+            if (!position) return;
+
+            const pnlClass = position.unrealized_pnl >= 0 ? 'position-positive' : 'position-negative';
+
+            content.innerHTML = `
+        <div style="text-align: center;">
+            <h3>${symbol}</h3>
+            <div class="status-item">
+                <span>Position Size:</span>
+                <span><strong>${position.position}</strong></span>
+            </div>
+            <div class="status-item">
+                <span>Market Value:</span>
+                <span><strong>$${position.market_value?.toFixed(2) || 'N/A'}</strong></span>
+            </div>
+            <div class="status-item">
+                <span>Unrealized P&L:</span>
+                <span class="${pnlClass}"><strong>$${position.unrealized_pnl?.toFixed(2) || 'N/A'}</strong></span>
+            </div>
+            <div class="status-item">
+                <span>Average Cost:</span>
+                <span>$${position.avg_cost?.toFixed(2) || 'N/A'}</span>
+            </div>
+        </div>
+    `;
+
+            // Store current symbol for closing
+            document.getElementById('close-single-btn').setAttribute('data-symbol', symbol);
+            document.getElementById('close-single-btn').setAttribute('data-contract-id', contractId);
+
+            modal.style.display = 'block';
+        }
+
+        function closeSinglePosition() {
+            const btn = document.getElementById('close-single-btn');
+            const symbol = btn.getAttribute('data-symbol');
+            const contractId = btn.getAttribute('data-contract-id');
+
+            btn.disabled = true;
+            btn.innerHTML = '🔄 Closing...';
+
+            fetch('/api/close_position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    symbol: symbol,
+                    contract_id: parseInt(contractId) || null
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    const controlMessage = document.getElementById('control-message');
+                    const messageClass = data.success ? 'success' : 'error';
+                    controlMessage.innerHTML = `<div class="message ${messageClass}">${data.message}</div>`;
+
+                    closeSinglePositionModal();
+                    updateStatus();
+                })
+                .catch(error => {
+                    console.error('Error closing position:', error);
+                    closeSinglePositionModal();
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '❌ Close This Position';
+                });
+        }
+
+        function closeSinglePositionModal() {
+            document.getElementById('single-position-modal').style.display = 'none';
+        }
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function () {
+            updateStatus();
+            refreshLogs();
+
+            statusInterval = setInterval(updateStatus, 10000);
+            setInterval(refreshLogs, 30000);
+        });
+
+        // Close modal when clicking outside
+        window.onclick = function (event) {
+            const modal = document.getElementById('position-modal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+
+</html>

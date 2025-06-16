@@ -1,0 +1,31 @@
+# Robola Trading System Environment Variables
+# Copy this file to .env and fill in your actual values
+# NEVER commit the .env file to git!
+
+# Paper Trading Credentials (IB Paper Account)
+IB_PAPER_USER=your_paper_username
+IB_PAPER_PASS=your_paper_password
+IB_PAPER_ACCOUNT=DU1234567
+
+# Live Trading Credentials (IB Live Account)
+IB_LIVE_USER=your_live_username
+IB_LIVE_PASS=your_live_password
+IB_LIVE_ACCOUNT=U7654321
+
+# Telegram Bot Configuration
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklmNOPqrstUVwxyz
+TELEGRAM_CHAT_ID=123456789
+
+# Email Configuration (optional)
+EMAIL_ADDRESS=your_email@example.com
+EMAIL_PASSWORD=your_app_specific_password
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+
+# API Keys (if needed for market data)
+ALPHA_VANTAGE_API_KEY=your_api_key_here
+
+# System Settings
+DEBUG_MODE=False
+LOG_LEVEL=INFO
+DATABASE_ENCRYPTION_KEY=generate_a_random_key_here

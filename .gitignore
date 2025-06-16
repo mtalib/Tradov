@@ -1,0 +1,463 @@
+# SPYDER - Automated SPY Options Trading System
+# Git Ignore File - Updated 2025-06-10
+# Platform: Ubuntu Linux
+
+# ==============================================================================
+# PYTHON
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ==============================================================================
+# VIRTUAL ENVIRONMENTS
+# ==============================================================================
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# ==============================================================================
+# IDE / EDITORS
+# ==============================================================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+.idea_modules/
+
+# Vim/Neovim (Common on Ubuntu)
+*.swp
+*.swo
+*.swn
+*.swm
+*~
+.netrwhist
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Nano backup files
+*.save
+*.orig
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+
+# ==============================================================================
+# TRADING SPECIFIC
+# ==============================================================================
+# Logs
+*.log
+logs/
+trading_logs/
+error_logs/
+robola_*.log
+spyder.log
+
+# Data files
+data/
+market_data/
+historical_data/
+backtest_results/
+paper_trading_results/
+live_trading_results/
+options_data/
+spy_data/
+intraday_data/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+spyder.db
+
+# Position and trade files
+positions/
+trades/
+orders/
+executions/
+portfolio_snapshots/
+
+# Performance and analytics
+reports/
+performance_reports/
+daily_reports/
+risk_reports/
+strategy_reports/
+
+# Strategy specific
+strategy_cache/
+optimization_results/
+ml_models/
+trained_models/
+model_checkpoints/
+
+# ==============================================================================
+# CONFIGURATION & SECRETS - CRITICAL SECURITY
+# ==============================================================================
+# Environment files
+.env
+.env.*
+.env.local
+.env.production
+.env.test
+.env.development
+*.env
+!.env.example
+!.env.template
+
+# Configuration files with sensitive data
+config.json
+config_*.json
+credentials.json
+api_keys.json
+secrets.json
+!config.template.json
+!config.example.json
+
+# Old config formats
+config/credentials.json
+config/api_keys.py
+config_live.py
+config_paper.py
+robola_config_corrected.py
+config/secrets/
+secrets/
+
+# API Keys and credentials
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+api_keys/
+credentials/
+
+# Interactive Brokers specific
+IB_API/
+tws_settings/
+gateway_settings/
+ib_credentials/
+tws_config/
+
+# ==============================================================================
+# UBUNTU LINUX SPECIFIC
+# ==============================================================================
+# Ubuntu file manager
+.directory
+.fuse_hidden*
+
+# Linux trash
+.Trash-*
+
+# NFS
+.nfs*
+
+# Temporary files
+.goutputstream-*
+
+# Desktop files
+*.desktop
+
+# Archive mount points
+.archive/
+
+# Snap packages cache
+snap/
+
+# systemd user services
+.config/systemd/user/
+
+# ==============================================================================
+# TEMPORARY FILES
+# ==============================================================================
+# Spyder temporary modules
+RobolaZ_Temp/
+RobolaZ*/
+temp_modules/
+
+# General temporary
+temp/
+tmp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.cache
+.cache/
+
+# Session files
+session_*.json
+paper_session_*.json
+live_session_*.json
+trading_session_*.json
+
+# ==============================================================================
+# TESTING
+# ==============================================================================
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+test_results/
+test_data/
+
+# ==============================================================================
+# DOCUMENTATION
+# ==============================================================================
+# Sphinx documentation
+docs/_build/
+docs/_static/
+docs/_templates/
+site/
+
+# ==============================================================================
+# JUPYTER NOTEBOOKS
+# ==============================================================================
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+*.ipynb
+# Keep example notebooks
+!examples/*.ipynb
+!docs/notebooks/*.ipynb
+
+# ==============================================================================
+# PACKAGE MANAGEMENT
+# ==============================================================================
+# Poetry
+poetry.lock
+
+# Pipenv
+Pipfile.lock
+
+# Conda
+.conda/
+conda-meta/
+
+# APT cache (if storing .deb files)
+*.deb
+
+# ==============================================================================
+# MACHINE LEARNING & AI (RobolaL_ML modules)
+# ==============================================================================
+# Model files
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.onnx
+*.pb
+
+# TensorFlow
+*.tfrecords
+checkpoints/
+saved_models/
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Weights & Biases
+wandb/
+
+# Scikit-learn cached data
+sklearn_cache/
+
+# ==============================================================================
+# BACKUPS & ARCHIVES
+# ==============================================================================
+*.backup
+*.bk
+*.zip
+*.tar
+*.tar.gz
+*.tar.xz
+*.tar.bz2
+*.rar
+*.7z
+backups/
+archives/
+Spyder-v4_backup_*/
+
+# ==============================================================================
+# SPYDER SPECIFIC IGNORES
+# ==============================================================================
+# Screenshots and charts
+screenshots/
+chart_images/
+chart_exports/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.pdf
+# Keep documentation images
+!docs/images/*
+!README_images/*
+!docs/**/*.png
+!docs/**/*.jpg
+
+# Market data exports
+exports/
+csv_exports/
+excel_exports/
+*.xlsx
+*.csv
+*.json
+# Keep template files
+!templates/*.xlsx
+!templates/*.csv
+!config.template.json
+!*.example.json
+
+# Alerts and notifications
+alert_history/
+notification_logs/
+
+# Performance monitoring
+performance_logs/
+system_metrics/
+memory_dumps/
+
+# Live trading (extra protection)
+live_trades/
+live_positions/
+live_orders/
+production_data/
+
+# Ubuntu-specific Qt/GUI cache
+.qt/
+.cache/matplotlib/
+.cache/fontconfig/
+
+# ==============================================================================
+# SECURITY - DOUBLE CHECK THESE PATTERNS
+# ==============================================================================
+# Ensure no sensitive files are tracked
+*password*
+*secret*
+*credential*
+*api_key*
+*private_key*
+*access_token*
+*auth_token*
+# Case insensitive variants
+*PASSWORD*
+*SECRET*
+*CREDENTIAL*
+*API_KEY*
+
+# Trading account specific
+*live_account*
+*production_account*
+*real_money*
+
+# ==============================================================================
+# UBUNTU DEVELOPMENT TOOLS
+# ==============================================================================
+# GDB
+*.gdb_history
+
+# Valgrind
+*.vgcore
+vgcore.*
+
+# Core dumps
+core
+core.*
+
+# Ubuntu build files
+debian/
+.debhelper/
+*.debhelper.log
+
+# ==============================================================================
+# NETWORK & SYSTEM LOGS
+# ==============================================================================
+# Network logs
+*.pcap
+*.pcapng
+
+# System logs (if copied locally)
+syslog*
+kern.log*
+auth.log*
+
+# ==============================================================================
+# EXCEPTIONS (Don't ignore these important files)
+# ==============================================================================
+!.gitignore
+!.gitkeep
+!requirements.txt
+!README.md
+!LICENSE
+!pyproject.toml
+!setup.py
+!setup.cfg
+!MANIFEST.in
+!Dockerfile
+!docker-compose.yml
+!.github/
+
+# Keep configuration templates
+!config.template.json
+!.env.example
+!.env.template
+
+# Keep documentation
+!docs/
+!examples/
+
+# Keep Ubuntu-specific setup files
+!install.sh
+!setup.sh
+!ubuntu_setup.sh
