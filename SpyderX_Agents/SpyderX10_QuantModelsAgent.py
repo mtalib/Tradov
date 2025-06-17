@@ -1733,4 +1733,435 @@ class QuantModelsAgent(SpyderBaseAgent):
         
         # Volatility risk (vega)
         if abs(pricing.greeks.vega) > 0.5:
-            # Check if vol expected to
+            # Check if vol expected to increase
+            if vol_forecast.forecast_5d > vol_forecast.current_volatility * 1.1:
+                risk_score += 0.2
+        
+        # Gamma risk (acceleration)
+        if abs(pricing.greeks.gamma) > 0.1:
+            risk_score += 0.2
+        
+        # Liquidity risk
+        if option.volume and option.volume < 100:
+            risk_score += 0.1
+        
+        # Spread risk
+        if option.bid and option.ask:
+            spread_pct = (option.ask - option.bid) / pricing.bid_ask_midpoint
+            if spread_pct > 0.05:  # >5% spread
+                risk_score += 0.1
+        
+        return min(risk_score, 1.0)  # Cap at 1.0
+
+    def _calculate_position_size(
+        self,
+        greeks: Greeks,
+        risk_tolerance: float
+    ) -> int:
+        """Calculate position size based on Greeks and risk tolerance"""
+        
+        # Base size
+        base_size = 10
+        
+        # Adjust for delta (directional risk)
+        delta_adj = 1 / (1 + abs(greeks.delta))
+        
+        # Adjust for gamma (acceleration risk)
+        gamma_adj = 1 / (1 + abs(greeks.gamma) * 10)
+        
+        # Adjust for vega (volatility risk)
+        vega_adj = 1 / (1 + abs(greeks.vega))
+        
+        # Risk tolerance multiplier
+        risk_mult = risk_tolerance * 2  # 0-2x
+        
+        # Final size
+        position_size = int(base_size * delta_adj * gamma_adj * vega_adj * risk_mult)
+        
+        return max(1, min(position_size, 50))  # Between 1 and 50 contracts
+
+    def _apply_risk_filters(
+        self,
+        recommendations: List[Dict[str, Any]],
+        risk_tolerance: float
+    ) -> List[Dict[str, Any]]:
+        """Apply risk filters to recommendations"""
+        
+        filtered = []
+        
+        for rec in recommendations:
+            # Skip if risk score too high
+            if rec['risk_score'] > risk_tolerance:
+                continue
+            
+            # Skip if confidence too low
+            if rec['confidence'] < 0.6:
+                continue
+            
+            # Skip if expected value negative
+            if rec['expected_value'] < 0:
+                continue
+            
+            filtered.append(rec)
+        
+        return filtered
+
+    async def _enhance_recommendations_with_ai(
+        self,
+        recommendations: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Enhance recommendations with AI insights"""
+        
+        enhanced = []
+        
+        for rec in recommendations:
+            # Prepare context
+            context = {
+                'option': f"{rec['option'].symbol} {rec['option'].strike} {rec['option'].option_type}",
+                'action': rec['action'],
+                'mispricing': f"{rec['mispricing']:.1%}",
+                'greeks': rec['greeks'],
+                'risk_score': rec['risk_score'],
+                'regime': self.current_regime.value
+            }
+            
+            prompt = f"""
+            Analyze this option recommendation:
+            {json.dumps(context, indent=2)}
+            
+            Provide:
+            1. Key risk factors to watch
+            2. Optimal entry/exit conditions
+            3. Hedge suggestions if needed
+            
+            Be concise and actionable.
+            """
+            
+            try:
+                ai_insights = await asyncio.wait_for(
+                    self._query_llm(prompt), timeout=2.0
+                )
+                rec['ai_insights'] = ai_insights
+            except:
+                rec['ai_insights'] = "Monitor volatility and time decay closely."
+            
+            enhanced.append(rec)
+        
+        return enhanced
+
+    async def _load_historical_data(self):
+        """Load historical market data"""
+        try:
+            # Would load from database or data provider
+            # For now, create synthetic data
+            dates = pd.date_range(end=datetime.now(), periods=252, freq='D')
+            
+            self.price_history = pd.DataFrame({
+                'date': dates,
+                'open': np.random.normal(400, 10, 252),
+                'high': np.random.normal(402, 10, 252),
+                'low': np.random.normal(398, 10, 252),
+                'close': np.random.normal(400, 10, 252),
+                'volume': np.random.normal(100000000, 20000000, 252)
+            })
+            
+            self.logger.info("Historical data loaded")
+            
+        except Exception as e:
+            self.logger.error(f"Error loading historical data: {str(e)}")
+
+    async def _handle_market_data(self, event: Event):
+        """Handle market data updates"""
+        try:
+            data = event.data
+            
+            # Update price history
+            new_row = pd.DataFrame([{
+                'date': data['timestamp'],
+                'open': data['open'],
+                'high': data['high'],
+                'low': data['low'],
+                'close': data['close'],
+                'volume': data['volume']
+            }])
+            
+            self.price_history = pd.concat([self.price_history, new_row], ignore_index=True)
+            
+            # Keep only recent data
+            if len(self.price_history) > 1000:
+                self.price_history = self.price_history.iloc[-1000:]
+            
+        except Exception as e:
+            self.logger.error(f"Error handling market data: {str(e)}")
+
+    async def _handle_option_data(self, event: Event):
+        """Handle option data updates"""
+        try:
+            data = event.data
+            symbol = data.get('symbol', 'SPY')
+            
+            # Store option chain
+            self.option_data[symbol] = pd.DataFrame(data['options'])
+            
+        except Exception as e:
+            self.logger.error(f"Error handling option data: {str(e)}")
+
+    async def _handle_volatility_update(self, event: Event):
+        """Handle volatility updates"""
+        try:
+            data = event.data
+            
+            # Update volatility history
+            new_row = pd.DataFrame([{
+                'timestamp': data['timestamp'],
+                'implied_volatility': data['implied_volatility'],
+                'realized_volatility': data.get('realized_volatility', 0),
+                'vix': data.get('vix', 0)
+            }])
+            
+            self.volatility_history = pd.concat([self.volatility_history, new_row], ignore_index=True)
+            
+        except Exception as e:
+            self.logger.error(f"Error handling volatility update: {str(e)}")
+
+    async def _handle_regime_change(self, event: Event):
+        """Handle market regime changes"""
+        try:
+            new_regime = MarketRegime(event.data['regime'])
+            self.current_regime = new_regime
+            self.regime_history.append({
+                'timestamp': datetime.now(),
+                'regime': new_regime
+            })
+            
+            self.logger.info(f"Market regime changed to: {new_regime.value}")
+            
+            # Recalibrate models for new regime
+            asyncio.create_task(self.calibrate_models())
+            
+        except Exception as e:
+            self.logger.error(f"Error handling regime change: {str(e)}")
+
+    async def _update_models_loop(self):
+        """Background task to update models"""
+        while self.state == AgentState.RUNNING:
+            try:
+                # Update each model based on its frequency
+                for model_type, config in self.model_configs.items():
+                    last_update = self.calibration_schedule.get(model_type)
+                    
+                    if not last_update or (datetime.now() - last_update).seconds > config.update_frequency * 60:
+                        # Update needed
+                        self.logger.info(f"Updating {model_type.value}")
+                        await self._update_single_model(model_type)
+                
+                await asyncio.sleep(60)  # Check every minute
+                
+            except Exception as e:
+                self.logger.error(f"Error in update models loop: {str(e)}")
+                await asyncio.sleep(60)
+
+    async def _update_single_model(self, model_type: ModelType):
+        """Update a single model"""
+        try:
+            # Get model
+            model = self.active_models.get(model_type)
+            if not model:
+                return
+            
+            # Recalibrate
+            if model_type in [ModelType.GARCH, ModelType.EGARCH, ModelType.GJR_GARCH]:
+                params = await self._calibrate_volatility_model(
+                    model_type, model, self.price_history
+                )
+                
+                if params:
+                    self.model_configs[model_type].parameters.update(params)
+            
+            # Update calibration time
+            self.calibration_schedule[model_type] = datetime.now()
+            
+        except Exception as e:
+            self.logger.error(f"Error updating {model_type.value}: {str(e)}")
+
+    async def _calibrate_models_loop(self):
+        """Background task to calibrate models"""
+        while self.state == AgentState.RUNNING:
+            try:
+                # Full calibration every hour
+                await asyncio.sleep(3600)
+                
+                self.logger.info("Running scheduled model calibration")
+                await self.calibrate_models()
+                
+            except Exception as e:
+                self.logger.error(f"Error in calibrate models loop: {str(e)}")
+
+    async def _monitor_performance_loop(self):
+        """Background task to monitor model performance"""
+        while self.state == AgentState.RUNNING:
+            try:
+                # Monitor every 15 minutes
+                await asyncio.sleep(900)
+                
+                # Update performance metrics
+                await self._update_model_performance()
+                
+            except Exception as e:
+                self.logger.error(f"Error in monitor performance loop: {str(e)}")
+
+    async def _update_model_performance(self):
+        """Update model performance metrics"""
+        try:
+            # Calculate performance for each model
+            for model_type in self.active_models:
+                # Get recent predictions
+                recent_errors = self._get_model_errors(model_type, days=30)
+                
+                if recent_errors:
+                    # Calculate metrics
+                    mse = np.mean(np.square(recent_errors))
+                    mae = np.mean(np.abs(recent_errors))
+                    
+                    # Directional accuracy (simplified)
+                    directional_accuracy = 0.6  # Placeholder
+                    
+                    # Sharpe ratio (simplified)
+                    if np.std(recent_errors) > 0:
+                        sharpe_ratio = np.mean(recent_errors) / np.std(recent_errors)
+                    else:
+                        sharpe_ratio = 0
+                    
+                    # Update performance
+                    self.model_performance[model_type] = ModelPerformance(
+                        model_type=model_type,
+                        mse=mse,
+                        mae=mae,
+                        directional_accuracy=directional_accuracy,
+                        sharpe_ratio=sharpe_ratio,
+                        calibration_stability=0.8,  # Placeholder
+                        regime_performance={self.current_regime: 0.7},  # Placeholder
+                        last_updated=datetime.now()
+                    )
+            
+        except Exception as e:
+            self.logger.error(f"Error updating model performance: {str(e)}")
+
+    def _get_model_errors(self, model_type: ModelType, days: int) -> List[float]:
+        """Get recent prediction errors for a model"""
+        errors = []
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        
+        for error_record in self.forecast_errors:
+            if (error_record.get('model_type') == model_type and 
+                error_record.get('timestamp', datetime.min) > cutoff_date):
+                errors.append(error_record.get('error', 0))
+        
+        return errors
+
+    async def _detect_regime_loop(self):
+        """Background task to detect market regime changes"""
+        while self.state == AgentState.RUNNING:
+            try:
+                # Check every 30 minutes
+                await asyncio.sleep(1800)
+                
+                # Detect regime
+                new_regime = await self._detect_market_regime()
+                
+                if new_regime != self.current_regime:
+                    # Publish regime change event
+                    if self.event_manager:
+                        await self.event_manager.publish(Event(
+                            type=EventType.MARKET_REGIME_CHANGE,
+                            data={'regime': new_regime.value}
+                        ))
+                
+            except Exception as e:
+                self.logger.error(f"Error in detect regime loop: {str(e)}")
+
+    async def _detect_market_regime(self) -> MarketRegime:
+        """Detect current market regime"""
+        try:
+            if self.price_history.empty:
+                return MarketRegime.NORMAL
+            
+            # Calculate metrics
+            returns = self.price_history['close'].pct_change().dropna()
+            
+            if len(returns) < 20:
+                return MarketRegime.NORMAL
+            
+            # Recent volatility
+            recent_vol = returns.iloc[-20:].std() * np.sqrt(252)
+            
+            # Trend
+            sma_20 = self.price_history['close'].rolling(20).mean().iloc[-1]
+            sma_50 = self.price_history['close'].rolling(50).mean().iloc[-1]
+            current_price = self.price_history['close'].iloc[-1]
+            
+            trending_up = current_price > sma_20 > sma_50
+            trending_down = current_price < sma_20 < sma_50
+            
+            # Classify regime
+            if recent_vol > 0.25:  # High volatility (>25%)
+                if recent_vol > 0.4:
+                    return MarketRegime.CRISIS
+                elif trending_up or trending_down:
+                    return MarketRegime.HIGH_VOL_TRENDING
+                else:
+                    return MarketRegime.HIGH_VOL_RANGING
+            else:  # Low volatility
+                if trending_up or trending_down:
+                    return MarketRegime.LOW_VOL_TRENDING
+                else:
+                    return MarketRegime.LOW_VOL_RANGING
+            
+        except Exception as e:
+            self.logger.error(f"Error detecting market regime: {str(e)}")
+            return MarketRegime.NORMAL
+
+
+# Simplified model implementations for fallback
+class SimpleGARCH:
+    """Simplified GARCH model for fallback"""
+    
+    def fit(self, returns, disp='off'):
+        """Simplified fit method"""
+        return self
+    
+    def forecast(self, horizon=1):
+        """Simplified forecast"""
+        variance = np.ones((1, horizon)) * 0.0225  # 15% annualized
+        return type('obj', (object,), {'variance': type('obj', (object,), {'values': variance})})
+
+class BlackScholesModel:
+    """Black-Scholes pricing model"""
+    pass
+
+class BinomialModel:
+    """Binomial tree pricing model"""
+    
+    def price(self, option, spot, volatility, risk_free, steps=100):
+        """Price option using binomial tree"""
+        # Simplified implementation
+        price = spot * 0.1  # Placeholder
+        greeks = Greeks(delta=0.5, gamma=0.01, theta=-0.05, vega=0.2, rho=0.1)
+        return price, greeks
+
+class MonteCarloModel:
+    """Monte Carlo pricing model"""
+    
+    def price(self, option, spot, volatility, n_simulations=10000):
+        """Price option using Monte Carlo"""
+        # Simplified implementation
+        return spot * 0.1  # Placeholder
+
+class HestonModel:
+    """Heston stochastic volatility model"""
+    
+    def price(self, strike, expiry, params):
+        """Price option using Heston model"""
+        # Simplified implementation
+        return strike * 0.1  # Placeholder

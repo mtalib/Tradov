@@ -1,0 +1,44 @@
+# AI Agent Dependencies for Spyder
+# Install with: pip install -r requirements-ai-agents.txt
+
+# Core AI/LLM Libraries
+langchain==0.3.11
+langgraph==0.2.62
+langchain-community==0.3.11
+langchain-ollama==0.3.0
+
+# Greeks Calculation Libraries
+py-vollib==1.0.1
+py-vollib-vectorized==1.0.1
+QuantLib==1.36
+
+# ML/Data Processing (if not already installed)
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# Caching and Performance
+redis==5.2.1  # Optional but recommended
+diskcache==5.6.3
+
+# Async Support
+asyncio>=3.4.3
+aiohttp>=3.10.11
+
+# For model explanations (optional)
+shap==0.44.1
+
+# Vector stores for future agents (optional)
+faiss-cpu==1.7.4
+chromadb==0.4.22
+
+# Additional utilities
+python-dotenv==1.0.0
+pydantic==2.5.3
+tenacity==8.2.3  # For retry logic
+
+# Development tools (optional)
+pytest==7.4.4
+pytest-asyncio==0.23.3
+black==23.12.1
+flake8==7.0.0
