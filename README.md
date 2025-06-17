@@ -176,19 +176,19 @@ cp config/config.template.json config/config.json
 ### **Console Mode**
 ```bash
 # Start trading system
-python RobolaA_Core/RobolaA01_Main.py
+python SpyderA_Core/SpyderA01_Main.py
 ```
 
 ### **GUI Mode**
 ```bash
 # Start with interface
-python RobolaG_GUI/RobolaG03_GUIEntry.py
+python SpyderG_GUI/SpyderG03_GUIEntry.py
 ```
 
 ### **Backtesting**
 ```bash
 # Run backtests
-python RobolaI_Backtest/RobolaI01_BacktestEngine.py
+python SpyderI_Backtest/SpyderI01_BacktestEngine.py
 ```
 
 ## 📈 Performance Monitoring
@@ -210,13 +210,13 @@ python RobolaI_Backtest/RobolaI01_BacktestEngine.py
 ### **Module Structure**
 ```
 Spyder[Group][Number]_[Purpose].py
-Example: RobolaD15_IronButterfly.py
+Example: SpyderD15_IronButterfly.py
 ```
 
 ### **Adding Strategies**
-1. Extend `RobolaD01_BaseStrategy.py`
+1. Extend `SpyderD01_BaseStrategy.py`
 2. Implement required methods
-3. Register with `RobolaD08_StrategyManager.py`
+3. Register with `SpyderD08_StrategyManager.py`
 4. Configure in `config.json`
 
 ### **Dependencies**
@@ -273,206 +273,206 @@ For issues, refer to system logs and module documentation. The system includes c
 
 ## 📋 Complete Module Inventory (112 Modules)
 
-### **RobolaA_Core** - Trading Engine Core (6 modules)
+### **SpyderA_Core** - Trading Engine Core (6 modules)
 ```
-RobolaA01_Main.py              # Main application entry point and orchestration
-RobolaA02_TradingEngine.py     # Core trading engine and strategy execution
-RobolaA03_Configuration.py     # Configuration management and validation
-RobolaA04_Scheduler.py         # Task scheduling and market timing
-RobolaA05_EventManager.py      # Event-driven architecture coordination
-RobolaA06_SystemMonitor.py     # System health monitoring and diagnostics
-```
-
-### **RobolaB_Broker** - Interactive Brokers Integration (8 modules)
-```
-RobolaB01_IBClient.py          # IB API client connection and authentication
-RobolaB02_IBClientPortal.py    # IB Client Portal API integration
-RobolaB02_OrderManager.py      # Order placement and execution management
-RobolaB03_PositionTracker.py   # Real-time position tracking and updates
-RobolaB04_AccountManager.py    # Account information and margin management
-RobolaB05_ConnectionManager.py # Connection stability and reconnection logic
-RobolaB06_ContractBuilder.py   # Options contract creation and validation
-RobolaB07_IBConnectionManager.py # Advanced IB connection handling
-RobolaB08_IBGatewayConnection.py # IB Gateway specific connection management
+SpyderA01_Main.py              # Main application entry point and orchestration
+SpyderA02_TradingEngine.py     # Core trading engine and strategy execution
+SpyderA03_Configuration.py     # Configuration management and validation
+SpyderA04_Scheduler.py         # Task scheduling and market timing
+SpyderA05_EventManager.py      # Event-driven architecture coordination
+SpyderA06_SystemMonitor.py     # System health monitoring and diagnostics
 ```
 
-### **RobolaC_MarketData** - Real-time Data Feeds (8 modules)
+### **SpyderB_Broker** - Interactive Brokers Integration (8 modules)
 ```
-RobolaC01_DataFeed.py          # Data feed coordination and management
-RobolaC02_HistoricalData.py    # Historical data retrieval and caching
-RobolaC03_OptionChain.py       # Options chain data processing
-RobolaC04_MarketInternals.py   # Market breadth indicators (TICK, ADD, VOLD)
-RobolaC05_VolumeProfile.py     # Volume profile analysis and VWAP
-RobolaC06_DataValidator.py     # Market data quality validation
-RobolaC07_OPRAFeed.py          # OPRA real-time options data feed
-RobolaC08_SPYFeed.py           # AMEX/ARCA SPY ETF real-time feed
-```
-
-### **RobolaD_Strategies** - Trading Algorithms (18 modules)
-```
-RobolaD01_BaseStrategy.py      # Base strategy class and framework
-RobolaD02_IronCondor.py        # Iron Condor strategy implementation
-RobolaD03_CreditSpread.py      # Credit spread strategies (Bull Put/Bear Call)
-RobolaD04_ZeroDTE.py           # Zero Days to Expiration strategies
-RobolaD05_Straddle.py          # Long/Short straddle implementations
-RobolaD06_StrategySelector.py  # Strategy selection algorithm
-RobolaD07_SignalGenerator.py   # Trading signal generation engine
-RobolaD08_StrategyManager.py   # Multi-strategy portfolio management
-RobolaD10_BullPutSpread.py     # Bull Put Spread specific implementation
-RobolaD11_BearCallSpread.py    # Bear Call Spread specific implementation
-RobolaD12_StrategyOrchestrator.py # Strategy coordination and execution
-RobolaD13_OpeningRangeBreakout.py # Opening range breakout strategy
-RobolaD14_GreeksBasedStrategy.py # Greeks-based options strategy
-RobolaD15_IronButterfly.py     # Iron Butterfly strategy (2.5x credit vs Iron Condor)
-RobolaD16_ZeroDTE.py           # Specialized 0DTE with 80-85% success rate
-RobolaD17_RSIMeanReversion.py  # RSI-based mean reversion strategy
-RobolaD18_MACrossover.py       # Moving average crossover strategy
+SpyderB01_IBClient.py          # IB API client connection and authentication
+SpyderB02_IBClientPortal.py    # IB Client Portal API integration
+SpyderB02_OrderManager.py      # Order placement and execution management
+SpyderB03_PositionTracker.py   # Real-time position tracking and updates
+SpyderB04_AccountManager.py    # Account information and margin management
+SpyderB05_ConnectionManager.py # Connection stability and reconnection logic
+SpyderB06_ContractBuilder.py   # Options contract creation and validation
+SpyderB07_IBConnectionManager.py # Advanced IB connection handling
+SpyderB08_IBGatewayConnection.py # IB Gateway specific connection management
 ```
 
-### **RobolaE_Risk** - Risk Management Systems (7 modules)
+### **SpyderC_MarketData** - Real-time Data Feeds (8 modules)
 ```
-RobolaE01_RiskManager.py       # Central risk management engine
-RobolaE02_PositionSizer.py     # Kelly Criterion and volatility-based sizing (Enhanced)
-RobolaE03_StopLossManager.py   # Stop loss and profit target management
-RobolaE04_DrawdownControl.py   # Portfolio drawdown protection
-RobolaE05_PortfolioAllocator.py # Capital allocation across strategies
-RobolaE06_RiskMetrics.py       # Real-time risk metric calculations
-RobolaE07_StrategyHealthMonitor.py # Strategy performance monitoring
-```
-
-### **RobolaF_Analysis** - Technical Analysis Engine (10 modules)
-```
-RobolaF01_Indicators.py        # Technical indicators library
-RobolaF02_PriceAction.py       # Price action pattern recognition
-RobolaF03_SupportResistance.py # Support/resistance level detection
-RobolaF04_VolatilityAnalysis.py # Volatility regime analysis
-RobolaF05_TrendDetection.py    # Trend identification algorithms
-RobolaF06_GreeksCalculator.py  # Options Greeks calculations using QuantLib
-RobolaF07_GapAnalyzer.py       # Gap analysis and classification
-RobolaF08_VolatilityRegime.py  # Volatility regime classification
-RobolaF09_EntryFilters.py      # Trade entry filtering logic
-RobolaF10_MarketRegimeDetector.py # Professional market regime detection (NEW)
+SpyderC01_DataFeed.py          # Data feed coordination and management
+SpyderC02_HistoricalData.py    # Historical data retrieval and caching
+SpyderC03_OptionChain.py       # Options chain data processing
+SpyderC04_MarketInternals.py   # Market breadth indicators (TICK, ADD, VOLD)
+SpyderC05_VolumeProfile.py     # Volume profile analysis and VWAP
+SpyderC06_DataValidator.py     # Market data quality validation
+SpyderC07_OPRAFeed.py          # OPRA real-time options data feed
+SpyderC08_SPYFeed.py           # AMEX/ARCA SPY ETF real-time feed
 ```
 
-### **RobolaG_GUI** - Graphical User Interface (6 modules)
+### **SpyderD_Strategies** - Trading Algorithms (18 modules)
 ```
-RobolaG01_MainWindow.py        # Main application window
-RobolaG01_TradingDashboard.py  # Advanced trading dashboard
-RobolaG02_Dashboard.py         # Trading dashboard and controls
-RobolaG03_GUIEntry.py          # GUI application entry point
-RobolaG04_OptionChainWidget.py # Options chain display widget
-RobolaG05_ChartWidget.py       # Price chart visualization widget
-RobolaG06_TradingDashboard.py  # Enhanced trading dashboard interface
-```
-
-### **RobolaH_Storage** - Data Persistence (4 modules)
-```
-RobolaH01_DatabaseManager.py   # Database connection and management
-RobolaH02_TradeRepository.py   # Trade data storage and retrieval
-RobolaH03_MarketDataCache.py   # Market data caching system
-RobolaH07_PerformanceAnalytics.py # Performance data analytics storage
-```
-
-### **RobolaI_Backtest** - Strategy Validation (6 modules)
-```
-RobolaI01_BacktestEngine.py    # Backtesting framework engine
-RobolaI02_DataSimulator.py     # Historical data simulation
-RobolaI03_IBDataFetcher.py     # Interactive Brokers data fetching
-RobolaI04_BacktraderStrategy.py # Backtrader integration strategies
-RobolaI05_StrategyOptimizer.py # Strategy parameter optimization
-RobolaI06_BacktestMetrics.py   # Backtest performance metrics
+SpyderD01_BaseStrategy.py      # Base strategy class and framework
+SpyderD02_IronCondor.py        # Iron Condor strategy implementation
+SpyderD03_CreditSpread.py      # Credit spread strategies (Bull Put/Bear Call)
+SpyderD04_ZeroDTE.py           # Zero Days to Expiration strategies
+SpyderD05_Straddle.py          # Long/Short straddle implementations
+SpyderD06_StrategySelector.py  # Strategy selection algorithm
+SpyderD07_SignalGenerator.py   # Trading signal generation engine
+SpyderD08_StrategyManager.py   # Multi-strategy portfolio management
+SpyderD10_BullPutSpread.py     # Bull Put Spread specific implementation
+SpyderD11_BearCallSpread.py    # Bear Call Spread specific implementation
+SpyderD12_StrategyOrchestrator.py # Strategy coordination and execution
+SpyderD13_OpeningRangeBreakout.py # Opening range breakout strategy
+SpyderD14_GreeksBasedStrategy.py # Greeks-based options strategy
+SpyderD15_IronButterfly.py     # Iron Butterfly strategy (2.5x credit vs Iron Condor)
+SpyderD16_ZeroDTE.py           # Specialized 0DTE with 80-85% success rate
+SpyderD17_RSIMeanReversion.py  # RSI-based mean reversion strategy
+SpyderD18_MACrossover.py       # Moving average crossover strategy
 ```
 
-### **RobolaJ_Alerts** - Notification Systems (5 modules)
+### **SpyderE_Risk** - Risk Management Systems (7 modules)
 ```
-RobolaJ01_AlertManager.py      # Central alert management system
-RobolaJ02_EmailNotifier.py     # Email notification service
-RobolaJ04_DesktopNotifier.py   # Desktop notification system
-RobolaJ05_TelegramBot.py       # Telegram bot integration
-```
-
-### **RobolaK_Reports** - Analytics & Reporting (3 modules)
-```
-RobolaK01_ReportGenerator.py   # Automated report generation
-RobolaK05_RiskReport.py        # Risk analysis reporting
-RobolaK07_StrategyComparison.py # Strategy performance comparison
+SpyderE01_RiskManager.py       # Central risk management engine
+SpyderE02_PositionSizer.py     # Kelly Criterion and volatility-based sizing (Enhanced)
+SpyderE03_StopLossManager.py   # Stop loss and profit target management
+SpyderE04_DrawdownControl.py   # Portfolio drawdown protection
+SpyderE05_PortfolioAllocator.py # Capital allocation across strategies
+SpyderE06_RiskMetrics.py       # Real-time risk metric calculations
+SpyderE07_StrategyHealthMonitor.py # Strategy performance monitoring
 ```
 
-### **RobolaL_ML** - Machine Learning Systems (14 modules)
+### **SpyderF_Analysis** - Technical Analysis Engine (10 modules)
 ```
-RobolaL01_MLPredictor.py       # Machine learning prediction engine
-RobolaL07_PaperTradeLearner.py # Paper trading ML learning system
-RobolaL08_EntryOptimizer.py    # ML-based entry point optimization
-RobolaL09_RegimeClassifier.py  # Market regime classification ML
-RobolaL10_FeatureEngineering.py # Feature engineering for ML models
-RobolaL11_MLModelManager.py    # ML model lifecycle management
-RobolaL12_RandomForestEnsemble.py # Random Forest for complex payoffs (NEW)
-RobolaL13_LSTMPricer.py        # LSTM neural network pricing (15-25% improvement)
-RobolaL14_RealTimePredictor.py # Real-time ML prediction service
-```
-
-### **RobolaM_MarketMicrostructure** - Order Flow Analysis (2 modules) *NEW GROUP*
-```
-RobolaM01_OrderBookAnalyzer.py # Level 2 order book analysis
-RobolaM02_SmartOrderRouter.py  # Intelligent routing across 16+ venues
+SpyderF01_Indicators.py        # Technical indicators library
+SpyderF02_PriceAction.py       # Price action pattern recognition
+SpyderF03_SupportResistance.py # Support/resistance level detection
+SpyderF04_VolatilityAnalysis.py # Volatility regime analysis
+SpyderF05_TrendDetection.py    # Trend identification algorithms
+SpyderF06_GreeksCalculator.py  # Options Greeks calculations using QuantLib
+SpyderF07_GapAnalyzer.py       # Gap analysis and classification
+SpyderF08_VolatilityRegime.py  # Volatility regime classification
+SpyderF09_EntryFilters.py      # Trade entry filtering logic
+SpyderF10_MarketRegimeDetector.py # Professional market regime detection (NEW)
 ```
 
-### **RobolaN_OptionsAnalytics** - Advanced Options Analysis (7 modules)
+### **SpyderG_GUI** - Graphical User Interface (6 modules)
 ```
-RobolaN01_VolatilitySmile.py   # Volatility smile analysis
-RobolaN02_TermStructure.py     # Options term structure analysis
-RobolaN03_SkewAnalyzer.py      # Volatility skew analysis
-RobolaN04_FlowAnalyzer.py      # Options flow analysis
-RobolaN05_OptionsFlowAnalyzer.py # Institutional flow & sentiment analysis (MOVED from A03)
-RobolaN05_VolatilitySurface.py # 3D volatility surface modeling
-RobolaN06_OptionsPricer.py     # Advanced options pricing models
-RobolaN07_OPRAGreeksHandler.py # OPRA Greeks data handling
-```
-
-### **RobolaO_RiskControl** - Professional Risk Controls (3 modules) *NEW GROUP*
-```
-RobolaO01_GreekLimitsManager.py # Real-time Greek limits monitoring
-RobolaO02_CircuitBreakerProtocol.py # Market circuit breaker protocols
-RobolaO03_AutomaticRebalancer.py # Automated portfolio rebalancing
+SpyderG01_MainWindow.py        # Main application window
+SpyderG01_TradingDashboard.py  # Advanced trading dashboard
+SpyderG02_Dashboard.py         # Trading dashboard and controls
+SpyderG03_GUIEntry.py          # GUI application entry point
+SpyderG04_OptionChainWidget.py # Options chain display widget
+SpyderG05_ChartWidget.py       # Price chart visualization widget
+SpyderG06_TradingDashboard.py  # Enhanced trading dashboard interface
 ```
 
-### **RobolaP_PaperTrading** - Virtual Trading Environment (2 modules)
+### **SpyderH_Storage** - Data Persistence (4 modules)
 ```
-RobolaP01_PaperEngine.py       # Paper trading simulation engine
-RobolaP02_PaperMonitor.py      # Paper trading performance monitor
-```
-
-### **RobolaQ_QuantitativeModels** - Quantitative Models (2 modules) *NEW GROUP*
-```
-RobolaQ01_HestonModel.py       # Heston stochastic volatility model
-RobolaQ02_CVaRCalculator.py    # Conditional Value at Risk calculator
+SpyderH01_DatabaseManager.py   # Database connection and management
+SpyderH02_TradeRepository.py   # Trade data storage and retrieval
+SpyderH03_MarketDataCache.py   # Market data caching system
+SpyderH07_PerformanceAnalytics.py # Performance data analytics storage
 ```
 
-### **RobolaU_Utilities** - Core Utilities (11 modules)
+### **SpyderI_Backtest** - Strategy Validation (6 modules)
 ```
-RobolaU01_Logger.py            # Centralized logging system
-RobolaU02_ErrorHandler.py      # Error handling and recovery
-RobolaU03_DateTimeUtils.py     # Date/time utilities and market calendar
-RobolaU04_Encryption.py        # Security and encryption utilities
-RobolaU05_NetworkUtils.py      # Network connectivity utilities
-RobolaU06_MathUtils.py         # Mathematical calculation utilities
-RobolaU07_Constants.py         # System-wide constants and configuration
-RobolaU08_Validators.py        # Data validation utilities
-RobolaU09_DataTypes.py         # Custom data type definitions
-RobolaU10_TradingCalendar.py   # Market calendar and trading hours
-RobolaU11_FeatureFlags.py      # Feature flag management
+SpyderI01_BacktestEngine.py    # Backtesting framework engine
+SpyderI02_DataSimulator.py     # Historical data simulation
+SpyderI03_IBDataFetcher.py     # Interactive Brokers data fetching
+SpyderI04_BacktraderStrategy.py # Backtrader integration strategies
+SpyderI05_StrategyOptimizer.py # Strategy parameter optimization
+SpyderI06_BacktestMetrics.py   # Backtest performance metrics
+```
+
+### **SpyderJ_Alerts** - Notification Systems (5 modules)
+```
+SpyderJ01_AlertManager.py      # Central alert management system
+SpyderJ02_EmailNotifier.py     # Email notification service
+SpyderJ04_DesktopNotifier.py   # Desktop notification system
+SpyderJ05_TelegramBot.py       # Telegram bot integration
+```
+
+### **SpyderK_Reports** - Analytics & Reporting (3 modules)
+```
+SpyderK01_ReportGenerator.py   # Automated report generation
+SpyderK05_RiskReport.py        # Risk analysis reporting
+SpyderK07_StrategyComparison.py # Strategy performance comparison
+```
+
+### **SpyderL_ML** - Machine Learning Systems (14 modules)
+```
+SpyderL01_MLPredictor.py       # Machine learning prediction engine
+SpyderL07_PaperTradeLearner.py # Paper trading ML learning system
+SpyderL08_EntryOptimizer.py    # ML-based entry point optimization
+SpyderL09_RegimeClassifier.py  # Market regime classification ML
+SpyderL10_FeatureEngineering.py # Feature engineering for ML models
+SpyderL11_MLModelManager.py    # ML model lifecycle management
+SpyderL12_RandomForestEnsemble.py # Random Forest for complex payoffs (NEW)
+SpyderL13_LSTMPricer.py        # LSTM neural network pricing (15-25% improvement)
+SpyderL14_RealTimePredictor.py # Real-time ML prediction service
+```
+
+### **SpyderM_MarketMicrostructure** - Order Flow Analysis (2 modules) *NEW GROUP*
+```
+SpyderM01_OrderBookAnalyzer.py # Level 2 order book analysis
+SpyderM02_SmartOrderRouter.py  # Intelligent routing across 16+ venues
+```
+
+### **SpyderN_OptionsAnalytics** - Advanced Options Analysis (7 modules)
+```
+SpyderN01_VolatilitySmile.py   # Volatility smile analysis
+SpyderN02_TermStructure.py     # Options term structure analysis
+SpyderN03_SkewAnalyzer.py      # Volatility skew analysis
+SpyderN04_FlowAnalyzer.py      # Options flow analysis
+SpyderN05_OptionsFlowAnalyzer.py # Institutional flow & sentiment analysis (MOVED from A03)
+SpyderN05_VolatilitySurface.py # 3D volatility surface modeling
+SpyderN06_OptionsPricer.py     # Advanced options pricing models
+SpyderN07_OPRAGreeksHandler.py # OPRA Greeks data handling
+```
+
+### **SpyderO_RiskControl** - Professional Risk Controls (3 modules) *NEW GROUP*
+```
+SpyderO01_GreekLimitsManager.py # Real-time Greek limits monitoring
+SpyderO02_CircuitBreakerProtocol.py # Market circuit breaker protocols
+SpyderO03_AutomaticRebalancer.py # Automated portfolio rebalancing
+```
+
+### **SpyderP_PaperTrading** - Virtual Trading Environment (2 modules)
+```
+SpyderP01_PaperEngine.py       # Paper trading simulation engine
+SpyderP02_PaperMonitor.py      # Paper trading performance monitor
+```
+
+### **SpyderQ_QuantitativeModels** - Quantitative Models (2 modules) *NEW GROUP*
+```
+SpyderQ01_HestonModel.py       # Heston stochastic volatility model
+SpyderQ02_CVaRCalculator.py    # Conditional Value at Risk calculator
+```
+
+### **SpyderU_Utilities** - Core Utilities (11 modules)
+```
+SpyderU01_Logger.py            # Centralized logging system
+SpyderU02_ErrorHandler.py      # Error handling and recovery
+SpyderU03_DateTimeUtils.py     # Date/time utilities and market calendar
+SpyderU04_Encryption.py        # Security and encryption utilities
+SpyderU05_NetworkUtils.py      # Network connectivity utilities
+SpyderU06_MathUtils.py         # Mathematical calculation utilities
+SpyderU07_Constants.py         # System-wide constants and configuration
+SpyderU08_Validators.py        # Data validation utilities
+SpyderU09_DataTypes.py         # Custom data type definitions
+SpyderU10_TradingCalendar.py   # Market calendar and trading hours
+SpyderU11_FeatureFlags.py      # Feature flag management
 ```
 
 ## 📊 Summary of Changes
 
 ### **New Groups Added:**
-- **RobolaM_MarketMicrostructure** - Order flow and execution analysis
-- **RobolaO_RiskControl** - Professional-grade risk management
-- **RobolaQ_QuantitativeModels** - Advanced quantitative models
+- **SpyderM_MarketMicrostructure** - Order flow and execution analysis
+- **SpyderO_RiskControl** - Professional-grade risk management
+- **SpyderQ_QuantitativeModels** - Advanced quantitative models
 
 ### **Module Relocations:**
-- `RobolaA03_OptionsFlowAnalyzer.py` → `RobolaN05_OptionsFlowAnalyzer.py`
-- Strategy modules from RobolaS consolidated into RobolaD
+- `SpyderA03_OptionsFlowAnalyzer.py` → `SpyderN05_OptionsFlowAnalyzer.py`
+- Strategy modules from SpyderS consolidated into SpyderD
 
 ### **New Professional Modules Added:**
 1. **Market Microstructure** - Smart order routing and order book analysis
