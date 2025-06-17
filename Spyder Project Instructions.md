@@ -12,8 +12,8 @@ Some group letters are called reserved alphabetic letters, to be used only for s
 
 # Letter T shall be reserved for the Test modules 
 # Letter U shall be reserved for the Utility module
-# Letter X shall be reserved for the Temp modules
 # Letter X shall be reserved for the AI Agents modules. 
+# Letter Z shall be reserved for the Temp modules
 
 For example 
 
