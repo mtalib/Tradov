@@ -11,7 +11,7 @@ The inner formatting of the AI Agent modules will be the same as the ones used f
 Some group letters are called reserved alphabetic letters, to be used only for specific categories of modules: 
 
 # Letter T shall be reserved for the Test modules 
-# Letter U shall be reserved for the Utulity module
+# Letter U shall be reserved for the Utility module
 # Letter X shall be reserved for the Temp modules
 # Letter X shall be reserved for the AI Agents modules. 
 
