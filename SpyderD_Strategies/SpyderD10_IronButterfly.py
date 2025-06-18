@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderD15_IronButterfly.py
+Module: SpyderD10_IronButterfly.py
 Group: D (Strategies)
 Purpose: Iron Butterfly options strategy implementation
 

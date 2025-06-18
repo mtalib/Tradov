@@ -210,7 +210,7 @@ python SpyderI_Backtest/SpyderI01_BacktestEngine.py
 ### **Module Structure**
 ```
 Spyder[Group][Number]_[Purpose].py
-Example: SpyderD15_IronButterfly.py
+Example: SpyderD10_IronButterfly.py
 ```
 
 ### **Adding Strategies**
@@ -318,15 +318,15 @@ SpyderD05_Straddle.py          # Long/Short straddle implementations
 SpyderD06_StrategySelector.py  # Strategy selection algorithm
 SpyderD07_SignalGenerator.py   # Trading signal generation engine
 SpyderD08_StrategyManager.py   # Multi-strategy portfolio management
-SpyderD10_BullPutSpread.py     # Bull Put Spread specific implementation
-SpyderD11_BearCallSpread.py    # Bear Call Spread specific implementation
+SpyderD06_BullPutSpread.py     # Bull Put Spread specific implementation
+SpyderD07_BearCallSpread.py    # Bear Call Spread specific implementation
 SpyderD12_StrategyOrchestrator.py # Strategy coordination and execution
-SpyderD13_OpeningRangeBreakout.py # Opening range breakout strategy
-SpyderD14_GreeksBasedStrategy.py # Greeks-based options strategy
-SpyderD15_IronButterfly.py     # Iron Butterfly strategy (2.5x credit vs Iron Condor)
+SpyderD08_OpeningRangeBreakout.py # Opening range breakout strategy
+SpyderD09_GreeksBasedStrategy.py # Greeks-based options strategy
+SpyderD10_IronButterfly.py     # Iron Butterfly strategy (2.5x credit vs Iron Condor)
 SpyderD16_ZeroDTE.py           # Specialized 0DTE with 80-85% success rate
-SpyderD17_RSIMeanReversion.py  # RSI-based mean reversion strategy
-SpyderD18_MACrossover.py       # Moving average crossover strategy
+SpyderD12_RSIMeanReversion.py  # RSI-based mean reversion strategy
+SpyderD13_MACrossover.py       # Moving average crossover strategy
 ```
 
 ### **SpyderE_Risk** - Risk Management Systems (7 modules)

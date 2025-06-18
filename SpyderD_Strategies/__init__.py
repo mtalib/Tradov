@@ -24,15 +24,15 @@ from .SpyderD05_Straddle import StraddleStrategy
 from .SpyderD06_StrategySelector import StrategySelector
 from .SpyderD07_SignalGenerator import SignalGenerator
 from .SpyderD08_StrategyManager import StrategyManager, get_strategy_manager
-from .SpyderD10_BullPutSpread import BullPutSpreadStrategy
-from .SpyderD11_BearCallSpread import BearCallSpreadStrategy
+from .SpyderD06_BullPutSpread import BullPutSpreadStrategy
+from .SpyderD07_BearCallSpread import BearCallSpreadStrategy
 from .SpyderD12_StrategyOrchestrator import StrategyOrchestrator
-from .SpyderD13_OpeningRangeBreakout import OpeningRangeBreakoutStrategy
-from .SpyderD14_GreeksBasedStrategy import GreeksBasedStrategy
-from .SpyderD15_IronButterfly import IronButterflyStrategy
-from .SpyderD16_SpecializedZeroDTE import SpecializedZeroDTEStrategy
-from .SpyderD17_RSIMeanReversion import RSIMeanReversionStrategy
-from .SpyderD18_MACrossover import MACrossoverStrategy
+from .SpyderD08_OpeningRangeBreakout import OpeningRangeBreakoutStrategy
+from .SpyderD09_GreeksBasedStrategy import GreeksBasedStrategy
+from .SpyderD10_IronButterfly import IronButterflyStrategy
+from .SpyderD11_SpecializedZeroDTE import SpecializedZeroDTEStrategy
+from .SpyderD12_RSIMeanReversion import RSIMeanReversionStrategy
+from .SpyderD13_MACrossover import MACrossoverStrategy
 
 # ==============================================================================
 # PACKAGE EXPORTS

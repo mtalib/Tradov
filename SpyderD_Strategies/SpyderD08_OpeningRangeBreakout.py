@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderD13_OpeningRangeBreakout.py
+Module: SpyderD08_OpeningRangeBreakout.py
 Group: D (Trading Strategies)
 Purpose: Opening range breakout strategy
 

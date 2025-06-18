@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderD11_BearCallSpread.py
+Module: SpyderD07_BearCallSpread.py
 Group: D (Trading Strategies)
 Purpose: Directional bear call spread strategy
 

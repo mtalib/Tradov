@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderD14_GreeksBasedStrategy.py
+Module: SpyderD09_GreeksBasedStrategy.py
 Group: D (Trading Strategies)
 Purpose: High-speed trading strategy leveraging OPRA Greeks
 

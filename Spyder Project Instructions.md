@@ -98,7 +98,7 @@ SpyderD11_GammaScalping.py - Gamma scalping
 SpyderD12_VegaHedging.py - Vega hedging
 SpyderD13_ThetaHarvesting.py - Theta harvesting
 SpyderD14_RatioSpreads.py - Ratio spreads
-SpyderD15_IronButterfly.py - Iron Butterfly strategy
+SpyderD10_IronButterfly.py - Iron Butterfly strategy
 SpyderD16_Diagonal.py - Diagonal spreads
 SpyderD17_Synthetic.py - Synthetic positions
 SpyderD18_Adaptive.py - Adaptive strategy selection

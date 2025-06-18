@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderD10_BullPutSpread.py
+Module: SpyderD06_BullPutSpread.py
 Group: D (Trading Strategies)
 Purpose: Directional bull put spread strategy
 
