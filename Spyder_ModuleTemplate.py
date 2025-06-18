@@ -13,7 +13,7 @@ Description:
     sentences providing comprehensive overview.]
 
 Spyder Version: 1.0
-Author: Mohamed Talib
+Architect: Mohamed Talib
 Date Created: YYYY-MM-DD 
 Last Updated: YYYY-MM-DD Time: HH:MM  
 """
