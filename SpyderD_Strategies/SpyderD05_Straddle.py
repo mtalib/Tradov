@@ -47,7 +47,7 @@ from SpyderD_Strategies.SpyderD01_BaseStrategy import (
     BaseStrategy, TradingSignal, SignalStrength, StrategyPosition
 )
 from SpyderB_Broker.SpyderB06_ContractBuilder import OptionContract
-from SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
+from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
 from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from SpyderA_Core.SpyderA05_EventManager import EventManager

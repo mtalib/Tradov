@@ -43,7 +43,7 @@ from SpyderB_Broker.SpyderB01_IBClient import get_ib_client
 from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
 from SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
-from SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
+from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler

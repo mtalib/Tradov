@@ -27,6 +27,7 @@ from .SpyderU08_Validators import DataValidators
 from .SpyderU09_DataTypes import OptionData, FeatureSet
 from .SpyderU10_TradingCalendar import TradingCalendar, get_trading_calendar
 from .SpyderU11_FeatureFlags import FeatureFlags, get_feature_flags
+from .SpyderU13_TechnicalIndicators import TechnicalIndicators
 
 # ==============================================================================
 # PACKAGE EXPORTS
@@ -47,6 +48,7 @@ __all__ = [
     "TradingTimeUtils",
     "get_feature_flags",
     "get_trading_calendar",
+    "TechnicalIndicators",
 ]
 
 # ==============================================================================

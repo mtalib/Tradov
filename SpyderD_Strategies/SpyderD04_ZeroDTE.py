@@ -45,7 +45,7 @@ from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 
 from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
 from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
-from SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
+from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from SpyderC_MarketData.SpyderC04_MarketInternals import MarketInternals
 from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType

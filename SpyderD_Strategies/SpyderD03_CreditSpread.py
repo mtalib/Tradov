@@ -49,7 +49,7 @@ from SpyderD_Strategies.SpyderD01_BaseStrategy import (
 from SpyderB_Broker.SpyderB06_ContractBuilder import (
     OptionContract, OptionSearchCriteria
 )
-from SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
+from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from SpyderA_Core.SpyderA05_EventManager import EventManager
 from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile

@@ -47,7 +47,7 @@ from SpyderU_Utilities.SpyderU07_Constants import (
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 from SpyderB_Broker.SpyderB06_ContractBuilder import Contract, OptionContract
 from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
-from SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
+from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
 
 # ==============================================================================
 # CONSTANTS

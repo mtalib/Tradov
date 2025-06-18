@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System
-Module: SpyderF01_Indicators.py
-Group: F (Technical Analysis)
+Module: SpyderU13_TechnicalIndicators.py
+Group: U (Utilities)
 Purpose: Technical indicators and market analysis tools
 
 Description:

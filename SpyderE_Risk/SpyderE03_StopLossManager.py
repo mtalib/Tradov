@@ -39,7 +39,7 @@ from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
+from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
 from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 
 # ==============================================================================
