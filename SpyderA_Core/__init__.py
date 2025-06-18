@@ -6,50 +6,54 @@ SPYDER - Automated SPY Options Trading System
 Package: SpyderA_Core
 Purpose: Core Trading Engine
 
-This package provides core trading engine functionality for the Spyder trading system.
+This package contains the core components of the Spyder trading system,
+including the main application, trading engine, configuration, scheduling,
+and event management.
 
 Author: Mohamed Talib
-Date: 2025-06-14
+Date: 2025-06-18
 Version: 1.4
 """
 
 # ==============================================================================
-# PACKAGE METADATA
+# MODULE IMPORTS
 # ==============================================================================
-__package_name__ = "SpyderA_Core"
-__description__ = "Core Trading Engine for Spyder Automated SPY Options Trading System"
-__version__ = "1.4.0"
-
-# ==============================================================================
-# MINIMAL IMPORTS TO AVOID CIRCULAR DEPENDENCIES
-# ==============================================================================
-# We don't import anything here to avoid circular dependencies
-# Instead, users should import directly from the modules:
-# from SpyderA_Core.SpyderA02_TradingEngine import TradingEngine
-# from SpyderA_Core.SpyderA03_Configuration import ConfigManager
-# etc.
+from .SpyderA01_Main import SpyderApplication, main
+from .SpyderA02_TradingEngine import TradingEngine, get_trading_engine
+from .SpyderA03_Configuration import Configuration, get_config
+from .SpyderA04_Scheduler import Scheduler, get_scheduler
+from .SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
-    # List module names only, not the classes
-    "SpyderA01_Main",
-    "SpyderA02_TradingEngine", 
-    "SpyderA03_Configuration",
-    "SpyderA04_Scheduler",
-    "SpyderA05_EventManager",
-    "SpyderA06_SystemMonitor",
+    # Main application
+    "SpyderApplication",
+    "main",
+    
+    # Trading engine
+    "TradingEngine",
+    "get_trading_engine",
+    
+    # Configuration
+    "Configuration",
+    "get_config",
+    
+    # Scheduler
+    "Scheduler", 
+    "get_scheduler",
+    
+    # Event management
+    "EventManager",
+    "Event",
+    "EventType",
+    "get_event_manager",
 ]
 
 # ==============================================================================
-# PACKAGE INITIALIZATION
+# PACKAGE METADATA
 # ==============================================================================
-# Initialize logger for the package
-try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    _logger = SpyderLogger.get_logger(__name__)
-    _logger.info(f"Initialized {__package_name__} package v{__version__}")
-except ImportError:
-    # Logger not available yet, fail silently
-    pass
+__package_name__ = "SpyderA_Core"
+__description__ = "Core Trading Engine Components"
+__version__ = "1.4.0"

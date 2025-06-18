@@ -6,7 +6,7 @@ SPYDER - Automated SPY Options Trading System
 Main package initialization.
 
 Author: Mohamed Talib
-Date: 2025-06-14
+Date: 2025-06-18
 Version: 1.4
 """
 
@@ -17,21 +17,19 @@ __description__ = "Automated SPY Options Trading System"
 # Core imports for easy access
 try:
     from SpyderA_Core.SpyderA01_Main import SpyderApplication
-    from SpyderA_Core.SpyderA03_Configuration import get_config_manager
+    from SpyderA_Core.SpyderA03_Configuration import get_config
     from SpyderA_Core.SpyderA05_EventManager import get_event_manager
     from SpyderB_Broker.SpyderB01_IBClient import get_ib_client
-    from SpyderD_Strategies.SpyderD08_StrategyManager import get_strategy_manager
     from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     
     __all__ = [
         "SpyderApplication",
-        "get_config_manager", 
+        "get_config",
         "get_event_manager",
         "get_ib_client",
-        "get_strategy_manager",
         "get_risk_manager",
-        "SpyderLogger"
+        "SpyderLogger",
     ]
     
 except ImportError as e:

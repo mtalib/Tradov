@@ -4,12 +4,13 @@
 SPYDER - Automated SPY Options Trading System
 
 Package: SpyderE_Risk
-Purpose: Risk Management Systems
+Purpose: Risk Management
 
-This package provides risk management systems functionality for the Spyder trading system.
+This package provides comprehensive risk management functionality including
+position sizing, stop loss management, and drawdown control.
 
 Author: Mohamed Talib
-Date: 2025-06-14
+Date: 2025-06-18
 Version: 1.4
 """
 
@@ -17,31 +18,38 @@ Version: 1.4
 # MODULE IMPORTS
 # ==============================================================================
 from .SpyderE01_RiskManager import RiskManager, get_risk_manager
-from .SpyderE02_PositionSizer import PositionSizer, get_position_sizer
-from .SpyderE03_StopLossManager import StopLossManager
+from .SpyderE02_PositionSizer import PositionSizer, SizingMethod
+from .SpyderE03_StopLossManager import StopLossManager, StopLossType
 from .SpyderE04_DrawdownControl import DrawdownController
-from .SpyderE05_PortfolioAllocator import PortfolioAllocator
-from .SpyderE06_RiskMetrics import RiskMetricsCalculator
-from .SpyderE07_StrategyHealthMonitor import StrategyHealthMonitor
+from .SpyderE06_RiskMetrics import RiskMetrics, PortfolioRisk
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
-    "DrawdownController",
-    "PortfolioAllocator",
-    "PositionSizer",
+    # Risk management
     "RiskManager",
-    "RiskMetricsCalculator",
-    "StopLossManager",
-    "StrategyHealthMonitor",
-    "get_position_sizer",
     "get_risk_manager",
+    
+    # Position sizing
+    "PositionSizer",
+    "SizingMethod",
+    
+    # Stop loss
+    "StopLossManager",
+    "StopLossType",
+    
+    # Drawdown control
+    "DrawdownController",
+    
+    # Risk metrics
+    "RiskMetrics",
+    "PortfolioRisk",
 ]
 
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
-__package_name__ = "{package_name}"
-__description__ = "{description}"
+__package_name__ = "SpyderE_Risk"
+__description__ = "Risk Management Systems"
 __version__ = "1.4.0"

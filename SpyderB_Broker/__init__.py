@@ -6,10 +6,12 @@ SPYDER - Automated SPY Options Trading System
 Package: SpyderB_Broker
 Purpose: Interactive Brokers Integration
 
-This package provides interactive brokers integration functionality for the Spyder trading system.
+This package provides comprehensive integration with Interactive Brokers,
+including client connections, order management, position tracking, and
+smart order routing.
 
 Author: Mohamed Talib
-Date: 2025-06-14
+Date: 2025-06-18
 Version: 1.4
 """
 
@@ -17,37 +19,50 @@ Version: 1.4
 # MODULE IMPORTS
 # ==============================================================================
 from .SpyderB01_IBClient import IBClient, get_ib_client
-from .SpyderB02_OrderManager import OrderManager
-from .SpyderB03_PositionTracker import PositionTracker
-from .SpyderB04_AccountManager import AccountManager
+from .SpyderB02_OrderManager import OrderManager, Order, OrderStatus
+from .SpyderB03_PositionTracker import PositionTracker, Position
+from .SpyderB04_AccountManager import AccountManager, AccountInfo
 from .SpyderB05_ConnectionManager import ConnectionManager
-from .SpyderB06_ContractBuilder import ContractBuilder, OptionContract
+from .SpyderB06_ContractBuilder import ContractBuilder, create_option_contract
 from .SpyderB07_IBConnectionManager import IBConnectionManager
-from .SpyderB08_IBGatewayConnection import SpyderIBConnection  # Correct class name
-from .SpyderB09_IBClientPortal import IBClientPortal, get_client_portal_client
-from .SpyderB10_IBDataTypes import IBContract, IBOrder, IBPosition, IBTrade, IBMarketData
+from .SpyderB08_IBGatewayConnection import IBGatewayConnection
+from .SpyderB09_IBClientPortal import IBClientPortal
+from .SpyderB10_IBDataTypes import IBDataTypes, ContractDetails
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
-    "AccountManager",
-    "ConnectionManager",
-    "ContractBuilder",
+    # IB Client
     "IBClient",
-    "IBClientPortal",
-    "IBConnectionManager",
-    "IBContract",
-    "SpyderIBConnection",  # Correct class name in exports
-    "IBMarketData",
-    "IBOrder",
-    "IBPosition",
-    "IBTrade",
-    "OptionContract",
-    "OrderManager",
-    "PositionTracker",
-    "get_client_portal_client",
     "get_ib_client",
+    
+    # Order management
+    "OrderManager",
+    "Order",
+    "OrderStatus",
+    
+    # Position tracking
+    "PositionTracker",
+    "Position",
+    
+    # Account management
+    "AccountManager",
+    "AccountInfo",
+    
+    # Connection management
+    "ConnectionManager",
+    "IBConnectionManager",
+    "IBGatewayConnection",
+    "IBClientPortal",
+    
+    # Contract building
+    "ContractBuilder",
+    "create_option_contract",
+    
+    # Data types
+    "IBDataTypes",
+    "ContractDetails",
 ]
 
 # ==============================================================================

@@ -3,22 +3,44 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-SpyderR_Runtime - Runtime Operations Package
+Package: SpyderR_Runtime
+Purpose: Runtime Operations
 
-This package contains all runtime execution engines:
-- Backtesting engine
-- Paper trading engine and monitor
-- Live trading engine
+This package contains runtime execution engines for backtesting, paper trading,
+and live trading operations.
+
+Author: Mohamed Talib
+Date: 2025-06-18
+Version: 1.4
 """
 
-from .SpyderR01_BacktestEngine import BacktestEngine, create_backtest_engine
-from .SpyderR02_PaperEngine import PaperEngine, create_paper_engine
-from .SpyderR03_PaperMonitor import PaperMonitor, create_paper_monitor
-from .SpyderR04_LiveEngine import LiveEngine, create_live_engine
+# ==============================================================================
+# MODULE IMPORTS
+# ==============================================================================
+from .SpyderR01_BacktestEngine import BacktestEngine, BacktestResults
+from .SpyderR02_PaperEngine import PaperTradingEngine
+from .SpyderR03_PaperMonitor import PaperTradingMonitor
+from .SpyderR04_LiveEngine import LiveTradingEngine
 
+# ==============================================================================
+# PACKAGE EXPORTS
+# ==============================================================================
 __all__ = [
-    'BacktestEngine', 'create_backtest_engine',
-    'PaperEngine', 'create_paper_engine',
-    'PaperMonitor', 'create_paper_monitor',
-    'LiveEngine', 'create_live_engine'
+    # Backtesting
+    "BacktestEngine",
+    "BacktestResults",
+    
+    # Paper trading
+    "PaperTradingEngine",
+    "PaperTradingMonitor",
+    
+    # Live trading
+    "LiveTradingEngine",
 ]
+
+# ==============================================================================
+# PACKAGE METADATA
+# ==============================================================================
+__package_name__ = "SpyderR_Runtime"
+__description__ = "Runtime Execution Engines"
+__version__ = "1.4.0"

@@ -4,44 +4,31 @@
 SPYDER - Automated SPY Options Trading System
 
 Package: SpyderN_OptionsAnalytics
-Purpose: Advanced Options Analysis
+Purpose: Options Analytics
 
-This package provides advanced options analysis functionality for the Spyder trading system.
+This package provides advanced options analytics including volatility analysis.
 
 Author: Mohamed Talib
-Date: 2025-06-14
+Date: 2025-06-18
 Version: 1.4
 """
 
 # ==============================================================================
 # MODULE IMPORTS
 # ==============================================================================
-from .SpyderN01_VolatilitySmile import VolatilitySmileAnalyzer
-from .SpyderN02_TermStructure import TermStructureAnalyzer
-from .SpyderN03_SkewAnalyzer import SkewAnalyzer
-from .SpyderN04_FlowAnalyzer import FlowAnalyzer
-from .SpyderN05_OptionsFlowAnalyzer import OptionsFlowAnalyzer
-from .SpyderN06_OptionsPricer import OptionsPricer
-from .SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler
-from .SpyderN08_VolatilitySurface import VolatilitySurface
+from .SpyderN08_VolatilitySurface import VolatilitySurface, VolAnalytics
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
-    "FlowAnalyzer",
-    "OPRAGreeksHandler",
-    "OptionsFlowAnalyzer",
-    "OptionsPricer",
-    "SkewAnalyzer",
-    "TermStructureAnalyzer",
-    "VolatilitySmileAnalyzer",
     "VolatilitySurface",
+    "VolAnalytics",
 ]
 
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
-__package_name__ = "{package_name}"
-__description__ = "{description}"
+__package_name__ = "SpyderN_OptionsAnalytics"
+__description__ = "Advanced Options Analytics"
 __version__ = "1.4.0"

@@ -9,33 +9,26 @@ Purpose: Data Persistence
 This package provides data persistence functionality for the Spyder trading system.
 
 Author: Mohamed Talib
-Date: 2025-06-14
+Date: 2025-06-18
 Version: 1.4
 """
 
 # ==============================================================================
 # MODULE IMPORTS
 # ==============================================================================
-from .SpyderH01_DatabaseManager import DatabaseManager, get_database_manager
-from .SpyderH02_TradeRepository import TradeRepository, get_trade_repository
-from .SpyderH03_MarketDataCache import MarketDataCache
-from .SpyderH07_PerformanceAnalytics import PerformanceAnalytics
+from .SpyderH01_DataAccessLayer import DataAccessLayer, get_dal
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
-    "DatabaseManager",
-    "MarketDataCache",
-    "PerformanceAnalytics",
-    "TradeRepository",
-    "get_database_manager",
-    "get_trade_repository",
+    "DataAccessLayer",
+    "get_dal",
 ]
 
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
-__package_name__ = "{package_name}"
-__description__ = "{description}"
+__package_name__ = "SpyderH_Storage"
+__description__ = "Data Persistence Layer"
 __version__ = "1.4.0"
