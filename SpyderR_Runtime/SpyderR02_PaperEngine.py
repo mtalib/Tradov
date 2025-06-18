@@ -3,8 +3,8 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderP01_PaperEngine.py
-Group: P (Paper Trading)
+Module: SpyderR02_PaperEngine.py
+Group: R (Runtime Operations)
 Purpose: Real-time paper trading engine with IB API integration
 
 Description:

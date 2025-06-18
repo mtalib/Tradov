@@ -3,8 +3,8 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderI01_BacktestEngine.py
-Group: I (Backtesting)
+Module: SpyderR01_BacktestEngine.py
+Group: R (Runtime Operations)
 Purpose: Core backtesting engine for STRATEGY LOGIC TESTING ONLY
 
 ═══════════════════════════════════════════════════════════════════════

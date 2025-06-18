@@ -3,8 +3,8 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderP02_PaperMonitor.py
-Group: P (Paper Trading)
+Module: SpyderR03_PaperMonitor.py
+Group: R (Runtime Operations)
 Purpose: Real-time monitoring and analysis of paper trading performance
 
 Description:
