@@ -3,8 +3,8 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderA06_SystemMonitor.py
-Group: A (Core Trading Engine)
+Module: SpyderM01_SystemMonitor.py
+Group: M (Monitoring)
 Purpose: System health and performance monitoring
 
 Description:

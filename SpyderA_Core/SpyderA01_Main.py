@@ -74,7 +74,7 @@ from SpyderA_Core.SpyderA03_Configuration import ConfigManager
 from SpyderA_Core.SpyderA04_Scheduler import TradingScheduler
 from SpyderA_Core.SpyderA05_EventManager import EventManager
 
-# from SpyderA_Core.SpyderA06_SystemMonitor import SystemMonitor  # Temporarily disabled
+# from SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor  # Temporarily disabled
 from SpyderB_Broker.SpyderB01_IBClient import get_ib_client
 
 from SpyderU_Utilities.SpyderU02_ErrorHandler import (

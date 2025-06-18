@@ -12,9 +12,10 @@ Description:
     key features, and how it interacts with other modules. Should be 3-5
     sentences providing comprehensive overview.]
 
-Author: Mohamed Talib
 Spyder Version: 1.0
-Last Updated: 2025-06-14 Time: HH:MM  
+Author: Mohamed Talib
+Date Created: YYYY-MM-DD 
+Last Updated: YYYY-MM-DD Time: HH:MM  
 """
 
 # ==============================================================================
