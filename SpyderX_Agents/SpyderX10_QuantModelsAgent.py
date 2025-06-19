@@ -2165,3 +2165,20 @@ class HestonModel:
         """Price option using Heston model"""
         # Simplified implementation
         return strike * 0.1  # Placeholder
+
+
+# ==============================================================================
+# FACTORY FUNCTION
+# ==============================================================================
+def create_quant_models_agent(config: Dict[str, Any]) -> QuantModelsAgent:
+    """
+    Factory function to create QuantModelsAgent.
+    
+    Args:
+        config: Agent configuration dictionary
+        
+    Returns:
+        Configured QuantModelsAgent instance
+    """
+    return QuantModelsAgent(config)
+

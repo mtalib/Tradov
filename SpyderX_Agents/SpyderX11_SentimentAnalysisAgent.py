@@ -1255,3 +1255,20 @@ class SentimentAnalysisAgent(SpyderBaseAgent):
                 
         except Exception as e:
             self.logger.error(f"Error handling news update: {str(e)}")
+
+
+# ==============================================================================
+# FACTORY FUNCTION
+# ==============================================================================
+def create_sentiment_analysis_agent(config: Dict[str, Any]) -> SentimentAnalysisAgent:
+    """
+    Factory function to create SentimentAnalysisAgent.
+    
+    Args:
+        config: Agent configuration dictionary
+        
+    Returns:
+        Configured SentimentAnalysisAgent instance
+    """
+    return SentimentAnalysisAgent(config)
+

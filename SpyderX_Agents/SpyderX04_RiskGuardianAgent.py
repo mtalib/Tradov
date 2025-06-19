@@ -14,22 +14,23 @@ Description:
     unified AI-driven risk guardian. The agent provides real-time risk monitoring,
     dynamic position sizing, and intelligent circuit breaker decisions.
 
-Author: Mohamed Talib
 Spyder Version: 1.0
-Last Updated: 2025-01-28 Time: 10:00
+Architect: Mohamed Talib
+Date Created: 2025-06-16
+Last Updated: 2025-06-19 Time: 11:00
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
 import json
 import asyncio
-from typing import Dict, List, Optional, Tuple, Any, Union
+import logging
+from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
+from collections import defaultdict, deque
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -38,88 +39,80 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 import numpy as np
 import pandas as pd
-from functools import lru_cache
-
-# LangGraph for agent orchestration
-from langchain.schema import BaseMessage, HumanMessage, AIMessage
-from langgraph.graph import Graph, StateGraph, END
-from langgraph.prebuilt import ToolExecutor
-from langchain_ollama import OllamaLLM
-from langchain.tools import Tool
-
-# Risk calculations
 from scipy import stats
 from scipy.optimize import minimize
+
+# Ollama integration
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    print("Warning: ollama package not installed. Install with: pip install ollama")
+    OLLAMA_AVAILABLE = False
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event
+# Note: In standalone mode, we're not importing from other Spyder modules
+# In production, these would be imported from the Spyder ecosystem
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
+# LLM Configuration
 DEFAULT_LLM_MODEL = "llama3.2:3b-instruct-q4_K_M"
-CACHE_TTL_SECONDS = 300  # 5 minutes for risk assessments
+DEFAULT_TEMPERATURE = 0.2  # Lower temperature for risk decisions
+MAX_TOKENS = 2000
 
-# Risk Limits (Default)
-DEFAULT_RISK_LIMITS = {
-    'max_portfolio_var': 0.02,  # 2% daily VaR
-    'max_position_size': 0.10,  # 10% per position
-    'max_sector_exposure': 0.30,  # 30% sector concentration
-    'max_drawdown': 0.15,  # 15% maximum drawdown
-    'max_leverage': 2.0,  # 2x leverage
-    'min_cash_buffer': 0.20  # 20% cash buffer
-}
+# Risk Thresholds
+MAX_PORTFOLIO_RISK = 0.02  # 2% max portfolio risk
+MAX_POSITION_RISK = 0.01   # 1% max position risk
+MAX_DRAWDOWN = 0.10        # 10% max drawdown
+VAR_CONFIDENCE = 0.95      # 95% VaR
+RISK_FREE_RATE = 0.05      # 5% annual risk-free rate
 
 # Circuit Breaker Thresholds
-CIRCUIT_BREAKER_LEVELS = {
-    'warning': 0.03,  # 3% daily loss
-    'reduce': 0.05,   # 5% daily loss - reduce positions
-    'halt': 0.08,     # 8% daily loss - halt trading
-    'emergency': 0.10  # 10% daily loss - close all positions
-}
+DAILY_LOSS_LIMIT = 0.03    # 3% daily loss limit
+CONSECUTIVE_LOSSES = 3      # Max consecutive losing trades
+VOLATILITY_SPIKE = 2.0     # 2x normal volatility
+
+# ==============================================================================
+# LOGGING SETUP
+# ==============================================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class RiskLevel(Enum):
-    """Risk level classification"""
+    """Risk level classifications"""
     LOW = "low"
     MODERATE = "moderate"
-    ELEVATED = "elevated"
     HIGH = "high"
+    EXTREME = "extreme"
     CRITICAL = "critical"
 
-
-class CircuitBreakerState(Enum):
-    """Circuit breaker states"""
-    NORMAL = "normal"
-    WARNING = "warning"
-    REDUCE = "reduce"
-    HALT = "halt"
-    EMERGENCY = "emergency"
-
+class RiskType(Enum):
+    """Types of risk to monitor"""
+    MARKET = "market"
+    POSITION = "position"
+    PORTFOLIO = "portfolio"
+    DRAWDOWN = "drawdown"
+    VOLATILITY = "volatility"
+    CORRELATION = "correlation"
+    LIQUIDITY = "liquidity"
+    OPERATIONAL = "operational"
 
 class RiskAction(Enum):
     """Risk management actions"""
     APPROVE = "approve"
-    APPROVE_WITH_ADJUSTMENT = "approve_with_adjustment"
     REJECT = "reject"
     REDUCE_SIZE = "reduce_size"
-    HEDGE_REQUIRED = "hedge_required"
+    HEDGE = "hedge"
     CLOSE_POSITION = "close_position"
-
-
-class AgentState(Enum):
-    """Agent state enumeration"""
-    INITIALIZED = "initialized"
-    RUNNING = "running"
-    ANALYZING = "analyzing"
-    ERROR = "error"
-    STOPPED = "stopped"
+    HALT_TRADING = "halt_trading"
+    ADJUST_LIMITS = "adjust_limits"
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -131,88 +124,51 @@ class Position:
     quantity: int
     entry_price: float
     current_price: float
-    position_type: str  # 'option' or 'stock'
-    option_type: Optional[str] = None  # 'call' or 'put'
-    strike: Optional[float] = None
-    expiry: Optional[datetime] = None
-    delta: Optional[float] = None
-    
-    @property
-    def market_value(self) -> float:
-        """Calculate current market value"""
-        return abs(self.quantity) * self.current_price * (100 if self.position_type == 'option' else 1)
-    
-    @property
-    def pnl(self) -> float:
-        """Calculate P&L"""
-        multiplier = 100 if self.position_type == 'option' else 1
-        return self.quantity * (self.current_price - self.entry_price) * multiplier
-    
-    @property
-    def pnl_percent(self) -> float:
-        """Calculate P&L percentage"""
-        if self.entry_price == 0:
-            return 0
-        return (self.current_price - self.entry_price) / self.entry_price
-
+    position_type: str  # 'long' or 'short'
+    market_value: float
+    unrealized_pnl: float
+    delta: float = 0.0
+    gamma: float = 0.0
+    vega: float = 0.0
+    theta: float = 0.0
 
 @dataclass
 class Portfolio:
     """Portfolio state"""
-    positions: List[Position]
     cash: float
-    buying_power: float
+    positions: List[Position]
     total_value: float
+    current_risk: float
+    max_drawdown: float
     daily_pnl: float
-    daily_pnl_percent: float
-    timestamp: datetime
-    
-    @property
-    def position_count(self) -> int:
-        """Number of open positions"""
-        return len(self.positions)
-    
-    @property
-    def total_market_value(self) -> float:
-        """Total market value of positions"""
-        return sum(p.market_value for p in self.positions)
-    
-    @property
-    def cash_percentage(self) -> float:
-        """Cash as percentage of total value"""
-        if self.total_value == 0:
-            return 1.0
-        return self.cash / self.total_value
-
+    realized_pnl: float
 
 @dataclass
 class RiskMetrics:
     """Comprehensive risk metrics"""
-    portfolio_var: float  # Value at Risk
-    portfolio_cvar: float  # Conditional VaR
+    timestamp: datetime
+    portfolio_var: float
+    portfolio_cvar: float
     sharpe_ratio: float
     sortino_ratio: float
     max_drawdown: float
     current_drawdown: float
+    position_concentration: float
     correlation_risk: float
-    concentration_risk: float
-    leverage_ratio: float
-    margin_usage: float
     stress_test_results: Dict[str, float]
-
+    risk_score: float  # 0-100
 
 @dataclass
 class RiskAssessment:
-    """AI risk assessment result"""
+    """AI-enhanced risk assessment"""
+    timestamp: datetime
     risk_level: RiskLevel
-    risk_score: float  # 0-100
-    risk_factors: List[str]
+    risk_metrics: RiskMetrics
+    violations: List[str]
     recommendations: List[str]
-    position_adjustments: Dict[str, Any]
-    hedge_suggestions: List[Dict[str, Any]]
-    circuit_breaker_state: CircuitBreakerState
+    required_actions: List[RiskAction]
+    ai_insights: Dict[str, Any]
     confidence_score: float
-
 
 @dataclass
 class TradeRequest:
@@ -220,1150 +176,1120 @@ class TradeRequest:
     symbol: str
     quantity: int
     side: str  # 'buy' or 'sell'
-    order_type: str  # 'market', 'limit', etc.
-    price: Optional[float] = None
-    option_details: Optional[Dict[str, Any]] = None
+    order_type: str
+    price: Optional[float]
+    strategy_type: str
+    expected_risk: float
+    expected_return: float
 
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
 class SpyderX04_RiskGuardianAgent:
     """
-    AI-Enhanced Risk Management Agent.
+    AI-Enhanced Risk Guardian Agent.
     
-    This agent provides intelligent risk assessment, position sizing,
-    and circuit breaker functionality. It replaces traditional rule-based
-    risk management with context-aware AI decisions.
+    This agent provides intelligent risk management by monitoring portfolio risk,
+    evaluating trades, managing drawdowns, and implementing circuit breakers.
+    It uses Ollama for context-aware risk assessment and recommendations.
     
     Attributes:
         logger: Module logger instance
-        error_handler: Error handling instance
-        state: Current agent state
-        risk_calculator: Risk metrics calculation engine
-        risk_interpreter: LLM-based risk interpretation
-        circuit_breaker: Intelligent circuit breaker
+        config: Agent configuration
+        ollama_client: Ollama LLM client
+        risk_limits: Current risk limits
+        risk_history: Historical risk assessments
         
     Example:
-        >>> agent = SpyderX04_RiskGuardianAgent(config)
-        >>> agent.initialize()
+        >>> agent = SpyderX04_RiskGuardianAgent()
         >>> assessment = await agent.assess_portfolio_risk(portfolio)
+        >>> approval = await agent.evaluate_trade(trade_request, portfolio)
     """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """Initialize the Risk Guardian Agent."""
-        self.logger = SpyderLogger(__name__)
-        self.error_handler = SpyderErrorHandler()
-        self.state = AgentState.INITIALIZED
+        """
+        Initialize the Risk Guardian Agent.
         
-        # Configuration
+        Args:
+            config: Optional configuration dictionary
+        """
         self.config = config or {}
-        self.risk_limits = self.config.get('risk_limits', DEFAULT_RISK_LIMITS)
-        self.circuit_breaker_levels = self.config.get('circuit_breaker_levels', CIRCUIT_BREAKER_LEVELS)
-        self.llm_model = self.config.get('llm_model', DEFAULT_LLM_MODEL)
+        self.logger = logger
         
-        # Components
-        self.risk_calculator = None
-        self.risk_interpreter = None
-        self.circuit_breaker = None
-        self.position_sizer = None
-        self.event_manager = None
+        # LLM configuration
+        self.model_name = self.config.get('llm_model', DEFAULT_LLM_MODEL)
+        self.temperature = self.config.get('temperature', DEFAULT_TEMPERATURE)
         
-        # State tracking
-        self.current_risk_level = RiskLevel.LOW
-        self.circuit_breaker_state = CircuitBreakerState.NORMAL
-        self.last_assessment_time = None
-        self.assessment_count = 0
+        # Initialize Ollama client
+        self.ollama_client = None
+        if OLLAMA_AVAILABLE:
+            try:
+                # Test if Ollama is running
+                ollama.list()
+                self.ollama_client = ollama
+                self.logger.info(f"Ollama initialized with model: {self.model_name}")
+            except Exception as e:
+                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.info("Agent will work with reduced AI capabilities")
         
-        # Risk history for trend analysis
-        self.risk_history = []
-        self.max_history_size = 1000
+        # Risk limits and thresholds
+        self.risk_limits = {
+            'max_portfolio_risk': self.config.get('max_portfolio_risk', MAX_PORTFOLIO_RISK),
+            'max_position_risk': self.config.get('max_position_risk', MAX_POSITION_RISK),
+            'max_drawdown': self.config.get('max_drawdown', MAX_DRAWDOWN),
+            'daily_loss_limit': self.config.get('daily_loss_limit', DAILY_LOSS_LIMIT),
+            'var_confidence': self.config.get('var_confidence', VAR_CONFIDENCE)
+        }
+        
+        # Risk tracking
+        self.risk_history: List[RiskAssessment] = []
+        self.daily_losses: deque = deque(maxlen=CONSECUTIVE_LOSSES)
+        self.circuit_breaker_active = False
+        self.last_circuit_breaker_time: Optional[datetime] = None
+        
+        # Performance tracking
+        self.historical_returns: deque = deque(maxlen=252)  # 1 year of daily returns
+        self.volatility_history: deque = deque(maxlen=30)   # 30 days of volatility
         
         self.logger.info(f"{self.__class__.__name__} initialized")
-        
+    
     # ==========================================================================
     # PUBLIC METHODS
     # ==========================================================================
-    def initialize(self, event_manager: Optional[EventManager] = None) -> bool:
-        """
-        Initialize agent components.
-        
-        Args:
-            event_manager: Optional Spyder event manager
-            
-        Returns:
-            bool: True if initialization successful
-        """
-        try:
-            # Set event manager
-            self.event_manager = event_manager
-            
-            # Initialize components
-            self.risk_calculator = RiskCalculator(self.risk_limits)
-            self.risk_interpreter = RiskInterpreter(self.llm_model)
-            self.circuit_breaker = CircuitBreaker(self.circuit_breaker_levels)
-            self.position_sizer = PositionSizer(self.risk_limits)
-            
-            # Setup LangGraph workflow
-            self._setup_graph()
-            
-            # Subscribe to events if event manager provided
-            if self.event_manager:
-                self._setup_event_subscriptions()
-            
-            self.state = AgentState.RUNNING
-            self.logger.info("Risk Guardian Agent initialized successfully")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
-            self.state = AgentState.ERROR
-            return False
-            
     async def assess_portfolio_risk(
-        self, 
+        self,
         portfolio: Portfolio,
-        market_context: Optional[Dict[str, Any]] = None
+        market_data: Optional[Dict[str, Any]] = None
     ) -> RiskAssessment:
         """
-        Comprehensive portfolio risk assessment.
+        Perform comprehensive portfolio risk assessment.
         
         Args:
             portfolio: Current portfolio state
-            market_context: Market conditions and context
+            market_data: Optional market data for context
             
         Returns:
-            RiskAssessment with AI analysis
+            Comprehensive risk assessment with AI insights
         """
-        if self.state != AgentState.RUNNING:
-            self.logger.warning("Agent not running, cannot assess risk")
-            return self._get_error_assessment("Agent not in running state")
-            
-        try:
-            self.state = AgentState.ANALYZING
-            start_time = datetime.now()
-            self.assessment_count += 1
-            
-            # Prepare initial state
-            initial_state = {
-                "portfolio": portfolio,
-                "market_context": market_context or {},
-                "timestamp": datetime.now().isoformat(),
-                "risk_limits": self.risk_limits
-            }
-            
-            # Run the graph
-            result = await self.app.ainvoke(initial_state)
-            
-            # Track performance
-            processing_time = (datetime.now() - start_time).total_seconds()
-            self.last_assessment_time = processing_time
-            
-            # Update state
-            assessment = result['risk_assessment']
-            self.current_risk_level = assessment.risk_level
-            self.circuit_breaker_state = assessment.circuit_breaker_state
-            
-            # Store in history
-            self._update_risk_history(assessment)
-            
-            # Emit event if event manager is available
-            if self.event_manager:
-                self.event_manager.emit(Event(
-                    type="risk_assessment_complete",
-                    data={
-                        'assessment': assessment,
-                        'processing_time_ms': processing_time * 1000
-                    }
-                ))
-                
-            self.state = AgentState.RUNNING
-            return assessment
-            
-        except Exception as e:
-            self.logger.error(f"Risk assessment failed: {e}")
-            self.state = AgentState.ERROR
-            return self._get_error_assessment(str(e))
-            
+        start_time = datetime.now()
+        
+        # Calculate risk metrics
+        risk_metrics = self._calculate_risk_metrics(portfolio, market_data)
+        
+        # Check for violations
+        violations = self._check_risk_violations(risk_metrics, portfolio)
+        
+        # Determine risk level
+        risk_level = self._determine_risk_level(risk_metrics, violations)
+        
+        # Get recommendations
+        recommendations = self._generate_recommendations(
+            risk_metrics,
+            violations,
+            portfolio
+        )
+        
+        # Determine required actions
+        required_actions = self._determine_required_actions(
+            risk_level,
+            violations,
+            portfolio
+        )
+        
+        # Get AI insights if available
+        if self.ollama_client:
+            ai_insights = await self._get_ai_risk_insights(
+                risk_metrics,
+                portfolio,
+                violations,
+                market_data
+            )
+            additional_recommendations = ai_insights.get('recommendations', [])
+            recommendations.extend(additional_recommendations)
+            confidence = ai_insights.get('confidence', 0.7)
+        else:
+            ai_insights = {}
+            confidence = 0.6
+        
+        # Create assessment
+        assessment = RiskAssessment(
+            timestamp=datetime.now(),
+            risk_level=risk_level,
+            risk_metrics=risk_metrics,
+            violations=violations,
+            recommendations=recommendations,
+            required_actions=required_actions,
+            ai_insights=ai_insights,
+            confidence_score=confidence
+        )
+        
+        # Store in history
+        self.risk_history.append(assessment)
+        
+        # Check circuit breakers
+        self._check_circuit_breakers(assessment, portfolio)
+        
+        # Log performance
+        elapsed = (datetime.now() - start_time).total_seconds()
+        self.logger.info(
+            f"Risk assessment completed: {risk_level.value} risk "
+            f"with {len(violations)} violations in {elapsed:.2f} seconds"
+        )
+        
+        return assessment
+    
     async def evaluate_trade(
         self,
         trade_request: TradeRequest,
         portfolio: Portfolio,
-        market_context: Optional[Dict[str, Any]] = None
+        market_data: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Evaluate a proposed trade for risk.
+        Evaluate a trade request for risk approval.
         
         Args:
-            trade_request: Proposed trade details
+            trade_request: Proposed trade
             portfolio: Current portfolio state
-            market_context: Market conditions
+            market_data: Optional market data
             
         Returns:
-            Risk evaluation with action recommendation
+            Evaluation result with approval status and recommendations
         """
-        try:
-            # Quick pre-checks
-            if self.circuit_breaker_state == CircuitBreakerState.HALT:
-                return {
-                    'action': RiskAction.REJECT,
-                    'reason': 'Trading halted by circuit breaker',
-                    'risk_score': 100
-                }
-            
-            # Calculate position size impact
-            position_impact = self.position_sizer.calculate_impact(
-                trade_request, portfolio
-            )
-            
-            # Get risk assessment
-            risk_metrics = self.risk_calculator.calculate_trade_risk(
-                trade_request, portfolio
-            )
-            
-            # AI interpretation
-            evaluation = await self.risk_interpreter.evaluate_trade(
-                trade_request, portfolio, risk_metrics, market_context
-            )
-            
-            # Apply risk limits
-            action = self._apply_risk_limits(evaluation, position_impact)
-            
+        # Check if circuit breaker is active
+        if self.circuit_breaker_active:
             return {
-                'action': action,
-                'risk_score': evaluation['risk_score'],
-                'adjusted_size': evaluation.get('adjusted_size'),
-                'reasons': evaluation['reasons'],
-                'hedge_suggestions': evaluation.get('hedge_suggestions', [])
+                'approved': False,
+                'reason': 'Circuit breaker active - trading halted',
+                'action': RiskAction.HALT_TRADING,
+                'recommendations': []
             }
-            
-        except Exception as e:
-            self.logger.error(f"Trade evaluation failed: {e}")
-            return {
-                'action': RiskAction.REJECT,
-                'reason': f'Risk evaluation error: {str(e)}',
-                'risk_score': 100
-            }
-            
-    def get_position_size(
+        
+        # Calculate trade impact
+        trade_impact = self._calculate_trade_impact(trade_request, portfolio)
+        
+        # Check position limits
+        position_check = self._check_position_limits(trade_request, portfolio)
+        
+        # Project portfolio risk with new trade
+        projected_risk = self._project_portfolio_risk(
+            trade_request,
+            portfolio,
+            trade_impact
+        )
+        
+        # Get AI evaluation if available
+        if self.ollama_client:
+            ai_evaluation = await self._get_ai_trade_evaluation(
+                trade_request,
+                portfolio,
+                trade_impact,
+                projected_risk,
+                market_data
+            )
+            approved = ai_evaluation.get('approved', False)
+            reason = ai_evaluation.get('reason', '')
+            recommendations = ai_evaluation.get('recommendations', [])
+        else:
+            # Rule-based evaluation
+            approved = (
+                position_check['passed'] and
+                projected_risk < self.risk_limits['max_portfolio_risk'] and
+                trade_impact['risk_contribution'] < self.risk_limits['max_position_risk']
+            )
+            reason = self._get_evaluation_reason(
+                approved,
+                position_check,
+                projected_risk,
+                trade_impact
+            )
+            recommendations = []
+        
+        # Determine action
+        if approved:
+            action = RiskAction.APPROVE
+        elif projected_risk > self.risk_limits['max_portfolio_risk'] * 0.8:
+            action = RiskAction.REDUCE_SIZE
+            recommendations.append(
+                f"Reduce position size to {int(trade_request.quantity * 0.5)} contracts"
+            )
+        else:
+            action = RiskAction.REJECT
+        
+        return {
+            'approved': approved,
+            'reason': reason,
+            'action': action,
+            'recommendations': recommendations,
+            'trade_impact': trade_impact,
+            'projected_risk': projected_risk
+        }
+    
+    async def stress_test_portfolio(
         self,
-        symbol: str,
         portfolio: Portfolio,
-        risk_per_trade: Optional[float] = None
-    ) -> int:
+        scenarios: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
         """
-        Calculate optimal position size.
+        Run stress tests on portfolio.
         
         Args:
-            symbol: Trading symbol
             portfolio: Current portfolio
-            risk_per_trade: Risk amount per trade
+            scenarios: Optional custom stress scenarios
             
         Returns:
-            Recommended position size
+            Stress test results and recommendations
         """
-        if risk_per_trade is None:
-            risk_per_trade = portfolio.total_value * 0.02  # 2% default
-            
-        return self.position_sizer.calculate_size(
-            symbol, portfolio, risk_per_trade
-        )
-        
-    def get_performance_metrics(self) -> Dict[str, Any]:
-        """
-        Get agent performance metrics.
-        
-        Returns:
-            Performance statistics
-        """
-        return {
-            'state': self.state.value,
-            'assessment_count': self.assessment_count,
-            'last_assessment_time_ms': self.last_assessment_time * 1000 if self.last_assessment_time else 0,
-            'current_risk_level': self.current_risk_level.value,
-            'circuit_breaker_state': self.circuit_breaker_state.value,
-            'risk_history_size': len(self.risk_history)
-        }
-        
-    # ==========================================================================
-    # PRIVATE METHODS - GRAPH SETUP
-    # ==========================================================================
-    def _setup_graph(self):
-        """Set up LangGraph workflow."""
-        # Define the graph
-        workflow = StateGraph(dict)
-        
-        # Add nodes
-        workflow.add_node("calculate_metrics", self._calculate_metrics_node)
-        workflow.add_node("analyze_risk", self._analyze_risk_node)
-        workflow.add_node("check_limits", self._check_limits_node)
-        workflow.add_node("generate_recommendations", self._generate_recommendations_node)
-        workflow.add_node("circuit_breaker_check", self._circuit_breaker_node)
-        
-        # Add edges
-        workflow.add_edge("calculate_metrics", "analyze_risk")
-        workflow.add_edge("analyze_risk", "check_limits")
-        workflow.add_edge("check_limits", "generate_recommendations")
-        workflow.add_edge("generate_recommendations", "circuit_breaker_check")
-        workflow.add_edge("circuit_breaker_check", END)
-        
-        # Set entry point
-        workflow.set_entry_point("calculate_metrics")
-        
-        # Compile
-        self.app = workflow.compile()
-        
-    def _setup_event_subscriptions(self):
-        """Subscribe to relevant events."""
-        # Portfolio updates
-        self.event_manager.subscribe('portfolio_update', self._handle_portfolio_update)
-        
-        # Trade requests
-        self.event_manager.subscribe('trade_request', self._handle_trade_request)
-        
-        # Risk alerts
-        self.event_manager.subscribe('risk_check_required', self._handle_risk_check)
-        
-        self.logger.debug("Risk event subscriptions completed")
-        
-    # ==========================================================================
-    # PRIVATE METHODS - GRAPH NODES
-    # ==========================================================================
-    def _calculate_metrics_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate risk metrics."""
-        portfolio = state["portfolio"]
-        
-        # Calculate comprehensive risk metrics
-        risk_metrics = self.risk_calculator.calculate_portfolio_metrics(portfolio)
-        
-        # Add stress test results
-        stress_results = self.risk_calculator.run_stress_tests(portfolio)
-        risk_metrics.stress_test_results = stress_results
-        
-        state["risk_metrics"] = risk_metrics
-        state["calculation_timestamp"] = datetime.now().isoformat()
-        
-        return state
-        
-    def _analyze_risk_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """AI risk analysis."""
-        risk_metrics = state["risk_metrics"]
-        portfolio = state["portfolio"]
-        market_context = state["market_context"]
-        
-        # Get AI interpretation
-        analysis = self.risk_interpreter.analyze_risk(
-            risk_metrics, portfolio, market_context
-        )
-        
-        state["risk_analysis"] = analysis
-        return state
-        
-    def _check_limits_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Check risk limits."""
-        risk_metrics = state["risk_metrics"]
-        risk_limits = state["risk_limits"]
-        
-        # Check each limit
-        limit_breaches = []
-        
-        if risk_metrics.portfolio_var > risk_limits['max_portfolio_var']:
-            limit_breaches.append({
-                'type': 'portfolio_var',
-                'current': risk_metrics.portfolio_var,
-                'limit': risk_limits['max_portfolio_var'],
-                'severity': 'high'
-            })
-            
-        if risk_metrics.leverage_ratio > risk_limits['max_leverage']:
-            limit_breaches.append({
-                'type': 'leverage',
-                'current': risk_metrics.leverage_ratio,
-                'limit': risk_limits['max_leverage'],
-                'severity': 'critical'
-            })
-            
-        if risk_metrics.current_drawdown > risk_limits['max_drawdown']:
-            limit_breaches.append({
-                'type': 'drawdown',
-                'current': risk_metrics.current_drawdown,
-                'limit': risk_limits['max_drawdown'],
-                'severity': 'critical'
-            })
-            
-        state["limit_breaches"] = limit_breaches
-        return state
-        
-    def _generate_recommendations_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate risk recommendations."""
-        risk_analysis = state["risk_analysis"]
-        limit_breaches = state["limit_breaches"]
-        portfolio = state["portfolio"]
-        
-        recommendations = []
-        position_adjustments = {}
-        hedge_suggestions = []
-        
-        # Handle limit breaches
-        for breach in limit_breaches:
-            if breach['severity'] == 'critical':
-                recommendations.append(f"URGENT: {breach['type']} limit exceeded")
-                
-                if breach['type'] == 'leverage':
-                    recommendations.append("Reduce leverage immediately")
-                    # Calculate deleveraging needs
-                    position_adjustments['reduce_all'] = 0.3  # Reduce all by 30%
-                    
-                elif breach['type'] == 'drawdown':
-                    recommendations.append("Maximum drawdown reached - reduce risk")
-                    position_adjustments['stop_new_trades'] = True
-                    
-        # Add AI recommendations
-        recommendations.extend(risk_analysis['recommendations'])
-        
-        # Generate hedge suggestions if needed
-        if risk_analysis['risk_level'] in [RiskLevel.HIGH, RiskLevel.CRITICAL]:
-            hedge_suggestions = self._generate_hedge_suggestions(
-                portfolio, state["risk_metrics"]
-            )
-            
-        state["recommendations"] = recommendations
-        state["position_adjustments"] = position_adjustments
-        state["hedge_suggestions"] = hedge_suggestions
-        
-        return state
-        
-    def _circuit_breaker_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Circuit breaker evaluation."""
-        portfolio = state["portfolio"]
-        risk_analysis = state["risk_analysis"]
-        
-        # Check circuit breaker
-        cb_state = self.circuit_breaker.evaluate(
-            portfolio.daily_pnl_percent,
-            risk_analysis['risk_score']
-        )
-        
-        # Create final assessment
-        risk_assessment = RiskAssessment(
-            risk_level=risk_analysis['risk_level'],
-            risk_score=risk_analysis['risk_score'],
-            risk_factors=risk_analysis['risk_factors'],
-            recommendations=state["recommendations"],
-            position_adjustments=state["position_adjustments"],
-            hedge_suggestions=state["hedge_suggestions"],
-            circuit_breaker_state=cb_state,
-            confidence_score=risk_analysis['confidence_score']
-        )
-        
-        state["risk_assessment"] = risk_assessment
-        
-        # Trigger circuit breaker actions if needed
-        if cb_state != CircuitBreakerState.NORMAL:
-            self._trigger_circuit_breaker_actions(cb_state)
-            
-        return state
-        
-    # ==========================================================================
-    # PRIVATE METHODS - HELPERS
-    # ==========================================================================
-    def _apply_risk_limits(
-        self, 
-        evaluation: Dict[str, Any], 
-        position_impact: Dict[str, Any]
-    ) -> RiskAction:
-        """Apply risk limits to determine action."""
-        risk_score = evaluation['risk_score']
-        
-        if risk_score > 80:
-            return RiskAction.REJECT
-        elif risk_score > 60:
-            if evaluation.get('adjusted_size'):
-                return RiskAction.APPROVE_WITH_ADJUSTMENT
-            else:
-                return RiskAction.REDUCE_SIZE
-        elif risk_score > 40:
-            if evaluation.get('hedge_suggestions'):
-                return RiskAction.HEDGE_REQUIRED
-            else:
-                return RiskAction.APPROVE
-        else:
-            return RiskAction.APPROVE
-            
-    def _generate_hedge_suggestions(
-        self, 
-        portfolio: Portfolio, 
-        risk_metrics: RiskMetrics
-    ) -> List[Dict[str, Any]]:
-        """Generate hedging suggestions."""
-        suggestions = []
-        
-        # Delta hedging
-        total_delta = sum(p.delta * p.quantity for p in portfolio.positions if p.delta)
-        if abs(total_delta) > 100:
-            suggestions.append({
-                'type': 'delta_hedge',
-                'action': f"Hedge {-int(total_delta)} shares of SPY",
-                'urgency': 'high'
-            })
-            
-        # VIX hedging for high volatility
-        if risk_metrics.portfolio_var > 0.015:  # 1.5% VaR
-            suggestions.append({
-                'type': 'volatility_hedge',
-                'action': 'Buy VIX calls for tail risk protection',
-                'urgency': 'medium'
-            })
-            
-        return suggestions
-        
-    def _trigger_circuit_breaker_actions(self, cb_state: CircuitBreakerState):
-        """Trigger circuit breaker actions."""
-        if self.event_manager:
-            self.event_manager.emit(Event(
-                type='circuit_breaker_triggered',
-                data={
-                    'state': cb_state.value,
-                    'timestamp': datetime.now().isoformat(),
-                    'required_actions': self._get_cb_actions(cb_state)
-                }
-            ))
-            
-    def _get_cb_actions(self, cb_state: CircuitBreakerState) -> List[str]:
-        """Get required actions for circuit breaker state."""
-        actions = {
-            CircuitBreakerState.WARNING: ["Monitor closely", "Prepare hedges"],
-            CircuitBreakerState.REDUCE: ["Reduce all positions by 30%", "No new trades"],
-            CircuitBreakerState.HALT: ["Halt all trading", "Close risky positions"],
-            CircuitBreakerState.EMERGENCY: ["Close all positions", "Move to cash"]
-        }
-        return actions.get(cb_state, [])
-        
-    def _update_risk_history(self, assessment: RiskAssessment):
-        """Update risk history for trend analysis."""
-        self.risk_history.append({
-            'timestamp': datetime.now(),
-            'risk_score': assessment.risk_score,
-            'risk_level': assessment.risk_level,
-            'circuit_breaker': assessment.circuit_breaker_state
-        })
-        
-        # Maintain size limit
-        if len(self.risk_history) > self.max_history_size:
-            self.risk_history = self.risk_history[-self.max_history_size:]
-            
-    def _get_error_assessment(self, error_msg: str) -> RiskAssessment:
-        """Generate error assessment."""
-        return RiskAssessment(
-            risk_level=RiskLevel.CRITICAL,
-            risk_score=100,
-            risk_factors=[f"Error: {error_msg}"],
-            recommendations=["Risk assessment failed - halt trading"],
-            position_adjustments={},
-            hedge_suggestions=[],
-            circuit_breaker_state=CircuitBreakerState.HALT,
-            confidence_score=0.0
-        )
-        
-    # ==========================================================================
-    # EVENT HANDLERS
-    # ==========================================================================
-    def _handle_portfolio_update(self, event: Event):
-        """Handle portfolio update events."""
-        asyncio.create_task(self._async_portfolio_check(event))
-        
-    def _handle_trade_request(self, event: Event):
-        """Handle trade request events."""
-        asyncio.create_task(self._async_trade_evaluation(event))
-        
-    def _handle_risk_check(self, event: Event):
-        """Handle risk check request."""
-        asyncio.create_task(self._async_risk_check(event))
-        
-    async def _async_portfolio_check(self, event: Event):
-        """Async portfolio risk check."""
-        portfolio = event.data['portfolio']
-        assessment = await self.assess_portfolio_risk(portfolio)
-        
-        if assessment.risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL]:
-            self.event_manager.emit(Event(
-                type='high_risk_alert',
-                data={'assessment': assessment}
-            ))
-            
-    async def _async_trade_evaluation(self, event: Event):
-        """Async trade evaluation."""
-        trade_request = event.data['trade_request']
-        portfolio = event.data['portfolio']
-        
-        evaluation = await self.evaluate_trade(trade_request, portfolio)
-        
-        self.event_manager.emit(Event(
-            type='trade_risk_evaluated',
-            data={
-                'request_id': event.data.get('request_id'),
-                'evaluation': evaluation
-            }
-        ))
-        
-    async def _async_risk_check(self, event: Event):
-        """Async risk check."""
-        portfolio = event.data.get('portfolio')
-        if portfolio:
-            assessment = await self.assess_portfolio_risk(portfolio)
-            self.event_manager.emit(Event(
-                type='risk_check_complete',
-                data={'assessment': assessment}
-            ))
-    
-    # ==========================================================================
-    # LIFECYCLE METHODS
-    # ==========================================================================
-    def start(self) -> None:
-        """Start the agent."""
-        if self.state == AgentState.INITIALIZED:
-            self.state = AgentState.RUNNING
-            self.logger.info("Risk Guardian Agent started")
-        else:
-            self.logger.warning(f"Cannot start from state: {self.state}")
-            
-    def stop(self) -> None:
-        """Stop the agent."""
-        if self.state == AgentState.RUNNING:
-            self.state = AgentState.STOPPED
-            self.logger.info("Risk Guardian Agent stopped")
-        else:
-            self.logger.warning(f"Cannot stop from state: {self.state}")
-            
-    def cleanup(self) -> None:
-        """Clean up agent resources."""
-        # Clear caches
-        if self.risk_calculator:
-            self.risk_calculator.clear_cache()
-        
-        # Clear history
-        self.risk_history.clear()
-        
-        self.logger.info("Risk Guardian Agent cleanup completed")
-
-# ==============================================================================
-# RISK CALCULATOR CLASS
-# ==============================================================================
-class RiskCalculator:
-    """
-    High-performance risk metrics calculator.
-    
-    Provides fast calculation of VaR, CVaR, stress tests, and other
-    risk metrics using optimized numerical methods.
-    """
-    
-    def __init__(self, risk_limits: Dict[str, float]):
-        """Initialize risk calculator."""
-        self.logger = SpyderLogger(__name__)
-        self.risk_limits = risk_limits
-        self.calculation_count = 0
-        
-    def calculate_portfolio_metrics(self, portfolio: Portfolio) -> RiskMetrics:
-        """Calculate comprehensive portfolio risk metrics."""
-        self.calculation_count += 1
-        
-        # Get position returns
-        returns = self._calculate_returns(portfolio)
-        
-        # Calculate VaR and CVaR
-        var_95 = self._calculate_var(returns, 0.95)
-        cvar_95 = self._calculate_cvar(returns, 0.95)
-        
-        # Calculate ratios
-        sharpe = self._calculate_sharpe_ratio(returns)
-        sortino = self._calculate_sortino_ratio(returns)
-        
-        # Calculate drawdown
-        max_dd, current_dd = self._calculate_drawdown(portfolio)
-        
-        # Calculate concentration and correlation
-        concentration = self._calculate_concentration_risk(portfolio)
-        correlation = self._calculate_correlation_risk(portfolio)
-        
-        # Calculate leverage
-        leverage = self._calculate_leverage(portfolio)
-        margin_usage = self._calculate_margin_usage(portfolio)
-        
-        return RiskMetrics(
-            portfolio_var=var_95,
-            portfolio_cvar=cvar_95,
-            sharpe_ratio=sharpe,
-            sortino_ratio=sortino,
-            max_drawdown=max_dd,
-            current_drawdown=current_dd,
-            correlation_risk=correlation,
-            concentration_risk=concentration,
-            leverage_ratio=leverage,
-            margin_usage=margin_usage,
-            stress_test_results={}
-        )
-        
-    def calculate_trade_risk(
-        self, 
-        trade: TradeRequest, 
-        portfolio: Portfolio
-    ) -> Dict[str, float]:
-        """Calculate risk metrics for a proposed trade."""
-        # Simulate portfolio with new trade
-        simulated_portfolio = self._simulate_trade(trade, portfolio)
-        
-        # Calculate risk change
-        current_metrics = self.calculate_portfolio_metrics(portfolio)
-        new_metrics = self.calculate_portfolio_metrics(simulated_portfolio)
-        
-        return {
-            'var_change': new_metrics.portfolio_var - current_metrics.portfolio_var,
-            'leverage_change': new_metrics.leverage_ratio - current_metrics.leverage_ratio,
-            'concentration_change': new_metrics.concentration_risk - current_metrics.concentration_risk,
-            'margin_impact': new_metrics.margin_usage - current_metrics.margin_usage
-        }
-        
-    def run_stress_tests(self, portfolio: Portfolio) -> Dict[str, float]:
-        """Run stress test scenarios."""
-        scenarios = {
-            'market_crash': -0.10,  # 10% market drop
-            'volatility_spike': 2.0,  # VIX doubles
-            'interest_rate_shock': 0.01,  # 100bp rate increase
-            'flash_crash': -0.05  # 5% instant drop
-        }
+        if not scenarios:
+            scenarios = self._get_default_stress_scenarios()
         
         results = {}
-        for scenario, shock in scenarios.items():
-            stressed_value = self._apply_stress_scenario(portfolio, scenario, shock)
-            results[scenario] = (stressed_value - portfolio.total_value) / portfolio.total_value
-            
-        return results
+        worst_case_loss = 0
         
-    @lru_cache(maxsize=1000)
-    def _calculate_var(self, returns: tuple, confidence: float) -> float:
+        for scenario in scenarios:
+            scenario_result = self._run_stress_scenario(portfolio, scenario)
+            results[scenario['name']] = scenario_result
+            worst_case_loss = min(worst_case_loss, scenario_result['portfolio_change'])
+        
+        # Get AI interpretation if available
+        if self.ollama_client:
+            ai_analysis = await self._get_ai_stress_test_analysis(
+                results,
+                portfolio,
+                worst_case_loss
+            )
+            interpretation = ai_analysis.get('interpretation', '')
+            recommendations = ai_analysis.get('recommendations', [])
+        else:
+            interpretation = f"Worst case loss: {worst_case_loss:.1%}"
+            recommendations = []
+            if worst_case_loss < -0.10:
+                recommendations.append("Consider hedging strategies")
+        
+        return {
+            'scenarios': results,
+            'worst_case_loss': worst_case_loss,
+            'interpretation': interpretation,
+            'recommendations': recommendations,
+            'timestamp': datetime.now()
+        }
+    
+    def get_risk_summary(self) -> Dict[str, Any]:
+        """
+        Get current risk summary.
+        
+        Returns:
+            Summary of current risk status
+        """
+        if not self.risk_history:
+            return {"message": "No risk assessments available"}
+        
+        latest_assessment = self.risk_history[-1]
+        
+        return {
+            'current_risk_level': latest_assessment.risk_level.value,
+            'risk_score': latest_assessment.risk_metrics.risk_score,
+            'violations': len(latest_assessment.violations),
+            'circuit_breaker_active': self.circuit_breaker_active,
+            'last_assessment': latest_assessment.timestamp,
+            'confidence': latest_assessment.confidence_score
+        }
+    
+    # ==========================================================================
+    # PRIVATE METHODS - RISK CALCULATIONS
+    # ==========================================================================
+    def _calculate_risk_metrics(
+        self,
+        portfolio: Portfolio,
+        market_data: Optional[Dict[str, Any]] = None
+    ) -> RiskMetrics:
+        """Calculate comprehensive risk metrics."""
+        # Portfolio VaR and CVaR
+        portfolio_var = self._calculate_var(portfolio, self.risk_limits['var_confidence'])
+        portfolio_cvar = self._calculate_cvar(portfolio, self.risk_limits['var_confidence'])
+        
+        # Risk ratios
+        sharpe_ratio = self._calculate_sharpe_ratio()
+        sortino_ratio = self._calculate_sortino_ratio()
+        
+        # Drawdown
+        max_drawdown = portfolio.max_drawdown
+        current_drawdown = self._calculate_current_drawdown(portfolio)
+        
+        # Position concentration
+        position_concentration = self._calculate_concentration_risk(portfolio)
+        
+        # Correlation risk
+        correlation_risk = self._calculate_correlation_risk(portfolio)
+        
+        # Stress tests
+        stress_results = self._quick_stress_test(portfolio)
+        
+        # Overall risk score (0-100)
+        risk_score = self._calculate_risk_score(
+            portfolio_var,
+            current_drawdown,
+            position_concentration,
+            correlation_risk
+        )
+        
+        return RiskMetrics(
+            timestamp=datetime.now(),
+            portfolio_var=portfolio_var,
+            portfolio_cvar=portfolio_cvar,
+            sharpe_ratio=sharpe_ratio,
+            sortino_ratio=sortino_ratio,
+            max_drawdown=max_drawdown,
+            current_drawdown=current_drawdown,
+            position_concentration=position_concentration,
+            correlation_risk=correlation_risk,
+            stress_test_results=stress_results,
+            risk_score=risk_score
+        )
+    
+    def _calculate_var(self, portfolio: Portfolio, confidence: float) -> float:
         """Calculate Value at Risk."""
-        if not returns:
-            return 0.0
-        return np.percentile(returns, (1 - confidence) * 100)
+        if not self.historical_returns:
+            # Use position-based estimate
+            total_risk = sum(abs(p.market_value * 0.02) for p in portfolio.positions)
+            return total_risk / portfolio.total_value if portfolio.total_value > 0 else 0
         
-    def _calculate_cvar(self, returns: tuple, confidence: float) -> float:
+        # Historical VaR
+        returns = np.array(self.historical_returns)
+        var_percentile = (1 - confidence) * 100
+        var = np.percentile(returns, var_percentile)
+        
+        return abs(var)
+    
+    def _calculate_cvar(self, portfolio: Portfolio, confidence: float) -> float:
         """Calculate Conditional Value at Risk."""
-        var = self._calculate_var(returns, confidence)
-        return np.mean([r for r in returns if r <= var])
+        if not self.historical_returns:
+            # Use VaR * 1.25 as estimate
+            return self._calculate_var(portfolio, confidence) * 1.25
         
-    def _calculate_sharpe_ratio(self, returns: tuple) -> float:
+        # Historical CVaR
+        returns = np.array(self.historical_returns)
+        var_percentile = (1 - confidence) * 100
+        var = np.percentile(returns, var_percentile)
+        
+        # Average of returns worse than VaR
+        worse_returns = returns[returns <= var]
+        cvar = np.mean(worse_returns) if len(worse_returns) > 0 else var
+        
+        return abs(cvar)
+    
+    def _calculate_sharpe_ratio(self) -> float:
         """Calculate Sharpe ratio."""
-        if not returns or len(returns) < 2:
+        if len(self.historical_returns) < 20:
             return 0.0
-        return np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(252)
         
-    def _calculate_sortino_ratio(self, returns: tuple) -> float:
+        returns = np.array(self.historical_returns)
+        excess_returns = returns - (RISK_FREE_RATE / 252)  # Daily risk-free rate
+        
+        if returns.std() == 0:
+            return 0.0
+        
+        return (excess_returns.mean() / returns.std()) * np.sqrt(252)
+    
+    def _calculate_sortino_ratio(self) -> float:
         """Calculate Sortino ratio."""
-        if not returns:
+        if len(self.historical_returns) < 20:
             return 0.0
-        downside_returns = [r for r in returns if r < 0]
-        if not downside_returns:
-            return float('inf')
-        downside_std = np.std(downside_returns)
-        return np.mean(returns) / (downside_std + 1e-8) * np.sqrt(252)
         
-    def _calculate_returns(self, portfolio: Portfolio) -> tuple:
-        """Calculate historical returns (mock for now)."""
-        # In production, this would fetch historical data
-        # For now, generate synthetic returns based on positions
-        np.random.seed(42)  # For consistency
-        base_return = 0.0005  # 5bps daily
-        volatility = 0.02  # 2% daily vol
+        returns = np.array(self.historical_returns)
+        excess_returns = returns - (RISK_FREE_RATE / 252)
         
-        returns = np.random.normal(base_return, volatility, 252)
-        return tuple(returns)
+        # Downside deviation
+        negative_returns = returns[returns < 0]
+        if len(negative_returns) == 0:
+            return self._calculate_sharpe_ratio()  # No downside
         
-    def _calculate_drawdown(self, portfolio: Portfolio) -> Tuple[float, float]:
-        """Calculate maximum and current drawdown."""
-        # Mock calculation - in production, use historical peaks
-        current_dd = min(0, portfolio.daily_pnl_percent)
-        max_dd = -0.08  # Mock 8% max drawdown
-        return max_dd, current_dd
+        downside_std = np.std(negative_returns)
+        if downside_std == 0:
+            return 0.0
         
+        return (excess_returns.mean() / downside_std) * np.sqrt(252)
+    
+    def _calculate_current_drawdown(self, portfolio: Portfolio) -> float:
+        """Calculate current drawdown from peak."""
+        # In production, this would track actual peak
+        # For now, use simple calculation
+        if portfolio.daily_pnl < 0:
+            return abs(portfolio.daily_pnl / portfolio.total_value)
+        return 0.0
+    
     def _calculate_concentration_risk(self, portfolio: Portfolio) -> float:
         """Calculate position concentration risk."""
         if not portfolio.positions:
             return 0.0
-            
-        position_values = [p.market_value for p in portfolio.positions]
-        total_value = sum(position_values)
         
+        # Herfindahl index
+        total_value = sum(abs(p.market_value) for p in portfolio.positions)
         if total_value == 0:
             return 0.0
-            
-        # Herfindahl index
-        concentration = sum((v/total_value)**2 for v in position_values)
-        return concentration
         
+        concentration = sum(
+            (abs(p.market_value) / total_value) ** 2
+            for p in portfolio.positions
+        )
+        
+        return concentration
+    
     def _calculate_correlation_risk(self, portfolio: Portfolio) -> float:
         """Calculate correlation risk."""
-        # Simplified - in production, calculate actual correlations
-        return 0.3 if len(portfolio.positions) > 5 else 0.1
-        
-    def _calculate_leverage(self, portfolio: Portfolio) -> float:
-        """Calculate portfolio leverage."""
-        if portfolio.total_value == 0:
+        # Simplified: assume higher correlation with more positions
+        # In production, would calculate actual correlations
+        num_positions = len(portfolio.positions)
+        if num_positions <= 1:
             return 0.0
-        return portfolio.total_market_value / portfolio.total_value
         
-    def _calculate_margin_usage(self, portfolio: Portfolio) -> float:
-        """Calculate margin usage percentage."""
-        if portfolio.buying_power == 0:
-            return 1.0
-        used_margin = portfolio.total_value - portfolio.cash
-        return used_margin / portfolio.buying_power
+        # Estimate correlation impact
+        return min(0.5, num_positions * 0.05)
+    
+    def _quick_stress_test(self, portfolio: Portfolio) -> Dict[str, float]:
+        """Run quick stress test scenarios."""
+        scenarios = {
+            'market_down_5%': -0.05,
+            'market_down_10%': -0.10,
+            'volatility_spike': -0.03,
+            'black_swan': -0.20
+        }
         
-    def _simulate_trade(self, trade: TradeRequest, portfolio: Portfolio) -> Portfolio:
-        """Simulate portfolio after trade."""
-        # Create copy of portfolio
-        new_positions = portfolio.positions.copy()
+        results = {}
+        for scenario, shock in scenarios.items():
+            # Simple calculation - in production would be more sophisticated
+            portfolio_impact = sum(
+                p.market_value * shock * (p.delta if p.delta else 1.0)
+                for p in portfolio.positions
+            )
+            results[scenario] = portfolio_impact / portfolio.total_value if portfolio.total_value > 0 else 0
         
-        # Add simulated position
-        sim_position = Position(
-            symbol=trade.symbol,
-            quantity=trade.quantity,
-            entry_price=trade.price or 100,  # Mock price
-            current_price=trade.price or 100,
-            position_type='option' if trade.option_details else 'stock'
-        )
-        new_positions.append(sim_position)
-        
-        # Return simulated portfolio
-        return Portfolio(
-            positions=new_positions,
-            cash=portfolio.cash - (trade.quantity * trade.price if trade.price else 0),
-            buying_power=portfolio.buying_power,
-            total_value=portfolio.total_value,
-            daily_pnl=portfolio.daily_pnl,
-            daily_pnl_percent=portfolio.daily_pnl_percent,
-            timestamp=portfolio.timestamp
-        )
-        
-    def _apply_stress_scenario(
-        self, 
-        portfolio: Portfolio, 
-        scenario: str, 
-        shock: float
+        return results
+    
+    def _calculate_risk_score(
+        self,
+        var: float,
+        drawdown: float,
+        concentration: float,
+        correlation: float
     ) -> float:
-        """Apply stress scenario to portfolio."""
-        stressed_value = portfolio.total_value
+        """Calculate overall risk score (0-100)."""
+        # Weight different risk factors
+        var_score = min(100, var / self.risk_limits['max_portfolio_risk'] * 100)
+        dd_score = min(100, drawdown / self.risk_limits['max_drawdown'] * 100)
+        conc_score = min(100, concentration * 200)  # 0.5 concentration = 100
+        corr_score = min(100, correlation * 200)
         
-        if scenario == 'market_crash':
-            # Apply shock to all positions
-            position_value = sum(p.market_value * (1 + shock) for p in portfolio.positions)
-            stressed_value = portfolio.cash + position_value
+        # Weighted average
+        weights = [0.3, 0.3, 0.2, 0.2]
+        scores = [var_score, dd_score, conc_score, corr_score]
+        
+        risk_score = sum(w * s for w, s in zip(weights, scores))
+        
+        return min(100, max(0, risk_score))
+    
+    # ==========================================================================
+    # PRIVATE METHODS - RISK CHECKS
+    # ==========================================================================
+    def _check_risk_violations(
+        self,
+        risk_metrics: RiskMetrics,
+        portfolio: Portfolio
+    ) -> List[str]:
+        """Check for risk limit violations."""
+        violations = []
+        
+        # Portfolio risk violations
+        if risk_metrics.portfolio_var > self.risk_limits['max_portfolio_risk']:
+            violations.append(
+                f"Portfolio VaR ({risk_metrics.portfolio_var:.1%}) exceeds limit "
+                f"({self.risk_limits['max_portfolio_risk']:.1%})"
+            )
+        
+        # Drawdown violations
+        if risk_metrics.current_drawdown > self.risk_limits['max_drawdown']:
+            violations.append(
+                f"Current drawdown ({risk_metrics.current_drawdown:.1%}) exceeds limit "
+                f"({self.risk_limits['max_drawdown']:.1%})"
+            )
+        
+        # Daily loss violations
+        if portfolio.daily_pnl / portfolio.total_value < -self.risk_limits['daily_loss_limit']:
+            violations.append(
+                f"Daily loss exceeds limit ({self.risk_limits['daily_loss_limit']:.1%})"
+            )
+        
+        # Concentration violations
+        if risk_metrics.position_concentration > 0.4:
+            violations.append("Excessive position concentration risk")
+        
+        # Risk score violations
+        if risk_metrics.risk_score > 80:
+            violations.append(f"Overall risk score too high ({risk_metrics.risk_score:.0f}/100)")
+        
+        return violations
+    
+    def _determine_risk_level(
+        self,
+        risk_metrics: RiskMetrics,
+        violations: List[str]
+    ) -> RiskLevel:
+        """Determine overall risk level."""
+        if len(violations) >= 3 or risk_metrics.risk_score > 90:
+            return RiskLevel.CRITICAL
+        elif len(violations) >= 2 or risk_metrics.risk_score > 80:
+            return RiskLevel.EXTREME
+        elif len(violations) >= 1 or risk_metrics.risk_score > 60:
+            return RiskLevel.HIGH
+        elif risk_metrics.risk_score > 40:
+            return RiskLevel.MODERATE
+        else:
+            return RiskLevel.LOW
+    
+    def _generate_recommendations(
+        self,
+        risk_metrics: RiskMetrics,
+        violations: List[str],
+        portfolio: Portfolio
+    ) -> List[str]:
+        """Generate risk management recommendations."""
+        recommendations = []
+        
+        # VaR recommendations
+        if risk_metrics.portfolio_var > self.risk_limits['max_portfolio_risk'] * 0.8:
+            recommendations.append("Consider reducing overall portfolio exposure")
+        
+        # Drawdown recommendations
+        if risk_metrics.current_drawdown > self.risk_limits['max_drawdown'] * 0.5:
+            recommendations.append("Implement defensive strategies to protect capital")
+        
+        # Concentration recommendations
+        if risk_metrics.position_concentration > 0.3:
+            recommendations.append("Diversify positions to reduce concentration risk")
+        
+        # Sharpe ratio recommendations
+        if risk_metrics.sharpe_ratio < 0.5:
+            recommendations.append("Review strategy performance - low risk-adjusted returns")
+        
+        # Stress test recommendations
+        worst_scenario = min(risk_metrics.stress_test_results.values())
+        if worst_scenario < -0.15:
+            recommendations.append("Consider tail risk hedging strategies")
+        
+        return recommendations
+    
+    def _determine_required_actions(
+        self,
+        risk_level: RiskLevel,
+        violations: List[str],
+        portfolio: Portfolio
+    ) -> List[RiskAction]:
+        """Determine required risk management actions."""
+        actions = []
+        
+        if risk_level == RiskLevel.CRITICAL:
+            actions.append(RiskAction.HALT_TRADING)
+            actions.append(RiskAction.CLOSE_POSITION)
+        elif risk_level == RiskLevel.EXTREME:
+            actions.append(RiskAction.REDUCE_SIZE)
+            actions.append(RiskAction.HEDGE)
+        elif risk_level == RiskLevel.HIGH:
+            actions.append(RiskAction.ADJUST_LIMITS)
+        
+        # Check for specific violations
+        for violation in violations:
+            if "Daily loss" in violation:
+                actions.append(RiskAction.HALT_TRADING)
+            elif "drawdown" in violation:
+                actions.append(RiskAction.REDUCE_SIZE)
+        
+        return list(set(actions))  # Remove duplicates
+    
+    # ==========================================================================
+    # PRIVATE METHODS - TRADE EVALUATION
+    # ==========================================================================
+    def _calculate_trade_impact(
+        self,
+        trade_request: TradeRequest,
+        portfolio: Portfolio
+    ) -> Dict[str, Any]:
+        """Calculate the impact of a proposed trade."""
+        # Estimate position value
+        position_value = trade_request.quantity * (trade_request.price or 100) * 100
+        
+        # Risk contribution
+        risk_contribution = abs(position_value * trade_request.expected_risk)
+        risk_contribution_pct = risk_contribution / portfolio.total_value if portfolio.total_value > 0 else 0
+        
+        # Portfolio impact
+        new_total_value = portfolio.total_value + position_value
+        concentration_impact = position_value / new_total_value if new_total_value > 0 else 0
+        
+        return {
+            'position_value': position_value,
+            'risk_contribution': risk_contribution_pct,
+            'concentration_impact': concentration_impact,
+            'expected_return': trade_request.expected_return,
+            'risk_reward_ratio': (
+                trade_request.expected_return / trade_request.expected_risk
+                if trade_request.expected_risk > 0 else 0
+            )
+        }
+    
+    def _check_position_limits(
+        self,
+        trade_request: TradeRequest,
+        portfolio: Portfolio
+    ) -> Dict[str, Any]:
+        """Check if trade violates position limits."""
+        # Check number of positions
+        max_positions = self.config.get('max_positions', 10)
+        current_positions = len(portfolio.positions)
+        
+        # Check if adding new position
+        is_new_position = not any(
+            p.symbol == trade_request.symbol for p in portfolio.positions
+        )
+        
+        if is_new_position and current_positions >= max_positions:
+            return {
+                'passed': False,
+                'reason': f'Maximum positions ({max_positions}) reached'
+            }
+        
+        # Check position size limits
+        position_value = trade_request.quantity * (trade_request.price or 100) * 100
+        max_position_value = portfolio.total_value * 0.2  # 20% max per position
+        
+        if position_value > max_position_value:
+            return {
+                'passed': False,
+                'reason': f'Position size exceeds 20% of portfolio'
+            }
+        
+        return {'passed': True, 'reason': 'Position limits OK'}
+    
+    def _project_portfolio_risk(
+        self,
+        trade_request: TradeRequest,
+        portfolio: Portfolio,
+        trade_impact: Dict[str, Any]
+    ) -> float:
+        """Project portfolio risk with new trade."""
+        # Current portfolio risk
+        current_risk = portfolio.current_risk
+        
+        # Add trade risk contribution
+        projected_risk = current_risk + trade_impact['risk_contribution']
+        
+        # Adjust for correlation (simplified)
+        correlation_adjustment = 0.8  # Assume 80% correlation benefit
+        projected_risk *= correlation_adjustment
+        
+        return projected_risk
+    
+    def _get_evaluation_reason(
+        self,
+        approved: bool,
+        position_check: Dict[str, Any],
+        projected_risk: float,
+        trade_impact: Dict[str, Any]
+    ) -> str:
+        """Generate evaluation reason."""
+        if not approved:
+            if not position_check['passed']:
+                return position_check['reason']
+            elif projected_risk > self.risk_limits['max_portfolio_risk']:
+                return f"Projected portfolio risk ({projected_risk:.1%}) exceeds limit"
+            elif trade_impact['risk_contribution'] > self.risk_limits['max_position_risk']:
+                return f"Position risk contribution too high"
+            else:
+                return "Trade rejected due to risk constraints"
+        else:
+            return f"Trade approved - Risk within limits ({projected_risk:.1%})"
+    
+    # ==========================================================================
+    # PRIVATE METHODS - CIRCUIT BREAKERS
+    # ==========================================================================
+    def _check_circuit_breakers(
+        self,
+        assessment: RiskAssessment,
+        portfolio: Portfolio
+    ):
+        """Check and activate circuit breakers if needed."""
+        # Daily loss circuit breaker
+        daily_loss_pct = portfolio.daily_pnl / portfolio.total_value if portfolio.total_value > 0 else 0
+        if daily_loss_pct < -self.risk_limits['daily_loss_limit']:
+            self._activate_circuit_breaker("Daily loss limit exceeded")
             
-        return stressed_value
+        # Consecutive losses circuit breaker
+        if portfolio.daily_pnl < 0:
+            self.daily_losses.append(portfolio.daily_pnl)
+            if len(self.daily_losses) == CONSECUTIVE_LOSSES and all(loss < 0 for loss in self.daily_losses):
+                self._activate_circuit_breaker("Consecutive losses limit reached")
         
-    def clear_cache(self):
-        """Clear calculation cache."""
-        self._calculate_var.cache_clear()
-
-# ==============================================================================
-# RISK INTERPRETER CLASS
-# ==============================================================================
-class RiskInterpreter:
-    """
-    AI agent that interprets risk metrics and provides insights.
+        # Risk level circuit breaker
+        if assessment.risk_level == RiskLevel.CRITICAL:
+            self._activate_circuit_breaker("Critical risk level reached")
     
-    Uses LLM to analyze risk in context and generate actionable
-    recommendations.
-    """
+    def _activate_circuit_breaker(self, reason: str):
+        """Activate circuit breaker."""
+        self.circuit_breaker_active = True
+        self.last_circuit_breaker_time = datetime.now()
+        self.logger.warning(f"CIRCUIT BREAKER ACTIVATED: {reason}")
     
-    def __init__(self, llm_model: str = DEFAULT_LLM_MODEL):
-        """Initialize risk interpreter."""
-        self.logger = SpyderLogger(__name__)
-        self.llm = OllamaLLM(model=llm_model, temperature=0.1)
-        
-    def analyze_risk(
+    def reset_circuit_breaker(self):
+        """Reset circuit breaker (manual override)."""
+        self.circuit_breaker_active = False
+        self.daily_losses.clear()
+        self.logger.info("Circuit breaker reset")
+    
+    # ==========================================================================
+    # PRIVATE METHODS - AI INTEGRATION
+    # ==========================================================================
+    async def _get_ai_risk_insights(
         self,
         risk_metrics: RiskMetrics,
         portfolio: Portfolio,
-        market_context: Dict[str, Any]
+        violations: List[str],
+        market_data: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Analyze risk metrics with AI."""
-        # Build prompt
-        prompt = self._build_risk_prompt(risk_metrics, portfolio, market_context)
-        
-        # Get LLM analysis
-        response = self.llm.invoke(prompt)
-        
-        # Parse response
-        return self._parse_risk_analysis(response, risk_metrics)
-        
-    async def evaluate_trade(
+        """Get AI insights on risk using Ollama."""
+        try:
+            prompt = self._build_risk_prompt(risk_metrics, portfolio, violations, market_data)
+            
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': MAX_TOKENS
+                }
+            )
+            
+            return self._parse_ai_risk_response(response['response'])
+            
+        except Exception as e:
+            self.logger.error(f"Error getting AI risk insights: {e}")
+            return {}
+    
+    async def _get_ai_trade_evaluation(
         self,
-        trade: TradeRequest,
+        trade_request: TradeRequest,
         portfolio: Portfolio,
-        risk_metrics: Dict[str, float],
-        market_context: Optional[Dict[str, Any]] = None
+        trade_impact: Dict[str, Any],
+        projected_risk: float,
+        market_data: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Evaluate trade risk with AI."""
-        prompt = self._build_trade_prompt(trade, portfolio, risk_metrics, market_context)
-        response = self.llm.invoke(prompt)
-        return self._parse_trade_evaluation(response)
-        
+        """Get AI evaluation of trade using Ollama."""
+        try:
+            prompt = self._build_trade_evaluation_prompt(
+                trade_request,
+                portfolio,
+                trade_impact,
+                projected_risk,
+                market_data
+            )
+            
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': MAX_TOKENS
+                }
+            )
+            
+            return self._parse_ai_trade_response(response['response'])
+            
+        except Exception as e:
+            self.logger.error(f"Error getting AI trade evaluation: {e}")
+            return {
+                'approved': projected_risk < self.risk_limits['max_portfolio_risk'],
+                'reason': 'AI evaluation unavailable - using rule-based decision',
+                'recommendations': []
+            }
+    
+    async def _get_ai_stress_test_analysis(
+        self,
+        results: Dict[str, Any],
+        portfolio: Portfolio,
+        worst_case_loss: float
+    ) -> Dict[str, Any]:
+        """Get AI analysis of stress test results."""
+        try:
+            prompt = self._build_stress_test_prompt(results, portfolio, worst_case_loss)
+            
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': MAX_TOKENS
+                }
+            )
+            
+            return self._parse_ai_stress_response(response['response'])
+            
+        except Exception as e:
+            self.logger.error(f"Error getting AI stress test analysis: {e}")
+            return {
+                'interpretation': f"Stress test shows worst case loss of {worst_case_loss:.1%}",
+                'recommendations': []
+            }
+    
     def _build_risk_prompt(
         self,
         risk_metrics: RiskMetrics,
         portfolio: Portfolio,
-        market_context: Dict[str, Any]
+        violations: List[str],
+        market_data: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Build risk analysis prompt."""
-        return f"""You are an expert risk manager analyzing portfolio risk.
+        """Build risk assessment prompt for Ollama."""
+        violations_str = "\n".join(f"- {v}" for v in violations) if violations else "None"
+        
+        market_str = ""
+        if market_data:
+            market_str = f"\nMarket Context:\n- VIX: {market_data.get('vix', 'N/A')}\n- Trend: {market_data.get('trend', 'N/A')}"
+        
+        prompt = f"""You are an expert risk manager analyzing portfolio risk.
 
-Portfolio Overview:
+Portfolio Metrics:
 - Total Value: ${portfolio.total_value:,.2f}
-- Positions: {portfolio.position_count}
-- Cash: {portfolio.cash_percentage:.1%}
-- Daily P&L: {portfolio.daily_pnl_percent:.2%}
+- Current Risk: {portfolio.current_risk:.1%}
+- Daily P&L: ${portfolio.daily_pnl:,.2f}
+- Number of Positions: {len(portfolio.positions)}
 
 Risk Metrics:
-- VaR (95%): {risk_metrics.portfolio_var:.2%}
-- CVaR (95%): {risk_metrics.portfolio_cvar:.2%}
+- Portfolio VaR (95%): {risk_metrics.portfolio_var:.1%}
+- Portfolio CVaR: {risk_metrics.portfolio_cvar:.1%}
 - Sharpe Ratio: {risk_metrics.sharpe_ratio:.2f}
-- Max Drawdown: {risk_metrics.max_drawdown:.2%}
-- Current Drawdown: {risk_metrics.current_drawdown:.2%}
-- Leverage: {risk_metrics.leverage_ratio:.1f}x
-- Concentration Risk: {risk_metrics.concentration_risk:.2f}
+- Sortino Ratio: {risk_metrics.sortino_ratio:.2f}
+- Current Drawdown: {risk_metrics.current_drawdown:.1%}
+- Risk Score: {risk_metrics.risk_score:.0f}/100
 
-Market Context:
-- VIX: {market_context.get('vix', 'N/A')}
-- Trend: {market_context.get('trend', 'N/A')}
+Violations:
+{violations_str}
+{market_str}
 
-Provide risk assessment in JSON format:
-{{
-    "risk_level": "low|moderate|elevated|high|critical",
-    "risk_score": 0-100,
-    "risk_factors": ["factor1", "factor2"],
-    "recommendations": ["action1", "action2"],
-    "confidence_score": 0.0-1.0
-}}"""
-        
-    def _build_trade_prompt(
+Provide risk analysis as JSON with:
+1. Key risk factors to monitor
+2. Specific recommendations for risk reduction
+3. Hidden risks not captured in metrics
+4. Overall confidence in risk assessment (0-1)
+
+Format: {{"risk_factors": [], "recommendations": [], "hidden_risks": [], "confidence": 0.8}}"""
+
+        return prompt
+    
+    def _build_trade_evaluation_prompt(
         self,
-        trade: TradeRequest,
+        trade_request: TradeRequest,
         portfolio: Portfolio,
-        risk_metrics: Dict[str, float],
-        market_context: Optional[Dict[str, Any]]
+        trade_impact: Dict[str, Any],
+        projected_risk: float,
+        market_data: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Build trade evaluation prompt."""
-        return f"""Evaluate this trade from a risk perspective:
-
-Trade Details:
-- Symbol: {trade.symbol}
-- Side: {trade.side}
-- Quantity: {trade.quantity}
-- Type: {trade.order_type}
-
-Risk Impact:
-- VaR Change: {risk_metrics['var_change']:.2%}
-- Leverage Change: {risk_metrics['leverage_change']:.2f}x
-- Concentration Change: {risk_metrics['concentration_change']:.2f}
-
-Current Portfolio:
-- Positions: {portfolio.position_count}
-- Leverage: {portfolio.total_market_value / portfolio.total_value:.1f}x
-
-Provide evaluation in JSON:
-{{
-    "risk_score": 0-100,
-    "approve": true/false,
-    "adjusted_size": null or number,
-    "reasons": ["reason1", "reason2"],
-    "hedge_suggestions": []
-}}"""
+        """Build trade evaluation prompt for Ollama."""
+        market_str = ""
+        if market_data:
+            market_str = f"\nMarket: VIX={market_data.get('vix', 'N/A')}"
         
-    def _parse_risk_analysis(
-        self, 
-        response: str, 
-        risk_metrics: RiskMetrics
-    ) -> Dict[str, Any]:
-        """Parse risk analysis from LLM."""
-        try:
-            import re
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
-                
-                # Convert string risk level to enum
-                risk_level_str = data.get('risk_level', 'moderate')
-                risk_level = RiskLevel[risk_level_str.upper()]
-                
-                return {
-                    'risk_level': risk_level,
-                    'risk_score': data.get('risk_score', 50),
-                    'risk_factors': data.get('risk_factors', []),
-                    'recommendations': data.get('recommendations', []),
-                    'confidence_score': data.get('confidence_score', 0.7)
-                }
-        except Exception as e:
-            self.logger.error(f"Failed to parse risk analysis: {e}")
-            
-        # Fallback to rule-based
-        return self._get_rule_based_analysis(risk_metrics)
+        prompt = f"""You are a risk manager evaluating a trade request.
+
+Trade Request:
+- Symbol: {trade_request.symbol}
+- Side: {trade_request.side}
+- Quantity: {trade_request.quantity}
+- Strategy: {trade_request.strategy_type}
+- Expected Risk: {trade_request.expected_risk:.1%}
+- Expected Return: {trade_request.expected_return:.1%}
+
+Portfolio:
+- Total Value: ${portfolio.total_value:,.2f}
+- Current Risk: {portfolio.current_risk:.1%}
+- Available Cash: ${portfolio.cash:,.2f}
+
+Trade Impact:
+- Risk Contribution: {trade_impact['risk_contribution']:.1%}
+- Projected Portfolio Risk: {projected_risk:.1%}
+- Risk/Reward Ratio: {trade_impact['risk_reward_ratio']:.2f}
+{market_str}
+
+Should this trade be approved? Provide decision as JSON:
+{{"approved": true/false, "reason": "explanation", "recommendations": ["list of recommendations if any"]}}"""
+
+        return prompt
+    
+    def _build_stress_test_prompt(
+        self,
+        results: Dict[str, Any],
+        portfolio: Portfolio,
+        worst_case_loss: float
+    ) -> str:
+        """Build stress test analysis prompt."""
+        scenarios_str = "\n".join(
+            f"- {name}: {result['portfolio_change']:.1%}"
+            for name, result in results.items()
+        )
         
-    def _parse_trade_evaluation(self, response: str) -> Dict[str, Any]:
-        """Parse trade evaluation from LLM."""
+        prompt = f"""You are a risk expert analyzing stress test results.
+
+Portfolio Value: ${portfolio.total_value:,.2f}
+
+Stress Test Results:
+{scenarios_str}
+
+Worst Case Loss: {worst_case_loss:.1%}
+
+Provide analysis as JSON with:
+1. Interpretation of results
+2. Specific hedging recommendations
+3. Risk mitigation strategies
+
+Format: {{"interpretation": "text", "recommendations": ["list"]}}"""
+
+        return prompt
+    
+    def _parse_ai_risk_response(self, response: str) -> Dict[str, Any]:
+        """Parse Ollama risk assessment response."""
         try:
-            import re
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
+            if '{' in response and '}' in response:
+                start = response.find('{')
+                end = response.rfind('}') + 1
+                json_str = response[start:end]
+                return json.loads(json_str)
         except:
             pass
-            
-        # Fallback
+        
         return {
-            'risk_score': 50,
-            'approve': True,
-            'adjusted_size': None,
-            'reasons': ['Unable to parse AI response'],
-            'hedge_suggestions': []
+            'risk_factors': [],
+            'recommendations': [],
+            'hidden_risks': [],
+            'confidence': 0.7
         }
+    
+    def _parse_ai_trade_response(self, response: str) -> Dict[str, Any]:
+        """Parse Ollama trade evaluation response."""
+        try:
+            if '{' in response and '}' in response:
+                start = response.find('{')
+                end = response.rfind('}') + 1
+                json_str = response[start:end]
+                data = json.loads(json_str)
+                return {
+                    'approved': bool(data.get('approved', False)),
+                    'reason': data.get('reason', ''),
+                    'recommendations': data.get('recommendations', [])
+                }
+        except:
+            pass
         
-    def _get_rule_based_analysis(self, risk_metrics: RiskMetrics) -> Dict[str, Any]:
-        """Rule-based risk analysis as fallback."""
-        risk_score = 0
-        risk_factors = []
-        recommendations = []
-        
-        # VaR check
-        if risk_metrics.portfolio_var < -0.02:
-            risk_score += 30
-            risk_factors.append("High Value at Risk")
-            recommendations.append("Reduce position sizes")
-            
-        # Leverage check
-        if risk_metrics.leverage_ratio > 1.5:
-            risk_score += 20
-            risk_factors.append("Elevated leverage")
-            recommendations.append("Deleverage portfolio")
-            
-        # Drawdown check
-        if risk_metrics.current_drawdown < -0.05:
-            risk_score += 25
-            risk_factors.append("Significant drawdown")
-            recommendations.append("Review stop losses")
-            
-        # Determine risk level
-        if risk_score >= 80:
-            risk_level = RiskLevel.CRITICAL
-        elif risk_score >= 60:
-            risk_level = RiskLevel.HIGH
-        elif risk_score >= 40:
-            risk_level = RiskLevel.ELEVATED
-        elif risk_score >= 20:
-            risk_level = RiskLevel.MODERATE
-        else:
-            risk_level = RiskLevel.LOW
-            
         return {
-            'risk_level': risk_level,
-            'risk_score': risk_score,
-            'risk_factors': risk_factors,
-            'recommendations': recommendations,
-            'confidence_score': 0.7
+            'approved': False,
+            'reason': 'Failed to parse AI response',
+            'recommendations': []
         }
-
-# ==============================================================================
-# CIRCUIT BREAKER CLASS
-# ==============================================================================
-class CircuitBreaker:
-    """
-    Intelligent circuit breaker for risk control.
-    """
     
-    def __init__(self, levels: Dict[str, float]):
-        """Initialize circuit breaker."""
-        self.levels = levels
-        self.state = CircuitBreakerState.NORMAL
-        self.triggers = []
+    def _parse_ai_stress_response(self, response: str) -> Dict[str, Any]:
+        """Parse Ollama stress test response."""
+        try:
+            if '{' in response and '}' in response:
+                start = response.find('{')
+                end = response.rfind('}') + 1
+                json_str = response[start:end]
+                return json.loads(json_str)
+        except:
+            pass
         
-    def evaluate(self, daily_loss: float, risk_score: float) -> CircuitBreakerState:
-        """Evaluate circuit breaker state."""
-        # Check loss-based triggers
-        if daily_loss <= -self.levels['emergency']:
-            return CircuitBreakerState.EMERGENCY
-        elif daily_loss <= -self.levels['halt']:
-            return CircuitBreakerState.HALT
-        elif daily_loss <= -self.levels['reduce']:
-            return CircuitBreakerState.REDUCE
-        elif daily_loss <= -self.levels['warning']:
-            return CircuitBreakerState.WARNING
-            
-        # Check risk score triggers
-        if risk_score >= 90:
-            return CircuitBreakerState.HALT
-        elif risk_score >= 70:
-            return CircuitBreakerState.REDUCE
-        elif risk_score >= 50:
-            return CircuitBreakerState.WARNING
-            
-        return CircuitBreakerState.NORMAL
-
-# ==============================================================================
-# POSITION SIZER CLASS
-# ==============================================================================
-class PositionSizer:
-    """
-    Intelligent position sizing based on risk.
-    """
+        return {
+            'interpretation': 'Stress test analysis unavailable',
+            'recommendations': []
+        }
     
-    def __init__(self, risk_limits: Dict[str, float]):
-        """Initialize position sizer."""
-        self.risk_limits = risk_limits
-        
-    def calculate_size(
+    # ==========================================================================
+    # PRIVATE METHODS - STRESS TESTING
+    # ==========================================================================
+    def _get_default_stress_scenarios(self) -> List[Dict[str, Any]]:
+        """Get default stress test scenarios."""
+        return [
+            {
+                'name': 'Market Crash',
+                'market_shock': -0.20,
+                'volatility_shock': 2.0,
+                'correlation': 0.9
+            },
+            {
+                'name': 'Flash Crash',
+                'market_shock': -0.10,
+                'volatility_shock': 3.0,
+                'correlation': 0.95
+            },
+            {
+                'name': 'Volatility Spike',
+                'market_shock': -0.05,
+                'volatility_shock': 2.5,
+                'correlation': 0.7
+            },
+            {
+                'name': 'Liquidity Crisis',
+                'market_shock': -0.15,
+                'volatility_shock': 1.5,
+                'correlation': 0.8
+            }
+        ]
+    
+    def _run_stress_scenario(
         self,
-        symbol: str,
         portfolio: Portfolio,
-        risk_amount: float
-    ) -> int:
-        """Calculate optimal position size."""
-        # Kelly criterion simplified
-        max_position_value = portfolio.total_value * self.risk_limits['max_position_size']
+        scenario: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Run a single stress scenario."""
+        total_impact = 0
         
-        # Adjust for current exposure
-        current_exposure = sum(p.market_value for p in portfolio.positions if p.symbol == symbol)
-        available_exposure = max_position_value - current_exposure
+        for position in portfolio.positions:
+            # Market impact
+            market_impact = position.market_value * scenario['market_shock']
+            
+            # Adjust for position delta
+            if position.delta:
+                market_impact *= abs(position.delta)
+            
+            # Volatility impact
+            if position.vega:
+                vol_impact = position.vega * scenario['volatility_shock'] * 100
+                market_impact += vol_impact
+            
+            total_impact += market_impact
         
-        # Calculate shares (simplified)
-        price_estimate = 100  # Would get from market data
-        max_shares = int(available_exposure / price_estimate)
-        
-        return max(0, max_shares)
-        
-    def calculate_impact(
-        self,
-        trade: TradeRequest,
-        portfolio: Portfolio
-    ) -> Dict[str, float]:
-        """Calculate position size impact."""
-        trade_value = trade.quantity * (trade.price or 100)
+        portfolio_change = total_impact / portfolio.total_value if portfolio.total_value > 0 else 0
         
         return {
-            'position_percentage': trade_value / portfolio.total_value,
-            'concentration_impact': self._calc_concentration_impact(trade, portfolio),
-            'leverage_impact': trade_value / portfolio.buying_power
+            'portfolio_change': portfolio_change,
+            'dollar_impact': total_impact,
+            'margin_call_risk': portfolio_change < -0.15
         }
-        
-    def _calc_concentration_impact(
-        self,
-        trade: TradeRequest,
-        portfolio: Portfolio
-    ) -> float:
-        """Calculate concentration impact."""
-        # Simplified calculation
-        symbol_exposure = sum(p.market_value for p in portfolio.positions if p.symbol == trade.symbol)
-        trade_value = trade.quantity * (trade.price or 100)
-        
-        new_concentration = (symbol_exposure + trade_value) / portfolio.total_value
-        return new_concentration
+    
+    # ==========================================================================
+    # LIFECYCLE METHODS
+    # ==========================================================================
+    def update_returns(self, daily_return: float):
+        """Update historical returns for risk calculations."""
+        self.historical_returns.append(daily_return)
+    
+    def update_volatility(self, volatility: float):
+        """Update volatility history."""
+        self.volatility_history.append(volatility)
+    
+    def clear_history(self):
+        """Clear risk assessment history."""
+        self.risk_history.clear()
+        self.historical_returns.clear()
+        self.volatility_history.clear()
+        self.daily_losses.clear()
+        self.logger.info("Risk history cleared")
 
 # ==============================================================================
 # MODULE FUNCTIONS
@@ -1373,7 +1299,7 @@ def create_risk_guardian_agent(config: Optional[Dict[str, Any]] = None) -> Spyde
     Factory function to create Risk Guardian Agent.
     
     Args:
-        config: Agent configuration
+        config: Optional configuration dictionary
         
     Returns:
         Configured SpyderX04_RiskGuardianAgent instance
@@ -1397,7 +1323,7 @@ def get_module_instance(config: Optional[Dict[str, Any]] = None) -> SpyderX04_Ri
         Module instance
     """
     global _module_instance
-    if _module_instance is None and config is not None:
+    if _module_instance is None:
         _module_instance = SpyderX04_RiskGuardianAgent(config)
     return _module_instance
 
@@ -1405,111 +1331,142 @@ def get_module_instance(config: Optional[Dict[str, Any]] = None) -> SpyderX04_Ri
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Module testing code
-    print("Testing SpyderX04_RiskGuardianAgent module...")
-    print("=" * 60)
-    
-    # Configuration
-    test_config = {
-        'risk_limits': DEFAULT_RISK_LIMITS,
-        'circuit_breaker_levels': CIRCUIT_BREAKER_LEVELS,
-        'llm_model': DEFAULT_LLM_MODEL
-    }
-    
-    # Create agent
-    agent = SpyderX04_RiskGuardianAgent(test_config)
-    
-    if agent.initialize():
-        print("✅ Risk Guardian Agent initialized successfully")
+    async def test_agent():
+        """Test the Risk Guardian Agent."""
+        # Create agent
+        config = {
+            'llm_model': 'llama3.2:3b-instruct-q4_K_M',
+            'temperature': 0.2,
+            'max_portfolio_risk': 0.02,
+            'max_drawdown': 0.10
+        }
         
-        # Create test portfolio
-        test_positions = [
+        agent = create_risk_guardian_agent(config)
+        
+        # Create sample portfolio
+        positions = [
             Position(
-                symbol="SPY",
-                quantity=100,
-                entry_price=545.00,
-                current_price=548.50,
-                position_type="stock"
+                symbol="SPY_CALL_550",
+                quantity=10,
+                entry_price=5.00,
+                current_price=5.50,
+                position_type='long',
+                market_value=5500,
+                unrealized_pnl=500,
+                delta=0.45,
+                gamma=0.02,
+                vega=0.15,
+                theta=-0.25
             ),
             Position(
-                symbol="SPY_240201C550",
-                quantity=10,
-                entry_price=4.50,
-                current_price=5.25,
-                position_type="option",
-                option_type="call",
-                strike=550.0,
-                expiry=datetime.now() + timedelta(days=10),
-                delta=0.45
+                symbol="SPY_PUT_540",
+                quantity=5,
+                entry_price=4.00,
+                current_price=3.50,
+                position_type='long',
+                market_value=1750,
+                unrealized_pnl=-250,
+                delta=-0.35,
+                gamma=0.02,
+                vega=0.12,
+                theta=-0.20
             )
         ]
         
-        test_portfolio = Portfolio(
-            positions=test_positions,
-            cash=50000.0,
-            buying_power=100000.0,
-            total_value=105000.0,
-            daily_pnl=1250.0,
-            daily_pnl_percent=0.012,
-            timestamp=datetime.now()
+        portfolio = Portfolio(
+            cash=20000,
+            positions=positions,
+            total_value=27250,
+            current_risk=0.015,
+            max_drawdown=0.05,
+            daily_pnl=250,
+            realized_pnl=1500
         )
         
-        # Market context
-        market_context = {
-            'vix': 16.5,
-            'trend': 'Bullish',
-            'volume': 'Average'
-        }
+        # Test portfolio risk assessment
+        print("="*80)
+        print("TESTING RISK GUARDIAN AGENT")
+        print("="*80)
+        print(f"Portfolio Value: ${portfolio.total_value:,.2f}")
+        print(f"Positions: {len(portfolio.positions)}")
+        print("\nAssessing portfolio risk...")
         
-        # Run risk assessment
-        import asyncio
+        assessment = await agent.assess_portfolio_risk(
+            portfolio,
+            {'vix': 16.5, 'trend': 'bullish'}
+        )
         
-        async def test_assessment():
-            print("\n📊 Running Portfolio Risk Assessment...")
-            assessment = await agent.assess_portfolio_risk(test_portfolio, market_context)
-            
-            print(f"\nRisk Level: {assessment.risk_level.value.upper()}")
-            print(f"Risk Score: {assessment.risk_score}/100")
-            print(f"Circuit Breaker: {assessment.circuit_breaker_state.value}")
-            print(f"Confidence: {assessment.confidence_score:.1%}")
-            
-            print("\nRisk Factors:")
-            for factor in assessment.risk_factors:
-                print(f"  • {factor}")
-                
+        print("\n" + "="*60)
+        print("RISK ASSESSMENT RESULTS")
+        print("="*60)
+        print(f"Risk Level: {assessment.risk_level.value.upper()}")
+        print(f"Risk Score: {assessment.risk_metrics.risk_score:.0f}/100")
+        print(f"Portfolio VaR (95%): {assessment.risk_metrics.portfolio_var:.1%}")
+        print(f"Sharpe Ratio: {assessment.risk_metrics.sharpe_ratio:.2f}")
+        print(f"Confidence: {assessment.confidence_score:.1%}")
+        
+        if assessment.violations:
+            print("\nViolations:")
+            for violation in assessment.violations:
+                print(f"  ⚠️  {violation}")
+        
+        if assessment.recommendations:
             print("\nRecommendations:")
             for rec in assessment.recommendations:
-                print(f"  → {rec}")
-                
-            # Test trade evaluation
-            print("\n📈 Testing Trade Evaluation...")
-            test_trade = TradeRequest(
-                symbol="SPY_240201P540",
-                quantity=5,
-                side="buy",
-                order_type="limit",
-                price=3.50
-            )
-            
-            evaluation = await agent.evaluate_trade(test_trade, test_portfolio, market_context)
-            print(f"\nTrade Action: {evaluation['action'].value}")
-            print(f"Risk Score: {evaluation['risk_score']}/100")
-            
-            if 'reasons' in evaluation:
-                print("\nReasons:")
-                for reason in evaluation['reasons']:
-                    print(f"  • {reason}")
-                    
-        asyncio.run(test_assessment())
+                print(f"  • {rec}")
         
-        # Performance metrics
-        print(f"\n⚡ Performance Metrics:")
-        metrics = agent.get_performance_metrics()
-        for key, value in metrics.items():
-            print(f"  {key}: {value}")
+        # Test trade evaluation
+        trade_request = TradeRequest(
+            symbol="SPY_CALL_560",
+            quantity=20,
+            side='buy',
+            order_type='limit',
+            price=3.00,
+            strategy_type='bull_call_spread',
+            expected_risk=0.005,
+            expected_return=0.015
+        )
         
-        # Cleanup
-        agent.stop()
-        agent.cleanup()
-    else:
-        print("❌ Risk Guardian Agent initialization failed")
+        print("\n" + "="*60)
+        print("TRADE EVALUATION")
+        print("="*60)
+        print(f"Trade: BUY {trade_request.quantity} {trade_request.symbol}")
+        
+        evaluation = await agent.evaluate_trade(trade_request, portfolio)
+        
+        print(f"Decision: {'APPROVED ✅' if evaluation['approved'] else 'REJECTED ❌'}")
+        print(f"Reason: {evaluation['reason']}")
+        print(f"Action: {evaluation['action'].value}")
+        
+        if evaluation.get('recommendations'):
+            print("Recommendations:")
+            for rec in evaluation['recommendations']:
+                print(f"  • {rec}")
+        
+        # Test stress testing
+        print("\n" + "="*60)
+        print("STRESS TEST RESULTS")
+        print("="*60)
+        
+        stress_results = await agent.stress_test_portfolio(portfolio)
+        
+        print(f"Worst Case Loss: {stress_results['worst_case_loss']:.1%}")
+        print("\nScenario Results:")
+        for scenario, result in stress_results['scenarios'].items():
+            print(f"  {scenario}: {result['portfolio_change']:.1%}")
+        
+        if stress_results.get('recommendations'):
+            print("\nStress Test Recommendations:")
+            for rec in stress_results['recommendations']:
+                print(f"  • {rec}")
+        
+        # Show risk summary
+        print("\n" + "="*60)
+        print("RISK SUMMARY")
+        print("="*60)
+        summary = agent.get_risk_summary()
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+    
+    # Run test
+    asyncio.run(test_agent())

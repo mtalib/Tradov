@@ -4,56 +4,85 @@
 SPYDER - Automated SPY Options Trading System
 
 Module: SpyderX07_ExecutionStrategyAgent.py
-Purpose: AI-Enhanced Order Execution and Smart Routing
 Group: X (AI Agents)
+Purpose: AI-Enhanced Order Execution and Smart Routing
 
 Description:
-    Replaces traditional market microstructure modules (SpyderM) with an
-    intelligent AI agent that optimizes order execution, predicts liquidity,
+    This agent replaces traditional market microstructure modules with an
+    intelligent AI system that optimizes order execution, predicts liquidity,
     minimizes market impact, and adapts execution algorithms in real-time.
+    It ensures best execution through intelligent decision-making about when,
+    where, and how to execute orders in the options market.
 
-    Replaced Modules:
-    - SpyderM01_OrderRouting
-    - SpyderM02_ExecutionAlgos
-    
-    This agent ensures best execution through intelligent decision-making
-    about when, where, and how to execute orders.
-
-Author: AI Trading Assistant
-Date: 2025-01-17
-Version: 1.0.0
-
-Dependencies:
-    - ollama (for LLM integration)
-    - numpy, pandas
-    - asyncio
-    - scipy
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-06-16
+Last Updated: 2025-06-19 Time: 11:00
 """
 
-import asyncio
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import json
+import asyncio
 import logging
-from datetime import datetime, timedelta, time
 from typing import Dict, List, Optional, Any, Tuple, Union, Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, time
 from enum import Enum, auto
-import numpy as np
-import pandas as pd
 from collections import defaultdict, deque
 import hashlib
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
 from scipy import stats
 
-# Import Spyder core components
-from SpyderU01_DataStructures import (
-    Order, OrderType, OrderStatus, TimeInForce,
-    OptionContract, ExecutionReport, MarketDepth
-)
-from SpyderU02_Configuration import config
-from SpyderU03_Logger import SpyderLogger
-from SpyderU04_EventManager import Event, EventType
-from SpyderU12_AgentIntegration import SpyderBaseAgent, AgentState
+# Ollama integration
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    print("Warning: ollama package not installed. Install with: pip install ollama")
+    OLLAMA_AVAILABLE = False
 
-# Execution Algorithm Types
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+# Note: In standalone mode, we're not importing from other Spyder modules
+# In production, these would be imported from the Spyder ecosystem
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+# LLM Configuration
+DEFAULT_LLM_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_TEMPERATURE = 0.2  # Lower for execution decisions
+MAX_TOKENS = 2000
+
+# Execution Configuration
+MAX_ORDER_SLICE = 1000
+MIN_ORDER_SIZE = 1
+DEFAULT_PARTICIPATION_RATE = 0.1
+MAX_SPREAD_CROSS = 0.02  # 2% max spread to cross
+URGENCY_THRESHOLD = 0.8
+
+# Market Hours
+MARKET_OPEN = time(9, 30)
+MARKET_CLOSE = time(16, 0)
+EARLY_CLOSE = time(13, 0)
+
+# ==============================================================================
+# LOGGING SETUP
+# ==============================================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
 class ExecutionAlgo(Enum):
     """Available execution algorithms"""
     MARKET = "market"
@@ -64,99 +93,170 @@ class ExecutionAlgo(Enum):
     MOC = "moc"    # Market on Close
     ICEBERG = "iceberg"
     SNIPER = "sniper"
-    IMPLEMENTATION_SHORTFALL = "implementation_shortfall"
-    ARRIVAL_PRICE = "arrival_price"
     ADAPTIVE = "adaptive"
 
-# Urgency Levels
-class Urgency(Enum):
-    """Order urgency levels"""
-    LOW = "low"          # Can wait for better prices
-    MEDIUM = "medium"    # Balance price and speed
-    HIGH = "high"        # Execute quickly
-    CRITICAL = "critical" # Execute immediately
+class OrderType(Enum):
+    """Order types"""
+    MARKET = "market"
+    LIMIT = "limit"
+    STOP = "stop"
+    STOP_LIMIT = "stop_limit"
 
-# Market Conditions
-class MarketCondition(Enum):
-    """Current market conditions"""
-    LIQUID = "liquid"
-    ILLIQUID = "illiquid"
-    VOLATILE = "volatile"
-    STABLE = "stable"
-    TRENDING = "trending"
-    CHOPPY = "choppy"
+class OrderStatus(Enum):
+    """Order status"""
+    PENDING = "pending"
+    SUBMITTED = "submitted"
+    PARTIAL = "partial"
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+    REJECTED = "rejected"
+
+class VenueType(Enum):
+    """Execution venue types"""
+    EXCHANGE = "exchange"
+    DARK_POOL = "dark_pool"
+    MARKET_MAKER = "market_maker"
+    ECN = "ecn"
+
+class UrgencyLevel(Enum):
+    """Order urgency levels"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
+@dataclass
+class Order:
+    """Order details"""
+    order_id: str
+    symbol: str
+    quantity: int
+    side: str  # 'buy' or 'sell'
+    order_type: OrderType
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    time_in_force: str = "DAY"
+    urgency: UrgencyLevel = UrgencyLevel.MEDIUM
+    strategy_tag: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    status: OrderStatus = OrderStatus.PENDING
+
+@dataclass
+class MarketMicrostructure:
+    """Market microstructure data"""
+    timestamp: datetime
+    bid: float
+    ask: float
+    bid_size: int
+    ask_size: int
+    last_price: float
+    last_size: int
+    total_volume: int
+    quote_count: int
+    trade_count: int
+    volatility: float
+    spread: float
+    depth_imbalance: float
+
+@dataclass
+class LiquidityProfile:
+    """Liquidity analysis for a symbol"""
+    symbol: str
+    avg_spread: float
+    avg_size: float
+    liquidity_score: float
+    best_execution_times: List[time]
+    venue_distribution: Dict[VenueType, float]
+    impact_estimate: float
+    urgency_cost: Dict[UrgencyLevel, float]
 
 @dataclass
 class ExecutionPlan:
     """Execution plan for an order"""
-    order_id: str
-    algo: ExecutionAlgo
-    parameters: Dict[str, Any]
-    venue_preferences: List[str]
-    time_constraints: Dict[str, Any]
-    price_limits: Dict[str, float]
-    slicing_strategy: Optional[Dict[str, Any]] = None
-    adaptations: List[Dict[str, Any]] = field(default_factory=list)
-    estimated_cost: float = 0.0
-    confidence: float = 0.0
-
-@dataclass
-class LiquidityProfile:
-    """Market liquidity analysis"""
-    timestamp: datetime
-    bid_depth: List[Tuple[float, int]]  # [(price, size), ...]
-    ask_depth: List[Tuple[float, int]]
-    spread: float
-    depth_imbalance: float
-    average_trade_size: float
-    liquidity_score: float  # 0-100
-    predicted_impact: Dict[str, float]  # size -> impact
-    hidden_liquidity_estimate: float
+    order: Order
+    algorithm: ExecutionAlgo
+    slices: List[Dict[str, Any]]
+    venues: List[VenueType]
+    timing_strategy: str
+    expected_cost: float
+    expected_duration: timedelta
+    risk_parameters: Dict[str, float]
 
 @dataclass
 class ExecutionAnalytics:
     """Post-execution analytics"""
     order_id: str
-    algo_used: ExecutionAlgo
-    arrival_price: float
-    average_price: float
-    vwap: float
+    algorithm_used: ExecutionAlgo
+    execution_time: timedelta
+    avg_price: float
     slippage: float
     market_impact: float
-    timing_cost: float
     total_cost: float
-    fill_rate: float
-    execution_time: timedelta
+    venue_breakdown: Dict[VenueType, float]
+    performance_vs_benchmark: float
 
 @dataclass
-class MarketMicrostructure:
-    """Market microstructure state"""
-    tick_size: float
-    lot_size: int
-    typical_spread: float
-    average_volume: float
-    volatility: float
-    participation_rate: float
-    trade_frequency: float
-    order_arrival_rate: float
+class MarketImpactModel:
+    """Market impact prediction model"""
+    symbol: str
+    temporary_impact: float
+    permanent_impact: float
+    decay_rate: float
+    confidence: float
 
-class ExecutionStrategyAgent(SpyderBaseAgent):
+# ==============================================================================
+# MAIN CLASS
+# ==============================================================================
+class SpyderX07_ExecutionStrategyAgent:
     """
-    AI-Enhanced Execution Strategy Agent
+    AI-Enhanced Execution Strategy Agent.
     
-    Provides intelligent order execution with adaptive algorithms,
-    liquidity prediction, and smart routing decisions.
-    """
+    This agent provides intelligent order execution by predicting liquidity,
+    optimizing routing, minimizing market impact, and adapting execution
+    algorithms in real-time using Ollama for decision support.
     
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize Execution Strategy Agent"""
-        super().__init__(config)
+    Attributes:
+        logger: Module logger instance
+        config: Agent configuration
+        ollama_client: Ollama LLM client
+        active_orders: Currently active orders
+        execution_analytics: Historical execution performance
         
-        # Agent configuration
-        self.llm_model = config.get('execution_llm_model', 'llama3.2:3b-instruct-q4_K_M')
-        self.max_order_slice = config.get('max_order_slice', 1000)
-        self.min_order_size = config.get('min_order_size', 1)
-        self.default_participation_rate = config.get('participation_rate', 0.1)
+    Example:
+        >>> agent = SpyderX07_ExecutionStrategyAgent()
+        >>> plan = await agent.create_execution_plan(order, market_data)
+        >>> result = await agent.execute_order(plan)
+    """
+    
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize the Execution Strategy Agent.
+        
+        Args:
+            config: Optional configuration dictionary
+        """
+        self.config = config or {}
+        self.logger = logger
+        
+        # LLM configuration
+        self.model_name = self.config.get('llm_model', DEFAULT_LLM_MODEL)
+        self.temperature = self.config.get('temperature', DEFAULT_TEMPERATURE)
+        self.max_order_slice = self.config.get('max_order_slice', MAX_ORDER_SLICE)
+        
+        # Initialize Ollama client
+        self.ollama_client = None
+        if OLLAMA_AVAILABLE:
+            try:
+                # Test if Ollama is running
+                ollama.list()
+                self.ollama_client = ollama
+                self.logger.info(f"Ollama initialized with model: {self.model_name}")
+            except Exception as e:
+                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.info("Agent will work with reduced AI capabilities")
         
         # Execution state
         self.active_orders: Dict[str, Order] = {}
@@ -179,7 +279,7 @@ class ExecutionStrategyAgent(SpyderBaseAgent):
         self.trade_tape: deque = deque(maxlen=10000)
         
         # Prediction models
-        self.impact_models: Dict[str, Any] = {}
+        self.impact_models: Dict[str, MarketImpactModel] = {}
         self.liquidity_predictors: Dict[str, Any] = {}
         
         # Execution algorithms
@@ -192,1797 +292,1488 @@ class ExecutionStrategyAgent(SpyderBaseAgent):
             ExecutionAlgo.ADAPTIVE: self._execute_adaptive
         }
         
-        self.logger.info("Execution Strategy Agent initialized")
-
-    async def initialize(self, event_manager=None, broker_interface=None):
-        """Initialize agent with dependencies"""
-        await super().initialize(event_manager)
-        
-        self.broker = broker_interface
-        
-        # Subscribe to events
-        if self.event_manager:
-            self.event_manager.subscribe(EventType.MARKET_DATA_UPDATE, self._handle_market_data)
-            self.event_manager.subscribe(EventType.ORDER_BOOK_UPDATE, self._handle_order_book)
-            self.event_manager.subscribe(EventType.TRADE_PRINT, self._handle_trade_print)
-            self.event_manager.subscribe(EventType.EXECUTION_REPORT, self._handle_execution_report)
-        
-        # Start monitoring loops
-        asyncio.create_task(self._monitor_executions())
-        asyncio.create_task(self._adapt_algorithms())
-        
-        self.state = AgentState.RUNNING
-        self.logger.info("Execution Strategy Agent initialized and running")
-
+        self.logger.info(f"{self.__class__.__name__} initialized")
+    
+    # ==========================================================================
+    # PUBLIC METHODS
+    # ==========================================================================
     async def create_execution_plan(
         self,
         order: Order,
-        urgency: Urgency = Urgency.MEDIUM,
+        market_data: Optional[MarketMicrostructure] = None,
         constraints: Optional[Dict[str, Any]] = None
     ) -> ExecutionPlan:
         """
-        Create intelligent execution plan for an order
+        Create optimal execution plan for an order.
         
         Args:
             order: Order to execute
-            urgency: Execution urgency level
-            constraints: Additional constraints
+            market_data: Current market microstructure
+            constraints: Execution constraints
             
         Returns:
-            Optimized execution plan
+            Detailed execution plan
         """
-        try:
-            # Analyze current market conditions
-            market_condition = await self._analyze_market_conditions(order.symbol)
-            
-            # Get liquidity profile
-            liquidity = await self._analyze_liquidity(order.symbol, order.quantity)
-            
-            # Predict market impact
-            impact_prediction = await self._predict_market_impact(
-                order, liquidity, market_condition
+        start_time = datetime.now()
+        
+        # Analyze order characteristics
+        order_analysis = self._analyze_order(order)
+        
+        # Get or update liquidity profile
+        liquidity = await self._analyze_liquidity(order.symbol, market_data)
+        
+        # Predict market impact
+        impact_model = await self._predict_market_impact(order, liquidity)
+        
+        # Select optimal algorithm
+        if self.ollama_client:
+            algorithm = await self._get_ai_algo_recommendation(
+                order,
+                liquidity,
+                impact_model,
+                constraints
             )
-            
-            # Select optimal algorithm
-            algo_selection = await self._select_execution_algorithm(
-                order, urgency, market_condition, liquidity, impact_prediction
-            )
-            
-            # Design execution parameters
-            execution_params = await self._design_execution_parameters(
-                order, algo_selection, urgency, constraints
-            )
-            
-            # Create slicing strategy if needed
-            slicing_strategy = None
-            if order.quantity > self.max_order_slice:
-                slicing_strategy = await self._create_slicing_strategy(
-                    order, algo_selection, liquidity
-                )
-            
-            # Estimate execution cost
-            estimated_cost = await self._estimate_execution_cost(
-                order, algo_selection, execution_params, impact_prediction
-            )
-            
-            # Build execution plan
-            plan = ExecutionPlan(
-                order_id=order.order_id,
-                algo=algo_selection['algo'],
-                parameters=execution_params,
-                venue_preferences=algo_selection.get('venues', ['SMART']),
-                time_constraints=self._get_time_constraints(urgency, constraints),
-                price_limits=self._get_price_limits(order, market_condition),
-                slicing_strategy=slicing_strategy,
-                estimated_cost=estimated_cost,
-                confidence=algo_selection['confidence']
-            )
-            
-            # Store plan
-            self.execution_plans[order.order_id] = plan
-            
-            self.logger.info(
-                f"Created execution plan for {order.order_id}: "
-                f"{plan.algo.value} with confidence {plan.confidence:.2f}"
-            )
-            
-            return plan
-            
-        except Exception as e:
-            self.logger.error(f"Error creating execution plan: {str(e)}")
-            # Return default plan
-            return self._get_default_execution_plan(order, urgency)
-
+        else:
+            algorithm = self._select_algorithm_rules(order, liquidity)
+        
+        # Create execution slices
+        slices = self._create_execution_slices(order, algorithm, liquidity)
+        
+        # Determine venue routing
+        venues = self._determine_venues(order, liquidity)
+        
+        # Calculate expected costs
+        expected_cost = self._calculate_expected_cost(
+            order,
+            algorithm,
+            impact_model,
+            liquidity
+        )
+        
+        # Estimate execution duration
+        expected_duration = self._estimate_duration(order, algorithm, liquidity)
+        
+        # Create plan
+        plan = ExecutionPlan(
+            order=order,
+            algorithm=algorithm,
+            slices=slices,
+            venues=venues,
+            timing_strategy=self._get_timing_strategy(order, market_data),
+            expected_cost=expected_cost,
+            expected_duration=expected_duration,
+            risk_parameters={
+                'max_slippage': constraints.get('max_slippage', 0.02) if constraints else 0.02,
+                'max_impact': constraints.get('max_impact', 0.01) if constraints else 0.01,
+                'urgency_premium': self._calculate_urgency_premium(order.urgency)
+            }
+        )
+        
+        # Store plan
+        self.execution_plans[order.order_id] = plan
+        
+        # Log planning time
+        elapsed = (datetime.now() - start_time).total_seconds()
+        self.logger.info(
+            f"Execution plan created for {order.order_id} using {algorithm.value} "
+            f"in {elapsed:.2f} seconds"
+        )
+        
+        return plan
+    
     async def execute_order(
         self,
-        order: Order,
-        plan: Optional[ExecutionPlan] = None
-    ) -> List[ExecutionReport]:
+        plan: ExecutionPlan,
+        real_time_updates: bool = True
+    ) -> ExecutionAnalytics:
         """
-        Execute order according to plan
+        Execute order according to plan.
         
         Args:
-            order: Order to execute
-            plan: Execution plan (will create if not provided)
+            plan: Execution plan
+            real_time_updates: Whether to adapt in real-time
             
         Returns:
-            List of execution reports
+            Execution analytics
         """
-        try:
-            # Create plan if not provided
-            if not plan:
-                plan = await self.create_execution_plan(order)
+        self.logger.info(f"Starting execution of order {plan.order.order_id}")
+        
+        # Mark order as active
+        self.active_orders[plan.order.order_id] = plan.order
+        plan.order.status = OrderStatus.SUBMITTED
+        
+        # Execute using selected algorithm
+        if plan.algorithm in self.algo_implementations:
+            execution_result = await self.algo_implementations[plan.algorithm](
+                plan,
+                real_time_updates
+            )
+        else:
+            # Default to simple execution
+            execution_result = await self._execute_simple(plan)
+        
+        # Calculate analytics
+        analytics = self._calculate_execution_analytics(
+            plan,
+            execution_result
+        )
+        
+        # Store analytics
+        self.execution_analytics.append(analytics)
+        self._update_performance_tracking(analytics)
+        
+        # Clean up
+        if plan.order.order_id in self.active_orders:
+            del self.active_orders[plan.order.order_id]
+        
+        self.logger.info(
+            f"Execution completed for {plan.order.order_id}. "
+            f"Avg price: {analytics.avg_price:.2f}, "
+            f"Slippage: {analytics.slippage:.2%}"
+        )
+        
+        return analytics
+    
+    async def analyze_market_microstructure(
+        self,
+        symbol: str,
+        lookback_minutes: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Analyze market microstructure for a symbol.
+        
+        Args:
+            symbol: Symbol to analyze
+            lookback_minutes: Historical data to consider
             
-            # Store active order
-            self.active_orders[order.order_id] = order
-            
-            # Execute based on algorithm
-            if plan.algo in self.algo_implementations:
-                execution_task = asyncio.create_task(
-                    self.algo_implementations[plan.algo](order, plan)
-                )
-                
-                # Monitor execution
-                reports = await self._monitor_execution(order, execution_task)
-            else:
-                # Direct execution for simple orders
-                reports = await self._execute_direct(order)
-            
-            # Analyze execution quality
-            analytics = await self._analyze_execution_quality(order, reports, plan)
-            self.execution_analytics.append(analytics)
-            
-            # Update performance tracking
-            self._update_performance_metrics(plan.algo, analytics)
-            
-            return reports
-            
-        except Exception as e:
-            self.logger.error(f"Error executing order {order.order_id}: {str(e)}")
-            return []
-
-    async def _analyze_market_conditions(self, symbol: str) -> MarketCondition:
-        """Analyze current market conditions"""
-        # Get recent market data
-        recent_data = [d for d in self.market_data_buffer if d.get('symbol') == symbol]
+        Returns:
+            Microstructure analysis
+        """
+        # Get recent data
+        recent_data = self._get_recent_microstructure(symbol, lookback_minutes)
         
         if not recent_data:
-            return MarketCondition.STABLE
+            return {"error": "No microstructure data available"}
         
-        # Calculate volatility
-        prices = [d['price'] for d in recent_data[-50:]]
-        if len(prices) > 2:
-            returns = np.diff(prices) / prices[:-1]
-            volatility = np.std(returns) * np.sqrt(252 * 390)  # Annualized intraday
+        # Calculate metrics
+        analysis = {
+            'avg_spread': np.mean([d.spread for d in recent_data]),
+            'spread_volatility': np.std([d.spread for d in recent_data]),
+            'avg_depth_imbalance': np.mean([d.depth_imbalance for d in recent_data]),
+            'liquidity_score': self._calculate_liquidity_score(recent_data),
+            'best_execution_times': self._identify_best_execution_times(recent_data),
+            'volatility_regime': self._classify_volatility_regime(recent_data)
+        }
+        
+        # Get AI insights if available
+        if self.ollama_client:
+            ai_insights = await self._get_ai_microstructure_insights(
+                symbol,
+                analysis,
+                recent_data
+            )
+            analysis['ai_insights'] = ai_insights
+        
+        return analysis
+    
+    async def optimize_execution_parameters(
+        self,
+        order: Order,
+        historical_executions: Optional[List[ExecutionAnalytics]] = None
+    ) -> Dict[str, Any]:
+        """
+        Optimize execution parameters based on historical performance.
+        
+        Args:
+            order: Order to optimize for
+            historical_executions: Historical execution data
+            
+        Returns:
+            Optimized parameters
+        """
+        # Use own history if not provided
+        if not historical_executions:
+            historical_executions = self._get_relevant_executions(order)
+        
+        # Analyze historical performance
+        performance_analysis = self._analyze_execution_performance(
+            historical_executions,
+            order
+        )
+        
+        # Get AI recommendations if available
+        if self.ollama_client:
+            recommendations = await self._get_ai_parameter_optimization(
+                order,
+                performance_analysis
+            )
         else:
-            volatility = 0.02
+            recommendations = self._get_rule_based_optimization(
+                order,
+                performance_analysis
+            )
         
-        # Check liquidity
-        spreads = [d.get('spread', 0.01) for d in recent_data[-20:]]
-        avg_spread = np.mean(spreads) if spreads else 0.01
+        return {
+            'recommended_algo': recommendations.get('algorithm', ExecutionAlgo.ADAPTIVE),
+            'optimal_slice_size': recommendations.get('slice_size', 100),
+            'participation_rate': recommendations.get('participation_rate', 0.1),
+            'urgency_adjustment': recommendations.get('urgency_adjustment', 1.0),
+            'venue_preferences': recommendations.get('venues', [VenueType.EXCHANGE])
+        }
+    
+    def get_execution_performance(
+        self,
+        filter_by: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Get execution performance summary.
         
-        # Determine trend
-        if len(prices) > 20:
-            trend = (prices[-1] - prices[-20]) / prices[-20]
+        Args:
+            filter_by: Optional filters (symbol, algo, date range)
+            
+        Returns:
+            Performance metrics
+        """
+        analytics = self.execution_analytics
+        
+        # Apply filters
+        if filter_by:
+            if 'symbol' in filter_by:
+                analytics = [a for a in analytics if self._get_order_by_id(a.order_id).symbol == filter_by['symbol']]
+            if 'algorithm' in filter_by:
+                analytics = [a for a in analytics if a.algorithm_used == filter_by['algorithm']]
+        
+        if not analytics:
+            return {"message": "No execution data available"}
+        
+        # Calculate aggregate metrics
+        return {
+            'total_executions': len(analytics),
+            'avg_slippage': np.mean([a.slippage for a in analytics]),
+            'avg_market_impact': np.mean([a.market_impact for a in analytics]),
+            'avg_execution_time': np.mean([a.execution_time.total_seconds() for a in analytics]),
+            'total_cost': sum(a.total_cost for a in analytics),
+            'algo_breakdown': self._get_algo_performance_breakdown(analytics),
+            'venue_breakdown': self._get_venue_performance_breakdown(analytics)
+        }
+    
+    # ==========================================================================
+    # PRIVATE METHODS - ORDER ANALYSIS
+    # ==========================================================================
+    def _analyze_order(self, order: Order) -> Dict[str, Any]:
+        """Analyze order characteristics."""
+        return {
+            'size_category': self._categorize_order_size(order.quantity),
+            'urgency_score': self._score_urgency(order.urgency),
+            'market_hours_remaining': self._get_market_hours_remaining(),
+            'is_opening': self._is_opening_order(order),
+            'is_closing': self._is_closing_order(order)
+        }
+    
+    def _categorize_order_size(self, quantity: int) -> str:
+        """Categorize order size."""
+        if quantity < 10:
+            return 'small'
+        elif quantity < 100:
+            return 'medium'
+        elif quantity < 1000:
+            return 'large'
         else:
-            trend = 0
+            return 'block'
+    
+    def _score_urgency(self, urgency: UrgencyLevel) -> float:
+        """Convert urgency level to numeric score."""
+        scores = {
+            UrgencyLevel.LOW: 0.2,
+            UrgencyLevel.MEDIUM: 0.5,
+            UrgencyLevel.HIGH: 0.8,
+            UrgencyLevel.CRITICAL: 1.0
+        }
+        return scores.get(urgency, 0.5)
+    
+    def _get_market_hours_remaining(self) -> float:
+        """Get hours remaining until market close."""
+        now = datetime.now().time()
         
-        # Classify conditions
-        if volatility > 0.3:
-            return MarketCondition.VOLATILE
-        elif avg_spread > 0.02:
-            return MarketCondition.ILLIQUID
-        elif abs(trend) > 0.02:
-            return MarketCondition.TRENDING
-        elif volatility < 0.1:
-            return MarketCondition.STABLE
+        if now < MARKET_OPEN:
+            # Before market open
+            return 6.5  # Full trading day
+        elif now > MARKET_CLOSE:
+            # After market close
+            return 0.0
         else:
-            return MarketCondition.CHOPPY
-
+            # During market hours
+            close_time = datetime.combine(datetime.now().date(), MARKET_CLOSE)
+            now_time = datetime.now()
+            return (close_time - now_time).total_seconds() / 3600
+    
+    def _is_opening_order(self, order: Order) -> bool:
+        """Check if order is opening a position."""
+        # Simplified check
+        return order.strategy_tag and 'open' in order.strategy_tag.lower()
+    
+    def _is_closing_order(self, order: Order) -> bool:
+        """Check if order is closing a position."""
+        # Simplified check
+        return order.strategy_tag and 'close' in order.strategy_tag.lower()
+    
+    # ==========================================================================
+    # PRIVATE METHODS - LIQUIDITY ANALYSIS
+    # ==========================================================================
     async def _analyze_liquidity(
         self,
         symbol: str,
-        order_size: int
+        market_data: Optional[MarketMicrostructure] = None
     ) -> LiquidityProfile:
-        """Analyze market liquidity"""
-        # Check cached profile
+        """Analyze liquidity for a symbol."""
+        # Check cache
         if symbol in self.liquidity_profiles:
             profile = self.liquidity_profiles[symbol]
-            if (datetime.now() - profile.timestamp).seconds < 60:
-                return profile
-        
-        # Get order book data
-        order_book = await self._get_order_book(symbol)
-        
-        # Analyze depth
-        bid_depth = order_book.get('bids', [])[:10]
-        ask_depth = order_book.get('asks', [])[:10]
-        
-        # Calculate metrics
-        if bid_depth and ask_depth:
-            spread = ask_depth[0][0] - bid_depth[0][0]
-            
-            # Depth imbalance
-            bid_volume = sum(level[1] for level in bid_depth)
-            ask_volume = sum(level[1] for level in ask_depth)
-            depth_imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume) if (bid_volume + ask_volume) > 0 else 0
+            # Update if we have new market data
+            if market_data:
+                profile = self._update_liquidity_profile(profile, market_data)
         else:
-            spread = 0.01
-            depth_imbalance = 0
+            # Create new profile
+            profile = await self._create_liquidity_profile(symbol, market_data)
         
-        # Estimate market impact
-        impact_curve = await self._estimate_impact_curve(symbol, bid_depth, ask_depth)
-        predicted_impact = impact_curve.get(order_size, order_size * 0.0001)
-        
-        # Calculate liquidity score
-        liquidity_score = self._calculate_liquidity_score(
-            spread, bid_depth, ask_depth, order_size
-        )
-        
-        # Estimate hidden liquidity
-        hidden_liquidity = await self._estimate_hidden_liquidity(symbol, order_book)
-        
-        profile = LiquidityProfile(
-            timestamp=datetime.now(),
-            bid_depth=bid_depth,
-            ask_depth=ask_depth,
-            spread=spread,
-            depth_imbalance=depth_imbalance,
-            average_trade_size=self._get_average_trade_size(symbol),
-            liquidity_score=liquidity_score,
-            predicted_impact={order_size: predicted_impact},
-            hidden_liquidity_estimate=hidden_liquidity
-        )
-        
-        # Cache profile
+        # Store in cache
         self.liquidity_profiles[symbol] = profile
         
         return profile
-
+    
+    async def _create_liquidity_profile(
+        self,
+        symbol: str,
+        market_data: Optional[MarketMicrostructure] = None
+    ) -> LiquidityProfile:
+        """Create new liquidity profile."""
+        # Use current market data or defaults
+        if market_data:
+            avg_spread = market_data.spread
+            avg_size = (market_data.bid_size + market_data.ask_size) / 2
+        else:
+            avg_spread = 0.01  # 1 cent default
+            avg_size = 100     # 100 contracts default
+        
+        # Calculate liquidity score
+        liquidity_score = self._calculate_single_liquidity_score(avg_spread, avg_size)
+        
+        # Identify best execution times (simplified)
+        best_times = [
+            time(9, 45),   # After opening volatility
+            time(11, 0),   # Mid-morning
+            time(14, 30),  # Mid-afternoon
+            time(15, 45)   # Before close
+        ]
+        
+        # Venue distribution (simplified)
+        venue_distribution = {
+            VenueType.EXCHANGE: 0.7,
+            VenueType.DARK_POOL: 0.2,
+            VenueType.ECN: 0.1
+        }
+        
+        # Impact estimate
+        impact_estimate = avg_spread * 0.5  # Half spread as base impact
+        
+        # Urgency costs
+        urgency_cost = {
+            UrgencyLevel.LOW: impact_estimate * 0.5,
+            UrgencyLevel.MEDIUM: impact_estimate * 1.0,
+            UrgencyLevel.HIGH: impact_estimate * 2.0,
+            UrgencyLevel.CRITICAL: impact_estimate * 3.0
+        }
+        
+        return LiquidityProfile(
+            symbol=symbol,
+            avg_spread=avg_spread,
+            avg_size=avg_size,
+            liquidity_score=liquidity_score,
+            best_execution_times=best_times,
+            venue_distribution=venue_distribution,
+            impact_estimate=impact_estimate,
+            urgency_cost=urgency_cost
+        )
+    
+    def _update_liquidity_profile(
+        self,
+        profile: LiquidityProfile,
+        market_data: MarketMicrostructure
+    ) -> LiquidityProfile:
+        """Update existing liquidity profile with new data."""
+        # Exponential moving average update
+        alpha = 0.1
+        
+        profile.avg_spread = (1 - alpha) * profile.avg_spread + alpha * market_data.spread
+        profile.avg_size = (1 - alpha) * profile.avg_size + alpha * (market_data.bid_size + market_data.ask_size) / 2
+        profile.liquidity_score = self._calculate_single_liquidity_score(
+            profile.avg_spread,
+            profile.avg_size
+        )
+        
+        return profile
+    
+    def _calculate_single_liquidity_score(self, spread: float, size: float) -> float:
+        """Calculate liquidity score from spread and size."""
+        # Lower spread and higher size = better liquidity
+        spread_score = max(0, 1 - spread / 0.05)  # Normalize to 5 cent max
+        size_score = min(1, size / 1000)          # Normalize to 1000 contracts
+        
+        return (spread_score + size_score) / 2
+    
+    # ==========================================================================
+    # PRIVATE METHODS - MARKET IMPACT
+    # ==========================================================================
     async def _predict_market_impact(
         self,
         order: Order,
-        liquidity: LiquidityProfile,
-        market_condition: MarketCondition
-    ) -> Dict[str, float]:
-        """Predict market impact of order"""
-        # Get microstructure data
-        if order.symbol not in self.microstructure:
-            self.microstructure[order.symbol] = await self._get_microstructure(order.symbol)
-        
-        micro = self.microstructure[order.symbol]
-        
-        # Base impact model
-        order_ratio = order.quantity / micro.average_volume if micro.average_volume > 0 else 0.1
-        
-        # Linear impact component
-        linear_impact = order_ratio * micro.typical_spread * 10
-        
-        # Square-root impact (empirically observed)
-        sqrt_impact = 0.1 * micro.typical_spread * np.sqrt(order_ratio * 10000)
-        
-        # Adjust for market conditions
-        condition_multipliers = {
-            MarketCondition.VOLATILE: 2.0,
-            MarketCondition.ILLIQUID: 1.5,
-            MarketCondition.CHOPPY: 1.3,
-            MarketCondition.TRENDING: 1.2,
-            MarketCondition.STABLE: 1.0,
-            MarketCondition.LIQUID: 0.8
-        }
-        
-        multiplier = condition_multipliers.get(market_condition, 1.0)
-        
-        # Combine impacts
-        temporary_impact = (linear_impact + sqrt_impact) * multiplier
-        permanent_impact = temporary_impact * 0.3  # Empirical ratio
-        
-        # Adjust for liquidity score
-        liquidity_adjustment = (100 - liquidity.liquidity_score) / 100
-        temporary_impact *= (1 + liquidity_adjustment)
-        
-        return {
-            'temporary_impact': temporary_impact,
-            'permanent_impact': permanent_impact,
-            'total_impact': temporary_impact + permanent_impact,
-            'spread_cost': liquidity.spread / 2,
-            'timing_risk': micro.volatility * np.sqrt(order.quantity / micro.average_volume)
-        }
-
-    async def _select_execution_algorithm(
-        self,
-        order: Order,
-        urgency: Urgency,
-        market_condition: MarketCondition,
-        liquidity: LiquidityProfile,
-        impact_prediction: Dict[str, float]
-    ) -> Dict[str, Any]:
-        """Select optimal execution algorithm using AI"""
-        
-        # Prepare context for AI
-        context = {
-            'order_size': order.quantity,
-            'order_value': order.quantity * order.limit_price if order.limit_price else 0,
-            'urgency': urgency.value,
-            'market_condition': market_condition.value,
-            'liquidity_score': liquidity.liquidity_score,
-            'spread': liquidity.spread,
-            'predicted_impact': impact_prediction['total_impact'],
-            'volatility': self.microstructure.get(order.symbol, {}).get('volatility', 0.02)
-        }
-        
-        # Get AI recommendation
-        ai_recommendation = await self._get_ai_algo_recommendation(context)
-        
-        # Apply rule-based validation
-        validated_algo = self._validate_algo_selection(
-            ai_recommendation, order, urgency, market_condition
-        )
-        
-        return validated_algo
-
-    async def _get_ai_algo_recommendation(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Get AI recommendation for execution algorithm"""
-        prompt = f"""
-        Select the optimal execution algorithm for this order:
-        
-        Order Context:
-        - Size: {context['order_size']} shares
-        - Urgency: {context['urgency']}
-        - Market Condition: {context['market_condition']}
-        - Liquidity Score: {context['liquidity_score']:.1f}/100
-        - Spread: ${context['spread']:.3f}
-        - Predicted Impact: {context['predicted_impact']:.2%}
-        - Volatility: {context['volatility']:.2%}
-        
-        Available algorithms:
-        - TWAP: Time-weighted execution
-        - VWAP: Volume-weighted execution
-        - POV: Percentage of volume
-        - ICEBERG: Hidden quantity execution
-        - SNIPER: Aggressive liquidity taking
-        - ADAPTIVE: Dynamic algorithm switching
-        
-        Recommend the best algorithm with reasoning.
-        
-        Format response as JSON:
-        {{
-            "algorithm": "algo_name",
-            "confidence": 0.0-1.0,
-            "reasoning": "explanation",
-            "parameters": {{}},
-            "venues": ["venue1", "venue2"]
-        }}
-        """
-        
-        try:
-            response = await asyncio.wait_for(self._query_llm(prompt), timeout=2.0)
-            recommendation = json.loads(response)
-            
-            return {
-                'algo': ExecutionAlgo(recommendation['algorithm'].lower()),
-                'confidence': recommendation['confidence'],
-                'reasoning': recommendation['reasoning'],
-                'parameters': recommendation.get('parameters', {}),
-                'venues': recommendation.get('venues', ['SMART'])
-            }
-        except:
-            # Fallback logic
-            if context['urgency'] == 'critical':
-                return {
-                    'algo': ExecutionAlgo.SNIPER,
-                    'confidence': 0.8,
-                    'reasoning': 'Critical urgency requires aggressive execution',
-                    'parameters': {'aggression': 0.9},
-                    'venues': ['SMART']
-                }
-            elif context['liquidity_score'] < 50:
-                return {
-                    'algo': ExecutionAlgo.ICEBERG,
-                    'confidence': 0.7,
-                    'reasoning': 'Low liquidity requires hidden execution',
-                    'parameters': {'display_size': 100},
-                    'venues': ['SMART']
-                }
-            else:
-                return {
-                    'algo': ExecutionAlgo.TWAP,
-                    'confidence': 0.6,
-                    'reasoning': 'Default to time-weighted execution',
-                    'parameters': {'duration': 300},
-                    'venues': ['SMART']
-                }
-
-    def _validate_algo_selection(
-        self,
-        ai_recommendation: Dict[str, Any],
-        order: Order,
-        urgency: Urgency,
-        market_condition: MarketCondition
-    ) -> Dict[str, Any]:
-        """Validate and adjust AI algorithm selection"""
-        algo = ai_recommendation['algo']
-        
-        # Override for specific conditions
-        if urgency == Urgency.CRITICAL and algo not in [ExecutionAlgo.MARKET, ExecutionAlgo.SNIPER]:
-            ai_recommendation['algo'] = ExecutionAlgo.SNIPER
-            ai_recommendation['reasoning'] += " (Overridden due to critical urgency)"
-            
-        elif order.quantity > self.max_order_slice * 10 and algo != ExecutionAlgo.ADAPTIVE:
-            ai_recommendation['algo'] = ExecutionAlgo.ADAPTIVE
-            ai_recommendation['reasoning'] += " (Large order requires adaptive execution)"
-            
-        elif market_condition == MarketCondition.ILLIQUID and algo in [ExecutionAlgo.MARKET, ExecutionAlgo.SNIPER]:
-            ai_recommendation['algo'] = ExecutionAlgo.ICEBERG
-            ai_recommendation['reasoning'] += " (Illiquid market requires careful execution)"
-        
-        return ai_recommendation
-
-    async def _design_execution_parameters(
-        self,
-        order: Order,
-        algo_selection: Dict[str, Any],
-        urgency: Urgency,
-        constraints: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Design detailed execution parameters"""
-        algo = algo_selection['algo']
-        base_params = algo_selection.get('parameters', {})
-        
-        # Add algorithm-specific parameters
-        if algo == ExecutionAlgo.TWAP:
-            base_params.update({
-                'start_time': datetime.now(),
-                'end_time': datetime.now() + timedelta(minutes=base_params.get('duration', 30)),
-                'slice_interval': 60,  # seconds
-                'min_slice_size': max(1, order.quantity // 100)
-            })
-            
-        elif algo == ExecutionAlgo.VWAP:
-            volume_curve = await self._get_volume_curve(order.symbol)
-            base_params.update({
-                'volume_curve': volume_curve,
-                'participation_rate': self.default_participation_rate,
-                'max_participation': 0.2
-            })
-            
-        elif algo == ExecutionAlgo.ICEBERG:
-            base_params.update({
-                'display_size': min(base_params.get('display_size', 100), order.quantity // 10),
-                'refresh_type': 'random',
-                'randomization': 0.2
-            })
-            
-        elif algo == ExecutionAlgo.POV:
-            base_params.update({
-                'target_percentage': base_params.get('target_percentage', 0.1),
-                'max_percentage': 0.2,
-                'min_fill_size': 1
-            })
-            
-        elif algo == ExecutionAlgo.SNIPER:
-            base_params.update({
-                'aggression_level': base_params.get('aggression', 0.8),
-                'price_improvement': -0.01 if order.side == 'BUY' else 0.01,
-                'max_sweep_levels': 3
-            })
-            
-        elif algo == ExecutionAlgo.ADAPTIVE:
-            base_params.update({
-                'initial_algo': ExecutionAlgo.TWAP,
-                'adaptation_frequency': 60,  # seconds
-                'performance_threshold': 0.001,  # 10 bps
-                'allowed_algos': [ExecutionAlgo.TWAP, ExecutionAlgo.VWAP, ExecutionAlgo.SNIPER]
-            })
-        
-        # Apply constraints
-        if constraints:
-            base_params.update(constraints)
-        
-        return base_params
-
-    async def _create_slicing_strategy(
-        self,
-        order: Order,
-        algo_selection: Dict[str, Any],
         liquidity: LiquidityProfile
-    ) -> Dict[str, Any]:
-        """Create order slicing strategy"""
-        total_quantity = order.quantity
+    ) -> MarketImpactModel:
+        """Predict market impact for order."""
+        # Check cache
+        cache_key = f"{order.symbol}_{order.quantity}_{order.side}"
+        if cache_key in self.impact_models:
+            return self.impact_models[cache_key]
         
-        # Calculate optimal slice size
-        market_capacity = sum(level[1] for level in liquidity.ask_depth[:3])
-        optimal_slice = min(
-            self.max_order_slice,
-            int(market_capacity * 0.2),  # 20% of visible liquidity
-            total_quantity // 10  # At least 10 slices
+        # Calculate base impact
+        participation_rate = order.quantity / (liquidity.avg_size * 100)  # Rough estimate
+        
+        # Temporary impact (simplified square-root model)
+        temporary_impact = liquidity.avg_spread * np.sqrt(participation_rate) * 2
+        
+        # Permanent impact (simplified linear model)
+        permanent_impact = liquidity.avg_spread * participation_rate * 0.5
+        
+        # Decay rate (how fast temporary impact dissipates)
+        decay_rate = 0.7  # 70% decay per time unit
+        
+        # Confidence based on liquidity
+        confidence = min(0.9, liquidity.liquidity_score + 0.3)
+        
+        model = MarketImpactModel(
+            symbol=order.symbol,
+            temporary_impact=temporary_impact,
+            permanent_impact=permanent_impact,
+            decay_rate=decay_rate,
+            confidence=confidence
         )
         
-        # Adjust for algorithm type
-        if algo_selection['algo'] == ExecutionAlgo.ICEBERG:
-            optimal_slice = min(optimal_slice, 100)  # Smaller for iceberg
-        elif algo_selection['algo'] == ExecutionAlgo.SNIPER:
-            optimal_slice = min(optimal_slice, market_capacity)  # Can take full depth
+        # Cache model
+        self.impact_models[cache_key] = model
         
-        # Create slice schedule
-        n_slices = max(1, total_quantity // optimal_slice)
-        base_slice_size = total_quantity // n_slices
-        remainder = total_quantity % n_slices
+        return model
+    
+    # ==========================================================================
+    # PRIVATE METHODS - ALGORITHM SELECTION
+    # ==========================================================================
+    def _select_algorithm_rules(
+        self,
+        order: Order,
+        liquidity: LiquidityProfile
+    ) -> ExecutionAlgo:
+        """Select execution algorithm using rules."""
+        # Simple rule-based selection
+        size_category = self._categorize_order_size(order.quantity)
+        urgency_score = self._score_urgency(order.urgency)
         
+        if urgency_score > URGENCY_THRESHOLD:
+            return ExecutionAlgo.MARKET
+        elif size_category == 'block':
+            return ExecutionAlgo.ICEBERG
+        elif order.order_type == OrderType.MARKET:
+            if size_category == 'small':
+                return ExecutionAlgo.MARKET
+            else:
+                return ExecutionAlgo.TWAP
+        elif liquidity.liquidity_score < 0.3:
+            return ExecutionAlgo.SNIPER
+        else:
+            return ExecutionAlgo.ADAPTIVE
+    
+    # ==========================================================================
+    # PRIVATE METHODS - EXECUTION SLICING
+    # ==========================================================================
+    def _create_execution_slices(
+        self,
+        order: Order,
+        algorithm: ExecutionAlgo,
+        liquidity: LiquidityProfile
+    ) -> List[Dict[str, Any]]:
+        """Create execution slices based on algorithm."""
         slices = []
-        for i in range(n_slices):
-            slice_size = base_slice_size
-            if i < remainder:
-                slice_size += 1
-                
-            # Add randomization
-            if algo_selection['algo'] != ExecutionAlgo.TWAP:
-                randomization = np.random.uniform(0.8, 1.2)
-                slice_size = int(slice_size * randomization)
-                slice_size = max(1, min(slice_size, total_quantity - sum(s['size'] for s in slices)))
+        remaining_quantity = order.quantity
+        
+        if algorithm == ExecutionAlgo.ICEBERG:
+            # Hide large order by showing small slices
+            slice_size = min(self.max_order_slice, int(liquidity.avg_size * 0.2))
             
+            while remaining_quantity > 0:
+                current_slice = min(slice_size, remaining_quantity)
+                slices.append({
+                    'quantity': current_slice,
+                    'timing': 'immediate',
+                    'show_quantity': min(10, current_slice)  # Show only small portion
+                })
+                remaining_quantity -= current_slice
+                
+        elif algorithm == ExecutionAlgo.TWAP:
+            # Time-weighted slices
+            num_slices = min(10, max(3, order.quantity // 100))
+            slice_size = order.quantity // num_slices
+            
+            for i in range(num_slices):
+                slices.append({
+                    'quantity': slice_size,
+                    'timing': f'slice_{i}',
+                    'delay_minutes': i * 5  # 5 minutes between slices
+                })
+            
+            # Handle remainder
+            if order.quantity % num_slices > 0:
+                slices[-1]['quantity'] += order.quantity % num_slices
+                
+        else:
+            # Single slice for simple algorithms
             slices.append({
-                'size': slice_size,
-                'timing': 'immediate' if i == 0 else 'scheduled',
-                'delay': i * 60 if algo_selection['algo'] == ExecutionAlgo.TWAP else 0
+                'quantity': order.quantity,
+                'timing': 'immediate',
+                'show_quantity': order.quantity
             })
         
-        return {
-            'total_slices': n_slices,
-            'slices': slices,
-            'adaptive': True,
-            'min_slice_size': 1,
-            'max_slice_size': self.max_order_slice
-        }
-
-    async def _estimate_execution_cost(
-        self,
-        order: Order,
-        algo_selection: Dict[str, Any],
-        params: Dict[str, Any],
-        impact: Dict[str, float]
-    ) -> float:
-        """Estimate total execution cost"""
-        # Base costs
-        spread_cost = impact['spread_cost'] * order.quantity
-        impact_cost = impact['total_impact'] * order.quantity * (order.limit_price or 100)
-        
-        # Algorithm-specific adjustments
-        algo_multipliers = {
-            ExecutionAlgo.MARKET: 1.5,     # Higher impact
-            ExecutionAlgo.SNIPER: 1.3,      # Aggressive
-            ExecutionAlgo.TWAP: 1.0,        # Baseline
-            ExecutionAlgo.VWAP: 0.9,        # Efficient
-            ExecutionAlgo.ICEBERG: 0.8,     # Hidden
-            ExecutionAlgo.ADAPTIVE: 0.85    # Optimized
-        }
-        
-        multiplier = algo_multipliers.get(algo_selection['algo'], 1.0)
-        
-        # Timing risk
-        if algo_selection['algo'] in [ExecutionAlgo.TWAP, ExecutionAlgo.VWAP]:
-            duration = params.get('duration', 300) / 60  # minutes
-            timing_risk = impact['timing_risk'] * np.sqrt(duration / 30)  # 30 min baseline
-        else:
-            timing_risk = impact['timing_risk'] * 0.5
-        
-        # Total estimated cost (bps)
-        total_cost_bps = (spread_cost + impact_cost * multiplier + timing_risk) * 10000
-        
-        return total_cost_bps
-
-    def _get_time_constraints(
-        self,
-        urgency: Urgency,
-        constraints: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Get time constraints for execution"""
-        now = datetime.now()
-        
-        # Default constraints by urgency
-        urgency_constraints = {
-            Urgency.LOW: {'max_duration': 3600, 'start_delay': 300},      # 1 hour, 5 min delay OK
-            Urgency.MEDIUM: {'max_duration': 1800, 'start_delay': 60},    # 30 min, 1 min delay OK
-            Urgency.HIGH: {'max_duration': 300, 'start_delay': 0},        # 5 min, immediate
-            Urgency.CRITICAL: {'max_duration': 60, 'start_delay': 0}      # 1 min, immediate
-        }
-        
-        time_constraints = urgency_constraints.get(urgency, urgency_constraints[Urgency.MEDIUM])
-        
-        # Apply custom constraints
-        if constraints and 'time_constraints' in constraints:
-            time_constraints.update(constraints['time_constraints'])
-        
-        # Add market hours constraints
-        market_close = now.replace(hour=16, minute=0, second=0)
-        time_to_close = (market_close - now).seconds
-        
-        if time_to_close < time_constraints['max_duration']:
-            time_constraints['max_duration'] = time_to_close - 60  # Leave 1 minute buffer
-            time_constraints['must_complete_by'] = market_close - timedelta(minutes=1)
-        
-        return time_constraints
-
-    def _get_price_limits(
-        self,
-        order: Order,
-        market_condition: MarketCondition
-    ) -> Dict[str, float]:
-        """Get price limits for execution"""
-        if order.order_type == OrderType.MARKET:
-            # Market orders need price protection
-            if order.side == 'BUY':
-                return {
-                    'max_price': order.limit_price * 1.02 if order.limit_price else float('inf'),
-                    'reference_price': order.limit_price or 0
-                }
-            else:
-                return {
-                    'min_price': order.limit_price * 0.98 if order.limit_price else 0,
-                    'reference_price': order.limit_price or 0
-                }
-        else:
-            # Limit orders
-            return {
-                'limit_price': order.limit_price,
-                'discretion': 0.01 if market_condition == MarketCondition.LIQUID else 0
-            }
-
-    def _get_default_execution_plan(self, order: Order, urgency: Urgency) -> ExecutionPlan:
-        """Get default execution plan as fallback"""
-        if urgency == Urgency.CRITICAL:
-            algo = ExecutionAlgo.MARKET
-        elif order.quantity > self.max_order_slice:
-            algo = ExecutionAlgo.TWAP
-        else:
-            algo = ExecutionAlgo.LIMIT
-        
-        return ExecutionPlan(
-            order_id=order.order_id,
-            algo=algo,
-            parameters={'duration': 300},
-            venue_preferences=['SMART'],
-            time_constraints=self._get_time_constraints(urgency, None),
-            price_limits=self._get_price_limits(order, MarketCondition.STABLE),
-            estimated_cost=50,  # 50 bps default
-            confidence=0.5
-        )
-
-    # Execution Algorithm Implementations
+        return slices
     
-    async def _execute_twap(self, order: Order, plan: ExecutionPlan) -> List[ExecutionReport]:
-        """Execute order using TWAP algorithm"""
-        reports = []
-        params = plan.parameters
+    # ==========================================================================
+    # PRIVATE METHODS - VENUE ROUTING
+    # ==========================================================================
+    def _determine_venues(
+        self,
+        order: Order,
+        liquidity: LiquidityProfile
+    ) -> List[VenueType]:
+        """Determine optimal venues for execution."""
+        venues = []
         
-        start_time = params['start_time']
-        end_time = params['end_time']
-        slice_interval = params['slice_interval']
+        # Always include primary exchange
+        venues.append(VenueType.EXCHANGE)
         
-        # Calculate slice schedule
-        duration = (end_time - start_time).seconds
-        n_slices = max(1, duration // slice_interval)
-        slice_size = order.quantity // n_slices
-        remainder = order.quantity % n_slices
+        # Add dark pools for large orders
+        if self._categorize_order_size(order.quantity) in ['large', 'block']:
+            venues.append(VenueType.DARK_POOL)
         
-        executed_quantity = 0
+        # Add ECN for better prices
+        if liquidity.liquidity_score > 0.5:
+            venues.append(VenueType.ECN)
         
-        for i in range(n_slices):
-            # Calculate this slice size
-            current_slice = slice_size
-            if i < remainder:
-                current_slice += 1
+        return venues
+    
+    # ==========================================================================
+    # PRIVATE METHODS - COST ESTIMATION
+    # ==========================================================================
+    def _calculate_expected_cost(
+        self,
+        order: Order,
+        algorithm: ExecutionAlgo,
+        impact_model: MarketImpactModel,
+        liquidity: LiquidityProfile
+    ) -> float:
+        """Calculate expected execution cost."""
+        # Base costs
+        spread_cost = liquidity.avg_spread * order.quantity * 0.5  # Half spread
+        
+        # Impact costs
+        impact_cost = (impact_model.temporary_impact + impact_model.permanent_impact) * order.quantity
+        
+        # Urgency premium
+        urgency_premium = liquidity.urgency_cost.get(order.urgency, 0) * order.quantity
+        
+        # Algorithm efficiency factor
+        algo_efficiency = {
+            ExecutionAlgo.MARKET: 1.2,      # Higher cost for immediacy
+            ExecutionAlgo.LIMIT: 0.8,       # Lower cost but risk of non-fill
+            ExecutionAlgo.TWAP: 0.9,
+            ExecutionAlgo.VWAP: 0.85,
+            ExecutionAlgo.ICEBERG: 0.9,
+            ExecutionAlgo.SNIPER: 0.95,
+            ExecutionAlgo.ADAPTIVE: 0.85
+        }.get(algorithm, 1.0)
+        
+        total_cost = (spread_cost + impact_cost + urgency_premium) * algo_efficiency
+        
+        return total_cost
+    
+    def _estimate_duration(
+        self,
+        order: Order,
+        algorithm: ExecutionAlgo,
+        liquidity: LiquidityProfile
+    ) -> timedelta:
+        """Estimate execution duration."""
+        if algorithm == ExecutionAlgo.MARKET:
+            return timedelta(seconds=1)
+        elif algorithm == ExecutionAlgo.TWAP:
+            # Based on number of slices
+            num_slices = min(10, max(3, order.quantity // 100))
+            return timedelta(minutes=num_slices * 5)
+        elif algorithm == ExecutionAlgo.VWAP:
+            # Typically 30-60 minutes
+            return timedelta(minutes=45)
+        elif algorithm == ExecutionAlgo.ICEBERG:
+            # Based on liquidity
+            slices_needed = order.quantity / (liquidity.avg_size * 0.2)
+            return timedelta(minutes=slices_needed * 2)
+        else:
+            # Default estimate
+            return timedelta(minutes=15)
+    
+    def _get_timing_strategy(
+        self,
+        order: Order,
+        market_data: Optional[MarketMicrostructure]
+    ) -> str:
+        """Determine timing strategy."""
+        urgency_score = self._score_urgency(order.urgency)
+        
+        if urgency_score > 0.8:
+            return "immediate"
+        elif self._get_market_hours_remaining() < 0.5:
+            return "accelerated"  # Speed up near close
+        elif market_data and market_data.volatility > 0.02:
+            return "patient"  # Wait during high volatility
+        else:
+            return "opportunistic"
+    
+    def _calculate_urgency_premium(self, urgency: UrgencyLevel) -> float:
+        """Calculate urgency premium multiplier."""
+        premiums = {
+            UrgencyLevel.LOW: 0.0,
+            UrgencyLevel.MEDIUM: 0.01,
+            UrgencyLevel.HIGH: 0.02,
+            UrgencyLevel.CRITICAL: 0.05
+        }
+        return premiums.get(urgency, 0.01)
+    
+    # ==========================================================================
+    # PRIVATE METHODS - EXECUTION ALGORITHMS
+    # ==========================================================================
+    async def _execute_simple(self, plan: ExecutionPlan) -> Dict[str, Any]:
+        """Simple execution implementation."""
+        # Simulated execution
+        fills = []
+        total_quantity = 0
+        total_cost = 0
+        
+        for slice_config in plan.slices:
+            quantity = slice_config['quantity']
             
-            # Check if we're done
-            if executed_quantity >= order.quantity:
+            # Simulate fill (in production, would send to broker)
+            fill_price = await self._simulate_fill_price(
+                plan.order.symbol,
+                quantity,
+                plan.order.side
+            )
+            
+            fills.append({
+                'quantity': quantity,
+                'price': fill_price,
+                'timestamp': datetime.now(),
+                'venue': plan.venues[0]
+            })
+            
+            total_quantity += quantity
+            total_cost += quantity * fill_price
+            
+            # Update order status
+            if total_quantity >= plan.order.quantity:
+                plan.order.status = OrderStatus.FILLED
+            else:
+                plan.order.status = OrderStatus.PARTIAL
+        
+        return {
+            'fills': fills,
+            'total_quantity': total_quantity,
+            'total_cost': total_cost,
+            'avg_price': total_cost / total_quantity if total_quantity > 0 else 0
+        }
+    
+    async def _execute_twap(
+        self,
+        plan: ExecutionPlan,
+        real_time_updates: bool
+    ) -> Dict[str, Any]:
+        """Execute using Time-Weighted Average Price algorithm."""
+        fills = []
+        total_quantity = 0
+        total_cost = 0
+        
+        for i, slice_config in enumerate(plan.slices):
+            # Wait for scheduled time
+            if 'delay_minutes' in slice_config and slice_config['delay_minutes'] > 0:
+                await asyncio.sleep(slice_config['delay_minutes'] * 60)  # In production, use scheduler
+            
+            # Check if we should continue
+            if real_time_updates and not self._should_continue_execution(plan):
                 break
-            
-            # Create slice order
-            slice_order = self._create_slice_order(order, current_slice, i)
             
             # Execute slice
-            try:
-                slice_report = await self._execute_slice(slice_order, plan)
-                reports.append(slice_report)
-                executed_quantity += slice_report.filled_quantity
-                
-                # Check for completion
-                if executed_quantity >= order.quantity:
-                    break
-                
-                # Wait for next slice
-                if i < n_slices - 1:
-                    await asyncio.sleep(slice_interval)
-                    
-            except Exception as e:
-                self.logger.error(f"Error executing TWAP slice {i}: {str(e)}")
-                
-                # Adapt on failure
-                if params.get('adaptive', True):
-                    # Switch to more aggressive execution
-                    remaining = order.quantity - executed_quantity
-                    aggressive_order = self._create_slice_order(order, remaining, -1)
-                    aggressive_order.order_type = OrderType.MARKET
-                    
-                    final_report = await self._execute_slice(aggressive_order, plan)
-                    reports.append(final_report)
-                    break
-        
-        return reports
-
-    async def _execute_vwap(self, order: Order, plan: ExecutionPlan) -> List[ExecutionReport]:
-        """Execute order using VWAP algorithm"""
-        reports = []
-        params = plan.parameters
-        
-        volume_curve = params.get('volume_curve', {})
-        participation_rate = params.get('participation_rate', 0.1)
-        
-        executed_quantity = 0
-        start_time = datetime.now()
-        
-        while executed_quantity < order.quantity:
-            # Get current market volume
-            current_volume = await self._get_current_volume(order.symbol)
-            
-            # Calculate target slice based on volume
-            target_slice = int(current_volume * participation_rate)
-            target_slice = min(target_slice, order.quantity - executed_quantity)
-            target_slice = max(target_slice, 1)
-            
-            # Create and execute slice
-            slice_order = self._create_slice_order(order, target_slice, -1)
-            
-            try:
-                slice_report = await self._execute_slice(slice_order, plan)
-                reports.append(slice_report)
-                executed_quantity += slice_report.filled_quantity
-                
-                # Adaptive waiting based on market activity
-                if current_volume > 0:
-                    wait_time = min(60, max(5, 100 / current_volume))
-                else:
-                    wait_time = 30
-                    
-                await asyncio.sleep(wait_time)
-                
-                # Check time constraints
-                if (datetime.now() - start_time).seconds > params.get('max_duration', 3600):
-                    self.logger.warning(f"VWAP execution timeout for {order.order_id}")
-                    break
-                    
-            except Exception as e:
-                self.logger.error(f"Error in VWAP execution: {str(e)}")
-                break
-        
-        return reports
-
-    async def _execute_iceberg(self, order: Order, plan: ExecutionPlan) -> List[ExecutionReport]:
-        """Execute order using Iceberg algorithm"""
-        reports = []
-        params = plan.parameters
-        
-        display_size = params['display_size']
-        randomization = params.get('randomization', 0.2)
-        
-        executed_quantity = 0
-        
-        while executed_quantity < order.quantity:
-            # Randomize display size
-            current_display = int(display_size * (1 + np.random.uniform(-randomization, randomization)))
-            current_display = max(1, min(current_display, order.quantity - executed_quantity))
-            
-            # Create visible order
-            visible_order = self._create_slice_order(order, current_display, -1)
-            visible_order.order_type = OrderType.LIMIT
-            
-            try:
-                # Place and monitor visible order
-                report = await self._execute_slice(visible_order, plan)
-                reports.append(report)
-                executed_quantity += report.filled_quantity
-                
-                # Random delay between refreshes
-                if executed_quantity < order.quantity:
-                    delay = np.random.uniform(5, 30)
-                    await asyncio.sleep(delay)
-                    
-            except Exception as e:
-                self.logger.error(f"Error in Iceberg execution: {str(e)}")
-                break
-        
-        return reports
-
-    async def _execute_sniper(self, order: Order, plan: ExecutionPlan) -> List[ExecutionReport]:
-        """Execute order using Sniper algorithm (aggressive)"""
-        reports = []
-        params = plan.parameters
-        
-        aggression = params.get('aggression_level', 0.8)
-        max_sweep = params.get('max_sweep_levels', 3)
-        
-        # Get current order book
-        book = await self._get_order_book(order.symbol)
-        
-        if order.side == 'BUY':
-            available_liquidity = book.get('asks', [])[:max_sweep]
-        else:
-            available_liquidity = book.get('bids', [])[:max_sweep]
-        
-        executed_quantity = 0
-        
-        for level_price, level_size in available_liquidity:
-            if executed_quantity >= order.quantity:
-                break
-            
-            # Calculate size to take at this level
-            take_size = min(
-                int(level_size * aggression),
-                order.quantity - executed_quantity
+            quantity = slice_config['quantity']
+            fill_price = await self._simulate_fill_price(
+                plan.order.symbol,
+                quantity,
+                plan.order.side
             )
             
-            if take_size > 0:
-                # Create aggressive order at this level
-                sweep_order = self._create_slice_order(order, take_size, -1)
-                sweep_order.limit_price = level_price
-                sweep_order.order_type = OrderType.LIMIT
-                sweep_order.time_in_force = TimeInForce.IOC  # Immediate or Cancel
-                
-                try:
-                    report = await self._execute_slice(sweep_order, plan)
-                    reports.append(report)
-                    executed_quantity += report.filled_quantity
-                except Exception as e:
-                    self.logger.error(f"Error in Sniper sweep: {str(e)}")
-        
-        # If not fully filled, place remaining as limit order
-        if executed_quantity < order.quantity:
-            remaining_order = self._create_slice_order(
-                order, 
-                order.quantity - executed_quantity, 
-                -1
-            )
-            remaining_order.order_type = OrderType.LIMIT
-            
-            final_report = await self._execute_slice(remaining_order, plan)
-            reports.append(final_report)
-        
-        return reports
-
-    async def _execute_pov(self, order: Order, plan: ExecutionPlan) -> List[ExecutionReport]:
-        """Execute order as Percentage of Volume"""
-        reports = []
-        params = plan.parameters
-        
-        target_pct = params.get('target_percentage', 0.1)
-        max_pct = params.get('max_percentage', 0.2)
-        
-        executed_quantity = 0
-        market_volume = 0
-        
-        while executed_quantity < order.quantity:
-            # Get recent market volume
-            recent_volume = await self._get_recent_volume(order.symbol, 60)  # Last minute
-            
-            # Calculate our target based on POV
-            our_target = int((market_volume + recent_volume) * target_pct)
-            our_current = executed_quantity
-            
-            # Calculate next slice
-            slice_size = min(
-                our_target - our_current,
-                int(recent_volume * max_pct),
-                order.quantity - executed_quantity
-            )
-            
-            if slice_size > 0:
-                slice_order = self._create_slice_order(order, slice_size, -1)
-                
-                try:
-                    report = await self._execute_slice(slice_order, plan)
-                    reports.append(report)
-                    executed_quantity += report.filled_quantity
-                except Exception as e:
-                    self.logger.error(f"Error in POV execution: {str(e)}")
-            
-            market_volume += recent_volume
-            await asyncio.sleep(10)  # Check every 10 seconds
-            
-            # Safety check
-            if len(reports) > 1000:  # Prevent infinite loops
-                break
-        
-        return reports
-
-    async def _execute_adaptive(self, order: Order, plan: ExecutionPlan) -> List[ExecutionReport]:
-        """Execute order using adaptive algorithm switching"""
-        reports = []
-        params = plan.parameters
-        
-        current_algo = params.get('initial_algo', ExecutionAlgo.TWAP)
-        allowed_algos = params.get('allowed_algos', [ExecutionAlgo.TWAP, ExecutionAlgo.VWAP])
-        adaptation_frequency = params.get('adaptation_frequency', 60)
-        
-        executed_quantity = 0
-        last_adaptation = datetime.now()
-        performance_history = []
-        
-        while executed_quantity < order.quantity:
-            # Check if we should adapt
-            if (datetime.now() - last_adaptation).seconds > adaptation_frequency:
-                # Analyze recent performance
-                recent_performance = self._analyze_recent_performance(
-                    reports[-10:] if len(reports) > 10 else reports
-                )
-                performance_history.append(recent_performance)
-                
-                # Decide if we should switch algorithms
-                new_algo = await self._select_adaptive_algorithm(
-                    current_algo,
-                    allowed_algos,
-                    recent_performance,
-                    order,
-                    executed_quantity
-                )
-                
-                if new_algo != current_algo:
-                    self.logger.info(
-                        f"Adaptive execution switching from {current_algo.value} "
-                        f"to {new_algo.value} for {order.order_id}"
-                    )
-                    current_algo = new_algo
-                
-                last_adaptation = datetime.now()
-            
-            # Execute using current algorithm
-            remaining_qty = order.quantity - executed_quantity
-            temp_order = self._create_slice_order(order, remaining_qty, -1)
-            
-            # Create temporary plan for current algorithm
-            temp_plan = ExecutionPlan(
-                order_id=temp_order.order_id,
-                algo=current_algo,
-                parameters=self._get_adaptive_params(current_algo, params),
-                venue_preferences=plan.venue_preferences,
-                time_constraints={'max_duration': adaptation_frequency},
-                price_limits=plan.price_limits,
-                estimated_cost=0,
-                confidence=0.8
-            )
-            
-            # Execute for one adaptation period
-            if current_algo in self.algo_implementations:
-                period_reports = await self.algo_implementations[current_algo](
-                    temp_order, temp_plan
-                )
-                reports.extend(period_reports)
-                
-                # Update executed quantity
-                for report in period_reports:
-                    executed_quantity += report.filled_quantity
-            
-            # Safety check
-            if len(reports) > 1000:
-                break
-        
-        return reports
-
-    async def _execute_direct(self, order: Order) -> List[ExecutionReport]:
-        """Execute order directly without complex algorithm"""
-        if self.broker:
-            report = await self.broker.place_order(order)
-            return [report]
-        else:
-            # Mock execution
-            return [ExecutionReport(
-                order_id=order.order_id,
-                timestamp=datetime.now(),
-                status=OrderStatus.FILLED,
-                filled_quantity=order.quantity,
-                average_price=order.limit_price or 100.0,
-                commission=order.quantity * 0.001,
-                venue='MOCK'
-            )]
-
-    def _create_slice_order(self, parent_order: Order, slice_size: int, slice_index: int) -> Order:
-        """Create a slice order from parent order"""
-        slice_order = Order(
-            order_id=f"{parent_order.order_id}_slice_{slice_index}",
-            parent_id=parent_order.order_id,
-            symbol=parent_order.symbol,
-            side=parent_order.side,
-            quantity=slice_size,
-            order_type=parent_order.order_type,
-            limit_price=parent_order.limit_price,
-            stop_price=parent_order.stop_price,
-            time_in_force=parent_order.time_in_force
-        )
-        
-        return slice_order
-
-    async def _execute_slice(self, slice_order: Order, plan: ExecutionPlan) -> ExecutionReport:
-        """Execute a single order slice"""
-        # Add to active orders
-        self.active_orders[slice_order.order_id] = slice_order
-        
-        try:
-            if self.broker:
-                # Real execution through broker
-                report = await self.broker.place_order(slice_order)
-            else:
-                # Simulated execution
-                await asyncio.sleep(0.1)  # Simulate execution delay
-                
-                # Mock fill
-                fill_price = slice_order.limit_price or 100.0
-                if slice_order.side == 'BUY':
-                    fill_price *= (1 + np.random.uniform(0, 0.001))
-                else:
-                    fill_price *= (1 - np.random.uniform(0, 0.001))
-                
-                report = ExecutionReport(
-                    order_id=slice_order.order_id,
-                    timestamp=datetime.now(),
-                    status=OrderStatus.FILLED,
-                    filled_quantity=slice_order.quantity,
-                    average_price=fill_price,
-                    commission=slice_order.quantity * 0.001,
-                    venue='SIM'
-                )
-            
-            # Record execution
-            self.recent_executions.append({
-                'timestamp': report.timestamp,
-                'order_id': report.order_id,
-                'symbol': slice_order.symbol,
-                'side': slice_order.side,
-                'quantity': report.filled_quantity,
-                'price': report.average_price,
-                'algo': plan.algo.value
+            fills.append({
+                'quantity': quantity,
+                'price': fill_price,
+                'timestamp': datetime.now(),
+                'venue': plan.venues[i % len(plan.venues)]
             })
             
-            return report
+            total_quantity += quantity
+            total_cost += quantity * fill_price
             
-        except Exception as e:
-            self.logger.error(f"Error executing slice {slice_order.order_id}: {str(e)}")
-            
-            # Return partial fill or failure
-            return ExecutionReport(
-                order_id=slice_order.order_id,
-                timestamp=datetime.now(),
-                status=OrderStatus.REJECTED,
-                filled_quantity=0,
-                average_price=0,
-                commission=0,
-                venue='ERROR',
-                message=str(e)
-            )
-        finally:
-            # Remove from active orders
-            if slice_order.order_id in self.active_orders:
-                del self.active_orders[slice_order.order_id]
-
-    async def _monitor_execution(
+            self.logger.info(f"TWAP slice {i+1}/{len(plan.slices)} executed")
+        
+        return {
+            'fills': fills,
+            'total_quantity': total_quantity,
+            'total_cost': total_cost,
+            'avg_price': total_cost / total_quantity if total_quantity > 0 else 0
+        }
+    
+    async def _execute_vwap(
         self,
-        order: Order,
-        execution_task: asyncio.Task
-    ) -> List[ExecutionReport]:
-        """Monitor ongoing execution"""
-        try:
-            # Wait for execution to complete
-            reports = await execution_task
+        plan: ExecutionPlan,
+        real_time_updates: bool
+    ) -> Dict[str, Any]:
+        """Execute using Volume-Weighted Average Price algorithm."""
+        # Simplified VWAP - in production would track actual volume
+        return await self._execute_twap(plan, real_time_updates)
+    
+    async def _execute_pov(
+        self,
+        plan: ExecutionPlan,
+        real_time_updates: bool
+    ) -> Dict[str, Any]:
+        """Execute using Percentage of Volume algorithm."""
+        # Simplified POV - in production would track market volume
+        return await self._execute_twap(plan, real_time_updates)
+    
+    async def _execute_iceberg(
+        self,
+        plan: ExecutionPlan,
+        real_time_updates: bool
+    ) -> Dict[str, Any]:
+        """Execute using Iceberg algorithm."""
+        fills = []
+        total_quantity = 0
+        total_cost = 0
+        
+        for slice_config in plan.slices:
+            # Show only small portion
+            show_quantity = slice_config.get('show_quantity', 10)
+            hidden_quantity = slice_config['quantity'] - show_quantity
             
-            # Verify execution quality
-            total_filled = sum(r.filled_quantity for r in reports)
-            if total_filled < order.quantity:
-                self.logger.warning(
-                    f"Partial fill for {order.order_id}: "
-                    f"{total_filled}/{order.quantity} shares"
+            # Execute visible portion
+            fill_price = await self._simulate_fill_price(
+                plan.order.symbol,
+                show_quantity,
+                plan.order.side
+            )
+            
+            fills.append({
+                'quantity': show_quantity,
+                'price': fill_price,
+                'timestamp': datetime.now(),
+                'venue': VenueType.EXCHANGE,
+                'type': 'visible'
+            })
+            
+            # Execute hidden portion
+            if hidden_quantity > 0:
+                hidden_price = await self._simulate_fill_price(
+                    plan.order.symbol,
+                    hidden_quantity,
+                    plan.order.side,
+                    impact_reduction=0.5  # Less impact for hidden orders
                 )
+                
+                fills.append({
+                    'quantity': hidden_quantity,
+                    'price': hidden_price,
+                    'timestamp': datetime.now(),
+                    'venue': VenueType.DARK_POOL,
+                    'type': 'hidden'
+                })
             
-            return reports
-            
-        except asyncio.CancelledError:
-            self.logger.warning(f"Execution cancelled for {order.order_id}")
-            return []
-        except Exception as e:
-            self.logger.error(f"Error monitoring execution: {str(e)}")
-            return []
-
-    async def _monitor_executions(self):
-        """Background task to monitor all executions"""
-        while self.state == AgentState.RUNNING:
-            try:
-                # Check active orders
-                for order_id, order in list(self.active_orders.items()):
-                    # Check for stale orders
-                    if order_id in self.execution_plans:
-                        plan = self.execution_plans[order_id]
-                        max_duration = plan.time_constraints.get('max_duration', 3600)
-                        
-                        # Cancel if exceeded max duration
-                        # (Implementation depends on broker interface)
-                
-                await asyncio.sleep(5)  # Check every 5 seconds
-                
-            except Exception as e:
-                self.logger.error(f"Error in execution monitor: {str(e)}")
-
-    async def _adapt_algorithms(self):
-        """Background task to adapt algorithm selection"""
-        while self.state == AgentState.RUNNING:
-            try:
-                # Analyze recent performance by algorithm
-                for algo in ExecutionAlgo:
-                    if algo in self.algo_performance and len(self.algo_performance[algo]) > 10:
-                        recent_performance = self.algo_performance[algo][-50:]
-                        avg_performance = np.mean(recent_performance)
-                        
-                        # Adjust algorithm preferences based on performance
-                        # (Store in internal state for algorithm selection)
-                
-                await asyncio.sleep(300)  # Adapt every 5 minutes
-                
-            except Exception as e:
-                self.logger.error(f"Error in algorithm adaptation: {str(e)}")
-
-    async def _analyze_execution_quality(
+            total_quantity += slice_config['quantity']
+            total_cost += show_quantity * fill_price + hidden_quantity * hidden_price
+        
+        return {
+            'fills': fills,
+            'total_quantity': total_quantity,
+            'total_cost': total_cost,
+            'avg_price': total_cost / total_quantity if total_quantity > 0 else 0
+        }
+    
+    async def _execute_sniper(
         self,
-        order: Order,
-        reports: List[ExecutionReport],
-        plan: ExecutionPlan
-    ) -> ExecutionAnalytics:
-        """Analyze execution quality"""
-        if not reports:
-            return ExecutionAnalytics(
-                order_id=order.order_id,
-                algo_used=plan.algo,
-                arrival_price=0,
-                average_price=0,
-                vwap=0,
-                slippage=0,
-                market_impact=0,
-                timing_cost=0,
-                total_cost=0,
-                fill_rate=0,
-                execution_time=timedelta(0)
-            )
+        plan: ExecutionPlan,
+        real_time_updates: bool
+    ) -> Dict[str, Any]:
+        """Execute using Sniper algorithm for low liquidity."""
+        # Wait for optimal conditions
+        await self._wait_for_liquidity(plan.order.symbol)
         
-        # Calculate metrics
-        total_quantity = sum(r.filled_quantity for r in reports)
-        total_value = sum(r.filled_quantity * r.average_price for r in reports)
-        average_price = total_value / total_quantity if total_quantity > 0 else 0
+        # Execute quickly when liquidity appears
+        return await self._execute_simple(plan)
+    
+    async def _execute_adaptive(
+        self,
+        plan: ExecutionPlan,
+        real_time_updates: bool
+    ) -> Dict[str, Any]:
+        """Execute using Adaptive algorithm."""
+        # Start with TWAP approach
+        initial_result = await self._execute_twap(plan, real_time_updates)
         
-        # Get market prices during execution
-        start_time = reports[0].timestamp
-        end_time = reports[-1].timestamp
-        execution_time = end_time - start_time
+        # In production, would adapt based on real-time conditions
+        return initial_result
+    
+    # ==========================================================================
+    # PRIVATE METHODS - SIMULATION
+    # ==========================================================================
+    async def _simulate_fill_price(
+        self,
+        symbol: str,
+        quantity: int,
+        side: str,
+        impact_reduction: float = 1.0
+    ) -> float:
+        """Simulate fill price with market impact."""
+        # Get base price (in production, from market data)
+        base_price = 100.0  # Placeholder
         
-        # Calculate VWAP during execution period
-        vwap = await self._calculate_market_vwap(
-            order.symbol, start_time, end_time
-        )
-        
-        # Arrival price (price at order submission)
-        arrival_price = order.limit_price or average_price
-        
-        # Calculate costs
-        if order.side == 'BUY':
-            slippage = (average_price - arrival_price) / arrival_price
-            vwap_slippage = (average_price - vwap) / vwap if vwap > 0 else 0
+        # Get liquidity profile
+        if symbol in self.liquidity_profiles:
+            liquidity = self.liquidity_profiles[symbol]
+            spread = liquidity.avg_spread
+            
+            # Apply spread
+            if side == 'buy':
+                price = base_price + spread / 2
+            else:
+                price = base_price - spread / 2
+            
+            # Add market impact
+            impact = spread * np.sqrt(quantity / liquidity.avg_size) * impact_reduction
+            if side == 'buy':
+                price += impact
+            else:
+                price -= impact
         else:
-            slippage = (arrival_price - average_price) / arrival_price
-            vwap_slippage = (vwap - average_price) / vwap if vwap > 0 else 0
+            # Default spread and impact
+            if side == 'buy':
+                price = base_price * 1.001
+            else:
+                price = base_price * 0.999
         
-        # Implementation shortfall components
-        market_impact = abs(slippage) * 0.6  # Empirical split
-        timing_cost = abs(slippage) * 0.4
+        # Add some noise
+        price *= (1 + np.random.normal(0, 0.0001))
         
-        # Total cost in basis points
-        total_cost = abs(slippage) * 10000
+        return round(price, 2)
+    
+    def _should_continue_execution(self, plan: ExecutionPlan) -> bool:
+        """Check if execution should continue."""
+        # Check market hours
+        if self._get_market_hours_remaining() <= 0:
+            return False
         
-        # Fill rate
-        fill_rate = total_quantity / order.quantity
+        # Check if order cancelled
+        if plan.order.status == OrderStatus.CANCELLED:
+            return False
+        
+        # In production, would check more conditions
+        return True
+    
+    async def _wait_for_liquidity(self, symbol: str):
+        """Wait for liquidity to improve."""
+        # Simplified wait
+        await asyncio.sleep(5)  # Wait 5 seconds
+    
+    # ==========================================================================
+    # PRIVATE METHODS - ANALYTICS
+    # ==========================================================================
+    def _calculate_execution_analytics(
+        self,
+        plan: ExecutionPlan,
+        execution_result: Dict[str, Any]
+    ) -> ExecutionAnalytics:
+        """Calculate execution analytics."""
+        fills = execution_result.get('fills', [])
+        
+        # Calculate average price
+        avg_price = execution_result.get('avg_price', 0)
+        
+        # Calculate slippage (simplified)
+        if plan.order.limit_price:
+            slippage = (avg_price - plan.order.limit_price) / plan.order.limit_price
+            if plan.order.side == 'sell':
+                slippage = -slippage
+        else:
+            slippage = 0.0
+        
+        # Calculate market impact (simplified)
+        if fills:
+            first_price = fills[0]['price']
+            last_price = fills[-1]['price']
+            market_impact = abs(last_price - first_price) / first_price
+        else:
+            market_impact = 0.0
+        
+        # Calculate execution time
+        if fills:
+            execution_time = fills[-1]['timestamp'] - fills[0]['timestamp']
+        else:
+            execution_time = timedelta(seconds=0)
+        
+        # Venue breakdown
+        venue_breakdown = defaultdict(float)
+        for fill in fills:
+            venue = fill.get('venue', VenueType.EXCHANGE)
+            venue_breakdown[venue] += fill['quantity']
+        
+        # Normalize venue breakdown
+        total_quantity = execution_result.get('total_quantity', 1)
+        for venue in venue_breakdown:
+            venue_breakdown[venue] /= total_quantity
         
         return ExecutionAnalytics(
-            order_id=order.order_id,
-            algo_used=plan.algo,
-            arrival_price=arrival_price,
-            average_price=average_price,
-            vwap=vwap,
+            order_id=plan.order.order_id,
+            algorithm_used=plan.algorithm,
+            execution_time=execution_time,
+            avg_price=avg_price,
             slippage=slippage,
             market_impact=market_impact,
-            timing_cost=timing_cost,
-            total_cost=total_cost,
-            fill_rate=fill_rate,
-            execution_time=execution_time
+            total_cost=execution_result.get('total_cost', 0),
+            venue_breakdown=dict(venue_breakdown),
+            performance_vs_benchmark=0.0  # Would calculate vs VWAP/TWAP benchmark
         )
-
-    def _update_performance_metrics(self, algo: ExecutionAlgo, analytics: ExecutionAnalytics):
-        """Update algorithm performance metrics"""
-        # Track performance by algorithm
-        self.algo_performance[algo].append(analytics.total_cost)
+    
+    def _update_performance_tracking(self, analytics: ExecutionAnalytics):
+        """Update performance tracking with new execution."""
+        # Track by algorithm
+        self.algo_performance[analytics.algorithm_used].append(analytics.slippage)
         
-        # Update venue performance if available
-        # (Would track by execution venue)
-
-    async def _get_order_book(self, symbol: str) -> Dict[str, Any]:
-        """Get current order book"""
-        if self.broker:
-            return await self.broker.get_order_book(symbol)
-        else:
-            # Mock order book
-            mid_price = 100.0
-            spread = 0.01
+        # Track by venue
+        for venue, percentage in analytics.venue_breakdown.items():
+            if venue.value not in self.venue_performance:
+                self.venue_performance[venue.value] = {
+                    'executions': 0,
+                    'avg_slippage': 0.0
+                }
             
-            return {
-                'bids': [
-                    (mid_price - spread/2 - i*0.01, np.random.randint(100, 1000))
-                    for i in range(10)
-                ],
-                'asks': [
-                    (mid_price + spread/2 + i*0.01, np.random.randint(100, 1000))
-                    for i in range(10)
-                ]
-            }
-
-    async def _get_microstructure(self, symbol: str) -> MarketMicrostructure:
-        """Get market microstructure data"""
-        # Would fetch from market data provider
-        # Mock implementation
-        return MarketMicrostructure(
-            tick_size=0.01,
-            lot_size=1,
-            typical_spread=0.01,
-            average_volume=1000000,
-            volatility=0.02,
-            participation_rate=0.1,
-            trade_frequency=100,  # trades per minute
-            order_arrival_rate=200  # orders per minute
-        )
-
-    async def _estimate_impact_curve(
+            stats = self.venue_performance[venue.value]
+            stats['executions'] += 1
+            stats['avg_slippage'] = (
+                (stats['avg_slippage'] * (stats['executions'] - 1) + analytics.slippage) /
+                stats['executions']
+            )
+    
+    # ==========================================================================
+    # PRIVATE METHODS - MICROSTRUCTURE ANALYSIS
+    # ==========================================================================
+    def _get_recent_microstructure(
         self,
         symbol: str,
-        bid_depth: List[Tuple[float, int]],
-        ask_depth: List[Tuple[float, int]]
-    ) -> Dict[int, float]:
-        """Estimate market impact for different order sizes"""
-        impact_curve = {}
-        
-        # Calculate cumulative depth
-        cumulative_size = 0
-        weighted_price = 0
-        
-        for price, size in ask_depth:  # For buy orders
-            cumulative_size += size
-            weighted_price += price * size
-            
-            # Estimate impact at this cumulative size
-            if cumulative_size > 0:
-                avg_price = weighted_price / cumulative_size
-                mid_price = (bid_depth[0][0] + ask_depth[0][0]) / 2 if bid_depth and ask_depth else price
-                impact = (avg_price - mid_price) / mid_price
-                impact_curve[cumulative_size] = impact
-        
-        return impact_curve
-
+        lookback_minutes: int
+    ) -> List[MarketMicrostructure]:
+        """Get recent microstructure data."""
+        # In production, would retrieve from data feed
+        # For now, return empty list
+        return []
+    
     def _calculate_liquidity_score(
         self,
-        spread: float,
-        bid_depth: List[Tuple[float, int]],
-        ask_depth: List[Tuple[float, int]],
-        order_size: int
+        data: List[MarketMicrostructure]
     ) -> float:
-        """Calculate liquidity score (0-100)"""
-        score = 100.0
+        """Calculate liquidity score from microstructure data."""
+        if not data:
+            return 0.5
         
-        # Spread component (40%)
-        if spread > 0.02:
-            score -= 20
-        elif spread > 0.01:
-            score -= 10
+        avg_spread = np.mean([d.spread for d in data])
+        avg_size = np.mean([(d.bid_size + d.ask_size) / 2 for d in data])
         
-        # Depth component (40%)
-        total_depth = sum(level[1] for level in (bid_depth + ask_depth))
-        if total_depth < order_size * 5:
-            score -= 30
-        elif total_depth < order_size * 10:
-            score -= 15
-        
-        # Balance component (20%)
-        if bid_depth and ask_depth:
-            bid_size = sum(level[1] for level in bid_depth)
-            ask_size = sum(level[1] for level in ask_depth)
-            imbalance = abs(bid_size - ask_size) / (bid_size + ask_size)
-            if imbalance > 0.3:
-                score -= 10
-        
-        return max(0, score)
-
-    async def _estimate_hidden_liquidity(
+        return self._calculate_single_liquidity_score(avg_spread, avg_size)
+    
+    def _identify_best_execution_times(
         self,
-        symbol: str,
-        visible_book: Dict[str, Any]
-    ) -> float:
-        """Estimate hidden liquidity using AI"""
-        # Analyze recent trade sizes vs visible liquidity
-        recent_trades = [t for t in self.trade_tape if t.get('symbol') == symbol][-100:]
+        data: List[MarketMicrostructure]
+    ) -> List[str]:
+        """Identify best times for execution."""
+        # Simplified - return standard times
+        return ["09:45", "11:00", "14:30", "15:45"]
+    
+    def _classify_volatility_regime(
+        self,
+        data: List[MarketMicrostructure]
+    ) -> str:
+        """Classify volatility regime."""
+        if not data:
+            return "normal"
         
-        if not recent_trades:
-            return 0.5  # Default 50% hidden
+        avg_volatility = np.mean([d.volatility for d in data])
         
-        # Calculate ratio of large trades to visible liquidity
-        visible_size = sum(level[1] for level in visible_book.get('bids', [])[:3])
-        visible_size += sum(level[1] for level in visible_book.get('asks', [])[:3])
-        
-        large_trades = [t for t in recent_trades if t.get('size', 0) > visible_size * 0.2]
-        hidden_ratio = len(large_trades) / len(recent_trades) if recent_trades else 0
-        
-        # Adjust estimate based on market conditions
-        # Higher hidden liquidity in liquid markets
-        return min(0.8, hidden_ratio * 2)
-
-    def _get_average_trade_size(self, symbol: str) -> float:
-        """Get average trade size for symbol"""
-        recent_trades = [t for t in self.trade_tape if t.get('symbol') == symbol][-100:]
-        
-        if recent_trades:
-            sizes = [t.get('size', 0) for t in recent_trades]
-            return np.mean(sizes)
+        if avg_volatility < 0.01:
+            return "low"
+        elif avg_volatility < 0.02:
+            return "normal"
         else:
-            return 100  # Default
-
-    async def _get_volume_curve(self, symbol: str) -> Dict[str, float]:
-        """Get intraday volume curve"""
-        # Would fetch historical intraday volume pattern
-        # Mock implementation - U-shaped curve
-        curve = {}
-        for hour in range(9, 17):  # 9:30 AM to 4:00 PM
-            for minute in range(0, 60, 5):
-                time_key = f"{hour:02d}:{minute:02d}"
-                # U-shaped: high at open/close
-                if hour == 9 and minute < 30:
-                    continue
-                elif hour == 9:
-                    curve[time_key] = 0.15  # High opening volume
-                elif hour == 15 and minute > 30:
-                    curve[time_key] = 0.12  # High closing volume
-                else:
-                    # Lower midday volume
-                    curve[time_key] = 0.05 + 0.02 * np.sin((hour - 9) * np.pi / 7)
-        
-        return curve
-
-    async def _get_current_volume(self, symbol: str) -> float:
-        """Get current trading volume"""
-        # Count recent trades
-        cutoff = datetime.now() - timedelta(seconds=60)
-        recent_volume = sum(
-            t.get('size', 0) for t in self.trade_tape
-            if t.get('symbol') == symbol and t.get('timestamp', datetime.min) > cutoff
-        )
-        
-        return recent_volume
-
-    async def _get_recent_volume(self, symbol: str, seconds: int) -> float:
-        """Get volume over recent period"""
-        cutoff = datetime.now() - timedelta(seconds=seconds)
-        volume = sum(
-            t.get('size', 0) for t in self.trade_tape
-            if t.get('symbol') == symbol and t.get('timestamp', datetime.min) > cutoff
-        )
-        
-        return volume
-
-    def _analyze_recent_performance(self, reports: List[ExecutionReport]) -> Dict[str, float]:
-        """Analyze recent execution performance"""
-        if not reports:
-            return {'slippage': 0, 'fill_rate': 0, 'speed': 0}
-        
-        # Calculate average slippage
-        slippages = []
-        for report in reports:
-            if hasattr(report, 'order') and report.order.limit_price:
-                slippage = abs(report.average_price - report.order.limit_price) / report.order.limit_price
-                slippages.append(slippage)
-        
-        # Fill rate
-        fill_rates = [r.filled_quantity / r.order.quantity if hasattr(r, 'order') else 1 for r in reports]
-        
-        # Execution speed (simplified)
-        speeds = [1.0 for r in reports]  # Would calculate based on timestamps
-        
-        return {
-            'slippage': np.mean(slippages) if slippages else 0,
-            'fill_rate': np.mean(fill_rates),
-            'speed': np.mean(speeds)
-        }
-
-    async def _select_adaptive_algorithm(
+            return "high"
+    
+    # ==========================================================================
+    # PRIVATE METHODS - OPTIMIZATION
+    # ==========================================================================
+    def _get_relevant_executions(
         self,
-        current_algo: ExecutionAlgo,
-        allowed_algos: List[ExecutionAlgo],
-        performance: Dict[str, float],
-        order: Order,
-        executed_quantity: int
-    ) -> ExecutionAlgo:
-        """Select best algorithm based on recent performance"""
+        order: Order
+    ) -> List[ExecutionAnalytics]:
+        """Get relevant historical executions for analysis."""
+        relevant = []
         
-        # Check if current algorithm is underperforming
-        if performance['slippage'] > 0.002:  # 20 bps
-            # High slippage - switch to less aggressive
-            if current_algo == ExecutionAlgo.SNIPER:
-                return ExecutionAlgo.ICEBERG
-            elif current_algo == ExecutionAlgo.TWAP:
-                return ExecutionAlgo.VWAP
-        
-        # Check fill rate
-        if performance['fill_rate'] < 0.8:
-            # Poor fills - switch to more aggressive
-            if current_algo == ExecutionAlgo.ICEBERG:
-                return ExecutionAlgo.SNIPER
-            elif current_algo == ExecutionAlgo.VWAP:
-                return ExecutionAlgo.TWAP
-        
-        # Check remaining quantity
-        remaining_pct = (order.quantity - executed_quantity) / order.quantity
-        if remaining_pct < 0.2 and current_algo != ExecutionAlgo.SNIPER:
-            # Final push - use aggressive algo
-            return ExecutionAlgo.SNIPER if ExecutionAlgo.SNIPER in allowed_algos else current_algo
-        
-        return current_algo
-
-    def _get_adaptive_params(
-        self,
-        algo: ExecutionAlgo,
-        base_params: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Get parameters for adaptive algorithm switching"""
-        if algo == ExecutionAlgo.TWAP:
-            return {
-                'duration': base_params.get('adaptation_frequency', 60),
-                'slice_interval': 10
-            }
-        elif algo == ExecutionAlgo.VWAP:
-            return {
-                'participation_rate': 0.15,
-                'max_duration': base_params.get('adaptation_frequency', 60)
-            }
-        elif algo == ExecutionAlgo.SNIPER:
-            return {
-                'aggression_level': 0.9,
-                'max_sweep_levels': 5
-            }
-        else:
-            return {}
-
-    async def _calculate_market_vwap(
-        self,
-        symbol: str,
-        start_time: datetime,
-        end_time: datetime
-    ) -> float:
-        """Calculate market VWAP during execution period"""
-        # Get trades during period
-        period_trades = [
-            t for t in self.trade_tape
-            if (t.get('symbol') == symbol and
-                t.get('timestamp', datetime.min) >= start_time and
-                t.get('timestamp', datetime.max) <= end_time)
-        ]
-        
-        if not period_trades:
-            return 0
-        
-        # Calculate VWAP
-        total_value = sum(t.get('price', 0) * t.get('size', 0) for t in period_trades)
-        total_volume = sum(t.get('size', 0) for t in period_trades)
-        
-        return total_value / total_volume if total_volume > 0 else 0
-
-    async def _handle_market_data(self, event: Event):
-        """Handle market data updates"""
-        if hasattr(event, 'data'):
-            self.market_data_buffer.append({
-                'timestamp': datetime.now(),
-                'symbol': event.data.get('symbol'),
-                'price': event.data.get('price'),
-                'size': event.data.get('size'),
-                'spread': event.data.get('spread', 0.01)
-            })
-
-    async def _handle_order_book(self, event: Event):
-        """Handle order book updates"""
-        if hasattr(event, 'data'):
-            self.order_book_snapshots.append({
-                'timestamp': datetime.now(),
-                'symbol': event.data.get('symbol'),
-                'bids': event.data.get('bids', []),
-                'asks': event.data.get('asks', [])
-            })
-
-    async def _handle_trade_print(self, event: Event):
-        """Handle trade print events"""
-        if hasattr(event, 'data'):
-            self.trade_tape.append({
-                'timestamp': datetime.now(),
-                'symbol': event.data.get('symbol'),
-                'price': event.data.get('price'),
-                'size': event.data.get('size'),
-                'side': event.data.get('side')
-            })
-
-    async def _handle_execution_report(self, event: Event):
-        """Handle execution reports"""
-        if hasattr(event, 'data'):
-            report = event.data.get('report')
-            if report and report.order_id in self.active_orders:
-                # Update order status
-                order = self.active_orders[report.order_id]
-                
-                # Check if order is complete
-                if report.status in [OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED]:
-                    del self.active_orders[report.order_id]
-
-    async def _query_llm(self, prompt: str) -> str:
-        """Query LLM for execution insights"""
-        # Mock implementation
-        if "execution algorithm" in prompt:
-            return json.dumps({
-                "algorithm": "adaptive",
-                "confidence": 0.85,
-                "reasoning": "High order size with moderate urgency suggests adaptive execution",
-                "parameters": {
-                    "initial_algo": "twap",
-                    "adaptation_frequency": 60
-                },
-                "venues": ["SMART", "IEX"]
-            })
-        else:
-            return "{}"
-
-    async def get_execution_stats(self) -> Dict[str, Any]:
-        """Get execution statistics"""
-        stats = {
-            'active_orders': len(self.active_orders),
-            'recent_executions': len(self.recent_executions),
-            'algo_performance': {},
-            'average_slippage': 0,
-            'average_fill_rate': 0,
-            'best_performing_algo': None,
-            'worst_performing_algo': None
-        }
-        
-        # Analyze algorithm performance
-        algo_stats = {}
-        for algo, costs in self.algo_performance.items():
-            if costs:
-                algo_stats[algo.value] = {
-                    'avg_cost_bps': np.mean(costs),
-                    'std_cost_bps': np.std(costs),
-                    'n_executions': len(costs),
-                    'recent_trend': 'improving' if len(costs) > 10 and np.mean(costs[-5:]) < np.mean(costs[-10:-5]) else 'stable'
-                }
-        
-        stats['algo_performance'] = algo_stats
-        
-        # Find best/worst algorithms
-        if algo_stats:
-            best_algo = min(algo_stats.items(), key=lambda x: x[1]['avg_cost_bps'])
-            worst_algo = max(algo_stats.items(), key=lambda x: x[1]['avg_cost_bps'])
-            stats['best_performing_algo'] = best_algo[0]
-            stats['worst_performing_algo'] = worst_algo[0]
-        
-        # Calculate average metrics from recent executions
-        if self.execution_analytics:
-            recent_analytics = self.execution_analytics[-100:]
-            stats['average_slippage'] = np.mean([a.slippage for a in recent_analytics])
-            stats['average_fill_rate'] = np.mean([a.fill_rate for a in recent_analytics])
-        
-        return stats
-
-    async def optimize_execution_parameters(
-        self,
-        symbol: str,
-        typical_order_size: int,
-        historical_executions: List[ExecutionAnalytics]
-    ) -> Dict[str, Any]:
-        """Optimize execution parameters based on historical data"""
-        
-        # Group by algorithm
-        algo_groups = defaultdict(list)
-        for execution in historical_executions:
-            algo_groups[execution.algo_used].append(execution)
-        
-        # Analyze each algorithm's performance
-        recommendations = {}
-        
-        for algo, executions in algo_groups.items():
-            if len(executions) < 10:
+        for analytics in self.execution_analytics:
+            # Get order details
+            historical_order = self._get_order_by_id(analytics.order_id)
+            if not historical_order:
                 continue
             
-            # Calculate performance metrics
-            avg_cost = np.mean([e.total_cost for e in executions])
-            cost_std = np.std([e.total_cost for e in executions])
-            avg_time = np.mean([e.execution_time.total_seconds() for e in executions])
-            
-            # Generate recommendations
-            if algo == ExecutionAlgo.TWAP:
-                optimal_duration = avg_time * (1 + cost_std / 100)  # Adjust based on cost variance
-                recommendations[algo] = {
-                    'optimal_duration': optimal_duration,
-                    'slice_interval': max(10, optimal_duration / 50),
-                    'confidence': min(0.9, 1 - cost_std / 100)
-                }
-            
-            elif algo == ExecutionAlgo.VWAP:
-                # Analyze participation rate impact
-                recommendations[algo] = {
-                    'optimal_participation': 0.1,  # Would calculate from data
-                    'max_participation': 0.2,
-                    'avoid_times': []  # Would identify high-impact periods
-                }
-            
-            elif algo == ExecutionAlgo.ICEBERG:
-                # Optimize display size
-                recommendations[algo] = {
-                    'optimal_display_pct': 0.1,  # 10% of order
-                    'randomization': 0.2,
-                    'refresh_delay': 15  # seconds
-                }
+            # Check relevance
+            if (historical_order.symbol == order.symbol and
+                abs(historical_order.quantity - order.quantity) / order.quantity < 0.5):
+                relevant.append(analytics)
         
-        # Overall recommendations
-        best_algo_by_size = {}
-        
-        # Small orders
-        if typical_order_size < 1000:
-            best_algo_by_size['small'] = ExecutionAlgo.LIMIT
-        # Medium orders
-        elif typical_order_size < 10000:
-            best_algo_by_size['medium'] = ExecutionAlgo.TWAP
-        # Large orders
-        else:
-            best_algo_by_size['large'] = ExecutionAlgo.ADAPTIVE
-        
-        return {
-            'algo_specific': recommendations,
-            'size_based_recommendation': best_algo_by_size,
-            'market_impact_threshold': np.percentile([e.market_impact for e in historical_executions], 75),
-            'typical_spread': np.mean([e.arrival_price * 0.0001 for e in historical_executions])  # Simplified
-        }
-
-    async def export_execution_report(
+        return relevant[-100:]  # Last 100 relevant executions
+    
+    def _analyze_execution_performance(
         self,
-        start_date: datetime,
-        end_date: datetime,
-        format: str = 'json'
-    ) -> Union[str, pd.DataFrame]:
-        """Export execution report for period"""
+        executions: List[ExecutionAnalytics],
+        order: Order
+    ) -> Dict[str, Any]:
+        """Analyze historical execution performance."""
+        if not executions:
+            return {}
         
-        # Filter executions by date
-        period_executions = [
-            e for e in self.execution_analytics
-            if start_date <= e.timestamp <= end_date
-        ]
-        
-        if not period_executions:
-            return "No executions found in period"
-        
-        # Create report data
-        report_data = []
-        
-        for execution in period_executions:
-            report_data.append({
-                'order_id': execution.order_id,
-                'timestamp': execution.timestamp,
-                'algorithm': execution.algo_used.value,
-                'arrival_price': execution.arrival_price,
-                'average_price': execution.average_price,
-                'vwap': execution.vwap,
-                'slippage_bps': execution.slippage * 10000,
-                'market_impact_bps': execution.market_impact * 10000,
-                'total_cost_bps': execution.total_cost,
-                'fill_rate': execution.fill_rate,
-                'execution_time_seconds': execution.execution_time.total_seconds()
+        # Group by algorithm
+        algo_performance = defaultdict(list)
+        for execution in executions:
+            algo_performance[execution.algorithm_used].append({
+                'slippage': execution.slippage,
+                'impact': execution.market_impact,
+                'time': execution.execution_time.total_seconds()
             })
         
-        # Create DataFrame
-        df = pd.DataFrame(report_data)
+        # Calculate statistics by algorithm
+        algo_stats = {}
+        for algo, perfs in algo_performance.items():
+            algo_stats[algo.value] = {
+                'avg_slippage': np.mean([p['slippage'] for p in perfs]),
+                'avg_impact': np.mean([p['impact'] for p in perfs]),
+                'avg_time': np.mean([p['time'] for p in perfs]),
+                'count': len(perfs)
+            }
         
-        if format == 'json':
-            # Add summary statistics
-            summary = {
-                'period': {
-                    'start': start_date.isoformat(),
-                    'end': end_date.isoformat()
-                },
-                'total_executions': len(report_data),
-                'average_slippage_bps': df['slippage_bps'].mean(),
-                'average_cost_bps': df['total_cost_bps'].mean(),
-                'best_execution': df.loc[df['total_cost_bps'].idxmin()].to_dict(),
-                'worst_execution': df.loc[df['total_cost_bps'].idxmax()].to_dict(),
-                'by_algorithm': df.groupby('algorithm').agg({
-                    'total_cost_bps': ['mean', 'std', 'count']
-                }).to_dict()
+        return {
+            'algo_stats': algo_stats,
+            'best_algo': min(algo_stats.items(), key=lambda x: x[1]['avg_slippage'])[0] if algo_stats else None
+        }
+    
+    def _get_rule_based_optimization(
+        self,
+        order: Order,
+        performance_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Get rule-based optimization recommendations."""
+        recommendations = {
+            'algorithm': ExecutionAlgo.ADAPTIVE,
+            'slice_size': 100,
+            'participation_rate': 0.1,
+            'urgency_adjustment': 1.0,
+            'venues': [VenueType.EXCHANGE]
+        }
+        
+        # Use best performing algorithm if available
+        if performance_analysis.get('best_algo'):
+            for algo in ExecutionAlgo:
+                if algo.value == performance_analysis['best_algo']:
+                    recommendations['algorithm'] = algo
+                    break
+        
+        # Adjust slice size based on order size
+        if order.quantity > 1000:
+            recommendations['slice_size'] = 200
+        elif order.quantity < 100:
+            recommendations['slice_size'] = order.quantity
+        
+        # Add venues for large orders
+        if order.quantity > 500:
+            recommendations['venues'].append(VenueType.DARK_POOL)
+        
+        return recommendations
+    
+    # ==========================================================================
+    # PRIVATE METHODS - PERFORMANCE ANALYSIS
+    # ==========================================================================
+    def _get_order_by_id(self, order_id: str) -> Optional[Order]:
+        """Get order by ID from history."""
+        # Check active orders
+        if order_id in self.active_orders:
+            return self.active_orders[order_id]
+        
+        # Check execution plans
+        if order_id in self.execution_plans:
+            return self.execution_plans[order_id].order
+        
+        return None
+    
+    def _get_algo_performance_breakdown(
+        self,
+        analytics: List[ExecutionAnalytics]
+    ) -> Dict[str, Dict[str, float]]:
+        """Get performance breakdown by algorithm."""
+        breakdown = defaultdict(lambda: {'count': 0, 'avg_slippage': 0.0})
+        
+        for a in analytics:
+            algo = a.algorithm_used.value
+            current = breakdown[algo]
+            current['count'] += 1
+            current['avg_slippage'] = (
+                (current['avg_slippage'] * (current['count'] - 1) + a.slippage) /
+                current['count']
+            )
+        
+        return dict(breakdown)
+    
+    def _get_venue_performance_breakdown(
+        self,
+        analytics: List[ExecutionAnalytics]
+    ) -> Dict[str, Dict[str, float]]:
+        """Get performance breakdown by venue."""
+        breakdown = defaultdict(lambda: {'volume': 0.0, 'avg_slippage': 0.0})
+        
+        for a in analytics:
+            for venue, percentage in a.venue_breakdown.items():
+                venue_name = venue.value if hasattr(venue, 'value') else str(venue)
+                current = breakdown[venue_name]
+                current['volume'] += percentage
+                current['avg_slippage'] = (
+                    (current['avg_slippage'] * (current['volume'] - percentage) + a.slippage * percentage) /
+                    current['volume']
+                )
+        
+        return dict(breakdown)
+    
+    # ==========================================================================
+    # PRIVATE METHODS - AI INTEGRATION
+    # ==========================================================================
+    async def _get_ai_algo_recommendation(
+        self,
+        order: Order,
+        liquidity: LiquidityProfile,
+        impact_model: MarketImpactModel,
+        constraints: Optional[Dict[str, Any]] = None
+    ) -> ExecutionAlgo:
+        """Get AI recommendation for execution algorithm."""
+        try:
+            constraints_str = ""
+            if constraints:
+                constraints_str = "\nConstraints:\n" + "\n".join([f"- {k}: {v}" for k, v in constraints.items()])
+            
+            prompt = f"""Select the optimal execution algorithm for this options order:
+
+Order Details:
+- Symbol: {order.symbol}
+- Quantity: {order.quantity} contracts
+- Side: {order.side}
+- Urgency: {order.urgency.value}
+- Order Type: {order.order_type.value}
+
+Market Conditions:
+- Liquidity Score: {liquidity.liquidity_score:.2f}
+- Average Spread: ${liquidity.avg_spread:.3f}
+- Average Size: {liquidity.avg_size} contracts
+- Impact Estimate: {impact_model.temporary_impact:.3f}
+{constraints_str}
+
+Available algorithms: market, limit, twap, vwap, pov, iceberg, sniper, adaptive
+
+Consider urgency, liquidity, and market impact. Respond with just the algorithm name."""
+
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': 50
+                }
+            )
+            
+            # Parse response
+            algo_name = response['response'].strip().lower()
+            
+            # Map to ExecutionAlgo
+            for algo in ExecutionAlgo:
+                if algo.value == algo_name:
+                    return algo
+            
+            # Default if not found
+            return ExecutionAlgo.ADAPTIVE
+            
+        except Exception as e:
+            self.logger.error(f"Error getting AI algo recommendation: {e}")
+            return self._select_algorithm_rules(order, liquidity)
+    
+    async def _get_ai_microstructure_insights(
+        self,
+        symbol: str,
+        analysis: Dict[str, Any],
+        recent_data: List[MarketMicrostructure]
+    ) -> Dict[str, Any]:
+        """Get AI insights on market microstructure."""
+        try:
+            prompt = f"""Analyze the market microstructure for {symbol}:
+
+Metrics:
+- Average Spread: ${analysis['avg_spread']:.3f}
+- Spread Volatility: {analysis['spread_volatility']:.3f}
+- Liquidity Score: {analysis['liquidity_score']:.2f}
+- Volatility Regime: {analysis['volatility_regime']}
+
+Provide insights on:
+1. Optimal execution timing
+2. Expected market impact
+3. Venue selection strategy
+4. Risk factors
+
+Be specific and actionable."""
+
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': MAX_TOKENS
+                }
+            )
+            
+            return {
+                'insights': response['response'],
+                'confidence': 0.8
             }
             
-            return json.dumps({
-                'executions': report_data,
-                'summary': summary
-            }, indent=2, default=str)
-        else:
-            return df
+        except Exception as e:
+            self.logger.error(f"Error getting AI microstructure insights: {e}")
+            return {}
+    
+    async def _get_ai_parameter_optimization(
+        self,
+        order: Order,
+        performance_analysis: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Get AI recommendations for execution parameters."""
+        try:
+            perf_str = ""
+            if performance_analysis.get('algo_stats'):
+                perf_str = "\nHistorical Performance:\n"
+                for algo, stats in performance_analysis['algo_stats'].items():
+                    perf_str += f"- {algo}: slippage={stats['avg_slippage']:.3f}, count={stats['count']}\n"
+            
+            prompt = f"""Optimize execution parameters for this options order:
 
-    async def shutdown(self):
-        """Shutdown agent gracefully"""
-        self.state = AgentState.STOPPED
+Order:
+- Symbol: {order.symbol}
+- Quantity: {order.quantity}
+- Urgency: {order.urgency.value}
+{perf_str}
+
+Recommend:
+1. Best algorithm (from: market, limit, twap, vwap, pov, iceberg, sniper, adaptive)
+2. Optimal slice size
+3. Participation rate (0.0-1.0)
+4. Urgency adjustment factor
+5. Preferred venues
+
+Consider historical performance and current market conditions."""
+
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': MAX_TOKENS
+                }
+            )
+            
+            # Parse response (simplified)
+            text = response['response'].lower()
+            
+            # Extract algorithm
+            algorithm = ExecutionAlgo.ADAPTIVE
+            for algo in ExecutionAlgo:
+                if algo.value in text:
+                    algorithm = algo
+                    break
+            
+            # Extract numbers (simplified)
+            import re
+            numbers = re.findall(r'\d+\.?\d*', text)
+            
+            slice_size = int(numbers[0]) if numbers else 100
+            participation_rate = float(numbers[1]) if len(numbers) > 1 else 0.1
+            
+            return {
+                'algorithm': algorithm,
+                'slice_size': min(slice_size, order.quantity),
+                'participation_rate': min(participation_rate, 1.0),
+                'urgency_adjustment': 1.0,
+                'venues': [VenueType.EXCHANGE, VenueType.DARK_POOL]
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting AI parameter optimization: {e}")
+            return self._get_rule_based_optimization(order, performance_analysis)
+    
+    # ==========================================================================
+    # LIFECYCLE METHODS
+    # ==========================================================================
+    def clear_cache(self):
+        """Clear cached data."""
+        self.liquidity_profiles.clear()
+        self.impact_models.clear()
+        self.microstructure.clear()
+        self.logger.info("Execution cache cleared")
+    
+    def get_active_orders(self) -> List[Order]:
+        """Get list of active orders."""
+        return list(self.active_orders.values())
+    
+    def cancel_order(self, order_id: str) -> bool:
+        """Cancel an active order."""
+        if order_id in self.active_orders:
+            self.active_orders[order_id].status = OrderStatus.CANCELLED
+            self.logger.info(f"Order {order_id} cancelled")
+            return True
+        return False
+
+# ==============================================================================
+# MODULE FUNCTIONS
+# ==============================================================================
+def create_execution_strategy_agent(config: Optional[Dict[str, Any]] = None) -> SpyderX07_ExecutionStrategyAgent:
+    """
+    Factory function to create Execution Strategy Agent.
+    
+    Args:
+        config: Optional configuration dictionary
         
-        # Cancel any active orders
-        for order_id in list(self.active_orders.keys()):
-            self.logger.info(f"Cancelling active order {order_id}")
-            # Would send cancel to broker
+    Returns:
+        Configured SpyderX07_ExecutionStrategyAgent instance
+    """
+    return SpyderX07_ExecutionStrategyAgent(config)
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+# Module-level initialization code
+_module_instance: Optional[SpyderX07_ExecutionStrategyAgent] = None
+
+def get_module_instance(config: Optional[Dict[str, Any]] = None) -> SpyderX07_ExecutionStrategyAgent:
+    """
+    Get singleton instance of the module.
+    
+    Args:
+        config: Configuration if creating new instance
         
-        self.logger.info("Execution Strategy Agent shutdown complete")
+    Returns:
+        Module instance
+    """
+    global _module_instance
+    if _module_instance is None:
+        _module_instance = SpyderX07_ExecutionStrategyAgent(config)
+    return _module_instance
 
-# Factory function
-def create_execution_strategy_agent(config: Dict[str, Any]) -> ExecutionStrategyAgent:
-    """Create and return an Execution Strategy Agent instance"""
-    return ExecutionStrategyAgent(config)
-
-
-# Usage Example:
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
-    # Example configuration
-    test_config = {
-        'execution_llm_model': 'llama3.2:3b-instruct-q4_K_M',
-        'max_order_slice': 1000,
-        'min_order_size': 1,
-        'participation_rate': 0.1
-    }
-    
-    # Create agent
-    execution_agent = create_execution_strategy_agent(test_config)
-    
-    # Example usage
-    async def example_usage():
-        await execution_agent.initialize()
+    async def test_agent():
+        """Test the Execution Strategy Agent."""
+        # Create agent
+        config = {
+            'llm_model': 'llama3.2:3b-instruct-q4_K_M',
+            'temperature': 0.2,
+            'max_order_slice': 1000
+        }
         
-        # Create test order
-        test_order = Order(
-            order_id='TEST_001',
-            symbol='SPY',
-            side='BUY',
-            quantity=5000,
+        agent = create_execution_strategy_agent(config)
+        
+        # Create sample order
+        order = Order(
+            order_id="TEST001",
+            symbol="SPY_240201C550",
+            quantity=500,
+            side="buy",
             order_type=OrderType.LIMIT,
-            limit_price=400.00,
-            time_in_force=TimeInForce.DAY
+            limit_price=5.50,
+            urgency=UrgencyLevel.MEDIUM,
+            strategy_tag="open_position"
         )
         
-        # Create execution plan
-        plan = await execution_agent.create_execution_plan(
-            test_order,
-            urgency=Urgency.MEDIUM
+        # Create sample market data
+        market_data = MarketMicrostructure(
+            timestamp=datetime.now(),
+            bid=5.45,
+            ask=5.50,
+            bid_size=100,
+            ask_size=150,
+            last_price=5.48,
+            last_size=50,
+            total_volume=10000,
+            quote_count=500,
+            trade_count=200,
+            volatility=0.015,
+            spread=0.05,
+            depth_imbalance=0.2
         )
         
-        print(f"Execution Plan:")
-        print(f"Algorithm: {plan.algo.value}")
-        print(f"Confidence: {plan.confidence:.2%}")
-        print(f"Estimated Cost: {plan.estimated_cost:.1f} bps")
-        print(f"Parameters: {plan.parameters}")
+        print("="*80)
+        print("TESTING EXECUTION STRATEGY AGENT")
+        print("="*80)
         
-        # Execute order
-        reports = await execution_agent.execute_order(test_order, plan)
+        # 1. Create execution plan
+        print("\n1. Creating Execution Plan...")
+        plan = await agent.create_execution_plan(
+            order,
+            market_data,
+            {'max_slippage': 0.02, 'max_impact': 0.01}
+        )
         
-        print(f"\nExecution Results:")
-        print(f"Total Filled: {sum(r.filled_quantity for r in reports)} shares")
-        print(f"Average Price: ${np.mean([r.average_price for r in reports]):.2f}")
+        print(f"Algorithm: {plan.algorithm.value}")
+        print(f"Number of slices: {len(plan.slices)}")
+        print(f"Venues: {[v.value for v in plan.venues]}")
+        print(f"Expected cost: ${plan.expected_cost:.2f}")
+        print(f"Expected duration: {plan.expected_duration}")
         
-        # Get statistics
-        stats = await execution_agent.get_execution_stats()
-        print(f"\nExecution Statistics:")
-        print(f"Active Orders: {stats['active_orders']}")
-        print(f"Best Algorithm: {stats['best_performing_algo']}")
-    
-    # Run example
-    # asyncio.run(example_usage())
+        # 2. Analyze microstructure
+        print("\n2. Analyzing Market Microstructure...")
+        microstructure_analysis = await agent.analyze_market_microstructure(
+            order.symbol,
+            lookback_minutes=30
+        )
+        
+        for key, value in microstructure_analysis.items():
+            if key != 'ai_insights':
+                print(f"{key}: {value}")
+        
+        # 3. Optimize parameters

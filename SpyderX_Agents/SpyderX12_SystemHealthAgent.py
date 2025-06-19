@@ -1666,3 +1666,20 @@ class SystemHealthAgent(SpyderBaseAgent):
             
         except Exception as e:
             self.logger.error(f"Error handling agent heartbeat: {str(e)}")
+
+
+# ==============================================================================
+# FACTORY FUNCTION
+# ==============================================================================
+def create_system_health_agent(config: Dict[str, Any]) -> SystemHealthAgent:
+    """
+    Factory function to create SystemHealthAgent.
+    
+    Args:
+        config: Agent configuration dictionary
+        
+    Returns:
+        Configured SystemHealthAgent instance
+    """
+    return SystemHealthAgent(config)
+

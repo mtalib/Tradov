@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Fix SpyderX_Agents __init__.py and update class names in renamed files
+"""
+from pathlib import Path
+
+def create_updated_init_file():
+    """Create the corrected __init__.py file content"""
+    
+    init_content = '''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 SPYDER - Automated SPY Options Trading System
 Package: SpyderX_Agents
 Purpose: AI Agent Modules
@@ -191,3 +201,102 @@ logger.info(f"{__package_name__} package initialized (v{__version__})")
 
 # Log available agents
 logger.info(f"Available AI agents: {list(AGENT_REGISTRY.keys())}")
+'''
+    
+    return init_content
+
+
+def fix_class_names():
+    """Fix class names in the renamed files"""
+    
+    fixes = [
+        {
+            'file': 'SpyderX03_StrategyDirectorAgent.py',
+            'replacements': [
+                # Update module header
+                ('Module: SpyderX01_StrategyDirectorAgent.py', 'Module: SpyderX03_StrategyDirectorAgent.py'),
+                # Class name already correct - StrategyDirectorAgent
+            ]
+        },
+        {
+            'file': 'SpyderX13_MarketAnalysisAgent.py',
+            'replacements': [
+                # Update module header
+                ('Module: SpyderX02_MarketAnalysisAgent.py', 'Module: SpyderX13_MarketAnalysisAgent.py'),
+                # Update class name
+                ('class SpyderX02_MarketAnalysisAgent:', 'class SpyderX13_MarketAnalysisAgent:'),
+                # Update any references in docstrings
+                ('SpyderX02_MarketAnalysisAgent', 'SpyderX13_MarketAnalysisAgent'),
+            ]
+        }
+    ]
+    
+    agents_dir = Path("SpyderX_Agents")
+    
+    for fix in fixes:
+        filepath = agents_dir / fix['file']
+        if filepath.exists():
+            print(f"\n📝 Updating {fix['file']}...")
+            
+            with open(filepath, 'r') as f:
+                content = f.read()
+            
+            for old, new in fix['replacements']:
+                if old in content:
+                    content = content.replace(old, new)
+                    print(f"  ✅ Replaced: {old} → {new}")
+            
+            with open(filepath, 'w') as f:
+                f.write(content)
+        else:
+            print(f"❌ {fix['file']} not found")
+
+
+def main():
+    """Main function to fix __init__.py and class names"""
+    
+    print("🔧 Fixing SpyderX_Agents __init__.py and class names")
+    print("=" * 60)
+    
+    agents_dir = Path("SpyderX_Agents")
+    if not agents_dir.exists():
+        print("❌ SpyderX_Agents directory not found!")
+        return
+    
+    # Step 1: Create new __init__.py
+    print("\n📝 Creating updated __init__.py...")
+    init_file = agents_dir / "__init__.py"
+    
+    new_content = create_updated_init_file()
+    
+    # Backup existing file
+    if init_file.exists():
+        backup_file = init_file.with_suffix('.py.backup')
+        import shutil
+        shutil.copy2(init_file, backup_file)
+        print(f"💾 Created backup: {backup_file.name}")
+    
+    # Write new content
+    with open(init_file, 'w') as f:
+        f.write(new_content)
+    print("✅ Created updated __init__.py")
+    
+    # Step 2: Fix class names in renamed files
+    fix_class_names()
+    
+    # Summary
+    print("\n" + "=" * 60)
+    print("✅ FIXES COMPLETED!")
+    print("=" * 60)
+    print("\nChanges made:")
+    print("1. Updated __init__.py with all 13 agents properly imported")
+    print("2. Fixed module headers in renamed files")
+    print("3. Updated class names where needed")
+    print("\n📌 All agents are now properly configured:")
+    print("   - X01-X12: Original agents")
+    print("   - X13: Market Analysis Agent (formerly X02)")
+    print("\nThe SpyderX_Agents package is now ready to use!")
+
+
+if __name__ == "__main__":
+    main()

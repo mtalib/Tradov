@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderX02_MarketAnalysisAgent.py
+Module: SpyderX13_MarketAnalysisAgent.py
 Purpose: AI-Enhanced Market Analysis Agent
          Pattern Recognition, Regime Detection, and Context-Aware Analysis
 
@@ -128,7 +128,7 @@ class TrendAnalysis:
     reversal_probability: float
 
 
-class SpyderX02_MarketAnalysisAgent:
+class SpyderX13_MarketAnalysisAgent:
     """
     AI-Enhanced Market Analysis Agent
     
@@ -998,7 +998,7 @@ async def main():
     """Example usage of Market Analysis Agent"""
     
     # Initialize agent
-    agent = SpyderX02_MarketAnalysisAgent()
+    agent = SpyderX13_MarketAnalysisAgent()
     
     # Perform analysis
     analysis = await agent.analyze_market('SPY', '5min')
@@ -1015,6 +1015,24 @@ async def main():
     print("\nAI Insights:")
     print(f"Interpretation: {analysis.ai_insights['interpretation']}")
     print(f"Strategy: {analysis.ai_insights['strategy_recommendation']}")
+
+
+
+
+# ==============================================================================
+# FACTORY FUNCTION
+# ==============================================================================
+def create_market_analysis_agent(config: Dict[str, Any]) -> SpyderX13_MarketAnalysisAgent:
+    """
+    Factory function to create SpyderX13_MarketAnalysisAgent.
+    
+    Args:
+        config: Agent configuration dictionary
+        
+    Returns:
+        Configured SpyderX13_MarketAnalysisAgent instance
+    """
+    return SpyderX13_MarketAnalysisAgent(config)
 
 
 if __name__ == "__main__":

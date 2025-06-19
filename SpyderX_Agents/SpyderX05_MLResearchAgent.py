@@ -4,46 +4,43 @@
 SPYDER - Automated SPY Options Trading System
 
 Module: SpyderX05_MLResearchAgent.py
-Purpose: AI-Enhanced Machine Learning Research and Model Management
 Group: X (AI Agents)
+Purpose: AI-Enhanced Machine Learning Research and Model Management
 
 Description:
-    Replaces all traditional ML modules (SpyderL01-L14) with an intelligent
-    AI agent that performs AutoML, dynamic feature engineering, model selection,
-    and continuous learning. This agent can understand which ML approaches work
-    best for current market conditions and automatically adapt.
+    This agent replaces all traditional ML modules with an intelligent AI system
+    that performs AutoML, dynamic feature engineering, model selection, and
+    continuous learning. It can understand which ML approaches work best for
+    current market conditions and automatically adapt. The agent manages the
+    entire ML pipeline from data preparation to model deployment and monitoring.
 
-    Replaced Modules:
-    - SpyderL01_FeatureEngineering through SpyderL14_ModelMonitoring
-    - All ML pipelines, model training, and prediction systems
-
-Author: AI Trading Assistant
-Date: 2025-01-17
-Version: 1.0.0
-
-Dependencies:
-    - ollama (for LLM integration)
-    - scikit-learn
-    - xgboost
-    - numpy, pandas
-    - asyncio
-    - joblib (for model persistence)
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-06-16
+Last Updated: 2025-06-19 Time: 11:00
 """
 
-import asyncio
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import json
+import asyncio
 import logging
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Union, Set
 from dataclasses import dataclass, field
-from enum import Enum, auto
-import numpy as np
-import pandas as pd
+from datetime import datetime, timedelta
+from enum import Enum
 from collections import defaultdict, deque
 import hashlib
 import pickle
-import joblib
 from pathlib import Path
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+import joblib
 
 # ML Libraries
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingRegressor
@@ -53,132 +50,215 @@ from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.decomposition import PCA
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
-from sklearn.metrics import accuracy_score, mean_squared_error, sharpe_ratio
+from sklearn.metrics import accuracy_score, mean_squared_error
 from sklearn.feature_selection import SelectKBest, f_classif, mutual_info_regression
-import xgboost as xgb
 
-# Import Spyder core components
-from SpyderU01_DataStructures import (
-    MarketData, Portfolio, TradeSignal, OptionContract
-)
-from SpyderU02_Configuration import config
-from SpyderU03_Logger import SpyderLogger
-from SpyderU04_EventManager import Event, EventType
-from SpyderU12_AgentIntegration import SpyderBaseAgent, AgentState
+try:
+    import xgboost as xgb
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
 
-# ML Model Types
+# Ollama integration
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    print("Warning: ollama package not installed. Install with: pip install ollama")
+    OLLAMA_AVAILABLE = False
+
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+# Note: In standalone mode, we're not importing from other Spyder modules
+# In production, these would be imported from the Spyder ecosystem
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+# LLM Configuration
+DEFAULT_LLM_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_TEMPERATURE = 0.3
+MAX_TOKENS = 2000
+
+# ML Configuration
+MAX_MODELS = 10
+RETRAIN_FREQUENCY_HOURS = 24
+MODEL_DECAY_THRESHOLD = 0.7
+FEATURE_IMPORTANCE_THRESHOLD = 0.01
+CV_FOLDS = 5
+
+# Model Performance Thresholds
+MIN_ACCURACY = 0.55
+MIN_SHARPE = 0.5
+MAX_CORRELATION = 0.7
+
+# ==============================================================================
+# LOGGING SETUP
+# ==============================================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+class PredictionTask(Enum):
+    """Types of prediction tasks"""
+    PRICE_DIRECTION = "price_direction"
+    VOLATILITY_FORECAST = "volatility_forecast"
+    OPTIMAL_STRIKE = "optimal_strike"
+    ENTRY_TIMING = "entry_timing"
+    EXIT_TIMING = "exit_timing"
+    STRATEGY_SELECTION = "strategy_selection"
+    RISK_PREDICTION = "risk_prediction"
+
 class ModelType(Enum):
-    """Available ML model types"""
+    """Available model types"""
     RANDOM_FOREST = "random_forest"
     GRADIENT_BOOST = "gradient_boost"
     XGBOOST = "xgboost"
-    NEURAL_NETWORK = "neural_network"
     SVM = "svm"
+    NEURAL_NETWORK = "neural_network"
     LINEAR = "linear"
     ENSEMBLE = "ensemble"
-    DEEP_LEARNING = "deep_learning"
-    REINFORCEMENT = "reinforcement"
 
-# Prediction Tasks
-class PredictionTask(Enum):
-    """Types of predictions"""
-    PRICE_DIRECTION = "price_direction"
-    PRICE_TARGET = "price_target"
-    VOLATILITY = "volatility"
-    OPTION_PRICING = "option_pricing"
-    TRADE_OUTCOME = "trade_outcome"
-    RISK_ASSESSMENT = "risk_assessment"
-    VOLUME_PREDICTION = "volume_prediction"
-    PATTERN_COMPLETION = "pattern_completion"
-    REGIME_CHANGE = "regime_change"
-
-# Feature Categories
-class FeatureCategory(Enum):
-    """Feature engineering categories"""
-    PRICE_BASED = "price_based"
-    VOLUME_BASED = "volume_based"
+class FeatureType(Enum):
+    """Types of features"""
+    PRICE = "price"
+    VOLUME = "volume"
     TECHNICAL = "technical"
-    MICROSTRUCTURE = "microstructure"
+    GREEKS = "greeks"
+    MARKET_STRUCTURE = "market_structure"
     SENTIMENT = "sentiment"
-    FUNDAMENTAL = "fundamental"
-    OPTIONS_FLOW = "options_flow"
-    CROSS_ASSET = "cross_asset"
-    SEASONAL = "seasonal"
+    MACRO = "macro"
 
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
 @dataclass
-class ModelConfig:
-    """Configuration for ML model"""
-    model_type: ModelType
-    task: PredictionTask
-    features: List[str]
-    hyperparameters: Dict[str, Any]
-    preprocessing: Dict[str, Any]
-    validation_method: str = "time_series_split"
-    optimization_metric: str = "sharpe_ratio"
-
-@dataclass
-class ModelPerformance:
-    """Track model performance"""
-    model_id: str
-    model_type: ModelType
-    task: PredictionTask
-    train_score: float
-    validation_score: float
-    test_score: float
-    feature_importance: Dict[str, float]
-    prediction_history: deque = field(default_factory=lambda: deque(maxlen=1000))
-    last_retrain: datetime = field(default_factory=datetime.now)
-    decay_rate: float = 0.0
+class MarketData:
+    """Market data for ML processing"""
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    volatility: float
+    additional_features: Dict[str, float] = field(default_factory=dict)
 
 @dataclass
 class FeatureSet:
     """Engineered feature set"""
+    timestamp: datetime
     features: pd.DataFrame
     feature_names: List[str]
-    category_breakdown: Dict[FeatureCategory, List[str]]
-    engineering_metadata: Dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.now)
+    feature_importance: Dict[str, float]
+    engineering_method: str
+    validation_score: float
 
 @dataclass
-class MLPrediction:
-    """ML model prediction output"""
+class ModelConfig:
+    """Model configuration"""
+    model_type: ModelType
     task: PredictionTask
-    prediction: Union[float, int, np.ndarray]
+    hyperparameters: Dict[str, Any]
+    features: List[str]
+    training_window: int  # days
+    retrain_frequency: int  # hours
+    performance_threshold: float
+
+@dataclass
+class ModelPerformance:
+    """Model performance metrics"""
+    model_id: str
+    task: PredictionTask
+    accuracy: float
+    precision: float
+    recall: float
+    f1_score: float
+    sharpe_ratio: float
+    max_drawdown: float
+    last_updated: datetime
+    decay_factor: float = 1.0
+
+@dataclass
+class Prediction:
+    """ML prediction result"""
+    timestamp: datetime
+    task: PredictionTask
+    prediction: Any
+    probability: Optional[float]
     confidence: float
     model_used: str
-    feature_contributions: Dict[str, float]
-    prediction_interval: Optional[Tuple[float, float]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    features_used: List[str]
+    explanation: Optional[str] = None
 
 @dataclass
 class ResearchResult:
-    """Result from ML research"""
-    best_model: ModelConfig
-    performance_comparison: Dict[str, float]
-    feature_analysis: Dict[str, Any]
-    recommendations: List[str]
+    """ML research experiment result"""
     experiment_id: str
+    timestamp: datetime
+    hypothesis: str
+    models_tested: List[str]
+    best_model: str
+    performance_metrics: Dict[str, float]
+    insights: List[str]
+    recommendations: List[str]
 
-class MLResearchAgent(SpyderBaseAgent):
+# ==============================================================================
+# MAIN CLASS
+# ==============================================================================
+class SpyderX05_MLResearchAgent:
     """
-    AI-Enhanced ML Research Agent
+    AI-Enhanced Machine Learning Research Agent.
     
-    Performs automated machine learning research, model selection,
-    feature engineering, and continuous learning for trading systems.
-    """
+    This agent performs AutoML, feature engineering, model selection, and
+    continuous learning. It uses Ollama to understand which ML approaches
+    work best for current market conditions and automatically adapts.
     
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize ML Research Agent"""
-        super().__init__(config)
+    Attributes:
+        logger: Module logger instance
+        config: Agent configuration
+        ollama_client: Ollama LLM client
+        active_models: Currently deployed models
+        model_performance: Performance tracking for all models
         
-        # Agent configuration
-        self.llm_model = config.get('ml_llm_model', 'llama3.2:3b-instruct-q4_K_M')
-        self.max_models = config.get('max_concurrent_models', 10)
-        self.retrain_frequency = config.get('retrain_frequency_hours', 24)
-        self.model_decay_threshold = config.get('model_decay_threshold', 0.7)
+    Example:
+        >>> agent = SpyderX05_MLResearchAgent()
+        >>> prediction = await agent.predict(PredictionTask.PRICE_DIRECTION, market_data)
+        >>> research = await agent.conduct_research("volatility_prediction")
+    """
+    
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize the ML Research Agent.
+        
+        Args:
+            config: Optional configuration dictionary
+        """
+        self.config = config or {}
+        self.logger = logger
+        
+        # LLM configuration
+        self.model_name = self.config.get('llm_model', DEFAULT_LLM_MODEL)
+        self.temperature = self.config.get('temperature', DEFAULT_TEMPERATURE)
+        self.max_models = self.config.get('max_concurrent_models', MAX_MODELS)
+        
+        # Initialize Ollama client
+        self.ollama_client = None
+        if OLLAMA_AVAILABLE:
+            try:
+                # Test if Ollama is running
+                ollama.list()
+                self.ollama_client = ollama
+                self.logger.info(f"Ollama initialized with model: {self.model_name}")
+            except Exception as e:
+                self.logger.error(f"Failed to connect to Ollama: {e}")
+                self.logger.info("Agent will work with reduced AI capabilities")
         
         # Model storage
-        self.active_models: Dict[str, Any] = {}  # model_id -> trained model
+        self.active_models: Dict[str, Any] = {}
         self.model_configs: Dict[str, ModelConfig] = {}
         self.model_performance: Dict[str, ModelPerformance] = {}
         
@@ -196,1149 +276,1242 @@ class MLResearchAgent(SpyderBaseAgent):
         self.prediction_buffer: deque = deque(maxlen=10000)
         
         # Model paths
-        self.model_dir = Path(config.get('model_directory', './models'))
+        self.model_dir = Path(self.config.get('model_directory', './models'))
         self.model_dir.mkdir(exist_ok=True)
         
         # Performance tracking
         self.prediction_accuracy: Dict[PredictionTask, deque] = defaultdict(lambda: deque(maxlen=1000))
         self.model_selection_history: deque = deque(maxlen=1000)
         
-        self.logger.info("ML Research Agent initialized")
-
-    async def initialize(self, event_manager=None):
-        """Initialize agent with dependencies"""
-        await super().initialize(event_manager)
-        
-        # Load existing models
-        await self._load_saved_models()
-        
-        # Subscribe to events
-        if self.event_manager:
-            self.event_manager.subscribe(EventType.MARKET_DATA_UPDATE, self._handle_market_update)
-            self.event_manager.subscribe(EventType.TRADE_EXECUTED, self._handle_trade_executed)
-            self.event_manager.subscribe(EventType.ANALYSIS_UPDATE, self._handle_analysis_update)
-        
-        # Start continuous learning loop
-        asyncio.create_task(self._continuous_learning_loop())
-        
-        self.state = AgentState.RUNNING
-        self.logger.info("ML Research Agent initialized and running")
-
+        self.logger.info(f"{self.__class__.__name__} initialized")
+    
+    # ==========================================================================
+    # PUBLIC METHODS
+    # ==========================================================================
     async def predict(
         self,
         task: PredictionTask,
         market_data: MarketData,
         context: Optional[Dict[str, Any]] = None
-    ) -> MLPrediction:
+    ) -> Prediction:
         """
-        Make a prediction for a specific task
+        Make a prediction for the specified task.
         
         Args:
-            task: Type of prediction needed
+            task: Type of prediction to make
             market_data: Current market data
-            context: Additional context for prediction
+            context: Optional additional context
             
         Returns:
-            ML prediction with confidence and metadata
+            Prediction result with confidence and explanation
         """
-        try:
-            # Engineer features
-            features = await self._engineer_features(market_data, task, context)
-            
-            # Select best model for task
-            model_id = await self._select_best_model(task, features)
-            
-            if not model_id or model_id not in self.active_models:
-                # No model available, trigger research
-                self.logger.warning(f"No model available for {task.value}, triggering research")
-                asyncio.create_task(self._research_task(task, market_data))
-                
-                # Return baseline prediction
-                return self._get_baseline_prediction(task, market_data)
-            
-            # Make prediction
+        start_time = datetime.now()
+        
+        # Engineer features
+        features = await self._engineer_features(market_data, task, context)
+        
+        # Select best model for task
+        model_id = self._select_best_model(task)
+        
+        if not model_id or model_id not in self.active_models:
+            # Train new model if needed
+            model_id = await self._train_model(task, features)
+        
+        # Make prediction
+        if model_id and model_id in self.active_models:
             model = self.active_models[model_id]
-            model_config = self.model_configs[model_id]
+            prediction_value, probability = self._make_prediction(model, features)
             
-            # Prepare features
-            X = features.features[model_config.features].values
-            
-            # Scale features
-            if hasattr(model, 'scaler_'):
-                X = model.scaler_.transform(X)
-            
-            # Predict
-            if hasattr(model, 'predict_proba'):
-                # Classification
-                probabilities = model.predict_proba(X)
-                prediction = np.argmax(probabilities, axis=1)[0]
-                confidence = float(np.max(probabilities))
+            # Get AI explanation if available
+            if self.ollama_client:
+                explanation = await self._get_prediction_explanation(
+                    task,
+                    prediction_value,
+                    features,
+                    context
+                )
             else:
-                # Regression
-                prediction = float(model.predict(X)[0])
-                # Estimate confidence based on prediction interval
-                if hasattr(model, 'predict_interval'):
-                    lower, upper = model.predict_interval(X)
-                    confidence = 1.0 - (upper - lower) / (abs(prediction) + 1e-6)
-                else:
-                    confidence = self._estimate_prediction_confidence(model, X)
+                explanation = f"{task.value} prediction: {prediction_value}"
             
-            # Get feature contributions
-            feature_contributions = self._get_feature_contributions(
-                model, X, model_config.features
+            # Calculate confidence
+            confidence = self._calculate_confidence(
+                model_id,
+                probability,
+                features
             )
             
-            # Create prediction object
-            ml_prediction = MLPrediction(
+            prediction = Prediction(
+                timestamp=datetime.now(),
                 task=task,
-                prediction=prediction,
+                prediction=prediction_value,
+                probability=probability,
                 confidence=confidence,
                 model_used=model_id,
-                feature_contributions=feature_contributions,
-                metadata={
-                    'model_type': model_config.model_type.value,
-                    'features_used': len(model_config.features),
-                    'model_age_hours': (datetime.now() - self.model_performance[model_id].last_retrain).total_seconds() / 3600
-                }
+                features_used=features.feature_names[:10],  # Top 10 features
+                explanation=explanation
             )
-            
-            # Record prediction for tracking
-            self._record_prediction(ml_prediction, features)
-            
-            return ml_prediction
-            
-        except Exception as e:
-            self.logger.error(f"Error in ML prediction: {str(e)}")
-            return self._get_baseline_prediction(task, market_data)
-
-    async def research_best_approach(
+        else:
+            # Fallback prediction
+            prediction = self._get_fallback_prediction(task, market_data)
+        
+        # Store prediction for performance tracking
+        self.prediction_buffer.append(prediction)
+        
+        # Log performance
+        elapsed = (datetime.now() - start_time).total_seconds()
+        self.logger.info(
+            f"Prediction for {task.value} completed in {elapsed:.2f} seconds. "
+            f"Confidence: {prediction.confidence:.2%}"
+        )
+        
+        return prediction
+    
+    async def conduct_research(
         self,
-        task: PredictionTask,
-        training_data: pd.DataFrame,
-        target: pd.Series
+        hypothesis: str,
+        data: Optional[pd.DataFrame] = None
     ) -> ResearchResult:
         """
-        Research and find the best ML approach for a task
+        Conduct ML research experiment.
         
         Args:
-            task: Prediction task to optimize for
-            training_data: Historical data for training
-            target: Target variable
+            hypothesis: Research hypothesis to test
+            data: Optional data for research
             
         Returns:
-            Research results with best model configuration
+            Research results with insights and recommendations
         """
-        self.logger.info(f"Starting ML research for {task.value}")
-        
-        # Generate experiment ID
         experiment_id = hashlib.md5(
-            f"{task.value}_{datetime.now().isoformat()}".encode()
+            f"{hypothesis}_{datetime.now()}".encode()
         ).hexdigest()[:8]
         
-        # Feature engineering research
-        feature_analysis = await self._research_features(training_data, target, task)
+        self.logger.info(f"Starting research experiment {experiment_id}: {hypothesis}")
         
-        # Model selection research
-        model_comparison = await self._research_models(
-            training_data, target, task, feature_analysis['selected_features']
-        )
+        # Use training data if no data provided
+        if data is None:
+            data = self.training_data
         
-        # Hyperparameter optimization
-        best_model_type = max(model_comparison.items(), key=lambda x: x[1]['score'])[0]
-        best_hyperparams = await self._optimize_hyperparameters(
-            best_model_type, training_data, target, feature_analysis['selected_features']
-        )
+        if data.empty:
+            return ResearchResult(
+                experiment_id=experiment_id,
+                timestamp=datetime.now(),
+                hypothesis=hypothesis,
+                models_tested=[],
+                best_model="none",
+                performance_metrics={},
+                insights=["Insufficient data for research"],
+                recommendations=["Collect more training data"]
+            )
         
-        # Create best model configuration
-        best_config = ModelConfig(
-            model_type=ModelType(best_model_type),
-            task=task,
-            features=feature_analysis['selected_features'],
-            hyperparameters=best_hyperparams,
-            preprocessing={
-                'scaler': 'robust',
-                'feature_selection': feature_analysis['selection_method']
-            }
-        )
+        # Get AI guidance on research approach
+        if self.ollama_client:
+            research_plan = await self._get_ai_research_plan(hypothesis, data)
+            models_to_test = research_plan.get('models', list(ModelType))
+            feature_ideas = research_plan.get('features', [])
+        else:
+            models_to_test = list(ModelType)
+            feature_ideas = []
         
-        # Generate recommendations
-        recommendations = await self._generate_ml_recommendations(
-            task, feature_analysis, model_comparison, best_config
-        )
+        # Test different models
+        results = {}
+        for model_type in models_to_test:
+            if model_type == ModelType.XGBOOST and not XGBOOST_AVAILABLE:
+                continue
+            
+            try:
+                performance = await self._test_model_approach(
+                    model_type,
+                    data,
+                    hypothesis
+                )
+                results[model_type.value] = performance
+            except Exception as e:
+                self.logger.error(f"Error testing {model_type.value}: {e}")
+        
+        # Find best model
+        best_model = max(results.items(), key=lambda x: x[1]['score'])[0]
+        best_performance = results[best_model]
+        
+        # Generate insights
+        insights = self._generate_research_insights(results, hypothesis)
+        
+        # Get AI recommendations
+        if self.ollama_client:
+            ai_recommendations = await self._get_ai_research_recommendations(
+                hypothesis,
+                results,
+                insights
+            )
+            recommendations = ai_recommendations
+        else:
+            recommendations = self._get_basic_recommendations(results)
         
         # Create research result
-        result = ResearchResult(
-            best_model=best_config,
-            performance_comparison={k: v['score'] for k, v in model_comparison.items()},
-            feature_analysis=feature_analysis,
-            recommendations=recommendations,
-            experiment_id=experiment_id
+        research_result = ResearchResult(
+            experiment_id=experiment_id,
+            timestamp=datetime.now(),
+            hypothesis=hypothesis,
+            models_tested=list(results.keys()),
+            best_model=best_model,
+            performance_metrics=best_performance,
+            insights=insights,
+            recommendations=recommendations
         )
         
-        # Store research result
-        self.experiment_history.append(result)
+        # Store in history
+        self.experiment_history.append(research_result)
         
-        # Train and deploy best model
-        await self._deploy_model(best_config, training_data, target)
+        return research_result
+    
+    async def optimize_models(self) -> Dict[str, Any]:
+        """
+        Optimize all active models.
         
-        return result
-
+        Returns:
+            Optimization results and improvements
+        """
+        self.logger.info("Starting model optimization")
+        
+        optimization_results = {}
+        
+        for model_id, model in self.active_models.items():
+            if model_id not in self.model_configs:
+                continue
+            
+            config = self.model_configs[model_id]
+            
+            # Check if model needs retraining
+            if self._should_retrain(model_id):
+                self.logger.info(f"Retraining model {model_id}")
+                
+                # Get recent data
+                recent_data = self._get_recent_training_data(config.training_window)
+                
+                # Retrain model
+                new_performance = await self._retrain_model(
+                    model_id,
+                    recent_data,
+                    config
+                )
+                
+                optimization_results[model_id] = {
+                    'action': 'retrained',
+                    'improvement': new_performance
+                }
+            else:
+                # Just update performance metrics
+                self._update_model_performance(model_id)
+                optimization_results[model_id] = {
+                    'action': 'monitored',
+                    'current_performance': self.model_performance[model_id].accuracy
+                }
+        
+        # Remove underperforming models
+        models_to_remove = self._identify_underperforming_models()
+        for model_id in models_to_remove:
+            self._remove_model(model_id)
+            optimization_results[model_id] = {'action': 'removed'}
+        
+        return optimization_results
+    
+    def get_model_inventory(self) -> Dict[str, Any]:
+        """
+        Get inventory of all models.
+        
+        Returns:
+            Summary of active models and their performance
+        """
+        inventory = {
+            'active_models': len(self.active_models),
+            'models': {}
+        }
+        
+        for model_id, model in self.active_models.items():
+            if model_id in self.model_performance:
+                perf = self.model_performance[model_id]
+                inventory['models'][model_id] = {
+                    'task': perf.task.value,
+                    'accuracy': perf.accuracy,
+                    'sharpe_ratio': perf.sharpe_ratio,
+                    'last_updated': perf.last_updated,
+                    'decay_factor': perf.decay_factor
+                }
+        
+        return inventory
+    
+    def get_feature_importance(self, task: PredictionTask) -> Dict[str, float]:
+        """
+        Get feature importance for a specific task.
+        
+        Args:
+            task: Prediction task
+            
+        Returns:
+            Feature importance scores
+        """
+        # Find models for this task
+        task_models = [
+            model_id for model_id, config in self.model_configs.items()
+            if config.task == task
+        ]
+        
+        if not task_models:
+            return {}
+        
+        # Aggregate feature importance across models
+        aggregated_importance = defaultdict(float)
+        count = 0
+        
+        for model_id in task_models:
+            if model_id in self.feature_cache:
+                feature_set = self.feature_cache[model_id]
+                for feature, importance in feature_set.feature_importance.items():
+                    aggregated_importance[feature] += importance
+                count += 1
+        
+        # Average the importance scores
+        if count > 0:
+            for feature in aggregated_importance:
+                aggregated_importance[feature] /= count
+        
+        # Sort by importance
+        return dict(sorted(
+            aggregated_importance.items(),
+            key=lambda x: x[1],
+            reverse=True
+        ))
+    
+    # ==========================================================================
+    # PRIVATE METHODS - FEATURE ENGINEERING
+    # ==========================================================================
     async def _engineer_features(
         self,
         market_data: MarketData,
         task: PredictionTask,
         context: Optional[Dict[str, Any]] = None
     ) -> FeatureSet:
-        """Engineer features for prediction"""
-        
-        # Check cache
-        cache_key = f"{task.value}_{market_data.timestamp.strftime('%Y%m%d%H%M')}"
-        if cache_key in self.feature_cache:
-            return self.feature_cache[cache_key]
-        
+        """Engineer features for prediction."""
         features_dict = {}
-        category_breakdown = defaultdict(list)
         
-        # Price-based features
-        price_features = self._create_price_features(market_data)
-        features_dict.update(price_features)
-        category_breakdown[FeatureCategory.PRICE_BASED].extend(price_features.keys())
-        
-        # Volume-based features
-        volume_features = self._create_volume_features(market_data)
-        features_dict.update(volume_features)
-        category_breakdown[FeatureCategory.VOLUME_BASED].extend(volume_features.keys())
+        # Price features
+        features_dict.update(self._calculate_price_features(market_data))
         
         # Technical indicators
-        technical_features = self._create_technical_features(market_data)
-        features_dict.update(technical_features)
-        category_breakdown[FeatureCategory.TECHNICAL].extend(technical_features.keys())
+        features_dict.update(self._calculate_technical_features(market_data))
+        
+        # Market structure features
+        features_dict.update(self._calculate_market_structure_features(market_data))
         
         # Task-specific features
-        if task == PredictionTask.VOLATILITY:
-            volatility_features = self._create_volatility_features(market_data)
-            features_dict.update(volatility_features)
-            category_breakdown[FeatureCategory.TECHNICAL].extend(volatility_features.keys())
+        if task == PredictionTask.VOLATILITY_FORECAST:
+            features_dict.update(self._calculate_volatility_features(market_data))
+        elif task == PredictionTask.PRICE_DIRECTION:
+            features_dict.update(self._calculate_momentum_features(market_data))
         
-        elif task == PredictionTask.OPTION_PRICING:
-            option_features = self._create_option_features(market_data, context)
-            features_dict.update(option_features)
-            category_breakdown[FeatureCategory.OPTIONS_FLOW].extend(option_features.keys())
-        
-        # Context-based features
+        # Context features if available
         if context:
-            context_features = self._create_context_features(context)
-            features_dict.update(context_features)
-            category_breakdown[FeatureCategory.SENTIMENT].extend(context_features.keys())
+            features_dict.update(self._extract_context_features(context))
+        
+        # Add any additional features from market data
+        features_dict.update(market_data.additional_features)
         
         # Create DataFrame
         features_df = pd.DataFrame([features_dict])
+        feature_names = list(features_dict.keys())
         
-        # Create feature set
-        feature_set = FeatureSet(
-            features=features_df,
-            feature_names=list(features_dict.keys()),
-            category_breakdown=dict(category_breakdown),
-            engineering_metadata={
-                'task': task.value,
-                'n_features': len(features_dict),
-                'timestamp': market_data.timestamp
-            }
-        )
-        
-        # Cache features
-        self.feature_cache[cache_key] = feature_set
-        
-        # Clean old cache entries
-        if len(self.feature_cache) > 1000:
-            oldest_key = min(self.feature_cache.keys())
-            del self.feature_cache[oldest_key]
-        
-        return feature_set
-
-    def _create_price_features(self, market_data: MarketData) -> Dict[str, float]:
-        """Create price-based features"""
-        features = {}
-        
-        if hasattr(market_data, 'price_history') and len(market_data.price_history) > 0:
-            prices = [p.close for p in market_data.price_history[-50:]]
-            
-            if len(prices) >= 2:
-                # Returns
-                features['return_1'] = (prices[-1] - prices[-2]) / prices[-2]
-                
-                if len(prices) >= 5:
-                    features['return_5'] = (prices[-1] - prices[-5]) / prices[-5]
-                
-                if len(prices) >= 20:
-                    features['return_20'] = (prices[-1] - prices[-20]) / prices[-20]
-                    
-                    # Moving averages
-                    features['sma_20'] = np.mean(prices[-20:])
-                    features['price_to_sma20'] = prices[-1] / features['sma_20']
-                
-                # Price position in range
-                recent_high = max(prices[-20:]) if len(prices) >= 20 else max(prices)
-                recent_low = min(prices[-20:]) if len(prices) >= 20 else min(prices)
-                if recent_high > recent_low:
-                    features['price_position'] = (prices[-1] - recent_low) / (recent_high - recent_low)
-                
-                # Volatility
-                if len(prices) >= 20:
-                    returns = np.diff(prices[-20:]) / prices[-20:-1]
-                    features['realized_vol'] = np.std(returns) * np.sqrt(252)
-        
-        # Current price
-        features['current_price'] = market_data.current_price
-        
-        return features
-
-    def _create_volume_features(self, market_data: MarketData) -> Dict[str, float]:
-        """Create volume-based features"""
-        features = {}
-        
-        if hasattr(market_data, 'volume_history') and len(market_data.volume_history) > 0:
-            volumes = market_data.volume_history[-20:]
-            
-            if len(volumes) >= 2:
-                # Volume ratios
-                features['volume_ratio'] = volumes[-1] / np.mean(volumes)
-                features['volume_trend'] = (volumes[-1] - volumes[0]) / volumes[0] if volumes[0] > 0 else 0
-                
-                # Volume-price correlation
-                if hasattr(market_data, 'price_history') and len(market_data.price_history) >= len(volumes):
-                    prices = [p.close for p in market_data.price_history[-len(volumes):]]
-                    if len(prices) == len(volumes):
-                        features['volume_price_corr'] = np.corrcoef(prices, volumes)[0, 1]
-        
-        return features
-
-    def _create_technical_features(self, market_data: MarketData) -> Dict[str, float]:
-        """Create technical indicator features"""
-        features = {}
-        
-        # RSI
-        if hasattr(market_data, 'indicators') and 'rsi' in market_data.indicators:
-            features['rsi'] = market_data.indicators['rsi']
-            features['rsi_oversold'] = 1 if features['rsi'] < 30 else 0
-            features['rsi_overbought'] = 1 if features['rsi'] > 70 else 0
-        
-        # MACD
-        if hasattr(market_data, 'indicators') and 'macd' in market_data.indicators:
-            features['macd'] = market_data.indicators['macd']
-            features['macd_signal'] = market_data.indicators.get('macd_signal', 0)
-            features['macd_histogram'] = features['macd'] - features['macd_signal']
-        
-        # Bollinger Bands
-        if hasattr(market_data, 'indicators'):
-            if 'bb_upper' in market_data.indicators and 'bb_lower' in market_data.indicators:
-                features['bb_width'] = market_data.indicators['bb_upper'] - market_data.indicators['bb_lower']
-                features['bb_position'] = (market_data.current_price - market_data.indicators['bb_lower']) / features['bb_width'] if features['bb_width'] > 0 else 0.5
-        
-        return features
-
-    def _create_volatility_features(self, market_data: MarketData) -> Dict[str, float]:
-        """Create volatility-specific features"""
-        features = {}
-        
-        if hasattr(market_data, 'price_history') and len(market_data.price_history) >= 30:
-            prices = [p.close for p in market_data.price_history[-30:]]
-            highs = [p.high for p in market_data.price_history[-30:]]
-            lows = [p.low for p in market_data.price_history[-30:]]
-            
-            # Parkinson volatility
-            if len(highs) == len(lows):
-                log_hl = np.log(np.array(highs) / np.array(lows))
-                features['parkinson_vol'] = np.sqrt(252 / (4 * len(log_hl) * np.log(2))) * np.sum(log_hl ** 2)
-            
-            # GARCH features (simplified)
-            returns = np.diff(prices) / prices[:-1]
-            features['returns_squared_ma'] = np.mean(returns[-5:] ** 2) if len(returns) >= 5 else 0
-            features['abs_returns_ma'] = np.mean(np.abs(returns[-5:])) if len(returns) >= 5 else 0
-        
-        # IV if available
-        if hasattr(market_data, 'implied_volatility'):
-            features['implied_volatility'] = market_data.implied_volatility
-            if 'realized_vol' in features:
-                features['iv_rv_spread'] = features['implied_volatility'] - features['realized_vol']
-        
-        return features
-
-    def _create_option_features(self, market_data: MarketData, context: Optional[Dict[str, Any]]) -> Dict[str, float]:
-        """Create option-specific features"""
-        features = {}
-        
-        if context and 'option_contract' in context:
-            option = context['option_contract']
-            
-            # Moneyness
-            features['moneyness'] = market_data.current_price / option.strike
-            features['log_moneyness'] = np.log(features['moneyness'])
-            
-            # Time to expiration
-            dte = (option.expiration - datetime.now()).days
-            features['days_to_expiry'] = dte
-            features['sqrt_time'] = np.sqrt(dte / 365.0)
-            
-            # Option type
-            features['is_call'] = 1 if option.option_type == 'CALL' else 0
-            
-            # Greeks if available
-            if hasattr(option, 'greeks'):
-                features['delta'] = option.greeks.delta
-                features['gamma'] = option.greeks.gamma
-                features['vega'] = option.greeks.vega
-                features['theta'] = option.greeks.theta
-        
-        # Put-call ratios
-        if hasattr(market_data, 'put_call_ratio'):
-            features['put_call_ratio'] = market_data.put_call_ratio
-        
-        return features
-
-    def _create_context_features(self, context: Dict[str, Any]) -> Dict[str, float]:
-        """Create features from context"""
-        features = {}
-        
-        # Market sentiment
-        if 'sentiment_score' in context:
-            features['sentiment'] = context['sentiment_score']
-            features['sentiment_extreme'] = 1 if abs(features['sentiment']) > 0.8 else 0
-        
-        # Risk metrics
-        if 'vix' in context:
-            features['vix'] = context['vix']
-            features['vix_high'] = 1 if features['vix'] > 30 else 0
-        
-        # Time features
-        now = datetime.now()
-        features['hour_of_day'] = now.hour
-        features['day_of_week'] = now.weekday()
-        features['is_friday'] = 1 if features['day_of_week'] == 4 else 0
-        features['is_expiry_day'] = 1 if features['day_of_week'] == 4 else 0  # Simplified
-        
-        return features
-
-    async def _select_best_model(self, task: PredictionTask, features: FeatureSet) -> Optional[str]:
-        """Select best model for current conditions"""
-        eligible_models = []
-        
-        for model_id, config in self.model_configs.items():
-            if config.task == task:
-                # Check if model has required features
-                missing_features = set(config.features) - set(features.feature_names)
-                if not missing_features:
-                    # Check model performance
-                    perf = self.model_performance.get(model_id)
-                    if perf and perf.validation_score > self.model_decay_threshold:
-                        eligible_models.append((model_id, perf.validation_score))
-        
-        if not eligible_models:
-            return None
-        
-        # Use AI to select best model for current conditions
-        model_selection = await self._ai_model_selection(eligible_models, features, task)
-        
-        if model_selection:
-            self.model_selection_history.append({
-                'task': task.value,
-                'selected_model': model_selection,
-                'timestamp': datetime.now()
-            })
-            return model_selection
-        
-        # Fallback to highest scoring model
-        return max(eligible_models, key=lambda x: x[1])[0]
-
-    async def _ai_model_selection(
-        self,
-        eligible_models: List[Tuple[str, float]],
-        features: FeatureSet,
-        task: PredictionTask
-    ) -> Optional[str]:
-        """Use AI to select best model for current conditions"""
-        
-        # Prepare context
-        feature_summary = {
-            category.value: len(features_list)
-            for category, features_list in features.category_breakdown.items()
+        # Calculate feature importance (placeholder)
+        feature_importance = {
+            name: np.random.uniform(0, 1) for name in feature_names
         }
         
-        model_info = []
-        for model_id, score in eligible_models:
-            config = self.model_configs[model_id]
-            perf = self.model_performance[model_id]
-            model_info.append({
-                'id': model_id,
-                'type': config.model_type.value,
-                'score': score,
-                'age_hours': (datetime.now() - perf.last_retrain).total_seconds() / 3600,
-                'recent_accuracy': np.mean([p['accurate'] for p in list(perf.prediction_history)[-10:]]) if perf.prediction_history else 0.5
-            })
+        return FeatureSet(
+            timestamp=datetime.now(),
+            features=features_df,
+            feature_names=feature_names,
+            feature_importance=feature_importance,
+            engineering_method="standard",
+            validation_score=0.0
+        )
+    
+    def _calculate_price_features(self, market_data: MarketData) -> Dict[str, float]:
+        """Calculate price-based features."""
+        features = {}
         
-        prompt = f"""
-        Select the best ML model for {task.value} prediction given current conditions:
+        # Basic price features
+        features['price'] = market_data.close
+        features['log_price'] = np.log(market_data.close)
         
-        Available Features:
-        {json.dumps(feature_summary, indent=2)}
+        # Price ratios
+        if market_data.open > 0:
+            features['close_open_ratio'] = market_data.close / market_data.open
         
-        Eligible Models:
-        {json.dumps(model_info, indent=2)}
+        # Range features
+        if market_data.high > market_data.low:
+            features['high_low_range'] = market_data.high - market_data.low
+            features['close_range_position'] = (
+                (market_data.close - market_data.low) / 
+                (market_data.high - market_data.low)
+            )
         
-        Current Market Conditions:
-        - Volatility: {features.features.get('realized_vol', [0])[0]:.2%} annualized
-        - Price Position: {features.features.get('price_position', [0.5])[0]:.2f}
-        - Volume Ratio: {features.features.get('volume_ratio', [1.0])[0]:.2f}
+        return features
+    
+    def _calculate_technical_features(self, market_data: MarketData) -> Dict[str, float]:
+        """Calculate technical indicator features."""
+        features = {}
         
-        Select the model ID that would perform best in these conditions.
-        Consider model type suitability, recent performance, and age.
-        
-        Respond with just the model ID.
-        """
-        
-        try:
-            response = await asyncio.wait_for(self._query_llm(prompt), timeout=2.0)
-            model_id = response.strip()
-            
-            # Validate response
-            if any(model_id == m[0] for m in eligible_models):
-                return model_id
-        except:
-            pass
-        
-        return None
-
-    async def _research_features(
-        self,
-        data: pd.DataFrame,
-        target: pd.Series,
-        task: PredictionTask
-    ) -> Dict[str, Any]:
-        """Research best features for task"""
-        self.logger.info(f"Researching features for {task.value}")
-        
-        # Create all possible features
-        all_features = {}
-        
-        # Price features
-        for window in [5, 10, 20, 50]:
-            if len(data) > window:
-                all_features[f'return_{window}'] = data['close'].pct_change(window)
-                all_features[f'sma_{window}'] = data['close'].rolling(window).mean()
-                all_features[f'vol_{window}'] = data['close'].pct_change().rolling(window).std()
-        
-        # Technical features
-        if len(data) > 14:
-            all_features['rsi'] = self._calculate_rsi(data['close'])
-        
-        if len(data) > 26:
-            macd = self._calculate_macd(data['close'])
-            all_features['macd'] = macd['macd']
-            all_features['macd_signal'] = macd['signal']
+        # Simplified technical indicators
+        # In production, would calculate from historical data
+        features['rsi'] = 50.0  # Placeholder
+        features['macd'] = 0.0  # Placeholder
+        features['bb_position'] = 0.5  # Placeholder
         
         # Volume features
-        if 'volume' in data.columns:
-            all_features['volume_sma'] = data['volume'].rolling(20).mean()
-            all_features['volume_ratio'] = data['volume'] / all_features['volume_sma']
+        features['volume'] = float(market_data.volume)
+        features['log_volume'] = np.log(market_data.volume + 1)
         
-        # Convert to DataFrame
-        features_df = pd.DataFrame(all_features).dropna()
+        return features
+    
+    def _calculate_market_structure_features(self, market_data: MarketData) -> Dict[str, float]:
+        """Calculate market structure features."""
+        features = {}
         
-        # Align with target
-        aligned_target = target.loc[features_df.index]
+        # Time-based features
+        now = datetime.now()
+        features['hour'] = now.hour
+        features['day_of_week'] = now.weekday()
+        features['minutes_since_open'] = (now.hour - 9.5) * 60 + now.minute
         
-        # Feature selection methods
-        selection_results = {}
+        # Volatility features
+        features['volatility'] = market_data.volatility
+        features['volatility_squared'] = market_data.volatility ** 2
         
-        # 1. Mutual Information
-        if len(features_df) > 100:
-            mi_selector = SelectKBest(mutual_info_regression, k=min(20, len(features_df.columns)))
-            mi_selector.fit(features_df, aligned_target)
-            mi_scores = dict(zip(features_df.columns, mi_selector.scores_))
-            selection_results['mutual_info'] = mi_scores
+        return features
+    
+    def _calculate_volatility_features(self, market_data: MarketData) -> Dict[str, float]:
+        """Calculate volatility-specific features."""
+        features = {}
         
-        # 2. Random Forest importance
-        rf = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
-        rf.fit(features_df, aligned_target)
-        rf_importance = dict(zip(features_df.columns, rf.feature_importances_))
-        selection_results['random_forest'] = rf_importance
+        # Historical volatility ratios (placeholders)
+        features['vol_5d_20d_ratio'] = 1.0
+        features['vol_percentile'] = 0.5
+        features['vol_trend'] = 0.0
         
-        # 3. Correlation analysis
-        correlations = {}
-        for col in features_df.columns:
-            correlations[col] = abs(features_df[col].corr(aligned_target))
-        selection_results['correlation'] = correlations
+        return features
+    
+    def _calculate_momentum_features(self, market_data: MarketData) -> Dict[str, float]:
+        """Calculate momentum features."""
+        features = {}
         
-        # Combine scores
-        combined_scores = {}
-        for feature in features_df.columns:
-            scores = []
-            for method, method_scores in selection_results.items():
-                if feature in method_scores:
-                    scores.append(method_scores[feature])
-            combined_scores[feature] = np.mean(scores) if scores else 0
+        # Momentum indicators (placeholders)
+        features['momentum_1d'] = 0.0
+        features['momentum_5d'] = 0.0
+        features['momentum_acceleration'] = 0.0
         
-        # Select top features
-        sorted_features = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-        n_features = min(30, len(sorted_features))
-        selected_features = [f[0] for f in sorted_features[:n_features]]
+        return features
+    
+    def _extract_context_features(self, context: Dict[str, Any]) -> Dict[str, float]:
+        """Extract features from context."""
+        features = {}
         
-        # Analyze feature relationships
-        feature_correlations = features_df[selected_features].corr()
+        # Extract numeric features from context
+        for key, value in context.items():
+            if isinstance(value, (int, float)):
+                features[f'context_{key}'] = float(value)
         
-        # Remove highly correlated features
-        final_features = []
-        for feature in selected_features:
-            if not final_features:
-                final_features.append(feature)
-            else:
-                max_corr = max(abs(feature_correlations.loc[feature, final_features]))
-                if max_corr < 0.95:
-                    final_features.append(feature)
+        return features
+    
+    # ==========================================================================
+    # PRIVATE METHODS - MODEL MANAGEMENT
+    # ==========================================================================
+    def _select_best_model(self, task: PredictionTask) -> Optional[str]:
+        """Select best model for task."""
+        candidate_models = [
+            model_id for model_id, config in self.model_configs.items()
+            if config.task == task
+        ]
         
-        return {
-            'selected_features': final_features,
-            'feature_scores': combined_scores,
-            'selection_method': 'ensemble',
-            'correlation_matrix': feature_correlations.to_dict(),
-            'n_features_tested': len(features_df.columns),
-            'n_features_selected': len(final_features)
-        }
-
-    async def _research_models(
-        self,
-        data: pd.DataFrame,
-        target: pd.Series,
-        task: PredictionTask,
-        features: List[str]
-    ) -> Dict[str, Dict[str, float]]:
-        """Research different model types"""
-        self.logger.info(f"Researching models for {task.value}")
+        if not candidate_models:
+            return None
         
-        # Prepare data
-        X = data[features].values
-        y = target.values
+        # Select based on performance
+        best_model = None
+        best_score = -np.inf
         
-        # Time series split
-        tscv = TimeSeriesSplit(n_splits=5)
-        
-        model_results = {}
-        
-        # Test different model types
-        models_to_test = {
-            'random_forest': RandomForestRegressor(n_estimators=100, random_state=42),
-            'gradient_boost': GradientBoostingRegressor(n_estimators=100, random_state=42),
-            'xgboost': xgb.XGBRegressor(n_estimators=100, random_state=42),
-            'neural_network': MLPRegressor(hidden_layer_sizes=(100, 50), random_state=42, max_iter=500),
-            'linear': Ridge(alpha=1.0)
-        }
-        
-        for model_name, model in models_to_test.items():
-            try:
-                # Scale data for neural networks and linear models
-                if model_name in ['neural_network', 'linear']:
-                    scaler = StandardScaler()
-                    X_scaled = scaler.fit_transform(X)
-                    scores = cross_val_score(model, X_scaled, y, cv=tscv, scoring='neg_mean_squared_error')
-                else:
-                    scores = cross_val_score(model, X, y, cv=tscv, scoring='neg_mean_squared_error')
-                
-                # Calculate metrics
-                mse = -np.mean(scores)
-                rmse = np.sqrt(mse)
-                
-                # Fit on full data to get training score
-                if model_name in ['neural_network', 'linear']:
-                    model.fit(X_scaled, y)
-                    train_pred = model.predict(X_scaled)
-                else:
-                    model.fit(X, y)
-                    train_pred = model.predict(X)
-                
-                train_score = 1 - (np.mean((y - train_pred) ** 2) / np.var(y))
-                
-                model_results[model_name] = {
-                    'score': train_score,
-                    'cv_rmse': rmse,
-                    'cv_scores': scores.tolist()
-                }
-                
-                self.logger.info(f"{model_name}: score={train_score:.3f}, CV RMSE={rmse:.3f}")
-                
-            except Exception as e:
-                self.logger.error(f"Error testing {model_name}: {str(e)}")
-                model_results[model_name] = {'score': 0, 'cv_rmse': float('inf')}
-        
-        return model_results
-
-    async def _optimize_hyperparameters(
-        self,
-        model_type: str,
-        data: pd.DataFrame,
-        target: pd.Series,
-        features: List[str]
-    ) -> Dict[str, Any]:
-        """Optimize hyperparameters for selected model"""
-        self.logger.info(f"Optimizing hyperparameters for {model_type}")
-        
-        # Simplified grid search (in production, use Optuna or similar)
-        if model_type == 'random_forest':
-            param_grid = {
-                'n_estimators': [100, 200],
-                'max_depth': [10, 20, None],
-                'min_samples_split': [2, 5],
-                'min_samples_leaf': [1, 2]
-            }
-        elif model_type == 'xgboost':
-            param_grid = {
-                'n_estimators': [100, 200],
-                'max_depth': [3, 5, 7],
-                'learning_rate': [0.01, 0.1],
-                'subsample': [0.8, 1.0]
-            }
-        elif model_type == 'neural_network':
-            param_grid = {
-                'hidden_layer_sizes': [(100,), (100, 50), (200, 100)],
-                'learning_rate_init': [0.001, 0.01],
-                'alpha': [0.0001, 0.001]
-            }
-        else:
-            # Default parameters
-            return {}
-        
-        # For now, return reasonable defaults
-        # In production, implement proper hyperparameter optimization
-        best_params = {
-            'random_forest': {
-                'n_estimators': 200,
-                'max_depth': 20,
-                'min_samples_split': 5,
-                'min_samples_leaf': 2,
-                'random_state': 42
-            },
-            'xgboost': {
-                'n_estimators': 200,
-                'max_depth': 5,
-                'learning_rate': 0.1,
-                'subsample': 0.8,
-                'random_state': 42
-            },
-            'neural_network': {
-                'hidden_layer_sizes': (100, 50),
-                'learning_rate_init': 0.001,
-                'alpha': 0.0001,
-                'random_state': 42,
-                'max_iter': 1000
-            }
-        }.get(model_type, {})
-        
-        return best_params
-
-    async def _generate_ml_recommendations(
-        self,
-        task: PredictionTask,
-        feature_analysis: Dict[str, Any],
-        model_comparison: Dict[str, Dict[str, float]],
-        best_config: ModelConfig
-    ) -> List[str]:
-        """Generate recommendations from ML research"""
-        
-        prompt = f"""
-        Based on ML research for {task.value} prediction:
-        
-        Feature Analysis:
-        - Selected {len(feature_analysis['selected_features'])} features from {feature_analysis['n_features_tested']}
-        - Top features: {', '.join(feature_analysis['selected_features'][:5])}
-        
-        Model Performance:
-        {json.dumps(model_comparison, indent=2)}
-        
-        Best Model: {best_config.model_type.value}
-        
-        Generate 3-5 actionable recommendations for:
-        1. Feature engineering improvements
-        2. Model deployment considerations
-        3. Performance monitoring
-        4. Potential risks or limitations
-        """
-        
-        try:
-            response = await asyncio.wait_for(self._query_llm(prompt), timeout=5.0)
-            # Parse recommendations (simplified)
-            recommendations = response.strip().split('\n')
-            return [rec.strip() for rec in recommendations if rec.strip()][:5]
-        except:
-            # Fallback recommendations
-            return [
-                f"Monitor {best_config.model_type.value} performance daily",
-                f"Retrain model when accuracy drops below {self.model_decay_threshold}",
-                f"Consider ensemble methods if single model performance plateaus",
-                f"Add more {task.value}-specific features",
-                "Implement A/B testing for model updates"
-            ]
-
-    async def _deploy_model(self, config: ModelConfig, data: pd.DataFrame, target: pd.Series):
-        """Train and deploy a model"""
-        self.logger.info(f"Deploying {config.model_type.value} for {config.task.value}")
-        
-        # Generate model ID
-        model_id = f"{config.task.value}_{config.model_type.value}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        
-        # Prepare data
-        X = data[config.features].values
-        y = target.values
-        
-        # Create model
-        if config.model_type == ModelType.RANDOM_FOREST:
-            model = RandomForestRegressor(**config.hyperparameters)
-        elif config.model_type == ModelType.XGBOOST:
-            model = xgb.XGBRegressor(**config.hyperparameters)
-        elif config.model_type == ModelType.NEURAL_NETWORK:
-            model = MLPRegressor(**config.hyperparameters)
-        elif config.model_type == ModelType.GRADIENT_BOOST:
-            model = GradientBoostingRegressor(**config.hyperparameters)
-        else:
-            model = Ridge(**config.hyperparameters)
-        
-        # Scale if needed
-        if config.model_type in [ModelType.NEURAL_NETWORK, ModelType.LINEAR]:
-            scaler = RobustScaler()
-            X = scaler.fit_transform(X)
-            model.scaler_ = scaler
-        
-        # Train model
-        model.fit(X, y)
-        
-        # Calculate performance
-        train_pred = model.predict(X)
-        train_score = 1 - (np.mean((y - train_pred) ** 2) / np.var(y))
-        
-        # Store model
-        self.active_models[model_id] = model
-        self.model_configs[model_id] = config
-        self.model_performance[model_id] = ModelPerformance(
-            model_id=model_id,
-            model_type=config.model_type,
-            task=config.task,
-            train_score=train_score,
-            validation_score=train_score * 0.9,  # Placeholder
-            test_score=0.0,
-            feature_importance=self._get_feature_importance(model, config.features)
-        )
-        
-        # Save model to disk
-        model_path = self.model_dir / f"{model_id}.joblib"
-        joblib.dump({
-            'model': model,
-            'config': config,
-            'performance': self.model_performance[model_id]
-        }, model_path)
-        
-        self.logger.info(f"Model {model_id} deployed with train score: {train_score:.3f}")
-
-    def _get_feature_importance(self, model: Any, feature_names: List[str]) -> Dict[str, float]:
-        """Get feature importance from model"""
-        importance_dict = {}
-        
-        if hasattr(model, 'feature_importances_'):
-            # Tree-based models
-            importances = model.feature_importances_
-            for i, name in enumerate(feature_names):
-                importance_dict[name] = float(importances[i])
-        elif hasattr(model, 'coef_'):
-            # Linear models
-            coefs = np.abs(model.coef_)
-            for i, name in enumerate(feature_names):
-                importance_dict[name] = float(coefs[i] if i < len(coefs) else 0)
-        else:
-            # Default equal importance
-            for name in feature_names:
-                importance_dict[name] = 1.0 / len(feature_names)
-        
-        return importance_dict
-
-    def _get_feature_contributions(
-        self,
-        model: Any,
-        X: np.ndarray,
-        feature_names: List[str]
-    ) -> Dict[str, float]:
-        """Get feature contributions to prediction"""
-        contributions = {}
-        
-        # Simplified SHAP-like contributions
-        if hasattr(model, 'feature_importances_'):
-            importances = model.feature_importances_
-            # Weight by feature values
-            for i, name in enumerate(feature_names):
-                if i < X.shape[1]:
-                    contributions[name] = float(importances[i] * X[0, i])
-        else:
-            # Equal contributions
-            for name in feature_names:
-                contributions[name] = 1.0 / len(feature_names)
-        
-        return contributions
-
-    def _estimate_prediction_confidence(self, model: Any, X: np.ndarray) -> float:
-        """Estimate prediction confidence for regression models"""
-        # Simplified confidence estimation
-        # In production, use proper prediction intervals or ensemble disagreement
-        
-        if hasattr(model, 'estimators_'):
-            # For ensemble models, use prediction variance
-            predictions = [est.predict(X)[0] for est in model.estimators_]
-            std = np.std(predictions)
-            mean = np.mean(predictions)
-            confidence = 1.0 - (std / (abs(mean) + 1e-6))
-        else:
-            # Default confidence based on model performance
-            model_id = [k for k, v in self.active_models.items() if v == model]
-            if model_id:
-                perf = self.model_performance.get(model_id[0])
-                confidence = perf.validation_score if perf else 0.5
-            else:
-                confidence = 0.5
-        
-        return float(np.clip(confidence, 0, 1))
-
-    def _get_baseline_prediction(self, task: PredictionTask, market_data: MarketData) -> MLPrediction:
-        """Get baseline prediction when no model available"""
-        if task == PredictionTask.PRICE_DIRECTION:
-            # Simple momentum
-            prediction = 1 if market_data.current_price > getattr(market_data, 'previous_close', market_data.current_price) else 0
-            confidence = 0.5
-        elif task == PredictionTask.VOLATILITY:
-            # Historical average
-            prediction = 0.15  # 15% annualized
-            confidence = 0.3
-        else:
-            prediction = 0
-            confidence = 0.1
-        
-        return MLPrediction(
-            task=task,
-            prediction=prediction,
-            confidence=confidence,
-            model_used='baseline',
-            feature_contributions={},
-            metadata={'type': 'baseline', 'reason': 'no_model_available'}
-        )
-
-    def _record_prediction(self, prediction: MLPrediction, features: FeatureSet):
-        """Record prediction for tracking"""
-        self.prediction_buffer.append({
-            'timestamp': datetime.now(),
-            'task': prediction.task.value,
-            'prediction': prediction.prediction,
-            'confidence': prediction.confidence,
-            'model': prediction.model_used,
-            'features': features.features.iloc[0].to_dict() if not features.features.empty else {}
-        })
-
-    async def _research_task(self, task: PredictionTask, market_data: MarketData):
-        """Launch research task for missing model"""
-        if task.value in self.current_research_tasks:
-            return  # Research already in progress
-        
-        async def research():
-            try:
-                # Get historical data (simplified - would fetch from database)
-                data = pd.DataFrame()  # Placeholder
-                target = pd.Series()   # Placeholder
-                
-                if not data.empty:
-                    result = await self.research_best_approach(task, data, target)
-                    self.logger.info(f"Research completed for {task.value}: {result.best_model.model_type.value}")
-            except Exception as e:
-                self.logger.error(f"Research failed for {task.value}: {str(e)}")
-            finally:
-                if task.value in self.current_research_tasks:
-                    del self.current_research_tasks[task.value]
-        
-        self.current_research_tasks[task.value] = asyncio.create_task(research())
-
-    async def _continuous_learning_loop(self):
-        """Continuous learning and model updates"""
-        while self.state == AgentState.RUNNING:
-            try:
-                await asyncio.sleep(3600)  # Check hourly
-                
-                # Check model performance
-                for model_id, perf in self.model_performance.items():
-                    # Check if model needs retraining
-                    age_hours = (datetime.now() - perf.last_retrain).total_seconds() / 3600
-                    
-                    if age_hours > self.retrain_frequency or perf.validation_score < self.model_decay_threshold:
-                        self.logger.info(f"Model {model_id} needs retraining")
-                        # Trigger retraining (simplified)
-                        config = self.model_configs[model_id]
-                        asyncio.create_task(self._retrain_model(model_id, config))
-                
-                # Clean up old predictions
-                if len(self.prediction_buffer) > 10000:
-                    self.prediction_buffer = deque(list(self.prediction_buffer)[-5000:], maxlen=10000)
-                
-            except Exception as e:
-                self.logger.error(f"Error in continuous learning: {str(e)}")
-
-    async def _retrain_model(self, model_id: str, config: ModelConfig):
-        """Retrain a model with recent data"""
-        self.logger.info(f"Retraining model {model_id}")
-        
-        # Get recent data (simplified - would fetch from database)
-        # In production, this would gather recent market data and outcomes
-        
-        # For now, just update the timestamp
-        if model_id in self.model_performance:
-            self.model_performance[model_id].last_retrain = datetime.now()
-
-    def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
-        """Calculate RSI"""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
-
-    def _calculate_macd(self, prices: pd.Series) -> Dict[str, pd.Series]:
-        """Calculate MACD"""
-        exp1 = prices.ewm(span=12, adjust=False).mean()
-        exp2 = prices.ewm(span=26, adjust=False).mean()
-        macd = exp1 - exp2
-        signal = macd.ewm(span=9, adjust=False).mean()
-        return {'macd': macd, 'signal': signal}
-
-    async def _load_saved_models(self):
-        """Load previously saved models"""
-        model_files = list(self.model_dir.glob("*.joblib"))
-        
-        for model_file in model_files[:self.max_models]:  # Limit loaded models
-            try:
-                data = joblib.load(model_file)
-                model_id = model_file.stem
-                
-                self.active_models[model_id] = data['model']
-                self.model_configs[model_id] = data['config']
-                self.model_performance[model_id] = data['performance']
-                
-                self.logger.info(f"Loaded model {model_id}")
-            except Exception as e:
-                self.logger.error(f"Failed to load model {model_file}: {str(e)}")
-
-    async def _handle_market_update(self, event: Event):
-        """Handle market data updates"""
-        # Could trigger model updates based on significant market changes
-        pass
-
-    async def _handle_trade_executed(self, event: Event):
-        """Handle trade execution events"""
-        # Record outcomes for model training
-        if hasattr(event, 'data'):
-            trade_data = event.data
-            # Store for future model training
-            pass
-
-    async def _handle_analysis_update(self, event: Event):
-        """Handle analysis updates from other agents"""
-        # Could incorporate analysis into features
-        pass
-
-    async def _query_llm(self, prompt: str) -> str:
-        """Query LLM for ML insights"""
-        # Mock implementation
-        if "Select the best ML model" in prompt:
-            return "random_forest_20250117120000"
-        elif "recommendations" in prompt:
-            return """1. Add more microstructure features for better short-term predictions
-2. Implement online learning for rapid adaptation to market changes
-3. Monitor feature drift to detect when models need retraining
-4. Use ensemble methods during high volatility periods
-5. Set up A/B testing framework for model updates"""
-        else:
-            return "neural_network"
-
-    async def get_model_inventory(self) -> Dict[str, Any]:
-        """Get current model inventory and status"""
-        inventory = {
-            'active_models': len(self.active_models),
-            'models_by_task': defaultdict(list),
-            'performance_summary': {}
-        }
-        
-        for model_id, config in self.model_configs.items():
-            inventory['models_by_task'][config.task.value].append(model_id)
-            
+        for model_id in candidate_models:
             if model_id in self.model_performance:
                 perf = self.model_performance[model_id]
-                inventory['performance_summary'][model_id] = {
-                    'type': config.model_type.value,
-                    'score': perf.validation_score,
-                    'age_hours': (datetime.now() - perf.last_retrain).total_seconds() / 3600
-                }
+                # Combine accuracy and Sharpe ratio
+                score = perf.accuracy * 0.5 + min(perf.sharpe_ratio, 2.0) * 0.5
+                score *= perf.decay_factor  # Apply decay
+                
+                if score > best_score:
+                    best_score = score
+                    best_model = model_id
         
-        return dict(inventory)
-
-    async def shutdown(self):
-        """Shutdown agent gracefully"""
-        self.state = AgentState.STOPPED
+        return best_model
+    
+    async def _train_model(
+        self,
+        task: PredictionTask,
+        features: FeatureSet
+    ) -> Optional[str]:
+        """Train new model for task."""
+        # Check if we have training data
+        if self.training_data.empty:
+            self.logger.warning("No training data available")
+            return None
         
-        # Cancel research tasks
-        for task in self.current_research_tasks.values():
-            task.cancel()
+        # Select model type
+        if self.ollama_client:
+            model_type = await self._get_ai_model_recommendation(task, features)
+        else:
+            model_type = self._get_default_model_type(task)
         
-        # Save model performance history
+        # Create model
+        model = self._create_model(model_type)
+        
+        # Prepare training data (simplified)
+        X_train = self.training_data[features.feature_names].fillna(0)
+        y_train = self._create_labels(task, self.training_data)
+        
+        if len(X_train) < 100:
+            self.logger.warning("Insufficient training data")
+            return None
+        
+        # Train model
+        try:
+            model.fit(X_train, y_train)
+            
+            # Generate model ID
+            model_id = f"{task.value}_{model_type.value}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            # Store model
+            self.active_models[model_id] = model
+            
+            # Create config
+            self.model_configs[model_id] = ModelConfig(
+                model_type=model_type,
+                task=task,
+                hyperparameters={},
+                features=features.feature_names,
+                training_window=30,
+                retrain_frequency=24,
+                performance_threshold=MIN_ACCURACY
+            )
+            
+            # Initialize performance
+            self.model_performance[model_id] = ModelPerformance(
+                model_id=model_id,
+                task=task,
+                accuracy=0.5,  # Will be updated
+                precision=0.5,
+                recall=0.5,
+                f1_score=0.5,
+                sharpe_ratio=0.0,
+                max_drawdown=0.0,
+                last_updated=datetime.now()
+            )
+            
+            self.logger.info(f"Trained new model {model_id}")
+            return model_id
+            
+        except Exception as e:
+            self.logger.error(f"Error training model: {e}")
+            return None
+    
+    def _create_model(self, model_type: ModelType) -> Any:
+        """Create ML model instance."""
+        if model_type == ModelType.RANDOM_FOREST:
+            return RandomForestClassifier(n_estimators=100, random_state=42)
+        elif model_type == ModelType.GRADIENT_BOOST:
+            return GradientBoostingRegressor(n_estimators=100, random_state=42)
+        elif model_type == ModelType.XGBOOST and XGBOOST_AVAILABLE:
+            return xgb.XGBClassifier(n_estimators=100, random_state=42)
+        elif model_type == ModelType.SVM:
+            return SVC(probability=True, random_state=42)
+        elif model_type == ModelType.NEURAL_NETWORK:
+            return MLPClassifier(hidden_layer_sizes=(100, 50), random_state=42)
+        else:  # LINEAR
+            return LogisticRegression(random_state=42)
+    
+    def _create_labels(self, task: PredictionTask, data: pd.DataFrame) -> np.ndarray:
+        """Create labels for training."""
+        # Simplified label creation
+        if task == PredictionTask.PRICE_DIRECTION:
+            # Binary classification: up/down
+            return (data['close'].shift(-1) > data['close']).astype(int)
+        elif task == PredictionTask.VOLATILITY_FORECAST:
+            # Regression: next period volatility
+            return data['volatility'].shift(-1)
+        else:
+            # Default: random labels for demonstration
+            return np.random.randint(0, 2, size=len(data))
+    
+    def _get_default_model_type(self, task: PredictionTask) -> ModelType:
+        """Get default model type for task."""
+        if task in [PredictionTask.PRICE_DIRECTION, PredictionTask.STRATEGY_SELECTION]:
+            return ModelType.RANDOM_FOREST
+        elif task == PredictionTask.VOLATILITY_FORECAST:
+            return ModelType.GRADIENT_BOOST
+        else:
+            return ModelType.LINEAR
+    
+    def _make_prediction(
+        self,
+        model: Any,
+        features: FeatureSet
+    ) -> Tuple[Any, Optional[float]]:
+        """Make prediction with model."""
+        try:
+            X = features.features.fillna(0)
+            
+            # Make prediction
+            prediction = model.predict(X)[0]
+            
+            # Get probability if available
+            probability = None
+            if hasattr(model, 'predict_proba'):
+                probabilities = model.predict_proba(X)[0]
+                probability = max(probabilities)
+            
+            return prediction, probability
+            
+        except Exception as e:
+            self.logger.error(f"Error making prediction: {e}")
+            return 0, None
+    
+    def _calculate_confidence(
+        self,
+        model_id: str,
+        probability: Optional[float],
+        features: FeatureSet
+    ) -> float:
+        """Calculate prediction confidence."""
+        confidence = 0.5  # Base confidence
+        
+        # Factor in probability
+        if probability is not None:
+            confidence = probability
+        
+        # Factor in model performance
+        if model_id in self.model_performance:
+            perf = self.model_performance[model_id]
+            confidence *= (perf.accuracy * perf.decay_factor)
+        
+        # Factor in feature quality
+        if features.validation_score > 0:
+            confidence *= features.validation_score
+        
+        return min(max(confidence, 0.0), 1.0)
+    
+    def _get_fallback_prediction(
+        self,
+        task: PredictionTask,
+        market_data: MarketData
+    ) -> Prediction:
+        """Get fallback prediction when no model available."""
+        if task == PredictionTask.PRICE_DIRECTION:
+            # Simple trend following
+            prediction = 1 if market_data.close > market_data.open else 0
+        elif task == PredictionTask.VOLATILITY_FORECAST:
+            # Use current volatility
+            prediction = market_data.volatility
+        else:
+            prediction = 0
+        
+        return Prediction(
+            timestamp=datetime.now(),
+            task=task,
+            prediction=prediction,
+            probability=None,
+            confidence=0.3,
+            model_used="fallback",
+            features_used=[],
+            explanation="Fallback prediction - no trained model available"
+        )
+    
+    # ==========================================================================
+    # PRIVATE METHODS - MODEL OPTIMIZATION
+    # ==========================================================================
+    def _should_retrain(self, model_id: str) -> bool:
+        """Check if model should be retrained."""
+        if model_id not in self.model_performance:
+            return True
+        
+        perf = self.model_performance[model_id]
+        config = self.model_configs.get(model_id)
+        
+        if not config:
+            return False
+        
+        # Check time since last update
+        hours_since_update = (datetime.now() - perf.last_updated).total_seconds() / 3600
+        if hours_since_update > config.retrain_frequency:
+            return True
+        
+        # Check performance decay
+        if perf.decay_factor < MODEL_DECAY_THRESHOLD:
+            return True
+        
+        # Check accuracy threshold
+        if perf.accuracy < config.performance_threshold:
+            return True
+        
+        return False
+    
+    def _get_recent_training_data(self, window_days: int) -> pd.DataFrame:
+        """Get recent training data."""
+        if self.training_data.empty:
+            return pd.DataFrame()
+        
+        # Filter to recent data
+        cutoff = datetime.now() - timedelta(days=window_days)
+        
+        # Assuming training_data has a timestamp column
+        if 'timestamp' in self.training_data.columns:
+            return self.training_data[self.training_data['timestamp'] > cutoff]
+        else:
+            # Return last N rows
+            return self.training_data.tail(window_days * 390)  # ~390 minutes per day
+    
+    async def _retrain_model(
+        self,
+        model_id: str,
+        data: pd.DataFrame,
+        config: ModelConfig
+    ) -> Dict[str, float]:
+        """Retrain existing model."""
+        if model_id not in self.active_models:
+            return {}
+        
+        try:
+            # Get features
+            X = data[config.features].fillna(0)
+            y = self._create_labels(config.task, data)
+            
+            # Split data
+            split_point = int(len(X) * 0.8)
+            X_train, X_test = X[:split_point], X[split_point:]
+            y_train, y_test = y[:split_point], y[split_point:]
+            
+            # Retrain model
+            model = self.active_models[model_id]
+            model.fit(X_train, y_train)
+            
+            # Evaluate
+            predictions = model.predict(X_test)
+            accuracy = accuracy_score(y_test, predictions)
+            
+            # Update performance
+            self.model_performance[model_id].accuracy = accuracy
+            self.model_performance[model_id].last_updated = datetime.now()
+            self.model_performance[model_id].decay_factor = 1.0
+            
+            return {'accuracy': accuracy}
+            
+        except Exception as e:
+            self.logger.error(f"Error retraining model {model_id}: {e}")
+            return {}
+    
+    def _update_model_performance(self, model_id: str):
+        """Update model performance metrics."""
+        if model_id in self.model_performance:
+            perf = self.model_performance[model_id]
+            
+            # Apply time decay
+            hours_since_update = (datetime.now() - perf.last_updated).total_seconds() / 3600
+            decay_rate = 0.99  # 1% decay per hour
+            perf.decay_factor *= (decay_rate ** hours_since_update)
+            
+            # Update timestamp
+            perf.last_updated = datetime.now()
+    
+    def _identify_underperforming_models(self) -> List[str]:
+        """Identify models that should be removed."""
+        models_to_remove = []
+        
         for model_id, perf in self.model_performance.items():
-            if model_id in self.active_models:
-                model_path = self.model_dir / f"{model_id}.joblib"
-                joblib.dump({
-                    'model': self.active_models[model_id],
-                    'config': self.model_configs[model_id],
-                    'performance': perf
-                }, model_path)
+            # Remove if accuracy too low
+            if perf.accuracy < MIN_ACCURACY:
+                models_to_remove.append(model_id)
+            
+            # Remove if decay factor too low
+            elif perf.decay_factor < 0.5:
+                models_to_remove.append(model_id)
+            
+            # Remove if Sharpe ratio negative for extended period
+            elif perf.sharpe_ratio < 0 and perf.max_drawdown > 0.1:
+                models_to_remove.append(model_id)
         
-        self.logger.info("ML Research Agent shutdown complete")
+        return models_to_remove
+    
+    def _remove_model(self, model_id: str):
+        """Remove model from active models."""
+        if model_id in self.active_models:
+            del self.active_models[model_id]
+        if model_id in self.model_configs:
+            del self.model_configs[model_id]
+        if model_id in self.model_performance:
+            del self.model_performance[model_id]
+        
+        self.logger.info(f"Removed model {model_id}")
+    
+    # ==========================================================================
+    # PRIVATE METHODS - RESEARCH
+    # ==========================================================================
+    async def _test_model_approach(
+        self,
+        model_type: ModelType,
+        data: pd.DataFrame,
+        hypothesis: str
+    ) -> Dict[str, float]:
+        """Test a specific model approach."""
+        try:
+            # Create model
+            model = self._create_model(model_type)
+            
+            # Prepare data (simplified)
+            # In production, would use proper feature engineering
+            feature_cols = [col for col in data.columns if col not in ['timestamp', 'target']]
+            X = data[feature_cols].fillna(0)
+            
+            # Create target based on hypothesis
+            if 'volatility' in hypothesis.lower():
+                y = data['volatility'].shift(-1).fillna(data['volatility'].mean())
+            elif 'direction' in hypothesis.lower():
+                y = (data['close'].shift(-1) > data['close']).astype(int)
+            else:
+                y = np.random.randint(0, 2, size=len(data))
+            
+            # Time series cross-validation
+            tscv = TimeSeriesSplit(n_splits=CV_FOLDS)
+            scores = cross_val_score(model, X, y, cv=tscv, scoring='accuracy')
+            
+            return {
+                'score': scores.mean(),
+                'std': scores.std(),
+                'scores': scores.tolist()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error testing {model_type.value}: {e}")
+            return {'score': 0.0, 'std': 0.0, 'scores': []}
+    
+    def _generate_research_insights(
+        self,
+        results: Dict[str, Dict[str, float]],
+        hypothesis: str
+    ) -> List[str]:
+        """Generate insights from research results."""
+        insights = []
+        
+        # Find best and worst models
+        if results:
+            sorted_models = sorted(results.items(), key=lambda x: x[1]['score'], reverse=True)
+            best_model = sorted_models[0]
+            worst_model = sorted_models[-1]
+            
+            insights.append(
+                f"Best model for {hypothesis}: {best_model[0]} "
+                f"(score: {best_model[1]['score']:.3f})"
+            )
+            
+            if len(sorted_models) > 1:
+                insights.append(
+                    f"Worst model: {worst_model[0]} "
+                    f"(score: {worst_model[1]['score']:.3f})"
+                )
+            
+            # Check if any model is significantly better
+            scores = [r['score'] for r in results.values()]
+            if max(scores) - min(scores) > 0.1:
+                insights.append("Significant performance difference between models")
+            else:
+                insights.append("All models perform similarly - consider ensemble approach")
+        
+        return insights
+    
+    def _get_basic_recommendations(self, results: Dict[str, Dict[str, float]]) -> List[str]:
+        """Get basic recommendations from research."""
+        recommendations = []
+        
+        if results:
+            # Get best model
+            best_model = max(results.items(), key=lambda x: x[1]['score'])[0]
+            recommendations.append(f"Deploy {best_model} model for production")
+            
+            # Check if ensemble would help
+            scores = [r['score'] for r in results.values()]
+            if len(scores) > 2 and min(scores) > 0.5:
+                recommendations.append("Consider ensemble approach combining top models")
+            
+            # Feature engineering recommendation
+            if max(scores) < 0.6:
+                recommendations.append("Improve feature engineering for better performance")
+        
+        return recommendations
+    
+    # ==========================================================================
+    # PRIVATE METHODS - AI INTEGRATION
+    # ==========================================================================
+    async def _get_prediction_explanation(
+        self,
+        task: PredictionTask,
+        prediction: Any,
+        features: FeatureSet,
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Get AI explanation for prediction."""
+        try:
+            # Get top features
+            top_features = sorted(
+                features.feature_importance.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5]
+            
+            features_str = "\n".join([f"- {k}: {v:.3f}" for k, v in top_features])
+            
+            prompt = f"""Explain this ML prediction for options trading:
 
-# Factory function
-def create_ml_research_agent(config: Dict[str, Any]) -> MLResearchAgent:
-    """Create and return an ML Research Agent instance"""
-    return MLResearchAgent(config)
+Task: {task.value}
+Prediction: {prediction}
+Confidence: {features.validation_score:.2%}
 
+Top Features:
+{features_str}
 
-# Usage Example:
+Provide a brief, clear explanation of what this prediction means for a trader."""
+
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': 200
+                }
+            )
+            
+            return response['response'].strip()
+            
+        except Exception as e:
+            self.logger.error(f"Error getting prediction explanation: {e}")
+            return f"{task.value} prediction: {prediction}"
+    
+    async def _get_ai_research_plan(
+        self,
+        hypothesis: str,
+        data: pd.DataFrame
+    ) -> Dict[str, Any]:
+        """Get AI guidance on research approach."""
+        try:
+            data_summary = f"Data shape: {data.shape}, Columns: {list(data.columns)[:10]}"
+            
+            prompt = f"""You are an ML research expert for options trading.
+
+Research Hypothesis: {hypothesis}
+{data_summary}
+
+Suggest which ML models and features to test. Format as JSON:
+{{"models": ["model_type1", "model_type2"], "features": ["feature1", "feature2"]}}"""
+
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': MAX_TOKENS
+                }
+            )
+            
+            return self._parse_json_response(response['response'])
+            
+        except Exception as e:
+            self.logger.error(f"Error getting AI research plan: {e}")
+            return {'models': list(ModelType), 'features': []}
+    
+    async def _get_ai_model_recommendation(
+        self,
+        task: PredictionTask,
+        features: FeatureSet
+    ) -> ModelType:
+        """Get AI recommendation for model type."""
+        try:
+            feature_summary = f"Number of features: {len(features.feature_names)}"
+            
+            prompt = f"""Recommend the best ML model type for this prediction task:
+
+Task: {task.value}
+{feature_summary}
+Features include: {', '.join(features.feature_names[:10])}
+
+Choose from: random_forest, gradient_boost, xgboost, svm, neural_network, linear
+
+Respond with just the model type name."""
+
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': 0.1,
+                    'num_predict': 50
+                }
+            )
+            
+            model_name = response['response'].strip().lower()
+            
+            # Map to ModelType
+            for model_type in ModelType:
+                if model_type.value == model_name:
+                    return model_type
+            
+            return ModelType.RANDOM_FOREST  # Default
+            
+        except Exception as e:
+            self.logger.error(f"Error getting AI model recommendation: {e}")
+            return ModelType.RANDOM_FOREST
+    
+    async def _get_ai_research_recommendations(
+        self,
+        hypothesis: str,
+        results: Dict[str, Dict[str, float]],
+        insights: List[str]
+    ) -> List[str]:
+        """Get AI recommendations from research results."""
+        try:
+            results_str = "\n".join([
+                f"{model}: {perf['score']:.3f}" 
+                for model, perf in results.items()
+            ])
+            insights_str = "\n".join(insights)
+            
+            prompt = f"""Based on ML research results for options trading:
+
+Hypothesis: {hypothesis}
+
+Results:
+{results_str}
+
+Insights:
+{insights_str}
+
+Provide 3-5 actionable recommendations for implementing these findings in production trading."""
+
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': MAX_TOKENS
+                }
+            )
+            
+            # Parse recommendations
+            text = response['response']
+            recommendations = []
+            
+            # Simple parsing - split by newlines and bullets
+            for line in text.split('\n'):
+                line = line.strip()
+                if line and (line[0].isdigit() or line.startswith('-') or line.startswith('•')):
+                    # Clean up the line
+                    clean_line = line.lstrip('0123456789.-•').strip()
+                    if clean_line:
+                        recommendations.append(clean_line)
+            
+            return recommendations[:5]  # Max 5 recommendations
+            
+        except Exception as e:
+            self.logger.error(f"Error getting AI research recommendations: {e}")
+            return self._get_basic_recommendations(results)
+    
+    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+        """Parse JSON from LLM response."""
+        try:
+            if '{' in response and '}' in response:
+                start = response.find('{')
+                end = response.rfind('}') + 1
+                json_str = response[start:end]
+                return json.loads(json_str)
+        except:
+            pass
+        
+        return {}
+    
+    # ==========================================================================
+    # LIFECYCLE METHODS
+    # ==========================================================================
+    def add_training_data(self, data: pd.DataFrame):
+        """Add new training data."""
+        self.training_data = pd.concat([self.training_data, data], ignore_index=True)
+        
+        # Keep only recent data (e.g., last 6 months)
+        if len(self.training_data) > 50000:
+            self.training_data = self.training_data.tail(50000)
+    
+    def save_models(self):
+        """Save all models to disk."""
+        for model_id, model in self.active_models.items():
+            model_path = self.model_dir / f"{model_id}.pkl"
+            joblib.dump(model, model_path)
+            self.logger.info(f"Saved model {model_id}")
+    
+    def load_models(self):
+        """Load models from disk."""
+        for model_path in self.model_dir.glob("*.pkl"):
+            try:
+                model_id = model_path.stem
+                model = joblib.load(model_path)
+                self.active_models[model_id] = model
+                self.logger.info(f"Loaded model {model_id}")
+            except Exception as e:
+                self.logger.error(f"Error loading model {model_path}: {e}")
+    
+    def clear_history(self):
+        """Clear experiment history."""
+        self.experiment_history.clear()
+        self.prediction_buffer.clear()
+        self.logger.info("ML research history cleared")
+
+# ==============================================================================
+# MODULE FUNCTIONS
+# ==============================================================================
+def create_ml_research_agent(config: Optional[Dict[str, Any]] = None) -> SpyderX05_MLResearchAgent:
+    """
+    Factory function to create ML Research Agent.
+    
+    Args:
+        config: Optional configuration dictionary
+        
+    Returns:
+        Configured SpyderX05_MLResearchAgent instance
+    """
+    return SpyderX05_MLResearchAgent(config)
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+# Module-level initialization code
+_module_instance: Optional[SpyderX05_MLResearchAgent] = None
+
+def get_module_instance(config: Optional[Dict[str, Any]] = None) -> SpyderX05_MLResearchAgent:
+    """
+    Get singleton instance of the module.
+    
+    Args:
+        config: Configuration if creating new instance
+        
+    Returns:
+        Module instance
+    """
+    global _module_instance
+    if _module_instance is None:
+        _module_instance = SpyderX05_MLResearchAgent(config)
+    return _module_instance
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
-    # Example configuration
-    test_config = {
-        'ml_llm_model': 'llama3.2:3b-instruct-q4_K_M',
-        'max_concurrent_models': 10,
-        'retrain_frequency_hours': 24,
-        'model_decay_threshold': 0.7,
-        'model_directory': './models'
-    }
-    
-    # Create agent
-    ml_agent = create_ml_research_agent(test_config)
-    
-    # Example usage
-    async def example_usage():
-        await ml_agent.initialize()
+    async def test_agent():
+        """Test the ML Research Agent."""
+        # Create agent
+        config = {
+            'llm_model': 'llama3.2:3b-instruct-q4_K_M',
+            'temperature': 0.3,
+            'max_concurrent_models': 10,
+            'model_directory': './test_models'
+        }
         
-        # Make a prediction
-        market_data = MarketData(current_price=400.0, timestamp=datetime.now())
+        agent = create_ml_research_agent(config)
         
-        prediction = await ml_agent.predict(
-            PredictionTask.PRICE_DIRECTION,
-            market_data
+        # Create sample market data
+        market_data = MarketData(
+            timestamp=datetime.now(),
+            open=549.50,
+            high=551.00,
+            low=548.00,
+            close=550.25,
+            volume=85000000,
+            volatility=16.5,
+            additional_features={
+                'vix': 15.8,
+                'put_call_ratio': 0.85,
+                'rsi': 55.2
+            }
         )
         
-        print(f"Prediction: {prediction.prediction}")
-        print(f"Confidence: {prediction.confidence:.2%}")
-        print(f"Model Used: {prediction.model_used}")
+        # Test prediction
+        print("="*80)
+        print("TESTING ML RESEARCH AGENT")
+        print("="*80)
+        print("\n1. Testing Prediction...")
         
-        # Get model inventory
-        inventory = await ml_agent.get_model_inventory()
-        print(f"\nActive Models: {inventory['active_models']}")
+        prediction = await agent.predict(
+            PredictionTask.PRICE_DIRECTION,
+            market_data,
+            {'market_regime': 'bullish', 'trend_strength': 0.6}
+        )
+        
+        print(f"Task: {prediction.task.value}")
+        print(f"Prediction: {prediction.prediction}")
+        print(f"Confidence: {prediction.confidence:.1%}")
+        print(f"Model Used: {prediction.model_used}")
+        if prediction.explanation:
+            print(f"Explanation: {prediction.explanation}")
+        
+        # Test research
+        print("\n2. Testing Research...")
+        
+        # Create sample training data
+        dates = pd.date_range(end=datetime.now(), periods=1000, freq='5min')
+        sample_data = pd.DataFrame({
+            'timestamp': dates,
+            'close': np.random.randn(1000).cumsum() + 550,
+            'volume': np.random.randint(1000000, 5000000, 1000),
+            'volatility': np.random.uniform(10, 25, 1000),
+            'rsi': np.random.uniform(30, 70, 1000),
+            'macd': np.random.randn(1000) * 0.5
+        })
+        
+        agent.add_training_data(sample_data)
+        
+        research = await agent.conduct_research(
+            "Can ML models predict short-term price direction using technical indicators?"
+        )
+        
+        print(f"\nResearch ID: {research.experiment_id}")
+        print(f"Hypothesis: {research.hypothesis}")
+        print(f"Models Tested: {', '.join(research.models_tested)}")
+        print(f"Best Model: {research.best_model}")
+        print(f"Performance: {research.performance_metrics}")
+        
+        if research.insights:
+            print("\nInsights:")
+            for insight in research.insights:
+                print(f"  • {insight}")
+        
+        if research.recommendations:
+            print("\nRecommendations:")
+            for rec in research.recommendations:
+                print(f"  • {rec}")
+        
+        # Test model optimization
+        print("\n3. Testing Model Optimization...")
+        
+        optimization_results = await agent.optimize_models()
+        print(f"Optimization Results: {optimization_results}")
+        
+        # Show model inventory
+        print("\n4. Model Inventory:")
+        inventory = agent.get_model_inventory()
+        print(f"Active Models: {inventory['active_models']}")
+        for model_id, info in inventory['models'].items():
+            print(f"  {model_id}: {info}")
     
-    # Run example
-    # asyncio.run(example_usage())
+    # Run test
+    asyncio.run(test_agent())
