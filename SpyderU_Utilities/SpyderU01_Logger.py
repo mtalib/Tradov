@@ -42,8 +42,19 @@ import shutil
 # =============================================================================
 # Third-Party Imports
 # =============================================================================
-import colorlog
-from pythonjsonlogger import jsonlogger
+try:
+    import colorlog
+    HAS_COLORLOG = True
+except ImportError:
+    HAS_COLORLOG = False
+    print("Warning: colorlog not available. Install with: pip install colorlog")
+
+try:
+    from pythonjsonlogger import jsonlogger
+    HAS_JSONLOGGER = True
+except ImportError:
+    HAS_JSONLOGGER = False
+    print("Warning: python-json-logger not available. Install with: pip install python-json-logger")
 
 # =============================================================================
 # Constants
@@ -113,24 +124,25 @@ class LogConfig:
 # =============================================================================
 # Custom Formatters
 # =============================================================================
-class CustomJsonFormatter(jsonlogger.JsonFormatter):
-    """Custom JSON formatter with additional fields."""
+if HAS_JSONLOGGER:
+    class CustomJsonFormatter(jsonlogger.JsonFormatter):
+        """Custom JSON formatter with additional fields."""
 
-    def add_fields(self, log_record, record, message_dict):
-        super().add_fields(log_record, record, message_dict)
-        log_record["timestamp"] = datetime.utcnow().isoformat()
-        log_record["level"] = record.levelname
-        log_record["module"] = record.module
-        log_record["function"] = record.funcName
-        log_record["line"] = record.lineno
+        def add_fields(self, log_record, record, message_dict):
+            super().add_fields(log_record, record, message_dict)
+            log_record["timestamp"] = datetime.utcnow().isoformat()
+            log_record["level"] = record.levelname
+            log_record["module"] = record.module
+            log_record["function"] = record.funcName
+            log_record["line"] = record.lineno
 
-        # Add custom fields if present
-        if hasattr(record, "trade_id"):
-            log_record["trade_id"] = record.trade_id
-        if hasattr(record, "strategy"):
-            log_record["strategy"] = record.strategy
-        if hasattr(record, "performance_metrics"):
-            log_record["performance_metrics"] = record.performance_metrics
+            # Add custom fields if present
+            if hasattr(record, "trade_id"):
+                log_record["trade_id"] = record.trade_id
+            if hasattr(record, "strategy"):
+                log_record["strategy"] = record.strategy
+            if hasattr(record, "performance_metrics"):
+                log_record["performance_metrics"] = record.performance_metrics
 
 
 # =============================================================================
@@ -190,7 +202,8 @@ class TradeLogHandler(logging.Handler):
     def __init__(self, filename: str):
         super().__init__()
         self.filename = filename
-        self.setFormatter(CustomJsonFormatter())
+        if HAS_JSONLOGGER:
+            self.setFormatter(CustomJsonFormatter())
 
     def emit(self, record):
         """Emit a trade log record."""
@@ -286,19 +299,24 @@ class SpyderLogger:
     def _init_default_handlers(self) -> None:
         """Initialize default log handlers."""
         # Console handler with color
-        console_handler = colorlog.StreamHandler(sys.stdout)
-        console_formatter = colorlog.ColoredFormatter(
-            "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            log_colors={
-                "DEBUG": "cyan",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "red,bg_white",
-                "TRADE": "blue",
-                "PERFORMANCE": "magenta",
-            },
-        )
+        console_handler = logging.StreamHandler(sys.stdout)
+        
+        if HAS_COLORLOG:
+            console_formatter = colorlog.ColoredFormatter(
+                "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                log_colors={
+                    "DEBUG": "cyan",
+                    "INFO": "green",
+                    "WARNING": "yellow",
+                    "ERROR": "red",
+                    "CRITICAL": "red,bg_white",
+                    "TRADE": "blue",
+                    "PERFORMANCE": "magenta",
+                },
+            )
+        else:
+            console_formatter = logging.Formatter(DEFAULT_FORMAT)
+            
         console_handler.setFormatter(console_formatter)
         self._handlers["console"] = console_handler
 
@@ -320,24 +338,24 @@ class SpyderLogger:
         self._handlers["error"] = error_handler
 
         # JSON file handler for structured logs
-        json_handler = logging.handlers.RotatingFileHandler(
-            LOG_BASE_DIR / "spyder.json",
-            maxBytes=MAX_LOG_SIZE,
-            backupCount=BACKUP_COUNT,
-        )
-        json_handler.setFormatter(CustomJsonFormatter())
-        self._handlers["json"] = json_handler
+        if HAS_JSONLOGGER:
+            json_handler = logging.handlers.RotatingFileHandler(
+                LOG_BASE_DIR / "spyder.json",
+                maxBytes=MAX_LOG_SIZE,
+                backupCount=BACKUP_COUNT,
+            )
+            json_handler.setFormatter(CustomJsonFormatter())
+            self._handlers["json"] = json_handler
 
         # Trade log handler
         trade_handler = TradeLogHandler(
-            TRADE_LOG_DIR / f"trades_{datetime.now().strftime('%Y%m%d')}.json"
+            str(TRADE_LOG_DIR / f"trades_{datetime.now().strftime('%Y%m%d')}.json")
         )
         self._handlers["trade"] = trade_handler
 
         # Performance log handler
         performance_handler = PerformanceLogHandler(
-            PERFORMANCE_LOG_DIR
-            / f"performance_{datetime.now().strftime('%Y%m%d')}.json"
+            str(PERFORMANCE_LOG_DIR / f"performance_{datetime.now().strftime('%Y%m%d')}.json")
         )
         self._handlers["performance"] = performance_handler
 
@@ -720,6 +738,44 @@ def get_logger(
 
     # Create logger using the class method
     logger = SpyderLogger.get_logger(name, config)
+    
+    # Add file handler if specified
+    if log_file:
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(logging.Formatter(DETAILED_FORMAT))
+        logger.addHandler(file_handler)
+    
+    # Cache the logger
     _logger_cache[cache_key] = logger
 
     return logger
+
+
+# =============================================================================
+# Simple Logger Creation Function for Quick Use
+# =============================================================================
+def create_logger(name: str = None) -> logging.Logger:
+    """
+    Create a simple logger with default settings.
+    
+    Args:
+        name: Logger name (defaults to module name)
+        
+    Returns:
+        logging.Logger instance
+    """
+    if name is None:
+        # Get the calling module's name
+        import inspect
+        frame = inspect.currentframe()
+        if frame and frame.f_back:
+            name = frame.f_back.f_globals.get('__name__', 'spyder')
+    
+    return get_logger(name)
+
+
+# =============================================================================
+# Initialize Default Logger on Module Load
+# =============================================================================
+# This ensures basic logging works even without explicit initialization
+_default_logger = get_logger('spyder')
