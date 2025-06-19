@@ -15,7 +15,7 @@ Description:
 Spyder Version: 1.0
 Architect: Mohamed Talib
 Date Created: YYYY-MM-DD 
-Last Updated: YYYY-MM-DD Time: HH:MM  
+Last Updated: YYYY-MM-DD Time: HH:MM:SS  
 """
 
 # ==============================================================================
