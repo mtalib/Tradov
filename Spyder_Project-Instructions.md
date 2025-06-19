@@ -1,12 +1,9 @@
 SPYDER PROJECT INSTRUCTIONS
 
-Hi Claude,
+Spyder - Automated SPY Options Trading System
+The Spyder repository is an advanced automated trading system specifically designed for trading SPY (S&P 500 ETF) options. It's a sophisticated Python-based platform that combines algorithmic trading, machine learning, and institutional-grade risk management.
 
-Our goal is to take convert our current Spyder system described below (made of  pure Python modules) to a hybrid system containing both regular Python Modules and AI Agents.
-
-The module naming convention for AI Agents will be the same as regular Python modules except at the end of the module name will "Agent". For example, SpyderX01_GreekAgent 
-
-The inner formatting of the AI Agent modules will be the same as the ones used for regular Python modules (see document name "Spyder_ModuleTemplate.py" in the Spyder Repo. 
+The inner formatting of all Python modules must include clear descriptions and comments of various methods and functions; there should be clear separators too like the example shown in this sample module "Spyder_ModuleTemplate.py" in the repo.
 
 Some group letters are called reserved alphabetic letters, to be used only for specific categories of modules: 
 
@@ -14,25 +11,6 @@ Some group letters are called reserved alphabetic letters, to be used only for s
 # Letter U shall be reserved for the Utility module
 # Letter X shall be reserved for the AI Agents modules. 
 # Letter Z shall be reserved for the Temp modules
-
-For example 
-
-Spyder/
-├── SpyderX_Agents/              
-│   ├── SpyderX01_GreeksAgent.py
-│   ├── SpyderX02_FlowAgent.py  # Future
-│   ├── SpyderX03_StrategyAgent.py # Future
-│   └── SpyderX04_RiskAgent.py  # Future
-
-Agent Integration Module will be in Utilities group as :
-
-SpyderU12_AgentIntegration.py
-
-
-This following is our current Spyder system made of pure Python modules. 
-
-Spyder - Automated SPY Options Trading System
-The Spyder repository is an advanced automated trading system specifically designed for trading SPY (S&P 500 ETF) options. It's a sophisticated Python-based platform that combines algorithmic trading, machine learning, and institutional-grade risk management.
 
 Project Overview
 SPYDER stands for "SPY Programmatic Yielding Dynamic Execution Robot" (based on the module naming convention), and it's built to automate complex options trading strategies with a focus on:
@@ -44,8 +22,10 @@ Machine learning optimization
 Multi-strategy portfolio management
 
 Architecture: 112 Python Modules in 18 Groups
+
 The system is organized into 18 functional groups containing a total of 112 Python modules. Each group is designated by a letter (A through Q, plus U for utilities) and handles a specific aspect of the trading system.
 Here's the complete breakdown:
+
 SpyderA_Core/
   __init__.py
   SpyderA01_Main.py
