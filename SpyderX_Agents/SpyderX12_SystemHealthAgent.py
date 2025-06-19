@@ -4,1682 +4,1230 @@
 SPYDER - Automated SPY Options Trading System
 
 Module: SpyderX12_SystemHealthAgent.py
-Purpose: AI-Enhanced System Health Monitoring and Optimization
+Purpose: AI-Enhanced System Health Monitoring and Diagnostics
 Group: X (AI Agents)
 
-Description:
-    Monitors system performance, detects anomalies, optimizes resource usage,
-    and ensures the Spyder trading system operates at peak efficiency. This
-    agent acts as the guardian of system reliability and performance.
+This module implements an intelligent system health monitoring agent that tracks
+system performance, detects anomalies, predicts failures, and provides AI-driven
+diagnostics using Ollama integration.
 
-    Key Features:
-    - Real-time performance monitoring
-    - Anomaly detection in trading patterns
-    - Resource optimization (CPU, memory, network)
-    - Predictive maintenance
-    - System diagnostics and healing
-    - Agent coordination monitoring
-
-Author: AI Trading Assistant
-Date: 2025-01-17
-Version: 1.0.0
-
-Dependencies:
-    - ollama (for LLM integration)
-    - psutil (for system monitoring)
-    - pandas, numpy
-    - asyncio
-    - prometheus_client (for metrics)
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-06-16
+Last Updated: 2025-06-19 Time: 14:02
 """
 
+# ==============================================================================
+# IMPORTS
+# ==============================================================================
+
+# Standard library imports
 import asyncio
 import json
 import logging
-import os
-import sys
-import gc
-import traceback
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Set
-from dataclasses import dataclass, field
-from enum import Enum, auto
-import numpy as np
-import pandas as pd
-from collections import defaultdict, deque
 import psutil
 import platform
-import socket
-import threading
-import time
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple, Any, Set
+from dataclasses import dataclass, field
+from enum import Enum
+from collections import defaultdict, deque
+import statistics
+import traceback
 
-# Import Spyder core components
-from SpyderU01_DataStructures import SystemStatus
-from SpyderU02_Configuration import config
-from SpyderU03_Logger import SpyderLogger
-from SpyderU04_EventManager import Event, EventType
-from SpyderU12_AgentIntegration import SpyderBaseAgent, AgentState
+# Third-party imports
+import numpy as np
 
-# Health Status Levels
+# Ollama imports (with graceful fallback)
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    print("Warning: Ollama not installed. AI features will be limited.")
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+
+# System components
+class SystemComponent(Enum):
+    """System components to monitor."""
+    DATA_FEED = "DATA_FEED"
+    TRADING_ENGINE = "TRADING_ENGINE"
+    RISK_MANAGER = "RISK_MANAGER"
+    EXECUTION = "EXECUTION"
+    DATABASE = "DATABASE"
+    ML_MODELS = "ML_MODELS"
+    API_GATEWAY = "API_GATEWAY"
+    MESSAGING = "MESSAGING"
+    OLLAMA = "OLLAMA"
+    AGENTS = "AGENTS"
+
+# Health status levels
 class HealthStatus(Enum):
-    """System health status levels"""
-    EXCELLENT = "excellent"  # 90-100% health
-    GOOD = "good"           # 70-90% health
-    WARNING = "warning"     # 50-70% health
-    CRITICAL = "critical"   # 30-50% health
-    FAILING = "failing"     # <30% health
+    """System health status levels."""
+    HEALTHY = "HEALTHY"
+    WARNING = "WARNING"
+    DEGRADED = "DEGRADED"
+    CRITICAL = "CRITICAL"
+    FAILED = "FAILED"
 
-# Anomaly Types
-class AnomalyType(Enum):
-    """Types of system anomalies"""
-    PERFORMANCE = "performance"
-    RESOURCE = "resource"
-    TRADING = "trading"
-    DATA = "data"
-    NETWORK = "network"
-    AGENT = "agent"
-    PATTERN = "pattern"
+# Metric types
+class MetricType(Enum):
+    """Types of system metrics."""
+    CPU_USAGE = "CPU_USAGE"
+    MEMORY_USAGE = "MEMORY_USAGE"
+    DISK_USAGE = "DISK_USAGE"
+    NETWORK_IO = "NETWORK_IO"
+    LATENCY = "LATENCY"
+    ERROR_RATE = "ERROR_RATE"
+    THROUGHPUT = "THROUGHPUT"
+    QUEUE_DEPTH = "QUEUE_DEPTH"
 
-# Optimization Actions
-class OptimizationAction(Enum):
-    """System optimization actions"""
-    GARBAGE_COLLECT = "garbage_collect"
-    CACHE_CLEAR = "cache_clear"
-    AGENT_RESTART = "agent_restart"
-    THROTTLE_REQUESTS = "throttle_requests"
-    SCALE_RESOURCES = "scale_resources"
-    REBALANCE_LOAD = "rebalance_load"
+# Thresholds for health monitoring
+HEALTH_THRESHOLDS = {
+    'cpu_warning': 70,          # %
+    'cpu_critical': 90,         # %
+    'memory_warning': 75,       # %
+    'memory_critical': 90,      # %
+    'disk_warning': 80,         # %
+    'disk_critical': 95,        # %
+    'latency_warning': 1000,    # ms
+    'latency_critical': 5000,   # ms
+    'error_rate_warning': 0.01, # 1%
+    'error_rate_critical': 0.05 # 5%
+}
+
+# Component dependencies
+COMPONENT_DEPENDENCIES = {
+    SystemComponent.TRADING_ENGINE: [SystemComponent.DATA_FEED, SystemComponent.DATABASE],
+    SystemComponent.RISK_MANAGER: [SystemComponent.DATABASE, SystemComponent.ML_MODELS],
+    SystemComponent.EXECUTION: [SystemComponent.API_GATEWAY, SystemComponent.TRADING_ENGINE],
+    SystemComponent.ML_MODELS: [SystemComponent.DATABASE],
+    SystemComponent.AGENTS: [SystemComponent.OLLAMA, SystemComponent.DATABASE]
+}
+
+# Default configuration
+DEFAULT_CONFIG = {
+    'monitoring_interval': 60,      # seconds
+    'metric_retention': 24 * 60,    # minutes (24 hours)
+    'anomaly_lookback': 60,         # minutes
+    'prediction_horizon': 30,       # minutes
+    'alert_cooldown': 300          # seconds (5 minutes)
+}
+
+# Model configuration
+DEFAULT_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_TEMPERATURE = 0.3
+
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
 
 @dataclass
-class SystemMetrics:
-    """System performance metrics"""
+class SystemMetric:
+    """System metric data point."""
+    component: SystemComponent
+    metric_type: MetricType
     timestamp: datetime
-    cpu_percent: float
-    memory_percent: float
-    memory_available: int  # MB
-    disk_usage: float
-    network_latency: float  # ms
-    api_response_time: float  # ms
-    agent_response_times: Dict[str, float]
-    active_threads: int
-    open_connections: int
+    value: float
+    unit: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
-class AgentHealth:
-    """Health status of an individual agent"""
-    agent_name: str
-    status: AgentState
-    health_score: float  # 0-100
-    response_time: float  # ms
-    error_rate: float  # errors per minute
-    last_heartbeat: datetime
-    memory_usage: float  # MB
-    cpu_usage: float  # percent
-    issues: List[str] = field(default_factory=list)
-
-@dataclass
-class TradingMetrics:
-    """Trading system metrics"""
-    timestamp: datetime
-    orders_per_minute: float
-    average_execution_time: float  # ms
-    error_rate: float
-    success_rate: float
-    active_positions: int
-    daily_trades: int
-    api_calls_per_minute: float
-    data_lag: float  # seconds
-
-@dataclass
-class Anomaly:
-    """Detected system anomaly"""
-    anomaly_type: AnomalyType
-    severity: float  # 0-1
-    description: str
-    affected_components: List[str]
-    metrics: Dict[str, Any]
-    detected_at: datetime
-    resolved: bool = False
-    resolution: Optional[str] = None
-
-@dataclass
-class HealthReport:
-    """Comprehensive system health report"""
-    timestamp: datetime
-    overall_health: float  # 0-100
+class ComponentHealth:
+    """Component health status."""
+    component: SystemComponent
     status: HealthStatus
-    system_metrics: SystemMetrics
-    agent_health: Dict[str, AgentHealth]
-    trading_metrics: TradingMetrics
-    active_anomalies: List[Anomaly]
-    recommendations: List[Dict[str, Any]]
-    performance_score: float
-    reliability_score: float
+    health_score: float  # 0-100
+    metrics: Dict[MetricType, float]
+    issues: List[str]
+    dependencies_ok: bool
+    last_check: datetime
+    uptime_percentage: float
 
-class SystemHealthAgent(SpyderBaseAgent):
+@dataclass
+class SystemDiagnostic:
+    """System diagnostic report."""
+    timestamp: datetime
+    overall_status: HealthStatus
+    overall_health_score: float
+    component_health: Dict[SystemComponent, ComponentHealth]
+    active_issues: List[Dict[str, Any]]
+    predictions: List[Dict[str, Any]]
+    recommendations: List[str]
+    ai_analysis: Dict[str, Any]
+
+@dataclass
+class HealthAlert:
+    """System health alert."""
+    timestamp: datetime
+    component: SystemComponent
+    severity: str  # 'low', 'medium', 'high', 'critical'
+    title: str
+    description: str
+    metric_data: Dict[str, Any]
+    resolution_steps: List[str]
+    auto_remediation_available: bool
+
+@dataclass
+class PerformancePrediction:
+    """Performance prediction."""
+    component: SystemComponent
+    metric_type: MetricType
+    prediction_time: datetime
+    predicted_value: float
+    confidence: float
+    risk_level: str  # 'low', 'medium', 'high'
+    recommended_action: Optional[str]
+
+# ==============================================================================
+# SYSTEM HEALTH AGENT CLASS
+# ==============================================================================
+
+class SpyderX12_SystemHealthAgent:
     """
-    AI-Enhanced System Health Monitoring Agent
+    AI-Enhanced System Health Monitoring Agent.
     
-    Monitors, diagnoses, and optimizes the entire Spyder trading system
-    to ensure peak performance and reliability.
+    This agent monitors system health, predicts failures, and provides
+    AI-driven diagnostics and remediation recommendations.
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize System Health Agent"""
-        super().__init__(config)
+    def __init__(self, model_name: str = DEFAULT_MODEL,
+                 temperature: float = DEFAULT_TEMPERATURE):
+        """
+        Initialize the System Health Agent.
         
-        # Agent configuration
-        self.llm_model = config.get('health_llm_model', 'llama3.2:3b-instruct-q4_K_M')
-        self.check_interval = config.get('health_check_seconds', 30)
-        self.anomaly_threshold = config.get('anomaly_threshold', 0.7)
+        Args:
+            model_name: Ollama model to use
+            temperature: Temperature for AI responses
+        """
+        self.model_name = model_name
+        self.temperature = temperature
+        self.logger = self._setup_logger()
+        self.config = DEFAULT_CONFIG.copy()
         
-        # System info
-        self.system_info = {
-            'platform': platform.system(),
-            'processor': platform.processor(),
-            'python_version': sys.version,
-            'hostname': socket.gethostname()
-        }
+        # Initialize Ollama if available
+        self.ollama_client = None
+        if OLLAMA_AVAILABLE:
+            try:
+                ollama.list()  # Test connection
+                self.ollama_client = ollama
+                self.logger.info("Ollama connection established")
+            except Exception as e:
+                self.logger.error(f"Failed to connect to Ollama: {e}")
         
-        # Metrics storage
-        self.system_metrics_history: deque = deque(maxlen=1440)  # 12 hours at 30s intervals
-        self.agent_health_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1440))
-        self.trading_metrics_history: deque = deque(maxlen=1440)
-        self.anomaly_history: deque = deque(maxlen=100)
+        # Metric storage
+        self.metrics_history = defaultdict(lambda: deque(maxlen=1440))  # 24h at 1min
+        self.component_status = {}
+        
+        # Alert management
+        self.active_alerts = []
+        self.alert_history = deque(maxlen=1000)
+        self.last_alert_time = {}
         
         # Performance baselines
-        self.performance_baselines = {
-            'cpu_percent': 50.0,
-            'memory_percent': 70.0,
-            'response_time': 1000.0,  # ms
-            'error_rate': 0.01,
-            'api_latency': 500.0  # ms
-        }
+        self.performance_baselines = defaultdict(dict)
+        self.anomaly_detectors = {}
         
-        # Agent registry
-        self.registered_agents: Dict[str, Dict[str, Any]] = {}
-        self.agent_heartbeats: Dict[str, datetime] = {}
-        
-        # Anomaly detection
-        self.anomaly_detectors = {
-            AnomalyType.PERFORMANCE: self._detect_performance_anomalies,
-            AnomalyType.RESOURCE: self._detect_resource_anomalies,
-            AnomalyType.TRADING: self._detect_trading_anomalies,
-            AnomalyType.AGENT: self._detect_agent_anomalies,
-            AnomalyType.PATTERN: self._detect_pattern_anomalies
-        }
-        
-        # Optimization strategies
-        self.optimization_strategies = {
-            OptimizationAction.GARBAGE_COLLECT: self._optimize_garbage_collect,
-            OptimizationAction.CACHE_CLEAR: self._optimize_cache_clear,
-            OptimizationAction.AGENT_RESTART: self._optimize_agent_restart,
-            OptimizationAction.THROTTLE_REQUESTS: self._optimize_throttle_requests
-        }
-        
-        # Health thresholds
-        self.health_thresholds = {
-            HealthStatus.EXCELLENT: 90,
-            HealthStatus.GOOD: 70,
-            HealthStatus.WARNING: 50,
-            HealthStatus.CRITICAL: 30,
-            HealthStatus.FAILING: 0
-        }
-        
-        # Process monitor
-        self.process = psutil.Process()
-        
-        # Diagnostic tools
-        self.diagnostic_results: Dict[str, Any] = {}
-        
-        self.logger.info("System Health Agent initialized")
-
-    async def initialize(self, event_manager=None, agent_registry=None):
-        """Initialize agent with dependencies"""
-        await super().initialize(event_manager)
-        
-        self.agent_registry = agent_registry
-        
-        # Subscribe to events
-        if self.event_manager:
-            self.event_manager.subscribe(EventType.AGENT_ERROR, self._handle_agent_error)
-            self.event_manager.subscribe(EventType.SYSTEM_ERROR, self._handle_system_error)
-            self.event_manager.subscribe(EventType.AGENT_HEARTBEAT, self._handle_agent_heartbeat)
-        
-        # Start monitoring tasks
-        asyncio.create_task(self._monitor_system_loop())
-        asyncio.create_task(self._monitor_agents_loop())
-        asyncio.create_task(self._detect_anomalies_loop())
-        asyncio.create_task(self._optimize_system_loop())
-        asyncio.create_task(self._generate_reports_loop())
-        
-        self.state = AgentState.RUNNING
-        self.logger.info("System Health Agent initialized and monitoring")
-
-    async def get_system_health(self) -> HealthReport:
+        # System info
+        self.system_info = self._get_system_info()
+    
+    def _setup_logger(self) -> logging.Logger:
+        """Set up module logger."""
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        return logger
+    
+    # ==========================================================================
+    # MAIN MONITORING METHODS
+    # ==========================================================================
+    
+    async def monitor_system_health(self) -> SystemDiagnostic:
         """
-        Get comprehensive system health report
+        Monitor overall system health.
         
         Returns:
-            Current system health status
+            SystemDiagnostic report
         """
+        self.logger.info("Monitoring system health")
+        
         try:
-            # Collect current metrics
-            system_metrics = await self._collect_system_metrics()
-            agent_health = await self._collect_agent_health()
-            trading_metrics = await self._collect_trading_metrics()
+            # Collect metrics
+            metrics = await self._collect_system_metrics()
+            
+            # Update history
+            self._update_metrics_history(metrics)
+            
+            # Check component health
+            component_health = {}
+            for component in SystemComponent:
+                health = await self._check_component_health(component)
+                component_health[component] = health
             
             # Detect anomalies
-            anomalies = await self._detect_all_anomalies()
+            anomalies = self._detect_anomalies()
             
-            # Calculate health scores
-            overall_health = self._calculate_overall_health(
-                system_metrics, agent_health, trading_metrics, anomalies
+            # Generate predictions
+            predictions = await self._predict_issues()
+            
+            # Determine overall status
+            overall_status, overall_score = self._calculate_overall_health(component_health)
+            
+            # Get AI analysis
+            ai_analysis = await self._get_ai_system_analysis(
+                component_health, anomalies, predictions
             )
-            
-            # Determine status
-            status = self._determine_health_status(overall_health)
             
             # Generate recommendations
-            recommendations = await self._generate_recommendations(
-                system_metrics, agent_health, anomalies
+            recommendations = self._generate_recommendations(
+                component_health, anomalies, ai_analysis
             )
             
-            # Calculate sub-scores
-            performance_score = self._calculate_performance_score(system_metrics, trading_metrics)
-            reliability_score = self._calculate_reliability_score(agent_health, anomalies)
+            # Create active issues list
+            active_issues = self._compile_active_issues(component_health, anomalies)
             
-            # Create report
-            report = HealthReport(
+            return SystemDiagnostic(
                 timestamp=datetime.now(),
-                overall_health=overall_health,
-                status=status,
-                system_metrics=system_metrics,
-                agent_health=agent_health,
-                trading_metrics=trading_metrics,
-                active_anomalies=[a for a in anomalies if not a.resolved],
+                overall_status=overall_status,
+                overall_health_score=overall_score,
+                component_health=component_health,
+                active_issues=active_issues,
+                predictions=predictions,
                 recommendations=recommendations,
-                performance_score=performance_score,
-                reliability_score=reliability_score
+                ai_analysis=ai_analysis
             )
             
-            return report
-            
         except Exception as e:
-            self.logger.error(f"Error getting system health: {str(e)}")
-            return self._get_default_health_report()
-
-    async def diagnose_issue(self, issue_description: str) -> Dict[str, Any]:
+            self.logger.error(f"System health monitoring failed: {e}")
+            return self._create_error_diagnostic(str(e))
+    
+    async def check_component_status(self, 
+                                   component: SystemComponent) -> ComponentHealth:
         """
-        Diagnose a specific system issue
+        Check specific component status.
         
         Args:
-            issue_description: Description of the issue
+            component: Component to check
             
         Returns:
-            Diagnostic results and recommendations
+            ComponentHealth status
         """
-        try:
-            # Collect relevant data
-            context = await self._collect_diagnostic_context()
-            
-            # AI-powered diagnosis
-            diagnosis = await self._ai_diagnose_issue(issue_description, context)
-            
-            # Run specific diagnostics
-            if 'slow' in issue_description.lower():
-                perf_diag = await self._diagnose_performance_issues()
-                diagnosis['performance_diagnosis'] = perf_diag
-            
-            if 'error' in issue_description.lower():
-                error_diag = await self._diagnose_error_patterns()
-                diagnosis['error_diagnosis'] = error_diag
-            
-            if 'memory' in issue_description.lower():
-                mem_diag = await self._diagnose_memory_issues()
-                diagnosis['memory_diagnosis'] = mem_diag
-            
-            # Generate action plan
-            action_plan = await self._generate_action_plan(diagnosis)
-            diagnosis['action_plan'] = action_plan
-            
-            # Store results
-            self.diagnostic_results[datetime.now().isoformat()] = diagnosis
-            
-            return diagnosis
-            
-        except Exception as e:
-            self.logger.error(f"Error diagnosing issue: {str(e)}")
-            return {'error': str(e), 'recommendation': 'Check system logs'}
-
-    async def optimize_system(self, target: Optional[str] = None) -> Dict[str, Any]:
+        return await self._check_component_health(component)
+    
+    async def predict_failures(self, 
+                             horizon_minutes: int = 30) -> List[PerformancePrediction]:
         """
-        Optimize system performance
+        Predict potential system failures.
         
         Args:
-            target: Specific optimization target (performance, memory, etc.)
+            horizon_minutes: Prediction horizon
             
         Returns:
-            Optimization results
+            List of performance predictions
         """
-        try:
-            results = {}
-            
-            if target == 'memory' or target is None:
-                # Memory optimization
-                mem_before = self.process.memory_info().rss / 1024 / 1024  # MB
-                gc.collect()
-                mem_after = self.process.memory_info().rss / 1024 / 1024
-                
-                results['memory'] = {
-                    'before_mb': mem_before,
-                    'after_mb': mem_after,
-                    'freed_mb': mem_before - mem_after
-                }
-            
-            if target == 'cache' or target is None:
-                # Clear caches
-                cache_cleared = await self._clear_system_caches()
-                results['cache'] = cache_cleared
-            
-            if target == 'performance' or target is None:
-                # Performance optimization
-                perf_results = await self._optimize_performance()
-                results['performance'] = perf_results
-            
-            if target == 'agents' or target is None:
-                # Agent optimization
-                agent_results = await self._optimize_agents()
-                results['agents'] = agent_results
-            
-            # AI recommendations
-            ai_recommendations = await self._get_optimization_recommendations()
-            results['recommendations'] = ai_recommendations
-            
-            return results
-            
-        except Exception as e:
-            self.logger.error(f"Error optimizing system: {str(e)}")
-            return {'error': str(e)}
-
-    async def register_agent(self, agent_name: str, agent_info: Dict[str, Any]):
-        """
-        Register an agent for health monitoring
+        self.logger.info(f"Predicting failures for next {horizon_minutes} minutes")
         
-        Args:
-            agent_name: Name of the agent
-            agent_info: Agent information and capabilities
-        """
-        self.registered_agents[agent_name] = {
-            'info': agent_info,
-            'registered_at': datetime.now(),
-            'health_checks': 0,
-            'total_errors': 0
-        }
+        predictions = []
         
-        self.logger.info(f"Registered agent: {agent_name}")
-
-    async def check_agent_health(self, agent_name: str) -> AgentHealth:
-        """
-        Check health of a specific agent
-        
-        Args:
-            agent_name: Name of the agent to check
+        for component in SystemComponent:
+            # Get component metrics history
+            component_metrics = self._get_component_metrics(component)
             
-        Returns:
-            Agent health status
-        """
-        try:
-            # Get agent info
-            if agent_name not in self.registered_agents:
-                return self._get_unknown_agent_health(agent_name)
-            
-            # Check heartbeat
-            last_heartbeat = self.agent_heartbeats.get(agent_name, datetime.min)
-            heartbeat_age = (datetime.now() - last_heartbeat).total_seconds()
-            
-            # Check response time (mock for now)
-            response_time = await self._measure_agent_response_time(agent_name)
-            
-            # Check error rate
-            error_rate = self._calculate_agent_error_rate(agent_name)
-            
-            # Check resource usage
-            memory_usage, cpu_usage = await self._get_agent_resource_usage(agent_name)
-            
-            # Calculate health score
-            health_score = self._calculate_agent_health_score(
-                heartbeat_age, response_time, error_rate, memory_usage, cpu_usage
-            )
-            
-            # Determine status
-            if heartbeat_age > 300:  # 5 minutes
-                status = AgentState.STOPPED
-            elif health_score < 50:
-                status = AgentState.ERROR
-            else:
-                status = AgentState.RUNNING
-            
-            # Identify issues
-            issues = []
-            if heartbeat_age > 60:
-                issues.append(f"No heartbeat for {heartbeat_age:.0f} seconds")
-            if response_time > 1000:
-                issues.append(f"Slow response time: {response_time:.0f}ms")
-            if error_rate > 0.05:
-                issues.append(f"High error rate: {error_rate:.1%}")
-            if memory_usage > 500:
-                issues.append(f"High memory usage: {memory_usage:.0f}MB")
-            
-            return AgentHealth(
-                agent_name=agent_name,
-                status=status,
-                health_score=health_score,
-                response_time=response_time,
-                error_rate=error_rate,
-                last_heartbeat=last_heartbeat,
-                memory_usage=memory_usage,
-                cpu_usage=cpu_usage,
-                issues=issues
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Error checking agent health: {str(e)}")
-            return self._get_unknown_agent_health(agent_name)
-
-    async def predict_failures(self) -> List[Dict[str, Any]]:
-        """
-        Predict potential system failures using AI
-        
-        Returns:
-            List of predicted failures with probabilities
-        """
-        try:
-            predictions = []
-            
-            # Analyze trends
-            if len(self.system_metrics_history) > 100:
-                # Memory leak prediction
-                memory_trend = self._analyze_metric_trend('memory_percent')
-                if memory_trend['slope'] > 0.1:  # Increasing memory usage
-                    predictions.append({
-                        'type': 'memory_exhaustion',
-                        'probability': min(0.9, memory_trend['slope'] * 5),
-                        'time_to_failure': self._estimate_time_to_threshold(
-                            memory_trend, 90  # 90% threshold
-                        ),
-                        'severity': 'high',
-                        'recommendation': 'Investigate memory leak and restart affected components'
-                    })
-                
-                # Performance degradation prediction
-                response_trend = self._analyze_metric_trend('api_response_time')
-                if response_trend['slope'] > 10:  # Increasing response time
-                    predictions.append({
-                        'type': 'performance_degradation',
-                        'probability': min(0.8, response_trend['slope'] / 50),
-                        'time_to_failure': self._estimate_time_to_threshold(
-                            response_trend, 2000  # 2 second threshold
-                        ),
-                        'severity': 'medium',
-                        'recommendation': 'Optimize slow queries and reduce system load'
-                    })
-            
-            # Agent failure prediction
-            for agent_name, health_history in self.agent_health_history.items():
-                if len(health_history) > 10:
-                    recent_health = [h.health_score for h in list(health_history)[-10:]]
-                    health_trend = np.polyfit(range(len(recent_health)), recent_health, 1)[0]
-                    
-                    if health_trend < -2:  # Declining health
-                        predictions.append({
-                            'type': 'agent_failure',
-                            'agent': agent_name,
-                            'probability': min(0.7, abs(health_trend) / 10),
-                            'time_to_failure': self._estimate_time_to_zero(health_trend, recent_health[-1]),
-                            'severity': 'high',
-                            'recommendation': f'Check {agent_name} logs and consider restart'
-                        })
-            
-            # AI-enhanced predictions
-            ai_predictions = await self._ai_predict_failures()
-            predictions.extend(ai_predictions)
-            
-            # Sort by probability
-            predictions.sort(key=lambda x: x['probability'], reverse=True)
-            
-            return predictions
-            
-        except Exception as e:
-            self.logger.error(f"Error predicting failures: {str(e)}")
-            return []
-
-    async def get_performance_report(self) -> Dict[str, Any]:
-        """
-        Get detailed performance report
-        
-        Returns:
-            Performance metrics and analysis
-        """
-        try:
-            # Calculate averages over different periods
-            periods = {
-                '5min': 10,    # 10 samples = 5 minutes
-                '1hour': 120,  # 120 samples = 1 hour
-                '6hour': 720   # 720 samples = 6 hours
-            }
-            
-            performance = {}
-            
-            for period_name, samples in periods.items():
-                recent_metrics = list(self.system_metrics_history)[-samples:]
-                
-                if recent_metrics:
-                    performance[period_name] = {
-                        'avg_cpu': np.mean([m.cpu_percent for m in recent_metrics]),
-                        'avg_memory': np.mean([m.memory_percent for m in recent_metrics]),
-                        'avg_latency': np.mean([m.api_response_time for m in recent_metrics]),
-                        'max_cpu': max([m.cpu_percent for m in recent_metrics]),
-                        'max_memory': max([m.memory_percent for m in recent_metrics]),
-                        'max_latency': max([m.api_response_time for m in recent_metrics])
-                    }
-            
-            # Trading performance
-            recent_trading = list(self.trading_metrics_history)[-120:]  # Last hour
-            if recent_trading:
-                performance['trading'] = {
-                    'avg_execution_time': np.mean([t.average_execution_time for t in recent_trading]),
-                    'total_orders': sum([t.orders_per_minute for t in recent_trading]) * 0.5,
-                    'success_rate': np.mean([t.success_rate for t in recent_trading]),
-                    'error_rate': np.mean([t.error_rate for t in recent_trading])
-                }
-            
-            # Agent performance
-            agent_performance = {}
-            for agent_name, health_history in self.agent_health_history.items():
-                recent = list(health_history)[-120:]
-                if recent:
-                    agent_performance[agent_name] = {
-                        'avg_health': np.mean([h.health_score for h in recent]),
-                        'avg_response_time': np.mean([h.response_time for h in recent]),
-                        'uptime': sum(1 for h in recent if h.status == AgentState.RUNNING) / len(recent)
-                    }
-            
-            performance['agents'] = agent_performance
-            
-            # Anomaly statistics
-            recent_anomalies = [a for a in self.anomaly_history 
-                              if a.detected_at > datetime.now() - timedelta(hours=24)]
-            
-            performance['anomalies'] = {
-                'last_24h': len(recent_anomalies),
-                'by_type': defaultdict(int),
-                'resolved_rate': sum(1 for a in recent_anomalies if a.resolved) / max(len(recent_anomalies), 1)
-            }
-            
-            for anomaly in recent_anomalies:
-                performance['anomalies']['by_type'][anomaly.anomaly_type.value] += 1
-            
-            return performance
-            
-        except Exception as e:
-            self.logger.error(f"Error generating performance report: {str(e)}")
-            return {}
-
-    async def _collect_system_metrics(self) -> SystemMetrics:
-        """Collect current system metrics"""
-        try:
-            # CPU and memory
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            memory = psutil.virtual_memory()
-            memory_percent = memory.percent
-            memory_available = memory.available / 1024 / 1024  # MB
-            
-            # Disk usage
-            disk = psutil.disk_usage('/')
-            disk_usage = disk.percent
-            
-            # Network latency (mock)
-            network_latency = await self._measure_network_latency()
-            
-            # API response time (mock)
-            api_response_time = await self._measure_api_latency()
-            
-            # Agent response times
-            agent_response_times = {}
-            for agent_name in self.registered_agents:
-                agent_response_times[agent_name] = await self._measure_agent_response_time(agent_name)
-            
-            # Thread and connection count
-            active_threads = threading.active_count()
-            
-            # Get connection count
-            try:
-                connections = len(self.process.connections())
-            except:
-                connections = 0
-            
-            metrics = SystemMetrics(
-                timestamp=datetime.now(),
-                cpu_percent=cpu_percent,
-                memory_percent=memory_percent,
-                memory_available=memory_available,
-                disk_usage=disk_usage,
-                network_latency=network_latency,
-                api_response_time=api_response_time,
-                agent_response_times=agent_response_times,
-                active_threads=active_threads,
-                open_connections=connections
-            )
-            
-            # Store in history
-            self.system_metrics_history.append(metrics)
-            
-            return metrics
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting system metrics: {str(e)}")
-            return self._get_default_system_metrics()
-
-    async def _collect_agent_health(self) -> Dict[str, AgentHealth]:
-        """Collect health status of all agents"""
-        agent_health = {}
-        
-        for agent_name in self.registered_agents:
-            health = await self.check_agent_health(agent_name)
-            agent_health[agent_name] = health
-            
-            # Store in history
-            self.agent_health_history[agent_name].append(health)
-        
-        return agent_health
-
-    async def _collect_trading_metrics(self) -> TradingMetrics:
-        """Collect trading system metrics"""
-        try:
-            # Mock implementation - would collect from trading system
-            metrics = TradingMetrics(
-                timestamp=datetime.now(),
-                orders_per_minute=np.random.uniform(0, 5),
-                average_execution_time=np.random.uniform(50, 200),
-                error_rate=np.random.uniform(0, 0.05),
-                success_rate=np.random.uniform(0.9, 1.0),
-                active_positions=np.random.randint(0, 20),
-                daily_trades=np.random.randint(10, 100),
-                api_calls_per_minute=np.random.uniform(5, 50),
-                data_lag=np.random.uniform(0, 2)
-            )
-            
-            # Store in history
-            self.trading_metrics_history.append(metrics)
-            
-            return metrics
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting trading metrics: {str(e)}")
-            return self._get_default_trading_metrics()
-
-    async def _detect_all_anomalies(self) -> List[Anomaly]:
-        """Detect all types of anomalies"""
-        anomalies = []
-        
-        for anomaly_type, detector in self.anomaly_detectors.items():
-            detected = await detector()
-            anomalies.extend(detected)
-        
-        # Store new anomalies
-        for anomaly in anomalies:
-            if anomaly not in self.anomaly_history:
-                self.anomaly_history.append(anomaly)
-                
-                # Publish high-severity anomalies
-                if anomaly.severity > 0.7 and self.event_manager:
-                    await self.event_manager.publish(Event(
-                        type=EventType.ANOMALY_DETECTED,
-                        data={'anomaly': anomaly}
-                    ))
-        
-        return anomalies
-
-    async def _detect_performance_anomalies(self) -> List[Anomaly]:
-        """Detect performance-related anomalies"""
-        anomalies = []
-        
-        if len(self.system_metrics_history) < 10:
-            return anomalies
-        
-        recent_metrics = list(self.system_metrics_history)[-10:]
-        
-        # High CPU usage
-        avg_cpu = np.mean([m.cpu_percent for m in recent_metrics])
-        if avg_cpu > self.performance_baselines['cpu_percent'] * 1.5:
-            anomalies.append(Anomaly(
-                anomaly_type=AnomalyType.PERFORMANCE,
-                severity=min(1.0, (avg_cpu - 50) / 50),
-                description=f"High CPU usage: {avg_cpu:.1f}%",
-                affected_components=['system'],
-                metrics={'cpu_percent': avg_cpu},
-                detected_at=datetime.now()
-            ))
-        
-        # Slow response times
-        avg_response = np.mean([m.api_response_time for m in recent_metrics])
-        if avg_response > self.performance_baselines['response_time']:
-            anomalies.append(Anomaly(
-                anomaly_type=AnomalyType.PERFORMANCE,
-                severity=min(1.0, (avg_response - 500) / 1500),
-                description=f"Slow API response: {avg_response:.0f}ms",
-                affected_components=['api'],
-                metrics={'response_time': avg_response},
-                detected_at=datetime.now()
-            ))
-        
-        return anomalies
-
-    async def _detect_resource_anomalies(self) -> List[Anomaly]:
-        """Detect resource-related anomalies"""
-        anomalies = []
-        
-        if len(self.system_metrics_history) < 5:
-            return anomalies
-        
-        recent_metrics = list(self.system_metrics_history)[-5:]
-        
-        # High memory usage
-        avg_memory = np.mean([m.memory_percent for m in recent_metrics])
-        if avg_memory > self.performance_baselines['memory_percent']:
-            anomalies.append(Anomaly(
-                anomaly_type=AnomalyType.RESOURCE,
-                severity=min(1.0, (avg_memory - 70) / 30),
-                description=f"High memory usage: {avg_memory:.1f}%",
-                affected_components=['system'],
-                metrics={'memory_percent': avg_memory},
-                detected_at=datetime.now()
-            ))
-        
-        # Low disk space
-        if recent_metrics[-1].disk_usage > 85:
-            anomalies.append(Anomaly(
-                anomaly_type=AnomalyType.RESOURCE,
-                severity=(recent_metrics[-1].disk_usage - 85) / 15,
-                description=f"Low disk space: {recent_metrics[-1].disk_usage:.1f}% used",
-                affected_components=['storage'],
-                metrics={'disk_usage': recent_metrics[-1].disk_usage},
-                detected_at=datetime.now()
-            ))
-        
-        return anomalies
-
-    async def _detect_trading_anomalies(self) -> List[Anomaly]:
-        """Detect trading-related anomalies"""
-        anomalies = []
-        
-        if len(self.trading_metrics_history) < 10:
-            return anomalies
-        
-        recent_trading = list(self.trading_metrics_history)[-10:]
-        
-        # High error rate
-        avg_error_rate = np.mean([t.error_rate for t in recent_trading])
-        if avg_error_rate > self.performance_baselines['error_rate']:
-            anomalies.append(Anomaly(
-                anomaly_type=AnomalyType.TRADING,
-                severity=min(1.0, avg_error_rate * 20),
-                description=f"High trading error rate: {avg_error_rate:.1%}",
-                affected_components=['trading_engine'],
-                metrics={'error_rate': avg_error_rate},
-                detected_at=datetime.now()
-            ))
-        
-        # Data lag
-        current_lag = recent_trading[-1].data_lag
-        if current_lag > 5:  # 5 seconds
-            anomalies.append(Anomaly(
-                anomaly_type=AnomalyType.DATA,
-                severity=min(1.0, current_lag / 10),
-                description=f"High data lag: {current_lag:.1f} seconds",
-                affected_components=['data_feed'],
-                metrics={'data_lag': current_lag},
-                detected_at=datetime.now()
-            ))
-        
-        return anomalies
-
-    async def _detect_agent_anomalies(self) -> List[Anomaly]:
-        """Detect agent-related anomalies"""
-        anomalies = []
-        
-        for agent_name, health_history in self.agent_health_history.items():
-            if len(health_history) < 5:
+            if not component_metrics:
                 continue
             
-            recent_health = list(health_history)[-5:]
-            
-            # Agent down
-            if all(h.status != AgentState.RUNNING for h in recent_health):
-                anomalies.append(Anomaly(
-                    anomaly_type=AnomalyType.AGENT,
-                    severity=0.9,
-                    description=f"Agent {agent_name} is down",
-                    affected_components=[agent_name],
-                    metrics={'status': 'down'},
-                    detected_at=datetime.now()
-                ))
-            
-            # Degraded health
-            avg_health = np.mean([h.health_score for h in recent_health])
-            if avg_health < 50:
-                anomalies.append(Anomaly(
-                    anomaly_type=AnomalyType.AGENT,
-                    severity=(50 - avg_health) / 50,
-                    description=f"Agent {agent_name} health degraded: {avg_health:.0f}%",
-                    affected_components=[agent_name],
-                    metrics={'health_score': avg_health},
-                    detected_at=datetime.now()
-                ))
-        
-        return anomalies
-
-    async def _detect_pattern_anomalies(self) -> List[Anomaly]:
-        """Detect pattern-based anomalies using AI"""
-        anomalies = []
-        
-        # Use AI to detect unusual patterns
-        try:
-            # Prepare data for AI analysis
-            recent_data = {
-                'system_metrics': [m.__dict__ for m in list(self.system_metrics_history)[-20:]],
-                'trading_metrics': [t.__dict__ for t in list(self.trading_metrics_history)[-20:]]
-            }
-            
-            # AI pattern detection
-            ai_anomalies = await self._ai_detect_patterns(recent_data)
-            
-            for ai_anomaly in ai_anomalies:
-                anomalies.append(Anomaly(
-                    anomaly_type=AnomalyType.PATTERN,
-                    severity=ai_anomaly['severity'],
-                    description=ai_anomaly['description'],
-                    affected_components=ai_anomaly.get('components', ['unknown']),
-                    metrics=ai_anomaly.get('metrics', {}),
-                    detected_at=datetime.now()
-                ))
-                
-        except Exception as e:
-            self.logger.error(f"Error in pattern anomaly detection: {str(e)}")
-        
-        return anomalies
-
-    async def _ai_detect_patterns(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Use AI to detect unusual patterns"""
-        try:
-            prompt = f"""
-            Analyze this system data for unusual patterns or anomalies:
-            
-            System Metrics (last 20 samples):
-            - CPU usage trend
-            - Memory usage trend
-            - Response time patterns
-            
-            Trading Metrics (last 20 samples):
-            - Order volume patterns
-            - Error rate changes
-            - Success rate variations
-            
-            Look for:
-            1. Unusual spikes or drops
-            2. Gradual degradation
-            3. Cyclic patterns
-            4. Correlation anomalies
-            
-            Return JSON array of detected anomalies with:
-            severity (0-1), description, components, metrics
-            """
-            
-            response = await asyncio.wait_for(self._query_llm(prompt), timeout=3.0)
-            
-            try:
-                return json.loads(response)
-            except:
-                return []
-                
-        except Exception as e:
-            self.logger.error(f"Error in AI pattern detection: {str(e)}")
-            return []
-
-    def _calculate_overall_health(
-        self,
-        system_metrics: SystemMetrics,
-        agent_health: Dict[str, AgentHealth],
-        trading_metrics: TradingMetrics,
-        anomalies: List[Anomaly]
-    ) -> float:
-        """Calculate overall system health score"""
-        
-        # System metrics score (0-100)
-        system_score = 100
-        system_score -= min(50, max(0, system_metrics.cpu_percent - 50))  # Penalty for high CPU
-        system_score -= min(30, max(0, system_metrics.memory_percent - 70))  # Penalty for high memory
-        system_score -= min(20, max(0, (system_metrics.api_response_time - 500) / 50))  # Penalty for slow response
-        
-        # Agent health score (0-100)
-        if agent_health:
-            agent_scores = [h.health_score for h in agent_health.values()]
-            agent_score = np.mean(agent_scores)
-        else:
-            agent_score = 100
-        
-        # Trading metrics score (0-100)
-        trading_score = 100
-        trading_score -= trading_metrics.error_rate * 1000  # Heavy penalty for errors
-        trading_score -= max(0, (trading_metrics.data_lag - 1) * 10)  # Penalty for lag
-        trading_score = max(0, trading_score)
-        
-        # Anomaly penalty
-        anomaly_penalty = sum(a.severity * 10 for a in anomalies if not a.resolved)
-        anomaly_penalty = min(50, anomaly_penalty)  # Cap at 50
-        
-        # Weighted average
-        overall_health = (
-            system_score * 0.3 +
-            agent_score * 0.3 +
-            trading_score * 0.3 +
-            (100 - anomaly_penalty) * 0.1
-        )
-        
-        return max(0, min(100, overall_health))
-
-    def _determine_health_status(self, health_score: float) -> HealthStatus:
-        """Determine health status from score"""
-        for status, threshold in self.health_thresholds.items():
-            if health_score >= threshold:
-                return status
-        return HealthStatus.FAILING
-
-    async def _generate_recommendations(
-        self,
-        system_metrics: SystemMetrics,
-        agent_health: Dict[str, AgentHealth],
-        anomalies: List[Anomaly]
-    ) -> List[Dict[str, Any]]:
-        """Generate system optimization recommendations"""
-        recommendations = []
-        
-        # System metrics recommendations
-        if system_metrics.cpu_percent > 70:
-            recommendations.append({
-                'type': 'performance',
-                'priority': 'high',
-                'action': 'Reduce CPU load',
-                'details': 'Consider scaling resources or optimizing algorithms'
-            })
-        
-        if system_metrics.memory_percent > 80:
-            recommendations.append({
-                'type': 'resource',
-                'priority': 'high',
-                'action': 'Free memory',
-                'details': 'Run garbage collection and check for memory leaks'
-            })
-        
-        # Agent recommendations
-        for agent_name, health in agent_health.items():
-            if health.health_score < 50:
-                recommendations.append({
-                    'type': 'agent',
-                    'priority': 'medium',
-                    'action': f'Check {agent_name}',
-                    'details': f'Agent health is low: {", ".join(health.issues)}'
-                })
-        
-        # Anomaly recommendations
-        for anomaly in anomalies:
-            if not anomaly.resolved and anomaly.severity > 0.5:
-                recommendations.append({
-                    'type': 'anomaly',
-                    'priority': 'high' if anomaly.severity > 0.7 else 'medium',
-                    'action': f'Address {anomaly.description}',
-                    'details': f'Affects: {", ".join(anomaly.affected_components)}'
-                })
-        
-        # AI recommendations
-        ai_recs = await self._get_ai_recommendations(system_metrics, agent_health, anomalies)
-        recommendations.extend(ai_recs)
-        
-        # Sort by priority
-        priority_order = {'high': 0, 'medium': 1, 'low': 2}
-        recommendations.sort(key=lambda x: priority_order.get(x['priority'], 3))
-        
-        return recommendations[:10]  # Top 10 recommendations
-
-    async def _get_ai_recommendations(
-        self,
-        system_metrics: SystemMetrics,
-        agent_health: Dict[str, AgentHealth],
-        anomalies: List[Anomaly]
-    ) -> List[Dict[str, Any]]:
-        """Get AI-powered recommendations"""
-        try:
-            context = {
-                'cpu': system_metrics.cpu_percent,
-                'memory': system_metrics.memory_percent,
-                'response_time': system_metrics.api_response_time,
-                'unhealthy_agents': [a for a, h in agent_health.items() if h.health_score < 70],
-                'active_anomalies': len([a for a in anomalies if not a.resolved])
-            }
-            
-            prompt = f"""
-            Based on these system metrics:
-            {json.dumps(context, indent=2)}
-            
-            Provide optimization recommendations.
-            Return JSON array with: type, priority, action, details
-            """
-            
-            response = await asyncio.wait_for(self._query_llm(prompt), timeout=2.0)
-            
-            try:
-                return json.loads(response)
-            except:
-                return []
-                
-        except:
-            return []
-
-    def _calculate_performance_score(
-        self,
-        system_metrics: SystemMetrics,
-        trading_metrics: TradingMetrics
-    ) -> float:
-        """Calculate performance score"""
-        score = 100
-        
-        # Response time impact
-        if system_metrics.api_response_time > 100:
-            score -= min(30, (system_metrics.api_response_time - 100) / 50)
-        
-        # Trading execution impact
-        if trading_metrics.average_execution_time > 100:
-            score -= min(20, (trading_metrics.average_execution_time - 100) / 50)
-        
-        # CPU efficiency
-        if system_metrics.cpu_percent < 30:
-            score += 10  # Bonus for efficient CPU usage
-        
-        return max(0, min(100, score))
-
-    def _calculate_reliability_score(
-        self,
-        agent_health: Dict[str, AgentHealth],
-        anomalies: List[Anomaly]
-    ) -> float:
-        """Calculate reliability score"""
-        score = 100
-        
-        # Agent uptime impact
-        if agent_health:
-            down_agents = sum(1 for h in agent_health.values() if h.status != AgentState.RUNNING)
-            score -= down_agents * 15
-        
-        # Anomaly impact
-        active_anomalies = sum(1 for a in anomalies if not a.resolved)
-        score -= min(50, active_anomalies * 5)
-        
-        # Error rate impact (from agent health)
-        if agent_health:
-            avg_error_rate = np.mean([h.error_rate for h in agent_health.values()])
-            score -= min(20, avg_error_rate * 200)
-        
-        return max(0, min(100, score))
-
-    async def _measure_network_latency(self) -> float:
-        """Measure network latency"""
-        # Mock implementation
-        return np.random.uniform(5, 50)
-
-    async def _measure_api_latency(self) -> float:
-        """Measure API response time"""
-        # Mock implementation
-        return np.random.uniform(50, 500)
-
-    async def _measure_agent_response_time(self, agent_name: str) -> float:
-        """Measure agent response time"""
-        # Mock implementation
-        base_time = 100
-        if 'ml' in agent_name.lower():
-            base_time = 300  # ML agents are slower
-        
-        return np.random.uniform(base_time * 0.5, base_time * 1.5)
-
-    def _calculate_agent_error_rate(self, agent_name: str) -> float:
-        """Calculate agent error rate"""
-        # Mock implementation
-        return np.random.uniform(0, 0.05)
-
-    async def _get_agent_resource_usage(self, agent_name: str) -> Tuple[float, float]:
-        """Get agent resource usage"""
-        # Mock implementation
-        base_memory = 100  # MB
-        if 'ml' in agent_name.lower():
-            base_memory = 300
-        
-        memory = np.random.uniform(base_memory * 0.8, base_memory * 1.2)
-        cpu = np.random.uniform(1, 10)
-        
-        return memory, cpu
-
-    def _calculate_agent_health_score(
-        self,
-        heartbeat_age: float,
-        response_time: float,
-        error_rate: float,
-        memory_usage: float,
-        cpu_usage: float
-    ) -> float:
-        """Calculate agent health score"""
-        score = 100
-        
-        # Heartbeat penalty
-        if heartbeat_age > 60:
-            score -= min(30, heartbeat_age / 10)
-        
-        # Response time penalty
-        if response_time > 500:
-            score -= min(20, (response_time - 500) / 100)
-        
-        # Error rate penalty
-        score -= min(30, error_rate * 500)
-        
-        # Resource usage penalty
-        if memory_usage > 500:
-            score -= min(10, (memory_usage - 500) / 100)
-        
-        if cpu_usage > 50:
-            score -= min(10, (cpu_usage - 50) / 5)
-        
-        return max(0, min(100, score))
-
-    def _analyze_metric_trend(self, metric_name: str) -> Dict[str, float]:
-        """Analyze trend of a metric"""
-        if len(self.system_metrics_history) < 10:
-            return {'slope': 0, 'intercept': 0}
-        
-        recent_metrics = list(self.system_metrics_history)[-60:]  # Last 30 minutes
-        values = [getattr(m, metric_name, 0) for m in recent_metrics]
-        
-        if len(values) > 1:
-            x = np.arange(len(values))
-            slope, intercept = np.polyfit(x, values, 1)
-            return {'slope': slope, 'intercept': intercept}
-        
-        return {'slope': 0, 'intercept': values[0] if values else 0}
-
-    def _estimate_time_to_threshold(self, trend: Dict[str, float], threshold: float) -> float:
-        """Estimate time to reach threshold based on trend"""
-        if trend['slope'] <= 0:
-            return float('inf')
-        
-        current_value = trend['intercept'] + trend['slope'] * 60  # Current value
-        if current_value >= threshold:
-            return 0
-        
-        # Time = (threshold - current) / slope
-        # Convert to hours
-        time_periods = (threshold - current_value) / trend['slope']
-        return time_periods * 0.5 / 60  # Convert 30-second periods to hours
-
-    def _estimate_time_to_zero(self, slope: float, current_value: float) -> float:
-        """Estimate time to reach zero"""
-        if slope >= 0:
-            return float('inf')
-        
-        # Time = -current / slope
-        # Each period is 30 seconds
-        time_periods = -current_value / slope
-        return time_periods * 0.5 / 60  # Convert to hours
-
-    async def _ai_diagnose_issue(self, issue: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """AI-powered issue diagnosis"""
-        try:
-            prompt = f"""
-            Diagnose this system issue:
-            "{issue}"
-            
-            Context:
-            {json.dumps(context, indent=2)}
-            
-            Provide:
-            1. Root cause analysis
-            2. Affected components
-            3. Severity assessment
-            4. Resolution steps
-            
-            Return JSON with: root_cause, affected_components, severity, resolution_steps
-            """
-            
-            response = await asyncio.wait_for(self._query_llm(prompt), timeout=3.0)
-            
-            try:
-                return json.loads(response)
-            except:
-                return {
-                    'root_cause': 'Unable to determine',
-                    'affected_components': ['unknown'],
-                    'severity': 'medium',
-                    'resolution_steps': ['Check system logs', 'Monitor metrics']
-                }
-                
-        except Exception as e:
-            self.logger.error(f"Error in AI diagnosis: {str(e)}")
-            return {
-                'root_cause': 'Analysis failed',
-                'affected_components': ['unknown'],
-                'severity': 'unknown',
-                'resolution_steps': ['Manual investigation required']
-            }
-
-    async def _collect_diagnostic_context(self) -> Dict[str, Any]:
-        """Collect context for diagnostics"""
-        recent_metrics = list(self.system_metrics_history)[-10:]
-        recent_anomalies = list(self.anomaly_history)[-10:]
-        
-        return {
-            'system_state': {
-                'cpu_avg': np.mean([m.cpu_percent for m in recent_metrics]) if recent_metrics else 0,
-                'memory_avg': np.mean([m.memory_percent for m in recent_metrics]) if recent_metrics else 0,
-                'active_anomalies': len([a for a in recent_anomalies if not a.resolved])
-            },
-            'agent_states': {
-                name: self.agent_health_history[name][-1].status.value 
-                for name in self.registered_agents 
-                if name in self.agent_health_history and self.agent_health_history[name]
-            }
-        }
-
-    async def _diagnose_performance_issues(self) -> Dict[str, Any]:
-        """Diagnose performance issues"""
-        # Simplified implementation
-        return {
-            'bottlenecks': ['API response time', 'Database queries'],
-            'recommendations': ['Optimize slow queries', 'Add caching layer']
-        }
-
-    async def _diagnose_error_patterns(self) -> Dict[str, Any]:
-        """Diagnose error patterns"""
-        # Simplified implementation
-        return {
-            'common_errors': ['Timeout errors', 'Connection refused'],
-            'error_sources': ['External API', 'Database connection'],
-            'mitigation': ['Implement retry logic', 'Add circuit breakers']
-        }
-
-    async def _diagnose_memory_issues(self) -> Dict[str, Any]:
-        """Diagnose memory issues"""
-        # Simplified implementation
-        return {
-            'memory_leaks': ['Possible leak in ML agent'],
-            'large_objects': ['Historical data cache', 'Model weights'],
-            'recommendations': ['Implement data rotation', 'Optimize model loading']
-        }
-
-    async def _generate_action_plan(self, diagnosis: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Generate action plan from diagnosis"""
-        actions = []
-        
-        # Add immediate actions
-        if diagnosis.get('severity') == 'high':
-            actions.append({
-                'priority': 1,
-                'action': 'Immediate intervention required',
-                'steps': diagnosis.get('resolution_steps', [])
-            })
-        
-        # Add preventive actions
-        actions.append({
-            'priority': 2,
-            'action': 'Implement monitoring',
-            'steps': ['Add alerts for affected components', 'Track metrics']
-        })
-        
-        return actions
-
-    async def _clear_system_caches(self) -> Dict[str, int]:
-        """Clear system caches"""
-        cleared = {}
-        
-        # Clear agent caches (mock)
-        for agent_name in self.registered_agents:
-            cleared[agent_name] = np.random.randint(10, 100)  # MB cleared
-        
-        return cleared
-
-    async def _optimize_performance(self) -> Dict[str, Any]:
-        """Optimize system performance"""
-        return {
-            'optimizations_applied': [
-                'Query optimization',
-                'Connection pooling adjusted',
-                'Cache TTL updated'
-            ],
-            'expected_improvement': '15-20%'
-        }
-
-    async def _optimize_agents(self) -> Dict[str, Any]:
-        """Optimize agent performance"""
-        results = {}
-        
-        for agent_name in self.registered_agents:
-            results[agent_name] = {
-                'restarted': False,
-                'cache_cleared': True,
-                'config_optimized': True
-            }
-        
-        return results
-
-    async def _get_optimization_recommendations(self) -> List[str]:
-        """Get AI optimization recommendations"""
-        return [
-            "Consider implementing request batching",
-            "Enable compression for API responses",
-            "Optimize database indices for common queries"
-        ]
-
-    async def _optimize_garbage_collect(self) -> Dict[str, Any]:
-        """Run garbage collection"""
-        before = self.process.memory_info().rss / 1024 / 1024
-        gc.collect()
-        after = self.process.memory_info().rss / 1024 / 1024
-        
-        return {
-            'memory_before_mb': before,
-            'memory_after_mb': after,
-            'freed_mb': before - after
-        }
-
-    async def _optimize_cache_clear(self) -> Dict[str, Any]:
-        """Clear caches"""
-        return await self._clear_system_caches()
-
-    async def _optimize_agent_restart(self) -> Dict[str, Any]:
-        """Restart unhealthy agents"""
-        restarted = []
-        
-        for agent_name, health_history in self.agent_health_history.items():
-            if health_history and health_history[-1].health_score < 30:
-                restarted.append(agent_name)
-                # Would actually restart agent here
-        
-        return {'restarted_agents': restarted}
-
-    async def _optimize_throttle_requests(self) -> Dict[str, Any]:
-        """Throttle request rates"""
-        return {
-            'api_rate_limit': 'Reduced to 80%',
-            'agent_request_delay': 'Added 100ms delay'
-        }
-
-    async def _ai_predict_failures(self) -> List[Dict[str, Any]]:
-        """AI-powered failure prediction"""
-        try:
-            # Prepare context
-            context = {
-                'memory_trend': self._analyze_metric_trend('memory_percent'),
-                'cpu_trend': self._analyze_metric_trend('cpu_percent'),
-                'error_trends': {
-                    agent: len([h for h in list(history)[-20:] if h.error_rate > 0.05])
-                    for agent, history in self.agent_health_history.items()
-                },
-                'anomaly_frequency': len(self.anomaly_history) / max(len(self.system_metrics_history), 1)
-            }
-            
-            prompt = f"""
-            Predict potential system failures based on:
-            {json.dumps(context, indent=2)}
-            
-            Return JSON array of predictions with:
-            type, probability (0-1), time_to_failure (hours), severity, recommendation
-            """
-            
-            response = await asyncio.wait_for(self._query_llm(prompt), timeout=2.0)
-            
-            try:
-                return json.loads(response)
-            except:
-                return []
-                
-        except:
-            return []
-
-    def _get_default_health_report(self) -> HealthReport:
-        """Get default health report"""
-        return HealthReport(
-            timestamp=datetime.now(),
-            overall_health=50,
-            status=HealthStatus.WARNING,
-            system_metrics=self._get_default_system_metrics(),
-            agent_health={},
-            trading_metrics=self._get_default_trading_metrics(),
-            active_anomalies=[],
-            recommendations=[],
-            performance_score=50,
-            reliability_score=50
-        )
-
-    def _get_default_system_metrics(self) -> SystemMetrics:
-        """Get default system metrics"""
-        return SystemMetrics(
-            timestamp=datetime.now(),
-            cpu_percent=0,
-            memory_percent=0,
-            memory_available=0,
-            disk_usage=0,
-            network_latency=0,
-            api_response_time=0,
-            agent_response_times={},
-            active_threads=0,
-            open_connections=0
-        )
-
-    def _get_default_trading_metrics(self) -> TradingMetrics:
-        """Get default trading metrics"""
-        return TradingMetrics(
-            timestamp=datetime.now(),
-            orders_per_minute=0,
-            average_execution_time=0,
-            error_rate=0,
-            success_rate=0,
-            active_positions=0,
-            daily_trades=0,
-            api_calls_per_minute=0,
-            data_lag=0
-        )
-
-    def _get_unknown_agent_health(self, agent_name: str) -> AgentHealth:
-        """Get health for unknown agent"""
-        return AgentHealth(
-            agent_name=agent_name,
-            status=AgentState.UNKNOWN,
-            health_score=0,
-            response_time=0,
-            error_rate=0,
-            last_heartbeat=datetime.min,
-            memory_usage=0,
-            cpu_usage=0,
-            issues=['Agent not registered']
-        )
-
-    async def _monitor_system_loop(self):
-        """Background task to monitor system metrics"""
-        while self.state == AgentState.RUNNING:
-            try:
-                await asyncio.sleep(self.check_interval)
-                
-                # Collect metrics
-                await self._collect_system_metrics()
-                
-                # Check for critical issues
-                if self.system_metrics_history:
-                    latest = self.system_metrics_history[-1]
-                    
-                    # Critical alerts
-                    if latest.cpu_percent > 90:
-                        self.logger.warning(f"Critical CPU usage: {latest.cpu_percent:.1f}%")
-                    
-                    if latest.memory_percent > 90:
-                        self.logger.warning(f"Critical memory usage: {latest.memory_percent:.1f}%")
-                
-            except Exception as e:
-                self.logger.error(f"Error in system monitoring loop: {str(e)}")
-
-    async def _monitor_agents_loop(self):
-        """Background task to monitor agent health"""
-        while self.state == AgentState.RUNNING:
-            try:
-                await asyncio.sleep(60)  # Check every minute
-                
-                # Check all agents
-                await self._collect_agent_health()
-                
-                # Alert on unhealthy agents
-                for agent_name, health_history in self.agent_health_history.items():
-                    if health_history:
-                        latest = health_history[-1]
-                        if latest.health_score < 30:
-                            self.logger.warning(
-                                f"Agent {agent_name} is unhealthy: {latest.health_score:.0f}%"
-                            )
-                
-            except Exception as e:
-                self.logger.error(f"Error in agent monitoring loop: {str(e)}")
-
-    async def _detect_anomalies_loop(self):
-        """Background task to detect anomalies"""
-        while self.state == AgentState.RUNNING:
-            try:
-                await asyncio.sleep(300)  # Every 5 minutes
-                
-                # Detect anomalies
-                anomalies = await self._detect_all_anomalies()
-                
-                # Log critical anomalies
-                for anomaly in anomalies:
-                    if anomaly.severity > 0.8:
-                        self.logger.warning(
-                            f"Critical anomaly detected: {anomaly.description}"
-                        )
-                
-            except Exception as e:
-                self.logger.error(f"Error in anomaly detection loop: {str(e)}")
-
-    async def _optimize_system_loop(self):
-        """Background task to optimize system"""
-        while self.state == AgentState.RUNNING:
-            try:
-                await asyncio.sleep(3600)  # Every hour
-                
-                # Run optimizations
-                self.logger.info("Running scheduled system optimization")
-                results = await self.optimize_system()
-                
-                if results.get('memory', {}).get('freed_mb', 0) > 100:
-                    self.logger.info(
-                        f"Freed {results['memory']['freed_mb']:.0f}MB of memory"
-                    )
-                
-            except Exception as e:
-                self.logger.error(f"Error in optimization loop: {str(e)}")
-
-    async def _generate_reports_loop(self):
-        """Background task to generate periodic reports"""
-        while self.state == AgentState.RUNNING:
-            try:
-                await asyncio.sleep(3600)  # Every hour
-                
-                # Generate health report
-                report = await self.get_system_health()
-                
-                self.logger.info(
-                    f"System Health Report: {report.status.value} "
-                    f"({report.overall_health:.0f}%)"
+            # Predict each metric type
+            for metric_type in MetricType:
+                prediction = await self._predict_metric(
+                    component, metric_type, horizon_minutes
                 )
-                
-                # Check for predicted failures
-                predictions = await self.predict_failures()
-                
-                for pred in predictions:
-                    if pred['probability'] > 0.7:
-                        self.logger.warning(
-                            f"Predicted failure: {pred['type']} "
-                            f"in {pred['time_to_failure']:.1f} hours"
-                        )
-                
-            except Exception as e:
-                self.logger.error(f"Error in report generation loop: {str(e)}")
-
-    async def _handle_agent_error(self, event: Event):
-        """Handle agent error events"""
+                if prediction and prediction.risk_level in ['medium', 'high']:
+                    predictions.append(prediction)
+        
+        # Sort by risk level
+        predictions.sort(key=lambda p: ['low', 'medium', 'high'].index(p.risk_level), 
+                        reverse=True)
+        
+        return predictions
+    
+    async def auto_remediate(self, alert: HealthAlert) -> Dict[str, Any]:
+        """
+        Attempt automatic remediation of issues.
+        
+        Args:
+            alert: Health alert to remediate
+            
+        Returns:
+            Remediation result
+        """
+        self.logger.info(f"Attempting auto-remediation for {alert.component.value}")
+        
+        if not alert.auto_remediation_available:
+            return {
+                'success': False,
+                'reason': 'No automatic remediation available'
+            }
+        
         try:
-            agent_name = event.data.get('agent')
-            error = event.data.get('error')
+            # Component-specific remediation
+            if alert.component == SystemComponent.DATABASE:
+                result = await self._remediate_database(alert)
+            elif alert.component == SystemComponent.ML_MODELS:
+                result = await self._remediate_ml_models(alert)
+            elif alert.component == SystemComponent.DATA_FEED:
+                result = await self._remediate_data_feed(alert)
+            else:
+                result = await self._generic_remediation(alert)
             
-            # Update agent error count
-            if agent_name in self.registered_agents:
-                self.registered_agents[agent_name]['total_errors'] += 1
+            # Log remediation attempt
+            self._log_remediation(alert, result)
             
-            self.logger.error(f"Agent error in {agent_name}: {error}")
+            return result
             
         except Exception as e:
-            self.logger.error(f"Error handling agent error: {str(e)}")
+            self.logger.error(f"Auto-remediation failed: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    # ==========================================================================
+    # AI INTEGRATION METHODS
+    # ==========================================================================
+    
+    async def _get_ai_system_analysis(self, component_health: Dict[SystemComponent, ComponentHealth],
+                                    anomalies: List[Dict[str, Any]],
+                                    predictions: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Get AI analysis of system health."""
+        if not self.ollama_client:
+            return {'analysis': 'No AI available'}
+        
+        # Prepare health summary
+        health_summary = {
+            comp.value: {
+                'status': health.status.value,
+                'score': health.health_score,
+                'issues': health.issues[:2]
+            }
+            for comp, health in component_health.items()
+        }
+        
+        prompt = f"""Analyze this system health data:
 
-    async def _handle_system_error(self, event: Event):
-        """Handle system error events"""
+Component Health:
+{json.dumps(health_summary, indent=2)}
+
+Detected Anomalies: {len(anomalies)}
+{json.dumps(anomalies[:3], indent=2) if anomalies else 'None'}
+
+Predictions:
+{json.dumps([{'component': p.get('component'), 'risk': p.get('risk_level')} 
+            for p in predictions[:3]], indent=2)}
+
+System Info:
+- Platform: {self.system_info['platform']}
+- CPU Count: {self.system_info['cpu_count']}
+- Memory: {self.system_info['memory_gb']}GB
+
+Provide a JSON response:
+{{
+    "system_assessment": "overall system health assessment",
+    "critical_issues": ["issue1", "issue2"],
+    "root_causes": ["likely root cause 1", "likely root cause 2"],
+    "optimization_opportunities": ["opportunity1", "opportunity2"],
+    "predicted_impact": "impact if issues not addressed",
+    "priority_actions": ["action1", "action2"],
+    "confidence": 0.0-1.0
+}}"""
+        
         try:
-            error_type = event.data.get('type')
-            details = event.data.get('details')
-            
-            # Create anomaly for system error
-            anomaly = Anomaly(
-                anomaly_type=AnomalyType.PERFORMANCE,
-                severity=0.8,
-                description=f"System error: {error_type}",
-                affected_components=['system'],
-                metrics={'error': details},
-                detected_at=datetime.now()
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={'temperature': self.temperature}
             )
             
-            self.anomaly_history.append(anomaly)
+            # Extract JSON from response
+            text = response['response']
+            start = text.find('{')
+            end = text.rfind('}') + 1
             
+            if start >= 0 and end > start:
+                return json.loads(text[start:end])
+            else:
+                return {'analysis': 'Failed to parse AI response'}
+                
         except Exception as e:
-            self.logger.error(f"Error handling system error: {str(e)}")
+            self.logger.error(f"AI system analysis failed: {e}")
+            return {'error': str(e)}
+    
+    async def _predict_metric(self, component: SystemComponent,
+                            metric_type: MetricType,
+                            horizon_minutes: int) -> Optional[PerformancePrediction]:
+        """Predict future metric values using AI and statistics."""
+        history = self._get_metric_history(component, metric_type)
+        
+        if len(history) < 10:
+            return None
+        
+        # Statistical prediction
+        values = [h['value'] for h in history[-30:]]
+        trend = self._calculate_trend(values)
+        
+        # Simple linear projection
+        predicted_value = values[-1] + trend * horizon_minutes
+        
+        # Get AI enhancement if available
+        if self.ollama_client:
+            ai_prediction = await self._get_ai_metric_prediction(
+                component, metric_type, values, horizon_minutes
+            )
+            if ai_prediction:
+                predicted_value = ai_prediction.get('predicted_value', predicted_value)
+                confidence = ai_prediction.get('confidence', 0.5)
+            else:
+                confidence = 0.6
+        else:
+            confidence = 0.5
+        
+        # Determine risk level
+        risk_level = self._assess_prediction_risk(metric_type, predicted_value)
+        
+        # Get recommended action
+        action = self._get_recommended_action(component, metric_type, risk_level)
+        
+        return PerformancePrediction(
+            component=component,
+            metric_type=metric_type,
+            prediction_time=datetime.now() + timedelta(minutes=horizon_minutes),
+            predicted_value=predicted_value,
+            confidence=confidence,
+            risk_level=risk_level,
+            recommended_action=action
+        )
+    
+    async def _get_ai_metric_prediction(self, component: SystemComponent,
+                                      metric_type: MetricType,
+                                      values: List[float],
+                                      horizon: int) -> Optional[Dict[str, Any]]:
+        """Get AI prediction for metric."""
+        if not self.ollama_client:
+            return None
+        
+        prompt = f"""Predict future values for this system metric:
 
-    async def _handle_agent_heartbeat(self, event: Event):
-        """Handle agent heartbeat events"""
+Component: {component.value}
+Metric: {metric_type.value}
+Recent Values (last 10): {values[-10:]}
+Prediction Horizon: {horizon} minutes
+
+Current trend: {'increasing' if values[-1] > values[-5] else 'decreasing'}
+Average: {np.mean(values):.2f}
+Std Dev: {np.std(values):.2f}
+
+Consider:
+- Typical patterns for this metric
+- Time of day effects
+- Component interactions
+
+Provide a JSON response:
+{{
+    "predicted_value": float,
+    "confidence": 0.0-1.0,
+    "reasoning": "explanation",
+    "risk_factors": ["factor1", "factor2"]
+}}"""
+        
         try:
-            agent_name = event.data.get('agent')
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={'temperature': self.temperature}
+            )
             
-            # Update heartbeat timestamp
-            self.agent_heartbeats[agent_name] = datetime.now()
+            # Extract JSON from response
+            text = response['response']
+            start = text.find('{')
+            end = text.rfind('}') + 1
             
-            # Update health check count
-            if agent_name in self.registered_agents:
-                self.registered_agents[agent_name]['health_checks'] += 1
-            
+            if start >= 0 and end > start:
+                return json.loads(text[start:end])
+            else:
+                return None
+                
         except Exception as e:
-            self.logger.error(f"Error handling agent heartbeat: {str(e)}")
-
+            self.logger.error(f"AI metric prediction failed: {e}")
+            return None
+    
+    # ==========================================================================
+    # MONITORING METHODS
+    # ==========================================================================
+    
+    async def _collect_system_metrics(self) -> List[SystemMetric]:
+        """Collect current system metrics."""
+        metrics = []
+        
+        # CPU metrics
+        cpu_percent = psutil.cpu_percent(interval=1)
+        metrics.append(SystemMetric(
+            component=SystemComponent.TRADING_ENGINE,
+            metric_type=MetricType.CPU_USAGE,
+            timestamp=datetime.now(),
+            value=cpu_percent,
+            unit='%'
+        ))
+        
+        # Memory metrics
+        memory = psutil.virtual_memory()
+        metrics.append(SystemMetric(
+            component=SystemComponent.TRADING_ENGINE,
+            metric_type=MetricType.MEMORY_USAGE,
+            timestamp=datetime.now(),
+            value=memory.percent,
+            unit='%'
+        ))
+        
+        # Disk metrics
+        disk = psutil.disk_usage('/')
+        metrics.append(SystemMetric(
+            component=SystemComponent.DATABASE,
+            metric_type=MetricType.DISK_USAGE,
+            timestamp=datetime.now(),
+            value=disk.percent,
+            unit='%'
+        ))
+        
+        # Network I/O (simplified)
+        net_io = psutil.net_io_counters()
+        metrics.append(SystemMetric(
+            component=SystemComponent.API_GATEWAY,
+            metric_type=MetricType.NETWORK_IO,
+            timestamp=datetime.now(),
+            value=net_io.bytes_sent + net_io.bytes_recv,
+            unit='bytes',
+            metadata={'sent': net_io.bytes_sent, 'recv': net_io.bytes_recv}
+        ))
+        
+        # Component-specific metrics (simulated)
+        await self._collect_component_metrics(metrics)
+        
+        return metrics
+    
+    async def _collect_component_metrics(self, metrics: List[SystemMetric]):
+        """Collect component-specific metrics."""
+        # Simulate component metrics
+        components_metrics = {
+            SystemComponent.DATA_FEED: {
+                MetricType.LATENCY: np.random.normal(50, 10),
+                MetricType.THROUGHPUT: np.random.normal(1000, 100)
+            },
+            SystemComponent.ML_MODELS: {
+                MetricType.LATENCY: np.random.normal(100, 20),
+                MetricType.ERROR_RATE: np.random.uniform(0, 0.02)
+            },
+            SystemComponent.EXECUTION: {
+                MetricType.LATENCY: np.random.normal(20, 5),
+                MetricType.QUEUE_DEPTH: np.random.poisson(5)
+            }
+        }
+        
+        for component, component_metrics in components_metrics.items():
+            for metric_type, value in component_metrics.items():
+                metrics.append(SystemMetric(
+                    component=component,
+                    metric_type=metric_type,
+                    timestamp=datetime.now(),
+                    value=max(0, value),  # Ensure non-negative
+                    unit=self._get_metric_unit(metric_type)
+                ))
+    
+    async def _check_component_health(self, component: SystemComponent) -> ComponentHealth:
+        """Check health of a specific component."""
+        # Get recent metrics
+        metrics = self._get_recent_component_metrics(component)
+        
+        # Calculate health score
+        health_score, issues = self._calculate_component_health_score(component, metrics)
+        
+        # Determine status
+        status = self._score_to_status(health_score)
+        
+        # Check dependencies
+        deps_ok = self._check_dependencies(component)
+        
+        # Calculate uptime
+        uptime = self._calculate_uptime(component)
+        
+        return ComponentHealth(
+            component=component,
+            status=status,
+            health_score=health_score,
+            metrics=metrics,
+            issues=issues,
+            dependencies_ok=deps_ok,
+            last_check=datetime.now(),
+            uptime_percentage=uptime
+        )
+    
+    def _calculate_component_health_score(self, component: SystemComponent,
+                                        metrics: Dict[MetricType, float]) -> Tuple[float, List[str]]:
+        """Calculate health score for component."""
+        issues = []
+        scores = []
+        
+        # CPU check
+        if MetricType.CPU_USAGE in metrics:
+            cpu = metrics[MetricType.CPU_USAGE]
+            if cpu > HEALTH_THRESHOLDS['cpu_critical']:
+                scores.append(20)
+                issues.append(f"Critical CPU usage: {cpu:.1f}%")
+            elif cpu > HEALTH_THRESHOLDS['cpu_warning']:
+                scores.append(60)
+                issues.append(f"High CPU usage: {cpu:.1f}%")
+            else:
+                scores.append(100)
+        
+        # Memory check
+        if MetricType.MEMORY_USAGE in metrics:
+            memory = metrics[MetricType.MEMORY_USAGE]
+            if memory > HEALTH_THRESHOLDS['memory_critical']:
+                scores.append(20)
+                issues.append(f"Critical memory usage: {memory:.1f}%")
+            elif memory > HEALTH_THRESHOLDS['memory_warning']:
+                scores.append(60)
+                issues.append(f"High memory usage: {memory:.1f}%")
+            else:
+                scores.append(100)
+        
+        # Latency check
+        if MetricType.LATENCY in metrics:
+            latency = metrics[MetricType.LATENCY]
+            if latency > HEALTH_THRESHOLDS['latency_critical']:
+                scores.append(20)
+                issues.append(f"Critical latency: {latency:.0f}ms")
+            elif latency > HEALTH_THRESHOLDS['latency_warning']:
+                scores.append(60)
+                issues.append(f"High latency: {latency:.0f}ms")
+            else:
+                scores.append(100)
+        
+        # Error rate check
+        if MetricType.ERROR_RATE in metrics:
+            error_rate = metrics[MetricType.ERROR_RATE]
+            if error_rate > HEALTH_THRESHOLDS['error_rate_critical']:
+                scores.append(20)
+                issues.append(f"Critical error rate: {error_rate:.1%}")
+            elif error_rate > HEALTH_THRESHOLDS['error_rate_warning']:
+                scores.append(60)
+                issues.append(f"High error rate: {error_rate:.1%}")
+            else:
+                scores.append(100)
+        
+        # Calculate overall score
+        health_score = np.mean(scores) if scores else 100
+        
+        return health_score, issues
+    
+    # ==========================================================================
+    # ANOMALY DETECTION METHODS
+    # ==========================================================================
+    
+    def _detect_anomalies(self) -> List[Dict[str, Any]]:
+        """Detect anomalies in system metrics."""
+        anomalies = []
+        
+        for component in SystemComponent:
+            for metric_type in MetricType:
+                history = self._get_metric_history(component, metric_type)
+                
+                if len(history) < 20:
+                    continue
+                
+                # Statistical anomaly detection
+                values = [h['value'] for h in history]
+                mean = np.mean(values[:-5])  # Exclude recent for baseline
+                std = np.std(values[:-5])
+                
+                if std > 0:
+                    recent_values = values[-5:]
+                    for i, value in enumerate(recent_values):
+                        z_score = abs((value - mean) / std)
+                        
+                        if z_score > 3:  # 3 sigma rule
+                            anomalies.append({
+                                'component': component.value,
+                                'metric': metric_type.value,
+                                'value': value,
+                                'z_score': z_score,
+                                'baseline_mean': mean,
+                                'timestamp': history[-(5-i)]['timestamp'].isoformat()
+                            })
+        
+        return anomalies
+    
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+    
+    def _get_system_info(self) -> Dict[str, Any]:
+        """Get system information."""
+        return {
+            'platform': platform.system(),
+            'platform_version': platform.version(),
+            'processor': platform.processor(),
+            'cpu_count': psutil.cpu_count(),
+            'memory_gb': round(psutil.virtual_memory().total / (1024**3), 1)
+        }
+    
+    def _update_metrics_history(self, metrics: List[SystemMetric]):
+        """Update metrics history."""
+        for metric in metrics:
+            key = f"{metric.component.value}_{metric.metric_type.value}"
+            self.metrics_history[key].append({
+                'timestamp': metric.timestamp,
+                'value': metric.value,
+                'metadata': metric.metadata
+            })
+    
+    def _get_metric_history(self, component: SystemComponent,
+                          metric_type: MetricType) -> List[Dict[str, Any]]:
+        """Get metric history for component."""
+        key = f"{component.value}_{metric_type.value}"
+        return list(self.metrics_history.get(key, []))
+    
+    def _get_recent_component_metrics(self, component: SystemComponent) -> Dict[MetricType, float]:
+        """Get recent metrics for component."""
+        metrics = {}
+        
+        for metric_type in MetricType:
+            history = self._get_metric_history(component, metric_type)
+            if history:
+                metrics[metric_type] = history[-1]['value']
+        
+        return metrics
+    
+    def _get_component_metrics(self, component: SystemComponent) -> Dict[str, List[float]]:
+        """Get all metrics for component."""
+        metrics = {}
+        
+        for metric_type in MetricType:
+            history = self._get_metric_history(component, metric_type)
+            if history:
+                metrics[metric_type.value] = [h['value'] for h in history]
+        
+        return metrics
+    
+    def _calculate_overall_health(self, 
+                                component_health: Dict[SystemComponent, ComponentHealth]) -> Tuple[HealthStatus, float]:
+        """Calculate overall system health."""
+        if not component_health:
+            return HealthStatus.FAILED, 0.0
+        
+        # Get all health scores
+        scores = [h.health_score for h in component_health.values()]
+        overall_score = np.mean(scores)
+        
+        # Check for critical components
+        critical_components = [SystemComponent.TRADING_ENGINE, SystemComponent.RISK_MANAGER]
+        critical_scores = [component_health[c].health_score 
+                          for c in critical_components 
+                          if c in component_health]
+        
+        # If any critical component is failing, overall status is critical
+        if any(score < 50 for score in critical_scores):
+            return HealthStatus.CRITICAL, overall_score
+        
+        # Determine status based on overall score
+        return self._score_to_status(overall_score), overall_score
+    
+    def _score_to_status(self, score: float) -> HealthStatus:
+        """Convert health score to status."""
+        if score >= 90:
+            return HealthStatus.HEALTHY
+        elif score >= 70:
+            return HealthStatus.WARNING
+        elif score >= 50:
+            return HealthStatus.DEGRADED
+        elif score >= 20:
+            return HealthStatus.CRITICAL
+        else:
+            return HealthStatus.FAILED
+    
+    def _check_dependencies(self, component: SystemComponent) -> bool:
+        """Check if component dependencies are healthy."""
+        dependencies = COMPONENT_DEPENDENCIES.get(component, [])
+        
+        for dep in dependencies:
+            dep_health = self.component_status.get(dep)
+            if dep_health and dep_health.status in [HealthStatus.CRITICAL, HealthStatus.FAILED]:
+                return False
+        
+        return True
+    
+    def _calculate_uptime(self, component: SystemComponent) -> float:
+        """Calculate component uptime percentage."""
+        # Simplified: based on recent health checks
+        history_key = f"{component.value}_health"
+        history = self.metrics_history.get(history_key, [])
+        
+        if not history:
+            return 100.0
+        
+        # Count healthy periods
+        healthy_count = sum(1 for h in history if h.get('status') != 'FAILED')
+        return (healthy_count / len(history)) * 100 if history else 100.0
+    
+    def _compile_active_issues(self, component_health: Dict[SystemComponent, ComponentHealth],
+                             anomalies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Compile list of active issues."""
+        issues = []
+        
+        # Component issues
+        for component, health in component_health.items():
+            if health.issues:
+                for issue in health.issues:
+                    issues.append({
+                        'type': 'component_health',
+                        'component': component.value,
+                        'severity': self._issue_severity(health.status),
+                        'description': issue,
+                        'timestamp': health.last_check.isoformat()
+                    })
+        
+        # Anomaly issues
+        for anomaly in anomalies[:5]:  # Top 5 anomalies
+            issues.append({
+                'type': 'anomaly',
+                'component': anomaly['component'],
+                'severity': 'medium' if anomaly['z_score'] < 4 else 'high',
+                'description': f"Anomaly in {anomaly['metric']}: {anomaly['value']:.2f}",
+                'timestamp': anomaly['timestamp']
+            })
+        
+        return issues
+    
+    def _issue_severity(self, status: HealthStatus) -> str:
+        """Get issue severity from health status."""
+        severity_map = {
+            HealthStatus.HEALTHY: 'low',
+            HealthStatus.WARNING: 'medium',
+            HealthStatus.DEGRADED: 'high',
+            HealthStatus.CRITICAL: 'critical',
+            HealthStatus.FAILED: 'critical'
+        }
+        return severity_map.get(status, 'medium')
+    
+    def _generate_recommendations(self, component_health: Dict[SystemComponent, ComponentHealth],
+                                anomalies: List[Dict[str, Any]],
+                                ai_analysis: Dict[str, Any]) -> List[str]:
+        """Generate system recommendations."""
+        recommendations = []
+        
+        # Component-based recommendations
+        for component, health in component_health.items():
+            if health.status in [HealthStatus.CRITICAL, HealthStatus.FAILED]:
+                recommendations.append(f"Immediate attention required for {component.value}")
+            elif health.status == HealthStatus.DEGRADED:
+                recommendations.append(f"Monitor and optimize {component.value}")
+        
+        # Resource-based recommendations
+        cpu_issues = any('CPU' in issue for health in component_health.values() 
+                        for issue in health.issues)
+        if cpu_issues:
+            recommendations.append("Consider scaling compute resources or optimizing algorithms")
+        
+        memory_issues = any('memory' in issue.lower() for health in component_health.values() 
+                           for issue in health.issues)
+        if memory_issues:
+            recommendations.append("Review memory usage patterns and consider optimization")
+        
+        # AI recommendations
+        ai_priority_actions = ai_analysis.get('priority_actions', [])
+        recommendations.extend(ai_priority_actions[:2])
+        
+        return recommendations[:5]  # Top 5 recommendations
+    
+    def _calculate_trend(self, values: List[float]) -> float:
+        """Calculate trend from values."""
+        if len(values) < 2:
+            return 0.0
+        
+        # Simple linear trend
+        x = list(range(len(values)))
+        n = len(x)
+        
+        if n < 2:
+            return 0.0
+        
+        # Calculate slope
+        sum_x = sum(x)
+        sum_y = sum(values)
+        sum_xy = sum(i * v for i, v in enumerate(values))
+        sum_x2 = sum(i**2 for i in x)
+        
+        denominator = n * sum_x2 - sum_x**2
+        if denominator == 0:
+            return 0.0
+        
+        slope = (n * sum_xy - sum_x * sum_y) / denominator
+        return slope
+    
+    def _assess_prediction_risk(self, metric_type: MetricType, 
+                              predicted_value: float) -> str:
+        """Assess risk level of prediction."""
+        if metric_type == MetricType.CPU_USAGE:
+            if predicted_value > HEALTH_THRESHOLDS['cpu_critical']:
+                return 'high'
+            elif predicted_value > HEALTH_THRESHOLDS['cpu_warning']:
+                return 'medium'
+        elif metric_type == MetricType.MEMORY_USAGE:
+            if predicted_value > HEALTH_THRESHOLDS['memory_critical']:
+                return 'high'
+            elif predicted_value > HEALTH_THRESHOLDS['memory_warning']:
+                return 'medium'
+        elif metric_type == MetricType.ERROR_RATE:
+            if predicted_value > HEALTH_THRESHOLDS['error_rate_critical']:
+                return 'high'
+            elif predicted_value > HEALTH_THRESHOLDS['error_rate_warning']:
+                return 'medium'
+        
+        return 'low'
+    
+    def _get_recommended_action(self, component: SystemComponent,
+                               metric_type: MetricType,
+                               risk_level: str) -> Optional[str]:
+        """Get recommended action for prediction."""
+        if risk_level == 'low':
+            return None
+        
+        actions = {
+            (SystemComponent.TRADING_ENGINE, MetricType.CPU_USAGE): 
+                "Scale trading engine resources or optimize algorithms",
+            (SystemComponent.DATABASE, MetricType.DISK_USAGE): 
+                "Archive old data or expand storage capacity",
+            (SystemComponent.ML_MODELS, MetricType.MEMORY_USAGE): 
+                "Optimize model memory usage or increase allocation",
+            (SystemComponent.DATA_FEED, MetricType.LATENCY): 
+                "Check network connectivity and data provider status"
+        }
+        
+        return actions.get((component, metric_type), 
+                          f"Monitor {component.value} {metric_type.value}")
+    
+    def _get_metric_unit(self, metric_type: MetricType) -> str:
+        """Get unit for metric type."""
+        units = {
+            MetricType.CPU_USAGE: '%',
+            MetricType.MEMORY_USAGE: '%',
+            MetricType.DISK_USAGE: '%',
+            MetricType.NETWORK_IO: 'bytes',
+            MetricType.LATENCY: 'ms',
+            MetricType.ERROR_RATE: 'ratio',
+            MetricType.THROUGHPUT: 'ops/s',
+            MetricType.QUEUE_DEPTH: 'count'
+        }
+        return units.get(metric_type, '')
+    
+    async def _remediate_database(self, alert: HealthAlert) -> Dict[str, Any]:
+        """Database-specific remediation."""
+        # Simulated remediation
+        await asyncio.sleep(1)
+        return {
+            'success': True,
+            'action': 'Cleared query cache and optimized indexes',
+            'duration': 1.2
+        }
+    
+    async def _remediate_ml_models(self, alert: HealthAlert) -> Dict[str, Any]:
+        """ML model remediation."""
+        # Simulated remediation
+        await asyncio.sleep(0.5)
+        return {
+            'success': True,
+            'action': 'Reloaded model weights and cleared prediction cache',
+            'duration': 0.5
+        }
+    
+    async def _remediate_data_feed(self, alert: HealthAlert) -> Dict[str, Any]:
+        """Data feed remediation."""
+        # Simulated remediation
+        await asyncio.sleep(0.8)
+        return {
+            'success': True,
+            'action': 'Reconnected to data provider and synchronized feed',
+            'duration': 0.8
+        }
+    
+    async def _generic_remediation(self, alert: HealthAlert) -> Dict[str, Any]:
+        """Generic remediation."""
+        # Simulated remediation
+        await asyncio.sleep(0.5)
+        return {
+            'success': True,
+            'action': f'Restarted {alert.component.value} component',
+            'duration': 0.5
+        }
+    
+    def _log_remediation(self, alert: HealthAlert, result: Dict[str, Any]):
+        """Log remediation attempt."""
+        self.logger.info(f"Remediation for {alert.component.value}: "
+                        f"{'Success' if result.get('success') else 'Failed'} - "
+                        f"{result.get('action', 'Unknown action')}")
+    
+    def _create_error_diagnostic(self, error: str) -> SystemDiagnostic:
+        """Create diagnostic report for error case."""
+        return SystemDiagnostic(
+            timestamp=datetime.now(),
+            overall_status=HealthStatus.FAILED,
+            overall_health_score=0.0,
+            component_health={},
+            active_issues=[{
+                'type': 'system_error',
+                'severity': 'critical',
+                'description': f"System monitoring error: {error}"
+            }],
+            predictions=[],
+            recommendations=["Investigate system monitoring failure"],
+            ai_analysis={'error': error}
+        )
 
 # ==============================================================================
-# FACTORY FUNCTION
+# MODULE FUNCTIONS
 # ==============================================================================
-def create_system_health_agent(config: Dict[str, Any]) -> SystemHealthAgent:
+
+def create_system_health_agent(model_name: str = DEFAULT_MODEL,
+                             temperature: float = DEFAULT_TEMPERATURE) -> SpyderX12_SystemHealthAgent:
     """
-    Factory function to create SystemHealthAgent.
+    Factory function to create System Health Agent instance.
     
     Args:
-        config: Agent configuration dictionary
+        model_name: Ollama model to use
+        temperature: Temperature for AI responses
         
     Returns:
-        Configured SystemHealthAgent instance
+        SpyderX12_SystemHealthAgent instance
     """
-    return SystemHealthAgent(config)
+    return SpyderX12_SystemHealthAgent(model_name, temperature)
 
+# Singleton instance
+_module_instance = None
+
+def get_module_instance() -> SpyderX12_SystemHealthAgent:
+    """Get or create singleton instance of the agent."""
+    global _module_instance
+    if _module_instance is None:
+        _module_instance = create_system_health_agent()
+    return _module_instance
+
+# ==============================================================================
+# TEST EXECUTION
+# ==============================================================================
+
+async def test_system_health():
+    """Test the System Health Agent functionality."""
+    print("="*80)
+    print("Testing SpyderX12_SystemHealthAgent")
+    print("="*80)
+    
+    agent = create_system_health_agent()
+    
+    # Test 1: System Health Monitoring
+    print("\nTest 1: System Health Monitoring")
+    print("-"*40)
+    
+    diagnostic = await agent.monitor_system_health()
+    
+    print(f"Overall Status: {diagnostic.overall_status.value}")
+    print(f"Overall Health Score: {diagnostic.overall_health_score:.1f}/100")
+    
+    print(f"\nComponent Health:")
+    for component, health in list(diagnostic.component_health.items())[:5]:
+        print(f"  {component.value}:")
+        print(f"    Status: {health.status.value}")
+        print(f"    Score: {health.health_score:.1f}")
+        if health.issues:
+            print(f"    Issues: {', '.join(health.issues[:2])}")
+    
+    print(f"\nActive Issues: {len(diagnostic.active_issues)}")
+    for issue in diagnostic.active_issues[:3]:
+        print(f"  [{issue['severity']}] {issue['description']}")
+    
+    # Test 2: Failure Predictions
+    print("\n\nTest 2: Failure Predictions")
+    print("-"*40)
+    
+    predictions = await agent.predict_failures(horizon_minutes=30)
+    
+    print(f"Predicted Issues: {len(predictions)}")
+    for pred in predictions[:3]:
+        print(f"\n{pred.component.value} - {pred.metric_type.value}:")
+        print(f"  Predicted Value: {pred.predicted_value:.2f}")
+        print(f"  Risk Level: {pred.risk_level}")
+        print(f"  Confidence: {pred.confidence:.1%}")
+        if pred.recommended_action:
+            print(f"  Action: {pred.recommended_action}")
+    
+    # Test 3: Component Status Check
+    print("\n\nTest 3: Component Status Check")
+    print("-"*40)
+    
+    trading_health = await agent.check_component_status(SystemComponent.TRADING_ENGINE)
+    
+    print(f"Component: {trading_health.component.value}")
+    print(f"Status: {trading_health.status.value}")
+    print(f"Health Score: {trading_health.health_score:.1f}")
+    print(f"Uptime: {trading_health.uptime_percentage:.1f}%")
+    print(f"Dependencies OK: {trading_health.dependencies_ok}")
+    
+    print(f"\nMetrics:")
+    for metric, value in list(trading_health.metrics.items())[:3]:
+        print(f"  {metric.value}: {value:.2f}")
+    
+    # Test 4: Auto-remediation
+    print("\n\nTest 4: Auto-remediation Test")
+    print("-"*40)
+    
+    # Create a test alert
+    test_alert = HealthAlert(
+        timestamp=datetime.now(),
+        component=SystemComponent.DATABASE,
+        severity='high',
+        title='High Disk Usage',
+        description='Database disk usage exceeds 85%',
+        metric_data={'disk_usage': 85.5},
+        resolution_steps=['Clear temp files', 'Archive old data'],
+        auto_remediation_available=True
+    )
+    
+    remediation_result = await agent.auto_remediate(test_alert)
+    
+    print(f"Remediation Result:")
+    print(f"  Success: {remediation_result.get('success', False)}")
+    print(f"  Action: {remediation_result.get('action', 'N/A')}")
+    print(f"  Duration: {remediation_result.get('duration', 0):.1f}s")
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
+
+if __name__ == "__main__":
+    print(f"Initializing {__name__}")
+    print(f"Ollama Available: {OLLAMA_AVAILABLE}")
+    
+    # Run async tests
+    asyncio.run(test_system_health())
+    
+    print("\n" + "="*80)
+    print("SpyderX12_SystemHealthAgent module loaded successfully!")
+    print("="*80)

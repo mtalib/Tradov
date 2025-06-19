@@ -4,1638 +4,1221 @@
 SPYDER - Automated SPY Options Trading System
 
 Module: SpyderX09_AlertManagerAgent.py
-Purpose: AI-Enhanced Alert Management and Intelligent Notifications
+Purpose: AI-Enhanced Alert Management and Notification System
 Group: X (AI Agents)
 
-Description:
-    Replaces traditional alert modules (SpyderJ group) with an intelligent
-    AI agent that filters, prioritizes, and delivers alerts through appropriate
-    channels. Reduces alert fatigue while ensuring critical information is
-    never missed.
+This module implements an intelligent alert management agent that monitors
+trading conditions, generates contextual alerts, and manages notifications
+with AI-driven prioritization using Ollama AI integration.
 
-    Replaced Modules:
-    - SpyderJ01_AlertEngine
-    - SpyderJ02_NotificationChannels
-    - SpyderJ03_AlertFilters
-    - SpyderJ04_AlertHistory
-    - SpyderJ05_AlertDashboard
-    
-    This agent ensures traders receive the right information at the right time
-    through the right channel with appropriate context.
-
-Author: AI Trading Assistant
-Date: 2025-01-17
-Version: 1.0.0
-
-Dependencies:
-    - ollama (for LLM integration)
-    - numpy, pandas
-    - asyncio
-    - email/smtp (for email alerts)
-    - twilio (for SMS alerts)
-    - discord.py (for Discord alerts)
-    - slack_sdk (for Slack alerts)
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-06-16
+Last Updated: 2025-06-19 Time: 13:53
 """
 
+# ==============================================================================
+# IMPORTS
+# ==============================================================================
+
+# Standard library imports
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, time
-from typing import Dict, List, Optional, Any, Tuple, Union, Set
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Set, Any, Callable
 from dataclasses import dataclass, field
-from enum import Enum, auto
-import numpy as np
-import pandas as pd
+from enum import Enum
 from collections import defaultdict, deque
-import hashlib
 import re
-from abc import ABC, abstractmethod
 
-# Import Spyder core components
-from SpyderU01_DataStructures import (
-    Portfolio, Position, Trade, MarketData
-)
-from SpyderU02_Configuration import config
-from SpyderU03_Logger import SpyderLogger
-from SpyderU04_EventManager import Event, EventType
-from SpyderU12_AgentIntegration import SpyderBaseAgent, AgentState
+# Third-party imports
+import numpy as np
 
-# Alert Types
+# Ollama imports (with graceful fallback)
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    print("Warning: Ollama not installed. AI features will be limited.")
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+
+# Alert types
 class AlertType(Enum):
-    """Types of alerts"""
-    # Trading Alerts
-    TRADE_EXECUTED = "trade_executed"
-    POSITION_OPENED = "position_opened"
-    POSITION_CLOSED = "position_closed"
-    ORDER_FILLED = "order_filled"
-    ORDER_REJECTED = "order_rejected"
-    
-    # Risk Alerts
-    RISK_LIMIT_WARNING = "risk_limit_warning"
-    RISK_LIMIT_BREACH = "risk_limit_breach"
-    DRAWDOWN_WARNING = "drawdown_warning"
-    MARGIN_CALL = "margin_call"
-    POSITION_SIZE_ALERT = "position_size_alert"
-    
-    # Market Alerts
-    MARKET_VOLATILITY = "market_volatility"
-    UNUSUAL_VOLUME = "unusual_volume"
-    PRICE_BREAKOUT = "price_breakout"
-    SUPPORT_RESISTANCE = "support_resistance"
-    MARKET_REGIME_CHANGE = "market_regime_change"
-    
-    # Performance Alerts
-    DAILY_PNL = "daily_pnl"
-    MILESTONE_REACHED = "milestone_reached"
-    STREAK_ALERT = "streak_alert"
-    PERFORMANCE_WARNING = "performance_warning"
-    
-    # System Alerts
-    SYSTEM_ERROR = "system_error"
-    CONNECTION_LOST = "connection_lost"
-    DATA_FEED_ISSUE = "data_feed_issue"
-    STRATEGY_ERROR = "strategy_error"
-    
-    # Scheduled Alerts
-    MARKET_OPEN = "market_open"
-    MARKET_CLOSE = "market_close"
-    REPORT_READY = "report_ready"
-    MAINTENANCE_REMINDER = "maintenance_reminder"
+    """Alert type enumeration."""
+    PRICE = "PRICE"
+    VOLUME = "VOLUME"
+    VOLATILITY = "VOLATILITY"
+    RISK = "RISK"
+    OPPORTUNITY = "OPPORTUNITY"
+    SYSTEM = "SYSTEM"
+    PERFORMANCE = "PERFORMANCE"
+    MARKET_REGIME = "MARKET_REGIME"
+    EXECUTION = "EXECUTION"
+    CUSTOM = "CUSTOM"
 
-# Alert Priority Levels
-class AlertPriority(Enum):
-    """Alert priority levels"""
-    CRITICAL = 5  # Immediate action required
-    HIGH = 4      # Important, needs attention soon
-    MEDIUM = 3    # Normal priority
-    LOW = 2       # Informational
-    DEBUG = 1     # Development/debugging only
+# Alert severity levels
+class AlertSeverity(Enum):
+    """Alert severity enumeration."""
+    CRITICAL = "CRITICAL"
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+    INFO = "INFO"
 
-# Delivery Channels
+# Alert delivery channels
 class DeliveryChannel(Enum):
-    """Alert delivery channels"""
-    EMAIL = "email"
-    SMS = "sms"
-    PUSH = "push"
-    DISCORD = "discord"
-    SLACK = "slack"
-    TELEGRAM = "telegram"
-    WEBHOOK = "webhook"
-    DESKTOP = "desktop"
-    LOG = "log"
+    """Delivery channel enumeration."""
+    EMAIL = "EMAIL"
+    SMS = "SMS"
+    PUSH = "PUSH"
+    WEBHOOK = "WEBHOOK"
+    LOG = "LOG"
+    UI = "UI"
+
+# Alert conditions
+ALERT_CONDITIONS = {
+    'price_breakout': 'Price breaks above/below threshold',
+    'volume_spike': 'Volume exceeds normal range',
+    'volatility_change': 'Volatility regime change',
+    'drawdown_limit': 'Drawdown exceeds threshold',
+    'win_streak': 'Consecutive winning trades',
+    'loss_streak': 'Consecutive losing trades',
+    'correlation_break': 'Correlation pattern breaks',
+    'system_error': 'System error or failure',
+    'opportunity_detected': 'High probability trade setup'
+}
+
+# Default configuration
+DEFAULT_CONFIG = {
+    'max_alerts_per_hour': 20,
+    'alert_cooldown_minutes': 5,
+    'critical_always_send': True,
+    'aggregate_similar_alerts': True,
+    'ai_enhancement_enabled': True,
+    'delivery_retry_attempts': 3
+}
+
+# Model configuration
+DEFAULT_MODEL = "llama3.2:3b-instruct-q4_K_M"
+DEFAULT_TEMPERATURE = 0.3
+
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
+
+@dataclass
+class AlertCondition:
+    """Alert condition data structure."""
+    name: str
+    type: AlertType
+    expression: str  # Condition expression
+    threshold: Optional[float] = None
+    comparison: str = ">"  # >, <, ==, !=, >=, <=
+    cooldown_minutes: int = 5
+    enabled: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class Alert:
-    """Alert data structure"""
-    alert_id: str
-    alert_type: AlertType
-    priority: AlertPriority
+    """Alert data structure."""
+    id: str
+    timestamp: datetime
+    type: AlertType
+    severity: AlertSeverity
     title: str
     message: str
-    details: Dict[str, Any]
-    timestamp: datetime
+    data: Dict[str, Any]
     source: str
-    tags: List[str] = field(default_factory=list)
-    attachments: List[Dict[str, Any]] = field(default_factory=list)
-    actions: List[Dict[str, str]] = field(default_factory=list)
-    expires_at: Optional[datetime] = None
-    group_id: Optional[str] = None
-    dedupe_key: Optional[str] = None
-
-@dataclass
-class AlertRule:
-    """Alert filtering and routing rule"""
-    rule_id: str
-    name: str
-    conditions: Dict[str, Any]
-    actions: Dict[str, Any]
-    priority_override: Optional[AlertPriority] = None
-    channels: List[DeliveryChannel] = field(default_factory=list)
-    schedule: Optional[Dict[str, Any]] = None
-    enabled: bool = True
-    cooldown_minutes: int = 0
-    max_alerts_per_hour: Optional[int] = None
+    condition_name: Optional[str] = None
+    ai_enhanced: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class AlertDelivery:
-    """Alert delivery record"""
-    delivery_id: str
+    """Alert delivery data structure."""
     alert_id: str
     channel: DeliveryChannel
     recipient: str
-    status: str  # sent, failed, pending
-    sent_at: Optional[datetime] = None
-    delivered_at: Optional[datetime] = None
+    status: str  # 'pending', 'sent', 'failed'
+    attempts: int = 0
+    last_attempt: Optional[datetime] = None
     error_message: Optional[str] = None
-    retry_count: int = 0
 
 @dataclass
-class AlertSummary:
-    """Alert summary for digest"""
-    period: Tuple[datetime, datetime]
-    total_alerts: int
-    by_type: Dict[AlertType, int]
-    by_priority: Dict[AlertPriority, int]
-    top_alerts: List[Alert]
-    suppressed_count: int
-    delivery_stats: Dict[DeliveryChannel, Dict[str, int]]
+class AlertAnalysis:
+    """Alert analysis data structure."""
+    alert_patterns: List[str]
+    alert_frequency: Dict[str, int]
+    severity_distribution: Dict[str, int]
+    recommendations: List[str]
+    noise_level: float  # 0-1, higher means more noise
+    optimization_suggestions: List[str]
 
-class AlertChannel(ABC):
-    """Abstract base class for alert channels"""
-    
-    @abstractmethod
-    async def send(self, alert: Alert, recipient: str) -> bool:
-        """Send alert through channel"""
-        pass
-    
-    @abstractmethod
-    async def validate_recipient(self, recipient: str) -> bool:
-        """Validate recipient format"""
-        pass
+# ==============================================================================
+# ALERT MANAGER AGENT CLASS
+# ==============================================================================
 
-class AlertManagerAgent(SpyderBaseAgent):
+class SpyderX09_AlertManagerAgent:
     """
-    AI-Enhanced Alert Manager Agent
+    AI-Enhanced Alert Management Agent.
     
-    Intelligently manages alerts with filtering, prioritization,
-    and multi-channel delivery with natural language enhancements.
+    This agent manages alerts intelligently using AI to prioritize, contextualize,
+    and optimize alert delivery for the SPY options trading system.
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize Alert Manager Agent"""
-        super().__init__(config)
-        
-        # Agent configuration
-        self.llm_model = config.get('alert_llm_model', 'llama3.2:3b-instruct-q4_K_M')
-        self.default_cooldown = config.get('alert_cooldown_minutes', 5)
-        self.max_alerts_per_hour = config.get('max_alerts_per_hour', 50)
-        
-        # Alert storage
-        self.active_alerts: Dict[str, Alert] = {}
-        self.alert_history: deque = deque(maxlen=10000)
-        self.delivery_history: List[AlertDelivery] = []
-        
-        # Rules and filters
-        self.alert_rules: Dict[str, AlertRule] = {}
-        self.channel_preferences: Dict[AlertType, List[DeliveryChannel]] = {}
-        self.recipient_preferences: Dict[str, Dict[str, Any]] = {}
-        
-        # Deduplication and rate limiting
-        self.alert_cache: Dict[str, datetime] = {}  # dedupe_key -> last_sent
-        self.rate_limits: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
-        
-        # Alert grouping
-        self.alert_groups: Dict[str, List[Alert]] = defaultdict(list)
-        self.group_timers: Dict[str, asyncio.Task] = {}
-        
-        # Channel implementations
-        self.channels: Dict[DeliveryChannel, AlertChannel] = {}
-        self._initialize_channels()
-        
-        # Performance tracking
-        self.delivery_metrics: Dict[DeliveryChannel, Dict[str, int]] = defaultdict(
-            lambda: {'sent': 0, 'delivered': 0, 'failed': 0}
-        )
-        
-        # AI enhancement cache
-        self.enhanced_messages: Dict[str, str] = {}
-        
-        # Alert patterns
-        self.alert_patterns: Dict[str, List[Alert]] = defaultdict(list)
-        self.pattern_insights: Dict[str, str] = {}
-        
-        self.logger.info("Alert Manager Agent initialized")
-
-    async def initialize(self, event_manager=None):
-        """Initialize agent with dependencies"""
-        await super().initialize(event_manager)
-        
-        # Load alert rules
-        await self._load_alert_rules()
-        
-        # Load recipient preferences
-        await self._load_recipient_preferences()
-        
-        # Subscribe to all events for alert generation
-        if self.event_manager:
-            # Trading events
-            self.event_manager.subscribe(EventType.TRADE_EXECUTED, self._handle_trade_event)
-            self.event_manager.subscribe(EventType.ORDER_FILLED, self._handle_order_event)
-            self.event_manager.subscribe(EventType.ORDER_REJECTED, self._handle_order_event)
-            
-            # Risk events
-            self.event_manager.subscribe(EventType.RISK_ALERT, self._handle_risk_event)
-            self.event_manager.subscribe(EventType.DRAWDOWN_ALERT, self._handle_risk_event)
-            
-            # Market events
-            self.event_manager.subscribe(EventType.MARKET_DATA_UPDATE, self._handle_market_event)
-            self.event_manager.subscribe(EventType.VOLATILITY_SPIKE, self._handle_market_event)
-            
-            # Performance events
-            self.event_manager.subscribe(EventType.DAILY_PNL_UPDATE, self._handle_performance_event)
-            self.event_manager.subscribe(EventType.REPORT_GENERATED, self._handle_report_event)
-            
-            # System events
-            self.event_manager.subscribe(EventType.SYSTEM_ERROR, self._handle_system_event)
-            self.event_manager.subscribe(EventType.CONNECTION_STATUS, self._handle_system_event)
-        
-        # Start background tasks
-        asyncio.create_task(self._process_alert_queue())
-        asyncio.create_task(self._send_scheduled_alerts())
-        asyncio.create_task(self._analyze_alert_patterns())
-        asyncio.create_task(self._cleanup_expired_alerts())
-        
-        self.state = AgentState.RUNNING
-        self.logger.info("Alert Manager Agent initialized and running")
-
-    async def create_alert(
-        self,
-        alert_type: AlertType,
-        title: str,
-        message: str,
-        priority: Optional[AlertPriority] = None,
-        details: Optional[Dict[str, Any]] = None,
-        tags: Optional[List[str]] = None,
-        dedupe_key: Optional[str] = None,
-        group_id: Optional[str] = None
-    ) -> Alert:
+    def __init__(self, model_name: str = DEFAULT_MODEL,
+                 temperature: float = DEFAULT_TEMPERATURE):
         """
-        Create and process a new alert
+        Initialize the Alert Manager Agent.
         
         Args:
-            alert_type: Type of alert
-            title: Alert title
-            message: Alert message
-            priority: Override default priority
-            details: Additional details
-            tags: Alert tags for filtering
-            dedupe_key: Key for deduplication
-            group_id: Group ID for batching
+            model_name: Ollama model to use
+            temperature: Temperature for AI responses
+        """
+        self.model_name = model_name
+        self.temperature = temperature
+        self.logger = self._setup_logger()
+        self.config = DEFAULT_CONFIG.copy()
+        
+        # Initialize Ollama if available
+        self.ollama_client = None
+        if OLLAMA_AVAILABLE:
+            try:
+                ollama.list()  # Test connection
+                self.ollama_client = ollama
+                self.logger.info("Ollama connection established")
+            except Exception as e:
+                self.logger.error(f"Failed to connect to Ollama: {e}")
+        
+        # Alert management
+        self.conditions: Dict[str, AlertCondition] = {}
+        self.active_alerts: List[Alert] = []
+        self.alert_history = deque(maxlen=1000)
+        self.delivery_queue: List[AlertDelivery] = []
+        
+        # Cooldown tracking
+        self.last_alert_time: Dict[str, datetime] = {}
+        
+        # Delivery handlers
+        self.delivery_handlers: Dict[DeliveryChannel, Callable] = {
+            DeliveryChannel.LOG: self._deliver_to_log,
+            DeliveryChannel.UI: self._deliver_to_ui
+        }
+        
+        # Statistics
+        self.alert_stats = defaultdict(lambda: {'count': 0, 'last_time': None})
+        
+        # Alert aggregation
+        self.alert_buffer = deque(maxlen=100)
+        self.aggregation_window = timedelta(minutes=1)
+    
+    def _setup_logger(self) -> logging.Logger:
+        """Set up module logger."""
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        return logger
+    
+    # ==========================================================================
+    # ALERT MANAGEMENT METHODS
+    # ==========================================================================
+    
+    def add_condition(self, condition: AlertCondition) -> bool:
+        """
+        Add an alert condition.
+        
+        Args:
+            condition: AlertCondition to add
             
         Returns:
-            Created alert
+            True if added successfully
         """
         try:
-            # Determine priority if not specified
-            if priority is None:
-                priority = self._determine_priority(alert_type, details)
+            self.conditions[condition.name] = condition
+            self.logger.info(f"Added alert condition: {condition.name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to add condition: {e}")
+            return False
+    
+    async def check_conditions(self, market_data: Dict[str, Any]) -> List[Alert]:
+        """
+        Check all conditions and generate alerts.
+        
+        Args:
+            market_data: Current market data
             
-            # Check deduplication
-            if dedupe_key and self._is_duplicate(dedupe_key):
-                self.logger.debug(f"Alert deduplicated: {dedupe_key}")
-                return None
+        Returns:
+            List of generated alerts
+        """
+        alerts = []
+        
+        for name, condition in self.conditions.items():
+            if not condition.enabled:
+                continue
+                
+            # Check cooldown
+            if self._is_in_cooldown(name, condition.cooldown_minutes):
+                continue
             
-            # Create alert
-            alert = Alert(
-                alert_id=self._generate_alert_id(),
-                alert_type=alert_type,
-                priority=priority,
-                title=title,
-                message=message,
-                details=details or {},
-                timestamp=datetime.now(),
-                source=self.__class__.__name__,
-                tags=tags or [],
-                dedupe_key=dedupe_key,
-                group_id=group_id
+            # Evaluate condition
+            if self._evaluate_condition(condition, market_data):
+                alert = await self._create_alert(condition, market_data)
+                if alert:
+                    alerts.append(alert)
+                    self.last_alert_time[name] = datetime.now()
+        
+        # Process alerts with AI if enabled
+        if alerts and self.config['ai_enhancement_enabled']:
+            alerts = await self._enhance_alerts_with_ai(alerts, market_data)
+        
+        # Add to history and active alerts
+        for alert in alerts:
+            self.alert_history.append(alert)
+            self.active_alerts.append(alert)
+            self._update_stats(alert)
+        
+        # Manage alert queue size
+        self._manage_alert_queue()
+        
+        return alerts
+    
+    async def process_custom_alert(self, title: str, message: str,
+                                 severity: AlertSeverity = AlertSeverity.MEDIUM,
+                                 data: Optional[Dict[str, Any]] = None) -> Alert:
+        """
+        Process a custom alert.
+        
+        Args:
+            title: Alert title
+            message: Alert message
+            severity: Alert severity
+            data: Additional data
+            
+        Returns:
+            Generated alert
+        """
+        alert = Alert(
+            id=self._generate_alert_id(),
+            timestamp=datetime.now(),
+            type=AlertType.CUSTOM,
+            severity=severity,
+            title=title,
+            message=message,
+            data=data or {},
+            source="custom",
+            ai_enhanced=False
+        )
+        
+        # Enhance with AI if enabled
+        if self.config['ai_enhancement_enabled']:
+            alert = await self._enhance_single_alert(alert)
+        
+        # Add to queues
+        self.alert_history.append(alert)
+        self.active_alerts.append(alert)
+        self._update_stats(alert)
+        
+        return alert
+    
+    # ==========================================================================
+    # ALERT DELIVERY METHODS
+    # ==========================================================================
+    
+    async def deliver_alerts(self, alerts: List[Alert],
+                           channels: Optional[List[DeliveryChannel]] = None) -> Dict[str, Any]:
+        """
+        Deliver alerts through specified channels.
+        
+        Args:
+            alerts: List of alerts to deliver
+            channels: Delivery channels (default: based on severity)
+            
+        Returns:
+            Delivery summary
+        """
+        if not channels:
+            channels = self._select_channels_by_severity(alerts)
+        
+        delivery_tasks = []
+        
+        for alert in alerts:
+            for channel in channels:
+                if channel in self.delivery_handlers:
+                    delivery = AlertDelivery(
+                        alert_id=alert.id,
+                        channel=channel,
+                        recipient=self._get_recipient(channel),
+                        status='pending'
+                    )
+                    self.delivery_queue.append(delivery)
+                    
+                    # Create delivery task
+                    task = self._deliver_alert(alert, delivery)
+                    delivery_tasks.append(task)
+        
+        # Execute deliveries
+        results = await asyncio.gather(*delivery_tasks, return_exceptions=True)
+        
+        # Summarize results
+        summary = {
+            'total_attempts': len(delivery_tasks),
+            'successful': sum(1 for r in results if r is True),
+            'failed': sum(1 for r in results if r is False or isinstance(r, Exception)),
+            'by_channel': defaultdict(lambda: {'success': 0, 'failed': 0})
+        }
+        
+        for delivery, result in zip(self.delivery_queue[-len(delivery_tasks):], results):
+            if result is True:
+                summary['by_channel'][delivery.channel.value]['success'] += 1
+            else:
+                summary['by_channel'][delivery.channel.value]['failed'] += 1
+        
+        return summary
+    
+    async def _deliver_alert(self, alert: Alert, delivery: AlertDelivery) -> bool:
+        """Deliver a single alert."""
+        handler = self.delivery_handlers.get(delivery.channel)
+        if not handler:
+            self.logger.error(f"No handler for channel: {delivery.channel}")
+            return False
+        
+        max_attempts = self.config['delivery_retry_attempts']
+        
+        for attempt in range(max_attempts):
+            try:
+                delivery.attempts = attempt + 1
+                delivery.last_attempt = datetime.now()
+                
+                # Call delivery handler
+                success = await handler(alert, delivery.recipient)
+                
+                if success:
+                    delivery.status = 'sent'
+                    return True
+                
+            except Exception as e:
+                delivery.error_message = str(e)
+                self.logger.error(f"Delivery failed: {e}")
+                
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        
+        delivery.status = 'failed'
+        return False
+    
+    # ==========================================================================
+    # AI INTEGRATION METHODS
+    # ==========================================================================
+    
+    async def _enhance_alerts_with_ai(self, alerts: List[Alert],
+                                    market_data: Dict[str, Any]) -> List[Alert]:
+        """Enhance multiple alerts with AI context."""
+        if not self.ollama_client or not alerts:
+            return alerts
+        
+        # Group similar alerts for context
+        alert_groups = self._group_similar_alerts(alerts)
+        enhanced_alerts = []
+        
+        for group in alert_groups:
+            if len(group) > 1:
+                # Enhance as a group
+                enhanced = await self._enhance_alert_group(group, market_data)
+                enhanced_alerts.extend(enhanced)
+            else:
+                # Enhance individually
+                enhanced = await self._enhance_single_alert(group[0], market_data)
+                enhanced_alerts.append(enhanced)
+        
+        return enhanced_alerts
+    
+    async def _enhance_single_alert(self, alert: Alert,
+                                  market_data: Optional[Dict[str, Any]] = None) -> Alert:
+        """Enhance a single alert with AI."""
+        if not self.ollama_client:
+            return alert
+        
+        prompt = f"""Enhance this trading alert with context and actionable insights:
+
+Alert Details:
+- Type: {alert.type.value}
+- Severity: {alert.severity.value}
+- Title: {alert.title}
+- Message: {alert.message}
+- Data: {json.dumps(alert.data, indent=2)}
+
+{f"Market Context: {json.dumps(market_data, indent=2)}" if market_data else ""}
+
+Recent Alert History: {self._get_recent_alert_summary()}
+
+Provide a JSON response with:
+{{
+    "enhanced_message": "more detailed and actionable message",
+    "context": "relevant market context",
+    "action_items": ["specific action 1", "specific action 2"],
+    "related_risks": ["risk 1", "risk 2"],
+    "priority_adjustment": "INCREASE/MAINTAIN/DECREASE",
+    "confidence": 0.0-1.0
+}}"""
+        
+        try:
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={'temperature': self.temperature}
             )
             
-            # Apply rules and filters
-            alert = await self._apply_alert_rules(alert)
+            # Extract JSON from response
+            text = response['response']
+            start = text.find('{')
+            end = text.rfind('}') + 1
             
-            if alert:  # Alert not filtered out
-                # Enhance with AI
-                alert = await self._enhance_alert_with_ai(alert)
+            if start >= 0 and end > start:
+                enhancement = json.loads(text[start:end])
                 
-                # Store alert
-                self.active_alerts[alert.alert_id] = alert
-                self.alert_history.append(alert)
+                # Apply enhancements
+                alert.message = enhancement.get('enhanced_message', alert.message)
+                alert.metadata['ai_context'] = enhancement.get('context', '')
+                alert.metadata['action_items'] = enhancement.get('action_items', [])
+                alert.metadata['related_risks'] = enhancement.get('related_risks', [])
+                alert.ai_enhanced = True
                 
-                # Update deduplication cache
-                if dedupe_key:
-                    self.alert_cache[dedupe_key] = datetime.now()
+                # Adjust severity if recommended
+                if enhancement.get('priority_adjustment') == 'INCREASE':
+                    alert.severity = self._increase_severity(alert.severity)
+                elif enhancement.get('priority_adjustment') == 'DECREASE':
+                    alert.severity = self._decrease_severity(alert.severity)
                 
-                # Process alert
-                await self._process_alert(alert)
+                return alert
+            else:
+                return alert
                 
-                self.logger.info(
-                    f"Alert created: {alert.alert_type.value} - {alert.title} "
-                    f"(Priority: {alert.priority.value})"
-                )
+        except Exception as e:
+            self.logger.error(f"AI alert enhancement failed: {e}")
+            return alert
+    
+    async def _enhance_alert_group(self, alerts: List[Alert],
+                                 market_data: Dict[str, Any]) -> List[Alert]:
+        """Enhance a group of related alerts."""
+        if not self.ollama_client:
+            return alerts
+        
+        # Create summary of alert group
+        alert_summary = {
+            'count': len(alerts),
+            'types': list(set(a.type.value for a in alerts)),
+            'severities': list(set(a.severity.value for a in alerts)),
+            'titles': [a.title for a in alerts]
+        }
+        
+        prompt = f"""Analyze this group of related trading alerts and provide insights:
+
+Alert Group Summary:
+{json.dumps(alert_summary, indent=2)}
+
+Market Context:
+{json.dumps(market_data, indent=2)}
+
+Provide a JSON response with:
+{{
+    "group_interpretation": "what these alerts together indicate",
+    "combined_severity": "CRITICAL/HIGH/MEDIUM/LOW",
+    "recommended_action": "primary action to take",
+    "risk_assessment": "overall risk from these alerts",
+    "should_aggregate": true/false,
+    "aggregated_message": "combined message if should_aggregate is true"
+}}"""
+        
+        try:
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={'temperature': self.temperature}
+            )
+            
+            # Extract JSON from response
+            text = response['response']
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            
+            if start >= 0 and end > start:
+                group_analysis = json.loads(text[start:end])
+                
+                if group_analysis.get('should_aggregate', False):
+                    # Create a single aggregated alert
+                    aggregated = Alert(
+                        id=self._generate_alert_id(),
+                        timestamp=datetime.now(),
+                        type=alerts[0].type,
+                        severity=self._parse_severity(
+                            group_analysis.get('combined_severity', 'MEDIUM')
+                        ),
+                        title=f"Multiple Related Alerts ({len(alerts)})",
+                        message=group_analysis.get('aggregated_message', ''),
+                        data={
+                            'alert_count': len(alerts),
+                            'alert_ids': [a.id for a in alerts],
+                            'group_interpretation': group_analysis.get('group_interpretation', ''),
+                            'risk_assessment': group_analysis.get('risk_assessment', '')
+                        },
+                        source='aggregation',
+                        ai_enhanced=True
+                    )
+                    return [aggregated]
+                else:
+                    # Enhance each alert with group context
+                    for alert in alerts:
+                        alert.metadata['group_context'] = group_analysis.get('group_interpretation', '')
+                        alert.metadata['group_action'] = group_analysis.get('recommended_action', '')
+                        alert.ai_enhanced = True
+                    return alerts
+            else:
+                return alerts
+                
+        except Exception as e:
+            self.logger.error(f"AI alert group enhancement failed: {e}")
+            return alerts
+    
+    async def analyze_alert_patterns(self) -> AlertAnalysis:
+        """Analyze alert patterns using AI."""
+        recent_alerts = list(self.alert_history)[-100:]  # Last 100 alerts
+        
+        if not recent_alerts:
+            return AlertAnalysis(
+                alert_patterns=[],
+                alert_frequency={},
+                severity_distribution={},
+                recommendations=["No alerts to analyze"],
+                noise_level=0.0,
+                optimization_suggestions=[]
+            )
+        
+        # Calculate basic statistics
+        alert_frequency = defaultdict(int)
+        severity_distribution = defaultdict(int)
+        
+        for alert in recent_alerts:
+            alert_frequency[alert.type.value] += 1
+            severity_distribution[alert.severity.value] += 1
+        
+        # Get AI analysis
+        ai_patterns = await self._get_ai_alert_patterns(recent_alerts)
+        
+        # Calculate noise level
+        noise_level = self._calculate_noise_level(recent_alerts)
+        
+        # Generate recommendations
+        recommendations = self._generate_alert_recommendations(
+            alert_frequency, severity_distribution, noise_level, ai_patterns
+        )
+        
+        return AlertAnalysis(
+            alert_patterns=ai_patterns.get('patterns', []),
+            alert_frequency=dict(alert_frequency),
+            severity_distribution=dict(severity_distribution),
+            recommendations=recommendations,
+            noise_level=noise_level,
+            optimization_suggestions=ai_patterns.get('optimizations', [])
+        )
+    
+    async def _get_ai_alert_patterns(self, alerts: List[Alert]) -> Dict[str, Any]:
+        """Get AI analysis of alert patterns."""
+        if not self.ollama_client:
+    
+    # ==========================================================================
+    # CONDITION EVALUATION METHODS
+    # ==========================================================================
+    
+    def _evaluate_condition(self, condition: AlertCondition,
+                          market_data: Dict[str, Any]) -> bool:
+        """Evaluate an alert condition."""
+        try:
+            # Extract value from market data using condition expression
+            # Simple implementation - in production, use safe expression evaluation
+            value = self._extract_value(condition.expression, market_data)
+            
+            if value is None or condition.threshold is None:
+                return False
+            
+            # Compare based on operator
+            comparisons = {
+                '>': lambda x, y: x > y,
+                '<': lambda x, y: x < y,
+                '>=': lambda x, y: x >= y,
+                '<=': lambda x, y: x <= y,
+                '==': lambda x, y: x == y,
+                '!=': lambda x, y: x != y
+            }
+            
+            comparison_func = comparisons.get(condition.comparison)
+            if comparison_func:
+                return comparison_func(value, condition.threshold)
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Condition evaluation failed: {e}")
+            return False
+    
+    def _extract_value(self, expression: str, data: Dict[str, Any]) -> Optional[float]:
+        """Extract value from data using expression."""
+        # Simple dot notation support (e.g., "price.current", "volume.avg")
+        parts = expression.split('.')
+        value = data
+        
+        for part in parts:
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return None
+        
+        # Convert to float if possible
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    
+    async def _create_alert(self, condition: AlertCondition,
+                          market_data: Dict[str, Any]) -> Optional[Alert]:
+        """Create an alert from a triggered condition."""
+        try:
+            # Extract relevant data
+            value = self._extract_value(condition.expression, market_data)
+            
+            # Determine severity based on condition type and value
+            severity = self._determine_severity(condition, value)
+            
+            # Create alert message
+            message = self._format_alert_message(condition, value, market_data)
+            
+            alert = Alert(
+                id=self._generate_alert_id(),
+                timestamp=datetime.now(),
+                type=condition.type,
+                severity=severity,
+                title=f"{condition.type.value} Alert: {condition.name}",
+                message=message,
+                data={
+                    'condition': condition.name,
+                    'expression': condition.expression,
+                    'threshold': condition.threshold,
+                    'actual_value': value,
+                    'market_data': market_data
+                },
+                source='condition',
+                condition_name=condition.name
+            )
             
             return alert
             
         except Exception as e:
-            self.logger.error(f"Error creating alert: {str(e)}")
+            self.logger.error(f"Alert creation failed: {e}")
             return None
-
-    async def send_alert(
-        self,
-        alert: Alert,
-        channels: Optional[List[DeliveryChannel]] = None,
-        recipients: Optional[List[str]] = None
-    ) -> List[AlertDelivery]:
-        """
-        Send alert through specified channels
-        
-        Args:
-            alert: Alert to send
-            channels: Override default channels
-            recipients: Override default recipients
-            
-        Returns:
-            List of delivery records
-        """
-        try:
-            # Determine channels
-            if not channels:
-                channels = self._determine_channels(alert)
-            
-            # Determine recipients
-            if not recipients:
-                recipients = self._determine_recipients(alert, channels)
-            
-            # Check rate limits
-            if not self._check_rate_limits(alert):
-                self.logger.warning(f"Alert rate limited: {alert.alert_type.value}")
-                return []
-            
-            deliveries = []
-            
-            for channel in channels:
-                for recipient in recipients.get(channel, []):
-                    # Create delivery record
-                    delivery = AlertDelivery(
-                        delivery_id=self._generate_delivery_id(),
-                        alert_id=alert.alert_id,
-                        channel=channel,
-                        recipient=recipient,
-                        status='pending'
-                    )
-                    
-                    # Send through channel
-                    success = await self._send_through_channel(
-                        alert, channel, recipient, delivery
-                    )
-                    
-                    # Update delivery record
-                    if success:
-                        delivery.status = 'sent'
-                        delivery.sent_at = datetime.now()
-                        self.delivery_metrics[channel]['sent'] += 1
-                    else:
-                        delivery.status = 'failed'
-                        self.delivery_metrics[channel]['failed'] += 1
-                    
-                    deliveries.append(delivery)
-                    self.delivery_history.append(delivery)
-            
-            return deliveries
-            
-        except Exception as e:
-            self.logger.error(f"Error sending alert: {str(e)}")
-            return []
-
-    async def get_alert_summary(
-        self,
-        hours: int = 24,
-        alert_types: Optional[List[AlertType]] = None
-    ) -> AlertSummary:
-        """
-        Get summary of alerts for period
-        
-        Args:
-            hours: Number of hours to look back
-            alert_types: Filter by alert types
-            
-        Returns:
-            Alert summary
-        """
-        try:
-            end_time = datetime.now()
-            start_time = end_time - timedelta(hours=hours)
-            period = (start_time, end_time)
-            
-            # Filter alerts
-            period_alerts = [
-                alert for alert in self.alert_history
-                if start_time <= alert.timestamp <= end_time
-            ]
-            
-            if alert_types:
-                period_alerts = [
-                    alert for alert in period_alerts
-                    if alert.alert_type in alert_types
-                ]
-            
-            # Count by type
-            by_type = defaultdict(int)
-            for alert in period_alerts:
-                by_type[alert.alert_type] += 1
-            
-            # Count by priority
-            by_priority = defaultdict(int)
-            for alert in period_alerts:
-                by_priority[alert.priority] += 1
-            
-            # Top alerts (highest priority)
-            top_alerts = sorted(
-                period_alerts,
-                key=lambda a: (a.priority.value, a.timestamp),
-                reverse=True
-            )[:10]
-            
-            # Delivery stats
-            delivery_stats = {}
-            period_deliveries = [
-                d for d in self.delivery_history
-                if d.sent_at and start_time <= d.sent_at <= end_time
-            ]
-            
-            for channel in DeliveryChannel:
-                channel_deliveries = [
-                    d for d in period_deliveries if d.channel == channel
-                ]
-                delivery_stats[channel] = {
-                    'sent': len([d for d in channel_deliveries if d.status == 'sent']),
-                    'failed': len([d for d in channel_deliveries if d.status == 'failed']),
-                    'pending': len([d for d in channel_deliveries if d.status == 'pending'])
-                }
-            
-            # Count suppressed alerts
-            suppressed = len([
-                key for key, timestamp in self.alert_cache.items()
-                if start_time <= timestamp <= end_time
-            ])
-            
-            return AlertSummary(
-                period=period,
-                total_alerts=len(period_alerts),
-                by_type=dict(by_type),
-                by_priority=dict(by_priority),
-                top_alerts=top_alerts,
-                suppressed_count=suppressed,
-                delivery_stats=delivery_stats
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Error generating alert summary: {str(e)}")
-            return None
-
-    async def create_alert_rule(
-        self,
-        name: str,
-        conditions: Dict[str, Any],
-        actions: Dict[str, Any],
-        channels: Optional[List[DeliveryChannel]] = None,
-        priority_override: Optional[AlertPriority] = None,
-        schedule: Optional[Dict[str, Any]] = None
-    ) -> AlertRule:
-        """
-        Create custom alert rule
-        
-        Args:
-            name: Rule name
-            conditions: Conditions for rule to apply
-            actions: Actions to take
-            channels: Delivery channels
-            priority_override: Override alert priority
-            schedule: Schedule constraints
-            
-        Returns:
-            Created rule
-        """
-        try:
-            rule = AlertRule(
-                rule_id=self._generate_rule_id(),
-                name=name,
-                conditions=conditions,
-                actions=actions,
-                priority_override=priority_override,
-                channels=channels or [],
-                schedule=schedule,
-                enabled=True
-            )
-            
-            # Validate rule
-            if self._validate_rule(rule):
-                self.alert_rules[rule.rule_id] = rule
-                
-                # Persist rule
-                await self._save_rule(rule)
-                
-                self.logger.info(f"Alert rule created: {name}")
-                return rule
-            else:
-                self.logger.error(f"Invalid alert rule: {name}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Error creating alert rule: {str(e)}")
-            return None
-
-    async def update_preferences(
-        self,
-        recipient: str,
-        preferences: Dict[str, Any]
-    ) -> bool:
-        """
-        Update recipient preferences
-        
-        Args:
-            recipient: Recipient identifier
-            preferences: Preference settings
-            
-        Returns:
-            Success status
-        """
-        try:
-            self.recipient_preferences[recipient] = preferences
-            
-            # Persist preferences
-            await self._save_preferences(recipient, preferences)
-            
-            self.logger.info(f"Updated preferences for {recipient}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error updating preferences: {str(e)}")
+    
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+    
+    def _is_in_cooldown(self, condition_name: str, cooldown_minutes: int) -> bool:
+        """Check if condition is in cooldown period."""
+        if condition_name not in self.last_alert_time:
             return False
-
-    def _initialize_channels(self):
-        """Initialize delivery channels"""
-        # Email channel
-        self.channels[DeliveryChannel.EMAIL] = EmailChannel(self.config)
         
-        # SMS channel
-        self.channels[DeliveryChannel.SMS] = SMSChannel(self.config)
-        
-        # Discord channel
-        self.channels[DeliveryChannel.DISCORD] = DiscordChannel(self.config)
-        
-        # Slack channel
-        self.channels[DeliveryChannel.SLACK] = SlackChannel(self.config)
-        
-        # Desktop notifications
-        self.channels[DeliveryChannel.DESKTOP] = DesktopChannel(self.config)
-        
-        # Log channel (always available)
-        self.channels[DeliveryChannel.LOG] = LogChannel(self.config)
-
-    def _determine_priority(
-        self,
-        alert_type: AlertType,
-        details: Optional[Dict[str, Any]]
-    ) -> AlertPriority:
-        """Determine alert priority based on type and details"""
-        # Critical alerts
-        critical_types = [
-            AlertType.RISK_LIMIT_BREACH,
-            AlertType.MARGIN_CALL,
-            AlertType.SYSTEM_ERROR,
-            AlertType.CONNECTION_LOST
-        ]
-        
-        if alert_type in critical_types:
-            return AlertPriority.CRITICAL
-        
-        # High priority alerts
-        high_types = [
-            AlertType.RISK_LIMIT_WARNING,
-            AlertType.DRAWDOWN_WARNING,
-            AlertType.ORDER_REJECTED,
-            AlertType.STRATEGY_ERROR
-        ]
-        
-        if alert_type in high_types:
-            return AlertPriority.HIGH
-        
-        # Check details for priority hints
-        if details:
-            if details.get('loss_amount', 0) > 1000:
-                return AlertPriority.HIGH
-            if details.get('drawdown', 0) > 0.05:
-                return AlertPriority.HIGH
-            if details.get('volatility_spike', False):
-                return AlertPriority.MEDIUM
-        
-        # Default priorities by category
-        if alert_type.value.startswith('trade_'):
-            return AlertPriority.MEDIUM
-        elif alert_type.value.startswith('market_'):
-            return AlertPriority.LOW
-        else:
-            return AlertPriority.MEDIUM
-
-    def _is_duplicate(self, dedupe_key: str) -> bool:
-        """Check if alert is duplicate"""
-        if dedupe_key in self.alert_cache:
-            last_sent = self.alert_cache[dedupe_key]
-            cooldown = timedelta(minutes=self.default_cooldown)
-            
-            if datetime.now() - last_sent < cooldown:
-                return True
-        
-        return False
-
+        time_since_last = datetime.now() - self.last_alert_time[condition_name]
+        return time_since_last < timedelta(minutes=cooldown_minutes)
+    
     def _generate_alert_id(self) -> str:
-        """Generate unique alert ID"""
-        timestamp = datetime.now().isoformat()
-        return hashlib.md5(f"alert_{timestamp}".encode()).hexdigest()[:12]
-
-    def _generate_delivery_id(self) -> str:
-        """Generate unique delivery ID"""
-        timestamp = datetime.now().isoformat()
-        return hashlib.md5(f"delivery_{timestamp}".encode()).hexdigest()[:12]
-
-    def _generate_rule_id(self) -> str:
-        """Generate unique rule ID"""
-        timestamp = datetime.now().isoformat()
-        return hashlib.md5(f"rule_{timestamp}".encode()).hexdigest()[:12]
-
-    async def _apply_alert_rules(self, alert: Alert) -> Optional[Alert]:
-        """Apply rules to filter and modify alert"""
-        for rule_id, rule in self.alert_rules.items():
-            if not rule.enabled:
+        """Generate unique alert ID."""
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
+        return f"ALERT_{timestamp}"
+    
+    def _determine_severity(self, condition: AlertCondition,
+                          value: Optional[float]) -> AlertSeverity:
+        """Determine alert severity based on condition and value."""
+        # Risk alerts are typically high severity
+        if condition.type == AlertType.RISK:
+            if value and condition.threshold:
+                deviation = abs(value - condition.threshold) / condition.threshold
+                if deviation > 0.5:
+                    return AlertSeverity.CRITICAL
+                elif deviation > 0.2:
+                    return AlertSeverity.HIGH
+            return AlertSeverity.HIGH
+        
+        # System alerts
+        elif condition.type == AlertType.SYSTEM:
+            return AlertSeverity.CRITICAL
+        
+        # Opportunity alerts
+        elif condition.type == AlertType.OPPORTUNITY:
+            return AlertSeverity.MEDIUM
+        
+        # Default based on metadata
+        return AlertSeverity(condition.metadata.get('severity', 'MEDIUM'))
+    
+    def _format_alert_message(self, condition: AlertCondition,
+                            value: Optional[float],
+                            market_data: Dict[str, Any]) -> str:
+        """Format alert message."""
+        if value is not None and condition.threshold is not None:
+            change_pct = ((value - condition.threshold) / condition.threshold) * 100
+            return (f"{condition.expression} is {value:.2f} "
+                   f"({change_pct:+.1f}% from threshold {condition.threshold:.2f})")
+        else:
+            return f"{condition.name} condition triggered"
+    
+    def _select_channels_by_severity(self, alerts: List[Alert]) -> List[DeliveryChannel]:
+        """Select delivery channels based on alert severity."""
+        channels = [DeliveryChannel.LOG]  # Always log
+        
+        # Get highest severity
+        if not alerts:
+            return channels
+        
+        highest_severity = min(alerts, key=lambda a: 
+                             ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'].index(a.severity.value))
+        
+        if highest_severity.severity == AlertSeverity.CRITICAL:
+            channels.extend([DeliveryChannel.EMAIL, DeliveryChannel.SMS, DeliveryChannel.UI])
+        elif highest_severity.severity == AlertSeverity.HIGH:
+            channels.extend([DeliveryChannel.EMAIL, DeliveryChannel.UI])
+        elif highest_severity.severity == AlertSeverity.MEDIUM:
+            channels.append(DeliveryChannel.UI)
+        
+        return list(set(channels))  # Remove duplicates
+    
+    def _get_recipient(self, channel: DeliveryChannel) -> str:
+        """Get recipient for delivery channel."""
+        # In production, this would come from configuration
+        recipients = {
+            DeliveryChannel.EMAIL: "trader@example.com",
+            DeliveryChannel.SMS: "+1234567890",
+            DeliveryChannel.PUSH: "user_device_token",
+            DeliveryChannel.WEBHOOK: "https://api.example.com/alerts",
+            DeliveryChannel.LOG: "system",
+            DeliveryChannel.UI: "dashboard"
+        }
+        return recipients.get(channel, "unknown")
+    
+    async def _deliver_to_log(self, alert: Alert, recipient: str) -> bool:
+        """Deliver alert to log."""
+        self.logger.info(f"ALERT [{alert.severity.value}]: {alert.title} - {alert.message}")
+        return True
+    
+    async def _deliver_to_ui(self, alert: Alert, recipient: str) -> bool:
+        """Deliver alert to UI (placeholder)."""
+        # In production, this would send to UI via websocket or message queue
+        self.logger.info(f"UI Alert: {alert.title}")
+        return True
+    
+    def _group_similar_alerts(self, alerts: List[Alert]) -> List[List[Alert]]:
+        """Group similar alerts for batch processing."""
+        if not self.config['aggregate_similar_alerts']:
+            return [[alert] for alert in alerts]
+        
+        groups = []
+        grouped_ids = set()
+        
+        for i, alert1 in enumerate(alerts):
+            if alert1.id in grouped_ids:
                 continue
-            
-            # Check conditions
-            if self._matches_conditions(alert, rule.conditions):
-                # Apply actions
-                if 'suppress' in rule.actions and rule.actions['suppress']:
-                    self.logger.debug(f"Alert suppressed by rule {rule.name}")
-                    return None
                 
-                if 'modify_priority' in rule.actions:
-                    alert.priority = AlertPriority(rule.actions['modify_priority'])
-                
-                if 'add_tags' in rule.actions:
-                    alert.tags.extend(rule.actions['add_tags'])
-                
-                if 'set_channels' in rule.actions:
-                    # Store channel override
-                    alert.details['channel_override'] = rule.actions['set_channels']
-                
-                # Apply priority override
-                if rule.priority_override:
-                    alert.priority = rule.priority_override
-        
-        return alert
-
-    def _matches_conditions(self, alert: Alert, conditions: Dict[str, Any]) -> bool:
-        """Check if alert matches rule conditions"""
-        for field, condition in conditions.items():
-            if field == 'alert_type':
-                if isinstance(condition, list):
-                    if alert.alert_type.value not in condition:
-                        return False
-                elif alert.alert_type.value != condition:
-                    return False
+            group = [alert1]
+            grouped_ids.add(alert1.id)
             
-            elif field == 'priority':
-                if isinstance(condition, str):
-                    if condition == 'gte' and alert.priority.value < conditions.get('priority_value', 3):
-                        return False
-                    elif condition == 'lte' and alert.priority.value > conditions.get('priority_value', 3):
-                        return False
-            
-            elif field == 'tags':
-                required_tags = condition if isinstance(condition, list) else [condition]
-                if not all(tag in alert.tags for tag in required_tags):
-                    return False
-            
-            elif field == 'details':
-                for detail_key, detail_condition in condition.items():
-                    if detail_key not in alert.details:
-                        return False
+            for j, alert2 in enumerate(alerts[i+1:], i+1):
+                if alert2.id in grouped_ids:
+                    continue
                     
-                    if isinstance(detail_condition, dict):
-                        # Complex condition
-                        if 'gte' in detail_condition:
-                            if alert.details[detail_key] < detail_condition['gte']:
-                                return False
-                        if 'lte' in detail_condition:
-                            if alert.details[detail_key] > detail_condition['lte']:
-                                return False
-                    else:
-                        # Simple equality
-                        if alert.details[detail_key] != detail_condition:
-                            return False
+                if self._are_similar_alerts(alert1, alert2):
+                    group.append(alert2)
+                    grouped_ids.add(alert2.id)
             
-            elif field == 'time':
-                # Time-based conditions
-                current_time = datetime.now().time()
-                if 'after' in condition:
-                    after_time = time.fromisoformat(condition['after'])
-                    if current_time < after_time:
-                        return False
-                if 'before' in condition:
-                    before_time = time.fromisoformat(condition['before'])
-                    if current_time > before_time:
-                        return False
+            groups.append(group)
         
-        return True
-
-    async def _enhance_alert_with_ai(self, alert: Alert) -> Alert:
-        """Enhance alert with AI-generated context"""
-        try:
-            # Check cache
-            cache_key = f"{alert.alert_type.value}_{alert.title}"
-            if cache_key in self.enhanced_messages:
-                alert.message = self.enhanced_messages[cache_key]
-                return alert
-            
-            # Prepare context for AI
-            context = {
-                'alert_type': alert.alert_type.value,
-                'title': alert.title,
-                'original_message': alert.message,
-                'details': alert.details,
-                'priority': alert.priority.value
-            }
-            
-            prompt = f"""
-            Enhance this trading alert with helpful context:
-            
-            Type: {context['alert_type']}
-            Title: {context['title']}
-            Message: {context['original_message']}
-            Details: {json.dumps(context['details'], indent=2)}
-            
-            Provide:
-            1. A clear, concise enhanced message (2-3 sentences)
-            2. What this means for the trader
-            3. Any recommended actions
-            
-            Keep it professional but conversational. Format as JSON:
-            {{
-                "enhanced_message": "...",
-                "implications": "...",
-                "actions": ["action1", "action2"]
-            }}
-            """
-            
-            response = await asyncio.wait_for(self._query_llm(prompt), timeout=2.0)
-            ai_enhancement = json.loads(response)
-            
-            # Update alert
-            alert.message = ai_enhancement['enhanced_message']
-            
-            # Add implications to details
-            alert.details['implications'] = ai_enhancement['implications']
-            
-            # Add suggested actions
-            for action in ai_enhancement.get('actions', []):
-                alert.actions.append({
-                    'label': action,
-                    'type': 'suggestion'
-                })
-            
-            # Cache enhanced message
-            self.enhanced_messages[cache_key] = alert.message
-            
-        except Exception as e:
-            self.logger.debug(f"AI enhancement failed, using original: {str(e)}")
-        
-        return alert
-
-    def _determine_channels(self, alert: Alert) -> List[DeliveryChannel]:
-        """Determine delivery channels for alert"""
-        # Check for override
-        if 'channel_override' in alert.details:
-            return alert.details['channel_override']
-        
-        # Use priority-based defaults
-        if alert.priority == AlertPriority.CRITICAL:
-            return [DeliveryChannel.SMS, DeliveryChannel.EMAIL, DeliveryChannel.DESKTOP]
-        elif alert.priority == AlertPriority.HIGH:
-            return [DeliveryChannel.EMAIL, DeliveryChannel.DESKTOP]
-        elif alert.priority == AlertPriority.MEDIUM:
-            return [DeliveryChannel.EMAIL]
-        else:
-            return [DeliveryChannel.LOG]
-
-    def _determine_recipients(
-        self,
-        alert: Alert,
-        channels: List[DeliveryChannel]
-    ) -> Dict[DeliveryChannel, List[str]]:
-        """Determine recipients for each channel"""
-        recipients = defaultdict(list)
-        
-        # Get default recipients from config
-        for channel in channels:
-            if channel == DeliveryChannel.EMAIL:
-                recipients[channel] = self.config.get('alert_email_recipients', [])
-            elif channel == DeliveryChannel.SMS:
-                recipients[channel] = self.config.get('alert_sms_recipients', [])
-            elif channel == DeliveryChannel.DISCORD:
-                recipients[channel] = [self.config.get('discord_webhook_url', '')]
-            elif channel == DeliveryChannel.SLACK:
-                recipients[channel] = [self.config.get('slack_webhook_url', '')]
-            elif channel == DeliveryChannel.DESKTOP:
-                recipients[channel] = ['default']
-            elif channel == DeliveryChannel.LOG:
-                recipients[channel] = ['system']
-        
-        # Apply recipient preferences
-        for recipient, prefs in self.recipient_preferences.items():
-            # Check if recipient wants this alert type
-            if 'alert_types' in prefs:
-                if alert.alert_type.value not in prefs['alert_types']:
-                    # Remove from all channels
-                    for channel in recipients:
-                        if recipient in recipients[channel]:
-                            recipients[channel].remove(recipient)
-            
-            # Check quiet hours
-            if 'quiet_hours' in prefs:
-                start_hour = prefs['quiet_hours']['start']
-                end_hour = prefs['quiet_hours']['end']
-                current_hour = datetime.now().hour
-                
-                if start_hour <= current_hour <= end_hour:
-                    # Only allow critical alerts
-                    if alert.priority != AlertPriority.CRITICAL:
-                        for channel in recipients:
-                            if recipient in recipients[channel]:
-                                recipients[channel].remove(recipient)
-        
-        return dict(recipients)
-
-    def _check_rate_limits(self, alert: Alert) -> bool:
-        """Check if alert passes rate limits"""
-        # Global rate limit
-        global_key = 'global'
-        self.rate_limits[global_key].append(datetime.now())
-        
-        # Remove old entries
-        cutoff = datetime.now() - timedelta(hours=1)
-        self.rate_limits[global_key] = deque(
-            [t for t in self.rate_limits[global_key] if t > cutoff],
-            maxlen=100
-        )
-        
-        if len(self.rate_limits[global_key]) > self.max_alerts_per_hour:
+        return groups
+    
+    def _are_similar_alerts(self, alert1: Alert, alert2: Alert) -> bool:
+        """Check if two alerts are similar enough to group."""
+        # Same type and similar severity
+        if alert1.type != alert2.type:
             return False
         
-        # Per-type rate limit
-        type_key = alert.alert_type.value
-        self.rate_limits[type_key].append(datetime.now())
-        
-        # Type-specific limits
-        type_limits = {
-            AlertType.TRADE_EXECUTED: 20,
-            AlertType.MARKET_VOLATILITY: 5,
-            AlertType.DAILY_PNL: 1
-        }
-        
-        type_limit = type_limits.get(alert.alert_type, 10)
-        
-        if len(self.rate_limits[type_key]) > type_limit:
+        # Within aggregation window
+        time_diff = abs((alert1.timestamp - alert2.timestamp).total_seconds())
+        if time_diff > self.aggregation_window.total_seconds():
             return False
         
-        return True
-
-    async def _send_through_channel(
-        self,
-        alert: Alert,
-        channel: DeliveryChannel,
-        recipient: str,
-        delivery: AlertDelivery
-    ) -> bool:
-        """Send alert through specific channel"""
-        try:
-            if channel in self.channels:
-                channel_impl = self.channels[channel]
-                
-                # Validate recipient
-                if not await channel_impl.validate_recipient(recipient):
-                    delivery.error_message = f"Invalid recipient: {recipient}"
-                    return False
-                
-                # Send alert
-                success = await channel_impl.send(alert, recipient)
-                
-                if success:
-                    delivery.delivered_at = datetime.now()
-                else:
-                    delivery.error_message = "Channel send failed"
-                
-                return success
-            else:
-                delivery.error_message = f"Channel not configured: {channel.value}"
-                return False
-                
-        except Exception as e:
-            delivery.error_message = str(e)
-            self.logger.error(f"Error sending through {channel.value}: {str(e)}")
-            return False
-
-    async def _process_alert(self, alert: Alert):
-        """Process alert for delivery"""
-        # Check if alert should be grouped
-        if alert.group_id:
-            self.alert_groups[alert.group_id].append(alert)
-            
-            # Reset group timer
-            if alert.group_id in self.group_timers:
-                self.group_timers[alert.group_id].cancel()
-            
-            # Set new timer
-            self.group_timers[alert.group_id] = asyncio.create_task(
-                self._send_grouped_alerts(alert.group_id)
-            )
-        else:
-            # Send immediately
-            await self.send_alert(alert)
-
-    async def _send_grouped_alerts(self, group_id: str):
-        """Send grouped alerts after delay"""
-        # Wait for more alerts
-        await asyncio.sleep(30)  # 30 second grouping window
+        # Similar severity (within one level)
+        severity_order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
+        sev1_idx = severity_order.index(alert1.severity.value)
+        sev2_idx = severity_order.index(alert2.severity.value)
         
-        if group_id in self.alert_groups:
-            alerts = self.alert_groups[group_id]
-            
-            if alerts:
-                # Create summary alert
-                summary = await self._create_group_summary(alerts)
-                await self.send_alert(summary)
-                
-                # Clear group
-                del self.alert_groups[group_id]
-                del self.group_timers[group_id]
-
-    async def _create_group_summary(self, alerts: List[Alert]) -> Alert:
-        """Create summary alert for grouped alerts"""
-        # Determine highest priority
-        max_priority = max(alert.priority for alert in alerts)
+        return abs(sev1_idx - sev2_idx) <= 1
+    
+    def _update_stats(self, alert: Alert):
+        """Update alert statistics."""
+        key = f"{alert.type.value}_{alert.severity.value}"
+        self.alert_stats[key]['count'] += 1
+        self.alert_stats[key]['last_time'] = alert.timestamp
+    
+    def _manage_alert_queue(self):
+        """Manage alert queue size and remove old alerts."""
+        # Remove alerts older than 24 hours
+        cutoff_time = datetime.now() - timedelta(hours=24)
+        self.active_alerts = [a for a in self.active_alerts 
+                            if a.timestamp > cutoff_time]
         
-        # Create summary
-        summary_title = f"Alert Summary ({len(alerts)} alerts)"
+        # Check rate limiting
+        recent_count = sum(1 for a in self.active_alerts 
+                         if a.timestamp > datetime.now() - timedelta(hours=1))
         
-        # Group by type
-        by_type = defaultdict(list)
-        for alert in alerts:
-            by_type[alert.alert_type].append(alert)
+        if recent_count > self.config['max_alerts_per_hour']:
+            self.logger.warning(f"Alert rate limit reached: {recent_count} alerts/hour")
+    
+    def _get_recent_alert_summary(self) -> str:
+        """Get summary of recent alerts for AI context."""
+        recent = list(self.alert_history)[-10:]
+        if not recent:
+            return "No recent alerts"
         
-        # Build message
-        message_parts = []
-        for alert_type, type_alerts in by_type.items():
-            message_parts.append(
-                f"{alert_type.value}: {len(type_alerts)} alerts"
+        summary_lines = []
+        for alert in recent:
+            time_ago = (datetime.now() - alert.timestamp).total_seconds() / 60
+            summary_lines.append(
+                f"- {alert.type.value} ({alert.severity.value}): "
+                f"{alert.title} ({time_ago:.0f}m ago)"
             )
         
-        summary_message = "\n".join(message_parts)
-        
-        # Create summary alert
-        return Alert(
-            alert_id=self._generate_alert_id(),
-            alert_type=AlertType.SYSTEM_ERROR,  # Generic type
-            priority=max_priority,
-            title=summary_title,
-            message=summary_message,
-            details={'grouped_alerts': [a.alert_id for a in alerts]},
-            timestamp=datetime.now(),
-            source="Alert Grouping"
-        )
-
-    async def _process_alert_queue(self):
-        """Process queued alerts"""
-        while self.state == AgentState.RUNNING:
-            try:
-                # Process any pending retries
-                for delivery in self.delivery_history:
-                    if delivery.status == 'failed' and delivery.retry_count < 3:
-                        # Retry after delay
-                        if delivery.sent_at:
-                            retry_delay = timedelta(minutes=5 * (delivery.retry_count + 1))
-                            if datetime.now() - delivery.sent_at > retry_delay:
-                                # Find original alert
-                                if delivery.alert_id in self.active_alerts:
-                                    alert = self.active_alerts[delivery.alert_id]
-                                    
-                                    # Retry delivery
-                                    delivery.retry_count += 1
-                                    success = await self._send_through_channel(
-                                        alert,
-                                        delivery.channel,
-                                        delivery.recipient,
-                                        delivery
-                                    )
-                                    
-                                    if success:
-                                        delivery.status = 'sent'
-                
-                await asyncio.sleep(60)  # Check every minute
-                
-            except Exception as e:
-                self.logger.error(f"Error processing alert queue: {str(e)}")
-
-    async def _send_scheduled_alerts(self):
-        """Send scheduled alerts"""
-        while self.state == AgentState.RUNNING:
-            try:
-                now = datetime.now()
-                
-                # Market open alert
-                if now.hour == 9 and now.minute == 30 and now.second < 5:
-                    await self.create_alert(
-                        AlertType.MARKET_OPEN,
-                        "Market Open",
-                        "SPY options market is now open for trading",
-                        priority=AlertPriority.LOW
-                    )
-                
-                # Market close alert
-                if now.hour == 16 and now.minute == 0 and now.second < 5:
-                    await self.create_alert(
-                        AlertType.MARKET_CLOSE,
-                        "Market Close",
-                        "SPY options market has closed",
-                        priority=AlertPriority.LOW
-                    )
-                
-                await asyncio.sleep(5)  # Check every 5 seconds
-                
-            except Exception as e:
-                self.logger.error(f"Error sending scheduled alerts: {str(e)}")
-
-    async def _analyze_alert_patterns(self):
-        """Analyze alert patterns for insights"""
-        while self.state == AgentState.RUNNING:
-            try:
-                # Analyze recent alerts
-                recent_alerts = list(self.alert_history)[-1000:]
-                
-                if len(recent_alerts) > 100:
-                    # Find patterns
-                    patterns = await self._find_alert_patterns(recent_alerts)
-                    
-                    # Generate insights
-                    for pattern_name, pattern_alerts in patterns.items():
-                        insight = await self._generate_pattern_insight(
-                            pattern_name, pattern_alerts
-                        )
-                        self.pattern_insights[pattern_name] = insight
-                
-                await asyncio.sleep(3600)  # Analyze hourly
-                
-            except Exception as e:
-                self.logger.error(f"Error analyzing patterns: {str(e)}")
-
-    async def _find_alert_patterns(
-        self,
-        alerts: List[Alert]
-    ) -> Dict[str, List[Alert]]:
-        """Find patterns in alerts"""
-        patterns = {}
-        
-        # Time-based patterns
-        by_hour = defaultdict(list)
-        for alert in alerts:
-            by_hour[alert.timestamp.hour].append(alert)
-        
-        # Find peak hours
-        peak_hours = sorted(by_hour.items(), key=lambda x: len(x[1]), reverse=True)[:3]
-        if peak_hours:
-            patterns['peak_hours'] = [alert for hour, alerts in peak_hours for alert in alerts]
-        
-        # Type sequences
-        type_sequences = []
-        for i in range(len(alerts) - 2):
-            sequence = [
-                alerts[i].alert_type,
-                alerts[i+1].alert_type,
-                alerts[i+2].alert_type
-            ]
-            type_sequences.append(sequence)
-        
-        # Find common sequences
-        from collections import Counter
-        sequence_counts = Counter(tuple(s) for s in type_sequences)
-        
-        if sequence_counts:
-            most_common = sequence_counts.most_common(1)[0]
-            if most_common[1] > 5:  # At least 5 occurrences
-                patterns['common_sequence'] = [
-                    alert for alert in alerts
-                    if alert.alert_type in most_common[0]
-                ]
-        
-        return patterns
-
-    async def _generate_pattern_insight(
-        self,
-        pattern_name: str,
-        pattern_alerts: List[Alert]
-    ) -> str:
-        """Generate insight from alert pattern"""
-        prompt = f"""
-        Analyze this alert pattern and provide insight:
-        
-        Pattern: {pattern_name}
-        Number of alerts: {len(pattern_alerts)}
-        Alert types: {[a.alert_type.value for a in pattern_alerts[:10]]}
-        
-        Provide a brief insight about what this pattern might indicate
-        and any recommendations for the trader.
-        """
-        
+        return "\n".join(summary_lines)
+    
+    def _increase_severity(self, severity: AlertSeverity) -> AlertSeverity:
+        """Increase alert severity by one level."""
+        severity_order = ['INFO', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+        current_idx = severity_order.index(severity.value)
+        new_idx = min(current_idx + 1, len(severity_order) - 1)
+        return AlertSeverity(severity_order[new_idx])
+    
+    def _decrease_severity(self, severity: AlertSeverity) -> AlertSeverity:
+        """Decrease alert severity by one level."""
+        severity_order = ['INFO', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+        current_idx = severity_order.index(severity.value)
+        new_idx = max(current_idx - 1, 0)
+        return AlertSeverity(severity_order[new_idx])
+    
+    def _parse_severity(self, severity_str: str) -> AlertSeverity:
+        """Parse severity string to enum."""
         try:
-            insight = await asyncio.wait_for(self._query_llm(prompt), timeout=3.0)
-            return insight
+            return AlertSeverity(severity_str.upper())
         except:
-            return f"Pattern detected: {pattern_name} with {len(pattern_alerts)} alerts"
-
-    async def _cleanup_expired_alerts(self):
-        """Clean up expired alerts"""
-        while self.state == AgentState.RUNNING:
-            try:
-                now = datetime.now()
-                
-                # Remove expired alerts
-                expired_ids = []
-                for alert_id, alert in self.active_alerts.items():
-                    if alert.expires_at and alert.expires_at < now:
-                        expired_ids.append(alert_id)
-                
-                for alert_id in expired_ids:
-                    del self.active_alerts[alert_id]
-                
-                if expired_ids:
-                    self.logger.info(f"Cleaned up {len(expired_ids)} expired alerts")
-                
-                await asyncio.sleep(3600)  # Clean hourly
-                
-            except Exception as e:
-                self.logger.error(f"Error cleaning expired alerts: {str(e)}")
-
-    async def _load_alert_rules(self):
-        """Load alert rules from storage"""
-        # Would load from database/file
-        # Default rules
-        self.alert_rules['high_drawdown'] = AlertRule(
-            rule_id='high_drawdown',
-            name='High Drawdown Alert',
-            conditions={
-                'alert_type': ['drawdown_warning'],
-                'details': {'drawdown': {'gte': 0.05}}
-            },
-            actions={'modify_priority': AlertPriority.CRITICAL.value},
-            channels=[DeliveryChannel.SMS, DeliveryChannel.EMAIL]
-        )
-
-    async def _load_recipient_preferences(self):
-        """Load recipient preferences from storage"""
-        # Would load from database/file
-        pass
-
-    async def _save_rule(self, rule: AlertRule):
-        """Save alert rule to storage"""
-        # Would save to database/file
-        pass
-
-    async def _save_preferences(self, recipient: str, preferences: Dict[str, Any]):
-        """Save recipient preferences to storage"""
-        # Would save to database/file
-        pass
-
-    def _validate_rule(self, rule: AlertRule) -> bool:
-        """Validate alert rule"""
-        # Check required fields
-        if not rule.name or not rule.conditions:
-            return False
-        
-        # Validate conditions structure
-        # (simplified validation)
-        
-        return True
-
-    async def _handle_trade_event(self, event: Event):
-        """Handle trade-related events"""
-        if hasattr(event, 'data'):
-            trade = event.data.get('trade')
-            if trade:
-                await self.create_alert(
-                    AlertType.TRADE_EXECUTED,
-                    f"Trade Executed: {trade.symbol}",
-                    f"{trade.side} {trade.quantity} contracts at ${trade.price:.2f}",
-                    details={
-                        'symbol': trade.symbol,
-                        'side': trade.side,
-                        'quantity': trade.quantity,
-                        'price': trade.price,
-                        'pnl': getattr(trade, 'pnl', 0)
-                    },
-                    tags=['trade', trade.symbol]
-                )
-
-    async def _handle_order_event(self, event: Event):
-        """Handle order-related events"""
-        if hasattr(event, 'data'):
-            order = event.data.get('order')
-            if order:
-                if event.event_type == EventType.ORDER_FILLED:
-                    await self.create_alert(
-                        AlertType.ORDER_FILLED,
-                        f"Order Filled: {order.symbol}",
-                        f"Order {order.order_id} filled at ${order.fill_price:.2f}",
-                        priority=AlertPriority.MEDIUM,
-                        details={'order': order}
-                    )
-                elif event.event_type == EventType.ORDER_REJECTED:
-                    await self.create_alert(
-                        AlertType.ORDER_REJECTED,
-                        f"Order Rejected: {order.symbol}",
-                        f"Order {order.order_id} rejected: {order.reject_reason}",
-                        priority=AlertPriority.HIGH,
-                        details={'order': order}
-                    )
-
-    async def _handle_risk_event(self, event: Event):
-        """Handle risk-related events"""
-        if hasattr(event, 'data'):
-            if event.event_type == EventType.RISK_ALERT:
-                risk_type = event.data.get('risk_type')
-                if risk_type == 'position_limit':
-                    await self.create_alert(
-                        AlertType.RISK_LIMIT_WARNING,
-                        "Position Limit Warning",
-                        event.data.get('message', 'Position approaching limit'),
-                        priority=AlertPriority.HIGH,
-                        details=event.data
-                    )
-            elif event.event_type == EventType.DRAWDOWN_ALERT:
-                drawdown = event.data.get('drawdown', 0)
-                await self.create_alert(
-                    AlertType.DRAWDOWN_WARNING,
-                    f"Drawdown Alert: {abs(drawdown):.1%}",
-                    f"Portfolio drawdown has reached {abs(drawdown):.1%}",
-                    priority=AlertPriority.HIGH if abs(drawdown) > 0.05 else AlertPriority.MEDIUM,
-                    details={'drawdown': drawdown}
-                )
-
-    async def _handle_market_event(self, event: Event):
-        """Handle market-related events"""
-        if event.event_type == EventType.VOLATILITY_SPIKE:
-            if hasattr(event, 'data'):
-                vix = event.data.get('vix', 0)
-                if vix > 30:
-                    await self.create_alert(
-                        AlertType.MARKET_VOLATILITY,
-                        "High Volatility Alert",
-                        f"VIX has spiked to {vix:.1f}",
-                        priority=AlertPriority.HIGH,
-                        details={'vix': vix}
-                    )
-
-    async def _handle_performance_event(self, event: Event):
-        """Handle performance-related events"""
-        if hasattr(event, 'data'):
-            if event.event_type == EventType.DAILY_PNL_UPDATE:
-                pnl = event.data.get('daily_pnl', 0)
-                await self.create_alert(
-                    AlertType.DAILY_PNL,
-                    f"Daily P&L: ${pnl:,.2f}",
-                    f"Today's profit/loss: ${pnl:,.2f}",
-                    priority=AlertPriority.LOW,
-                    details={'pnl': pnl},
-                    dedupe_key='daily_pnl'
-                )
-
-    async def _handle_report_event(self, event: Event):
-        """Handle report-related events"""
-        if hasattr(event, 'data'):
-            report = event.data.get('report')
-            if report:
-                await self.create_alert(
-                    AlertType.REPORT_READY,
-                    f"{report.report_type.value.title()} Report Ready",
-                    "Your performance report is ready for review",
-                    priority=AlertPriority.LOW,
-                    details={'report_type': report.report_type.value}
-                )
-
-    async def _handle_system_event(self, event: Event):
-        """Handle system-related events"""
-        if event.event_type == EventType.SYSTEM_ERROR:
-            if hasattr(event, 'data'):
-                error = event.data.get('error', 'Unknown error')
-                await self.create_alert(
-                    AlertType.SYSTEM_ERROR,
-                    "System Error",
-                    f"System error occurred: {error}",
-                    priority=AlertPriority.CRITICAL,
-                    details=event.data
-                )
-
-    async def _query_llm(self, prompt: str) -> str:
-        """Query LLM for alert enhancements"""
-        # Mock implementation
-        if "enhance this trading alert" in prompt:
-            return json.dumps({
-                "enhanced_message": "Trade executed successfully with favorable pricing. Position aligns with current market conditions.",
-                "implications": "This trade increases your portfolio exposure to upside SPY movement",
-                "actions": ["Monitor position closely", "Consider setting stop loss at -2%"]
+            return AlertSeverity.MEDIUM
+    
+    def _count_by_attribute(self, alerts: List[Alert], attribute: str) -> Dict[str, int]:
+        """Count alerts by attribute."""
+        counts = defaultdict(int)
+        for alert in alerts:
+            value = getattr(alert, attribute)
+            if hasattr(value, 'value'):  # Enum
+                value = value.value
+            counts[str(value)] += 1
+        return dict(counts)
+    
+    def _get_hourly_distribution(self, alerts: List[Alert]) -> Dict[int, int]:
+        """Get hourly distribution of alerts."""
+        hourly_counts = defaultdict(int)
+        for alert in alerts:
+            hour = alert.timestamp.hour
+            hourly_counts[hour] += 1
+        return dict(hourly_counts)
+    
+    def _format_alert_samples(self, alerts: List[Alert]) -> str:
+        """Format alert samples for AI prompt."""
+        samples = []
+        for alert in alerts[:5]:  # First 5 alerts
+            samples.append({
+                'type': alert.type.value,
+                'severity': alert.severity.value,
+                'title': alert.title,
+                'time': alert.timestamp.isoformat()
             })
-        else:
-            return "Alert pattern indicates increased trading activity during volatile periods"
-
-    async def get_alert_stats(self) -> Dict[str, Any]:
-        """Get alert statistics"""
-        stats = {
-            'active_alerts': len(self.active_alerts),
-            'total_sent_24h': 0,
-            'by_priority_24h': defaultdict(int),
-            'by_channel_24h': defaultdict(int),
-            'delivery_success_rate': 0,
-            'average_delivery_time': 0,
-            'top_alert_types': [],
-            'pattern_insights': self.pattern_insights
-        }
+        return json.dumps(samples, indent=2)
+    
+    def _calculate_noise_level(self, alerts: List[Alert]) -> float:
+        """Calculate alert noise level (0-1)."""
+        if not alerts:
+            return 0.0
         
-        # Calculate 24h stats
-        cutoff = datetime.now() - timedelta(hours=24)
-        recent_alerts = [a for a in self.alert_history if a.timestamp > cutoff]
-        stats['total_sent_24h'] = len(recent_alerts)
+        # Factors that contribute to noise
+        noise_factors = []
         
-        # By priority
-        for alert in recent_alerts:
-            stats['by_priority_24h'][alert.priority.value] += 1
+        # Factor 1: High frequency of low-severity alerts
+        low_severity_ratio = sum(1 for a in alerts 
+                               if a.severity in [AlertSeverity.LOW, AlertSeverity.INFO]) / len(alerts)
+        noise_factors.append(low_severity_ratio * 0.4)
         
-        # Delivery stats
-        recent_deliveries = [d for d in self.delivery_history 
-                           if d.sent_at and d.sent_at > cutoff]
+        # Factor 2: Repeated similar alerts
+        unique_titles = len(set(a.title for a in alerts))
+        repetition_ratio = 1 - (unique_titles / len(alerts))
+        noise_factors.append(repetition_ratio * 0.3)
         
-        if recent_deliveries:
-            success_count = len([d for d in recent_deliveries if d.status == 'sent'])
-            stats['delivery_success_rate'] = success_count / len(recent_deliveries)
-            
-            # Average delivery time
-            delivery_times = []
-            for d in recent_deliveries:
-                if d.delivered_at and d.sent_at:
-                    delivery_times.append((d.delivered_at - d.sent_at).seconds)
-            
-            if delivery_times:
-                stats['average_delivery_time'] = np.mean(delivery_times)
+        # Factor 3: Alerts without AI enhancement
+        non_enhanced_ratio = sum(1 for a in alerts if not a.ai_enhanced) / len(alerts)
+        noise_factors.append(non_enhanced_ratio * 0.3)
         
-        # By channel
-        for delivery in recent_deliveries:
-            stats['by_channel_24h'][delivery.channel.value] += 1
+        return min(1.0, sum(noise_factors))
+    
+    def _generate_alert_recommendations(self, frequency: Dict[str, int],
+                                      severity_dist: Dict[str, int],
+                                      noise_level: float,
+                                      ai_patterns: Dict[str, Any]) -> List[str]:
+        """Generate recommendations for alert optimization."""
+        recommendations = []
         
-        # Top alert types
-        type_counts = defaultdict(int)
-        for alert in recent_alerts:
-            type_counts[alert.alert_type.value] += 1
+        # Noise level recommendations
+        if noise_level > 0.7:
+            recommendations.append("High alert noise detected - consider adjusting thresholds")
+        elif noise_level > 0.5:
+            recommendations.append("Moderate alert noise - review low-severity alert conditions")
         
-        stats['top_alert_types'] = sorted(
-            type_counts.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:5]
+        # Frequency recommendations
+        total_alerts = sum(frequency.values())
+        if total_alerts > 100:
+            recommendations.append("High alert volume - enable alert aggregation")
         
-        return stats
-
-    async def shutdown(self):
-        """Shutdown agent gracefully"""
-        self.state = AgentState.STOPPED
+        # Severity balance
+        if severity_dist.get('CRITICAL', 0) > total_alerts * 0.2:
+            recommendations.append("Too many critical alerts - review severity classifications")
         
-        # Cancel group timers
-        for timer in self.group_timers.values():
-            timer.cancel()
+        # Add AI recommendations
+        ai_recs = ai_patterns.get('optimizations', [])
+        recommendations.extend(ai_recs[:2])  # Add top 2 AI recommendations
         
-        # Send any pending grouped alerts
-        for group_id, alerts in self.alert_groups.items():
-            if alerts:
-                summary = await self._create_group_summary(alerts)
-                await self.send_alert(summary)
+        return recommendations
+
+# ==============================================================================
+# MODULE FUNCTIONS
+# ==============================================================================
+
+def create_alert_manager_agent(model_name: str = DEFAULT_MODEL,
+                             temperature: float = DEFAULT_TEMPERATURE) -> SpyderX09_AlertManagerAgent:
+    """
+    Factory function to create Alert Manager Agent instance.
+    
+    Args:
+        model_name: Ollama model to use
+        temperature: Temperature for AI responses
         
-        self.logger.info("Alert Manager Agent shutdown complete")
+    Returns:
+        SpyderX09_AlertManagerAgent instance
+    """
+    return SpyderX09_AlertManagerAgent(model_name, temperature)
 
+# Singleton instance
+_module_instance = None
 
-# Channel Implementations
+def get_module_instance() -> SpyderX09_AlertManagerAgent:
+    """Get or create singleton instance of the agent."""
+    global _module_instance
+    if _module_instance is None:
+        _module_instance = create_alert_manager_agent()
+    return _module_instance
 
-class EmailChannel(AlertChannel):
-    """Email delivery channel"""
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        # Would initialize SMTP connection
-    
-    async def send(self, alert: Alert, recipient: str) -> bool:
-        """Send alert via email"""
-        # Mock implementation
-        return True
-    
-    async def validate_recipient(self, recipient: str) -> bool:
-        """Validate email address"""
-        import re
-        pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-        return bool(re.match(pattern, recipient))
+# ==============================================================================
+# TEST EXECUTION
+# ==============================================================================
 
-
-class SMSChannel(AlertChannel):
-    """SMS delivery channel"""
+async def test_alert_manager():
+    """Test the Alert Manager Agent functionality."""
+    print("="*80)
+    print("Testing SpyderX09_AlertManagerAgent")
+    print("="*80)
     
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        # Would initialize Twilio client
+    agent = create_alert_manager_agent()
     
-    async def send(self, alert: Alert, recipient: str) -> bool:
-        """Send alert via SMS"""
-        # Mock implementation
-        return True
+    # Add test conditions
+    print("\nAdding Alert Conditions")
+    print("-"*40)
     
-    async def validate_recipient(self, recipient: str) -> bool:
-        """Validate phone number"""
-        import re
-        pattern = r'^\+?1?\d{10,15}$'
-        return bool(re.match(pattern, recipient))
-
-
-class DiscordChannel(AlertChannel):
-    """Discord delivery channel"""
+    # Price breakout condition
+    price_condition = AlertCondition(
+        name="price_breakout_high",
+        type=AlertType.PRICE,
+        expression="price.current",
+        threshold=455.00,
+        comparison=">",
+        cooldown_minutes=5,
+        metadata={'severity': 'HIGH'}
+    )
+    agent.add_condition(price_condition)
+    print(f"Added: {price_condition.name}")
     
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.webhook_url = config.get('discord_webhook_url')
+    # Volume spike condition
+    volume_condition = AlertCondition(
+        name="volume_spike",
+        type=AlertType.VOLUME,
+        expression="volume.current",
+        threshold=1500000,
+        comparison=">",
+        cooldown_minutes=10,
+        metadata={'severity': 'MEDIUM'}
+    )
+    agent.add_condition(volume_condition)
+    print(f"Added: {volume_condition.name}")
     
-    async def send(self, alert: Alert, recipient: str) -> bool:
-        """Send alert to Discord"""
-        # Mock implementation
-        return True
+    # Risk condition
+    risk_condition = AlertCondition(
+        name="drawdown_warning",
+        type=AlertType.RISK,
+        expression="risk.drawdown",
+        threshold=0.05,
+        comparison=">",
+        cooldown_minutes=30,
+        metadata={'severity': 'HIGH'}
+    )
+    agent.add_condition(risk_condition)
+    print(f"Added: {risk_condition.name}")
     
-    async def validate_recipient(self, recipient: str) -> bool:
-        """Validate Discord webhook URL"""
-        return recipient.startswith('https://discord.com/api/webhooks/')
-
-
-class SlackChannel(AlertChannel):
-    """Slack delivery channel"""
+    # Test condition checking
+    print("\n\nTest 1: Condition Checking")
+    print("-"*40)
     
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.webhook_url = config.get('slack_webhook_url')
-    
-    async def send(self, alert: Alert, recipient: str) -> bool:
-        """Send alert to Slack"""
-        # Mock implementation
-        return True
-    
-    async def validate_recipient(self, recipient: str) -> bool:
-        """Validate Slack webhook URL"""
-        return recipient.startswith('https://hooks.slack.com/')
-
-
-class DesktopChannel(AlertChannel):
-    """Desktop notification channel"""
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-    
-    async def send(self, alert: Alert, recipient: str) -> bool:
-        """Send desktop notification"""
-        # Mock implementation
-        return True
-    
-    async def validate_recipient(self, recipient: str) -> bool:
-        """Desktop notifications always valid"""
-        return True
-
-
-class LogChannel(AlertChannel):
-    """Log file channel"""
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.logger = SpyderLogger("AlertLog")
-    
-    async def send(self, alert: Alert, recipient: str) -> bool:
-        """Log alert"""
-        self.logger.info(
-            f"[{alert.priority.name}] {alert.alert_type.value}: "
-            f"{alert.title} - {alert.message}"
-        )
-        return True
-    
-    async def validate_recipient(self, recipient: str) -> bool:
-        """Log channel always valid"""
-        return True
-
-
-# Factory function
-def create_alert_manager_agent(config: Dict[str, Any]) -> AlertManagerAgent:
-    """Create and return an Alert Manager Agent instance"""
-    return AlertManagerAgent(config)
-
-
-# Usage Example:
-if __name__ == "__main__":
-    # Example configuration
-    test_config = {
-        'alert_llm_model': 'llama3.2:3b-instruct-q4_K_M',
-        'alert_cooldown_minutes': 5,
-        'max_alerts_per_hour': 50,
-        'alert_email_recipients': ['trader@example.com'],
-        'alert_sms_recipients': ['+1234567890'],
-        'discord_webhook_url': 'https://discord.com/api/webhooks/...',
-        'slack_webhook_url': 'https://hooks.slack.com/...'
+    market_data = {
+        'price': {'current': 456.50, 'open': 454.00},
+        'volume': {'current': 2000000, 'average': 1000000},
+        'risk': {'drawdown': 0.08}
     }
     
-    # Create agent
-    alert_agent = create_alert_manager_agent(test_config)
+    alerts = await agent.check_conditions(market_data)
+    print(f"Generated {len(alerts)} alerts:")
+    for alert in alerts:
+        print(f"  - [{alert.severity.value}] {alert.title}: {alert.message}")
     
-    # Example usage
-    async def example_usage():
-        await alert_agent.initialize()
-        
-        # Create various alerts
-        await alert_agent.create_alert(
-            AlertType.TRADE_EXECUTED,
-            "Iron Condor Opened",
-            "Sold 405/410/420/425 Iron Condor for $2.50 credit",
-            details={
-                'strategy': 'iron_condor',
-                'credit': 250,
-                'max_loss': 250
-            }
-        )
-        
-        await alert_agent.create_alert(
-            AlertType.RISK_LIMIT_WARNING,
-            "Approaching Daily Loss Limit",
-            "Current loss: $450, Daily limit: $500",
-            priority=AlertPriority.HIGH,
-            details={
-                'current_loss': 450,
-                'limit': 500,
-                'percentage': 90
-            }
-        )
-        
-        # Get alert summary
-        summary = await alert_agent.get_alert_summary(hours=24)
-        print(f"Alerts in last 24h: {summary.total_alerts}")
-        print(f"By priority: {summary.by_priority}")
-        
-        # Create custom rule
-        rule = await alert_agent.create_alert_rule(
-            name="High Loss Alert",
-            conditions={
-                'alert_type': ['trade_executed'],
-                'details': {'pnl': {'lte': -100}}
-            },
-            actions={
-                'modify_priority': AlertPriority.HIGH.value,
-                'add_tags': ['high_loss']
-            },
-            channels=[DeliveryChannel.SMS, DeliveryChannel.EMAIL]
-        )
-        
-        print(f"Created rule: {rule.name}")
+    # Test custom alert
+    print("\n\nTest 2: Custom Alert")
+    print("-"*40)
     
-    # Run example
-    # asyncio.run(example_usage())
+    custom_alert = await agent.process_custom_alert(
+        title="Strategy Performance Alert",
+        message="Win rate dropped below 50% in last 20 trades",
+        severity=AlertSeverity.HIGH,
+        data={'win_rate': 0.45, 'trades': 20}
+    )
+    print(f"Custom Alert: [{custom_alert.severity.value}] {custom_alert.title}")
+    print(f"Message: {custom_alert.message}")
+    if custom_alert.ai_enhanced:
+        print(f"AI Context: {custom_alert.metadata.get('ai_context', 'N/A')}")
+    
+    # Test alert delivery
+    print("\n\nTest 3: Alert Delivery")
+    print("-"*40)
+    
+    all_alerts = alerts + [custom_alert]
+    if all_alerts:
+        delivery_summary = await agent.deliver_alerts(all_alerts)
+        print(f"Delivery Summary:")
+        print(f"  Total Attempts: {delivery_summary['total_attempts']}")
+        print(f"  Successful: {delivery_summary['successful']}")
+        print(f"  Failed: {delivery_summary['failed']}")
+        print(f"  By Channel:")
+        for channel, stats in delivery_summary['by_channel'].items():
+            print(f"    {channel}: {stats['success']} success, {stats['failed']} failed")
+    
+    # Test alert pattern analysis
+    print("\n\nTest 4: Alert Pattern Analysis")
+    print("-"*40)
+    
+    # Generate more sample alerts for pattern analysis
+    for i in range(20):
+        await agent.process_custom_alert(
+            title=f"Test Alert {i}",
+            message=f"Test message {i}",
+            severity=AlertSeverity.MEDIUM if i % 3 == 0 else AlertSeverity.LOW,
+            data={'index': i}
+        )
+    
+    analysis = await agent.analyze_alert_patterns()
+    print(f"Alert Analysis:")
+    print(f"  Noise Level: {analysis.noise_level:.1%}")
+    print(f"  Alert Frequency by Type:")
+    for alert_type, count in analysis.alert_frequency.items():
+        print(f"    {alert_type}: {count}")
+    print(f"  Recommendations:")
+    for rec in analysis.recommendations[:3]:
+        print(f"    - {rec}")
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
+
+if __name__ == "__main__":
+    print(f"Initializing {__name__}")
+    print(f"Ollama Available: {OLLAMA_AVAILABLE}")
+    
+    # Run async tests
+    asyncio.run(test_alert_manager())
+    
+    print("\n" + "="*80)
+    print("SpyderX09_AlertManagerAgent module loaded successfully!")
+    print("="*80)
+        
+        # Prepare alert summary
+        alert_summary = {
+            'total_alerts': len(alerts),
+            'time_span': (alerts[-1].timestamp - alerts[0].timestamp).days if len(alerts) > 1 else 0,
+            'type_distribution': dict(self._count_by_attribute(alerts, 'type')),
+            'severity_distribution': dict(self._count_by_attribute(alerts, 'severity')),
+            'hourly_distribution': self._get_hourly_distribution(alerts)
+        }
+        
+        prompt = f"""Analyze these alert patterns and provide insights:
+
+Alert Summary:
+{json.dumps(alert_summary, indent=2)}
+
+Sample Recent Alerts:
+{self._format_alert_samples(alerts[:10])}
+
+Provide a JSON response with:
+{{
+    "patterns": ["pattern 1", "pattern 2", ...],
+    "anomalies": ["unusual pattern 1", ...],
+    "optimizations": ["suggestion 1", "suggestion 2", ...],
+    "alert_quality": "assessment of alert usefulness",
+    "recommended_thresholds": {{"alert_type": "new_threshold", ...}}
+}}"""
+        
+        try:
+            response = await asyncio.to_thread(
+                self.ollama_client.generate,
+                model=self.model_name,
+                prompt=prompt,
+                options={'temperature': self.temperature}
+            )
+            
+            # Extract JSON from response
+            text = response['response']
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            
+            if start >= 0 and end > start:
+                return json.loads(text[start:end])
+            else:
+                return {'patterns': [], 'optimizations': []}
+                
+        except Exception as e:
+            self.logger.error(f"AI alert pattern analysis failed: {e}")
+            return {'patterns': [], 'optimizations': []}
