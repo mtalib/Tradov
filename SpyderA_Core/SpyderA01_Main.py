@@ -22,6 +22,7 @@ Version: 1.4
 # =============================================================================
 import sys
 from pathlib import Path
+import logging
 
 # Get the project root directory (parent of SpyderA_Core)
 project_root = Path(__file__).parent.parent
@@ -167,7 +168,14 @@ class SpyderApplication:
         
         # Configure logger
         self.logger.setLevel(log_level)
-        self.logger.add_file_handler(log_file)
+        # Fixed: Using standard logging API
+        if log_file:
+            file_handler = logging.FileHandler(log_file)
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
         
     async def initialize_components(self):
         """Initialize all trading system components."""
@@ -181,12 +189,10 @@ class SpyderApplication:
             
             # Initialize IB client
             self.logger.info("Initializing Interactive Brokers client...")
-            ib_config = self.config.get('broker.interactive_brokers', {})
-            self.ib_client = IBClient(
-                host=ib_config.get('host', '127.0.0.1'),
-                port=ib_config.get('port', 7497),
-                client_id=ib_config.get('client_id', 1)
-            )
+            # IBClient expects the entire config object
+            self.ib_client = IBClient(self.config)
+                     
+               
             
             # Initialize risk manager
             self.logger.info("Initializing risk manager...")
@@ -195,10 +201,9 @@ class SpyderApplication:
             # Initialize trading engine
             self.logger.info("Initializing trading engine...")
             self.trading_engine = TradingEngine(
+                config=self.config,
                 ib_client=self.ib_client,
-                risk_manager=self.risk_manager,
-                event_manager=self.event_manager,
-                config=self.config
+                event_manager=self.event_manager
             )
             
             # Register event handlers
@@ -227,7 +232,6 @@ class SpyderApplication:
         # Create main window
         self.main_window = MainWindow(
             trading_engine=self.trading_engine,
-            ib_client=self.ib_client,
             event_manager=self.event_manager,
             config=self.config
         )
@@ -239,18 +243,18 @@ class SpyderApplication:
     def _register_event_handlers(self):
         """Register event handlers for system events."""
         # System events
-        self.event_manager.register_handler(EventType.SYSTEM_ERROR, self._handle_system_error)
-        self.event_manager.register_handler(EventType.SYSTEM_WARNING, self._handle_system_warning)
+        self.event_manager.subscribe(EventType.SYSTEM_ERROR, self._handle_system_error)
+        self.event_manager.subscribe(EventType.RISK_WARNING, self._handle_system_warning)
         
         # Trading events
-        self.event_manager.register_handler(EventType.TRADE_EXECUTED, self._handle_trade_executed)
-        self.event_manager.register_handler(EventType.POSITION_UPDATED, self._handle_position_updated)
+        self.event_manager.subscribe(EventType.TRADE_EXECUTED, self._handle_trade_executed)
+        self.event_manager.subscribe(EventType.POSITION_UPDATED, self._handle_position_updated)
         
         # Market events
-        self.event_manager.register_handler(EventType.MARKET_DATA_RECEIVED, self._handle_market_data)
+        self.event_manager.subscribe(EventType.MARKET_DATA, self._handle_market_data)
         
         # Risk events
-        self.event_manager.register_handler(EventType.RISK_LIMIT_EXCEEDED, self._handle_risk_limit)
+        self.event_manager.subscribe(EventType.RISK_LIMIT_EXCEEDED, self._handle_risk_limit)
     
     def _handle_system_error(self, event: Event):
         """Handle system error events."""

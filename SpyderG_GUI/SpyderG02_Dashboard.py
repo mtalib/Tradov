@@ -1254,3 +1254,21 @@ class TradingDashboard(QMainWindow):
 
         except Exception as e:
             self.logger.error(f"Error handling market data: {e}")
+
+    def _handle_order_update(self, event):
+        """Handle order update events."""
+        try:
+            data = event.data if hasattr(event, 'data') else event
+            self.logger.debug(f"_handle_order_update received: {data}")
+            # TODO: Implement actual handling
+        except Exception as e:
+            self.logger.error(f"Error in _handle_order_update: {e}")
+
+    def _handle_system_event(self, event):
+        """Handle system event events."""
+        try:
+            data = event.data if hasattr(event, 'data') else event
+            self.logger.debug(f"_handle_system_event received: {data}")
+            # TODO: Implement actual handling
+        except Exception as e:
+            self.logger.error(f"Error in _handle_system_event: {e}")

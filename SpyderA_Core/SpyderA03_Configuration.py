@@ -404,6 +404,16 @@ class TradingConfig:
         except Exception:
             return default
 
+    def get_all(self) -> dict:
+        """
+        Get all configuration values.
+        
+        Returns:
+            dict: Complete configuration dictionary
+        """
+        with self._config_lock:
+            return self._raw_config.copy() if hasattr(self, '_raw_config') else {}
+
     def get_config(self) -> dict:
         """Get configuration as dictionary."""
         return asdict(self)
