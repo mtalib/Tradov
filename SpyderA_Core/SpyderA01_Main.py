@@ -201,9 +201,10 @@ class SpyderApplication:
             # Initialize trading engine
             self.logger.info("Initializing trading engine...")
             self.trading_engine = TradingEngine(
-                config=self.config,
                 ib_client=self.ib_client,
-                event_manager=self.event_manager
+                risk_manager=self.risk_manager,
+                event_manager=self.event_manager,
+                config=self.config
             )
             
             # Register event handlers
@@ -232,6 +233,7 @@ class SpyderApplication:
         # Create main window
         self.main_window = MainWindow(
             trading_engine=self.trading_engine,
+            ib_client=self.ib_client,
             event_manager=self.event_manager,
             config=self.config
         )
@@ -243,18 +245,18 @@ class SpyderApplication:
     def _register_event_handlers(self):
         """Register event handlers for system events."""
         # System events
-        self.event_manager.subscribe(EventType.SYSTEM_ERROR, self._handle_system_error)
-        self.event_manager.subscribe(EventType.RISK_WARNING, self._handle_system_warning)
+        self.event_manager.register_handler(EventType.SYSTEM_ERROR, self._handle_system_error)
+        self.event_manager.register_handler(EventType.SYSTEM_WARNING, self._handle_system_warning)
         
         # Trading events
-        self.event_manager.subscribe(EventType.TRADE_EXECUTED, self._handle_trade_executed)
-        self.event_manager.subscribe(EventType.POSITION_UPDATED, self._handle_position_updated)
+        self.event_manager.register_handler(EventType.TRADE_EXECUTED, self._handle_trade_executed)
+        self.event_manager.register_handler(EventType.POSITION_UPDATED, self._handle_position_updated)
         
         # Market events
-        self.event_manager.subscribe(EventType.MARKET_DATA, self._handle_market_data)
+        self.event_manager.register_handler(EventType.MARKET_DATA_RECEIVED, self._handle_market_data)
         
         # Risk events
-        self.event_manager.subscribe(EventType.RISK_LIMIT_EXCEEDED, self._handle_risk_limit)
+        self.event_manager.register_handler(EventType.RISK_LIMIT_EXCEEDED, self._handle_risk_limit)
     
     def _handle_system_error(self, event: Event):
         """Handle system error events."""

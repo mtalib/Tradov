@@ -778,3 +778,42 @@ class FeatureFlags:
     def disable(self, feature: str):
         """Disable a feature."""
         self.features[feature] = False
+
+# ==============================================================================
+# SPYDERX MIGRATION FEATURE FLAGS
+# ==============================================================================
+# Added for gradual SpyderF to SpyderX migration
+SPYDERX_FEATURE_FLAGS = {
+    "USE_AI_GREEKS": False,  # Start disabled
+    "USE_AI_RISK": False,
+    "USE_AI_MARKET_ANALYSIS": True,  # Start with low-risk features
+    "ENABLE_SPYDERX_SHADOW": True,  # Run in shadow mode
+    "LOG_AI_DIVERGENCE": True,  # Log differences between F and X
+    "AI_CONFIDENCE_THRESHOLD": 0.8,  # Minimum confidence for AI decisions
+}
+
+# Helper function to check SpyderX features
+def is_spyderx_enabled(feature: str) -> bool:
+    """Check if a SpyderX feature is enabled"""
+    return SPYDERX_FEATURE_FLAGS.get(feature, False)
+
+# Migration tracking
+MIGRATION_STATUS = {
+    "spyderf_modules_active": [
+        "SpyderF01_Indicators",
+        "SpyderF02_PriceAction", 
+        "SpyderF03_SupportResistance",
+        "SpyderF04_VolatilityAnalysis",
+        "SpyderF05_TrendDetection",
+        "SpyderF06_GreeksCalculator",
+        "SpyderF07_GapAnalyzer",
+        "SpyderF08_VolatilityRegime",
+        "SpyderF09_EntryFilters",
+        "SpyderF10_MarketRegimeDetector"
+    ],
+    "spyderx_modules_shadow": [
+        "SpyderX13_MarketAnalysisAgent",
+        "SpyderX01_GreeksAgent"
+    ],
+    "spyderx_modules_active": []
+}
