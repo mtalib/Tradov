@@ -1076,7 +1076,7 @@ class ConfigManager:
         """Get IB port."""
         return self.get("broker.port", 7497)
 
-    def get_ib_client_id(self) -> int:
+    def get_spyder_client_id(self) -> int:
         """Get IB client ID."""
         return self.get("broker.client_id", 1)
 
@@ -1164,7 +1164,7 @@ class ConfigManager:
                 .replace("https://", "")
                 .replace("http://", "")
                 .split(":")[0],
-                "port": 5000,  # Default for Client Portal
+                "port": 4001,  # Default for Client Portal
                 "client_id": 1,
                 "connection_type": ConnectionType.TWS_PAPER,
                 "account": "",

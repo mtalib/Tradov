@@ -42,7 +42,7 @@ from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU07_Constants import *
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 
 # ==============================================================================
 # CONSTANTS
@@ -192,7 +192,7 @@ class ConnectionManager:
         self.error_handler = SpyderErrorHandler()
 
         # IB Client
-        self.ib_client: Optional[IBClient] = None
+        self.ib_client: Optional[SpyderClient] = None
 
         # Connection state
         self.state = ConnectionState.DISCONNECTED
@@ -296,7 +296,7 @@ class ConnectionManager:
                 return False
 
             # Create IB client
-            self.ib_client = IBClient(self.event_manager)
+            self.ib_client = SpyderClient(self.event_manager)
 
             # Set up callbacks
             self._setup_ib_callbacks()

@@ -56,7 +56,7 @@ from SpyderU_Utilities.SpyderU07_Constants import (
     TIME_BASED_EXIT
 )
 from SpyderU_Utilities.SpyderU11_FeatureFlags import get_feature_flags
-from SpyderB_Broker.SpyderB01_IBClient import get_ib_client
+from SpyderB_Broker.SpyderB01_SpyderClient import get_ib_client
 from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
 from SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators

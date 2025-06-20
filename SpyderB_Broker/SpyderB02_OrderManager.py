@@ -49,7 +49,7 @@ from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU07_Constants import TradingConstants
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, EventPriority
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 
 # ==============================================================================
 # CONSTANTS
@@ -220,7 +220,7 @@ class OrderManager:
     - Order persistence and recovery
     """
     
-    def __init__(self, ib_client: IBClient, event_manager: EventManager):
+    def __init__(self, ib_client: SpyderClient, event_manager: EventManager):
         """
         Initialize order manager.
         
@@ -983,7 +983,7 @@ if __name__ == "__main__":
     from SpyderA_Core.SpyderA05_EventManager import EventManager
     
     # Create mock IB client
-    class MockIBClient:
+    class MockSpyderClient:
         def __init__(self):
             self.next_order_id = 1000
             self.callbacks = defaultdict(list)
@@ -1003,7 +1003,7 @@ if __name__ == "__main__":
     
     # Initialize components
     event_manager = EventManager()
-    ib_client = MockIBClient()
+    ib_client = MockSpyderClient()
     order_manager = OrderManager(ib_client, event_manager)
     
     # Create test order

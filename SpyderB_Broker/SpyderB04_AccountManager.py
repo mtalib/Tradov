@@ -41,7 +41,7 @@ from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU07_Constants import *
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, EventPriority
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 
 # ==============================================================================
 # ENUMS
@@ -165,7 +165,7 @@ class AccountManager:
     - Account alerts and notifications
     """
     
-    def __init__(self, ib_client: IBClient, event_manager: EventManager):
+    def __init__(self, ib_client: SpyderClient, event_manager: EventManager):
         """
         Initialize account manager.
         
@@ -712,7 +712,7 @@ if __name__ == "__main__":
     from SpyderA_Core.SpyderA05_EventManager import EventManager
     
     # Mock IB client
-    class MockIBClient:
+    class MockSpyderClient:
         def __init__(self):
             self.callbacks = defaultdict(list)
         
@@ -742,7 +742,7 @@ if __name__ == "__main__":
     
     # Initialize
     event_manager = EventManager()
-    ib_client = MockIBClient()
+    ib_client = MockSpyderClient()
     account_manager = AccountManager(ib_client, event_manager)
     
     # Start monitoring

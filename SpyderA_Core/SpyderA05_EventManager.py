@@ -1,561 +1,414 @@
+
+# =============================================================================
+# Event Priority Enum
+# =============================================================================
+import asyncio
+import logging
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum, auto
+from typing import Any, Callable, Dict, List, Optional, Set
+from threading import Lock
+import queue
+import traceback
+
+class EventPriority(Enum):
+    """Priority levels for event processing."""
+    CRITICAL = 0  # Highest priority - system critical events
+    HIGH = 1      # High priority - important events
+    NORMAL = 5    # Normal priority - standard events
+    LOW = 8       # Low priority - background events
+    TRIVIAL = 10  # Lowest priority - informational events
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System
-
 Module: SpyderA05_EventManager.py
 Group: A (Core Trading Engine)
-Purpose: Event management and pub/sub system
+Purpose: Event-driven architecture implementation
 
 Description:
-    This module provides a robust event management system implementing the
-    publisher-subscriber pattern for the Spyder trading system. It handles
-    event creation, distribution, subscription management, and maintains event
-    history for audit purposes. The system supports priority-based event
-    handling and thread-safe operations for concurrent event processing.
+This module implements the event management system that coordinates communication
+between different components of the trading system. It provides a publish-subscribe
+pattern for handling system events, market data updates, trading signals, and
+risk management notifications.
 
-Author: Mohamed Talib
-Date: 2025-06-14
-Version: 1.4
+Author: [Your Name]
+Created: 2025-01-27
+Version: 1.0
 """
 
-# ==============================================================================
-# STANDARD IMPORTS
-# ==============================================================================
-import uuid
-import queue
-import threading
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Callable
-from dataclasses import dataclass, field
-from datetime import datetime
-from collections import defaultdict
+# =============================================================================
+# Standard Library Imports
+# =============================================================================
 
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-# None required for this module
-
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-MAX_EVENT_HISTORY = 1000  # Maximum events to keep in history
-DEFAULT_QUEUE_SIZE = 10000  # Default event queue size
-WORKER_THREAD_TIMEOUT = 1.0  # Worker thread timeout in seconds
-
-# ==============================================================================
-# ENUMS
-# ==============================================================================
+# =============================================================================
+# Event Type Definitions
+# =============================================================================
 class EventType(Enum):
-    """Event types for the trading system"""
-    # System events
-    SYSTEM = "system"
-    ERROR = "error"
-    SYSTEM_ERROR = "SYSTEM_ERROR"
-    CRITICAL_ERROR = "CRITICAL_ERROR"
+    """Enumeration of all system event types."""
     
-    # Connection events
-    CONNECTION = "CONNECTION"
-    CONNECTION_LOST = "CONNECTION_LOST"
-    CONNECTION_RESTORED = "CONNECTION_RESTORED"
+    # System Events
+    SYSTEM_START = auto()
+    SYSTEM_STOP = auto()
+    SYSTEM_ERROR = auto()
+    SYSTEM_WARNING = auto()
+    SYSTEM_INFO = auto()
     
-    # Market events
-    MARKET_DATA = "MARKET_DATA"
-    MARKET_OPEN = "MARKET_OPEN"
-    MARKET_CLOSE = "MARKET_CLOSE"
-    MARKET_HOURS_CHANGED = "MARKET_HOURS_CHANGED"
+    # Market Data Events
+    MARKET_DATA_RECEIVED = auto()
+    MARKET_DATA_ERROR = auto()
+    QUOTE_UPDATE = auto()
+    TICK_DATA = auto()
+    ORDERBOOK_UPDATE = auto()
     
-    # Trading events
-    TRADING = "trading"
-    TRADE = "TRADE"
-    TRADE_EXECUTED = "TRADE_EXECUTED"
-    TRADE_CANCELLED = "TRADE_CANCELLED"
+    # Trading Events
+    SIGNAL_GENERATED = auto()
+    ORDER_PLACED = auto()
+    ORDER_FILLED = auto()
+    ORDER_CANCELLED = auto()
+    ORDER_REJECTED = auto()
+    TRADE_EXECUTED = auto()
+    TRADE_CLOSED = auto()
     
-    # Order events
-    ORDER = "order"
-    ORDER_FILLED = "ORDER_FILLED"
-    ORDER_CANCELLED = "ORDER_CANCELLED"
-    ORDER_REJECTED = "ORDER_REJECTED"
-    ORDER_SUBMITTED = "ORDER_SUBMITTED"
-    ORDER_UPDATED = "ORDER_UPDATED"
+    # Position Events
+    POSITION_OPENED = auto()
+    POSITION_UPDATED = auto()
+    POSITION_CLOSED = auto()
     
-    # Position events
-    POSITION = "position"
-    POSITION_UPDATED = "POSITION_UPDATED"
-    POSITION_OPENED = "POSITION_OPENED"
-    POSITION_CLOSED = "POSITION_CLOSED"
+    # Risk Management Events
+    RISK_LIMIT_EXCEEDED = auto()
+    RISK_WARNING = auto()
+    MARGIN_CALL = auto()
+    STOP_LOSS_TRIGGERED = auto()
     
-    # Portfolio events
-    PORTFOLIO = "PORTFOLIO"
-    PORTFOLIO_UPDATED = "PORTFOLIO_UPDATED"
+    # Strategy Events
+    STRATEGY_START = auto()
+    STRATEGY_STOP = auto()
+    STRATEGY_UPDATE = auto()
     
-    # Account events
-    ACCOUNT = "ACCOUNT"
-    ACCOUNT_UPDATE = "ACCOUNT_UPDATE"
-    BALANCE_UPDATE = "BALANCE_UPDATE"
-    
-    # Risk events
-    RISK = "risk"
-    RISK_LIMIT_EXCEEDED = "RISK_LIMIT_EXCEEDED"
-    RISK_WARNING = "RISK_WARNING"
-    
-    # Data events
-    DATA = "data"
-    DATA_RECEIVED = "DATA_RECEIVED"
-    DATA_ERROR = "DATA_ERROR"
-    
-    # Strategy events
-    STRATEGY = "strategy"
-    STRATEGY_SIGNAL = "STRATEGY_SIGNAL"
-    STRATEGY_ERROR = "STRATEGY_ERROR"
-    
-    # GUI events
-    GUI = "GUI"
-    GUI_UPDATE = "GUI_UPDATE"
-    GUI_ERROR = "GUI_ERROR"
-    
-    # Execution events
-    EXECUTION = "EXECUTION"
-    EXECUTION_REPORT = "EXECUTION_REPORT"
-    
-    # Price events
-    PRICE = "PRICE"
-    PRICE_UPDATE = "PRICE_UPDATE"
-    
-    # Volume events
-    VOLUME = "VOLUME"
-    VOLUME_UPDATE = "VOLUME_UPDATE"
-    
-    # Notification events
-    NOTIFICATION = "notification"
+    # Account Events
+    ACCOUNT_UPDATE = auto()
+    BALANCE_UPDATE = auto()
+    BUYING_POWER_UPDATE = auto()
 
-
-class EventPriority(Enum):
-    """Event priority levels."""
-    LOW = auto()
-    NORMAL = auto()
-    HIGH = auto()
-    CRITICAL = auto()
-    URGENT = auto()
-
-# ==============================================================================
-# DATA STRUCTURES
-# ==============================================================================
+# =============================================================================
+# Event Data Structure
+# =============================================================================
 @dataclass
 class Event:
-    """Event data structure."""
-    id: str
-    type: EventType
-    data: Dict[str, Any]
-    timestamp: datetime
-    source: str
-    priority: EventPriority = EventPriority.NORMAL
-    correlation_id: Optional[str] = None
-
-
-@dataclass
-class EventSubscription:
-    """Event subscription details."""
-    subscriber_id: str
-    event_types: List[EventType]
-    callback: Callable[[Event], None]
-    priority_filter: Optional[EventPriority] = None
-    active: bool = True
-
-# ==============================================================================
-# MAIN CLASS
-# ==============================================================================
-class EventManager:
     """
-    Event management system with safe subscription handling.
-    
-    This class provides centralized event management for the trading system,
-    implementing a thread-safe publisher-subscriber pattern with priority
-    handling and event history tracking.
+    Represents a system event with metadata.
     
     Attributes:
-        logger: Module logger instance
-        error_handler: Error handling instance
-        subscribers: Dictionary of active subscriptions
+        type: The type of event
+        data: Event payload data
+        timestamp: When the event occurred
+        source: Component that generated the event
+        priority: Event priority (0=highest)
+        id: Unique event identifier
+    """
+    type: EventType
+    data: Any
+    timestamp: datetime = field(default_factory=datetime.now)
+    source: str = "Unknown"
+    priority: int = 5
+    id: Optional[str] = None
+    
+    def __post_init__(self):
+        """Generate unique ID if not provided."""
+        if self.id is None:
+            self.id = f"{self.type.name}_{self.timestamp.timestamp()}"
+
+# =============================================================================
+# Event Manager Implementation
+# =============================================================================
+class EventManager:
+    """
+    Central event management system for the trading application.
+    
+    Handles event publishing, subscription, and distribution using
+    the publish-subscribe pattern. Thread-safe for concurrent access.
+    
+    Attributes:
+        handlers: Dictionary mapping event types to handler functions
         event_queue: Priority queue for event processing
-        event_history: Historical event storage
-        
-    Example:
-        >>> manager = EventManager()
-        >>> manager.start()
-        >>> manager.subscribe(EventType.TRADE_EXECUTED, callback_func)
+        logger: Logger instance
+        is_running: Flag indicating if event processing is active
+        event_history: Recent event history for debugging
     """
     
-    def __init__(self):
-        """Initialize the EventManager."""
-        self.logger = SpyderLogger.get_logger(__name__)
-        self.error_handler = SpyderErrorHandler()
+    def __init__(self, max_history: int = 1000):
+        """
+        Initialize the EventManager.
         
-        # Subscription management
-        self.subscribers: Dict[str, EventSubscription] = {}
-        self._subscribers = defaultdict(list)
-        
-        # Event processing
-        self.event_queue = queue.PriorityQueue(maxsize=DEFAULT_QUEUE_SIZE)
+        Args:
+            max_history: Maximum number of events to keep in history
+        """
+        self.handlers: Dict[EventType, List[Callable]] = defaultdict(list)
+        self.event_queue: queue.PriorityQueue = queue.PriorityQueue()
+        self.logger = logging.getLogger(__name__)
+        self.is_running = False
         self.event_history: List[Event] = []
+        self.max_history = max_history
+        self._lock = Lock()
+        self._async_handlers: Dict[EventType, List[Callable]] = defaultdict(list)
+        self._processing_thread = None
         
-        # Thread safety
-        self._lock = threading.Lock()
-        self._running = False
-        self._worker_thread = None
-        
-        # Event statistics
-        self.stats = {
-            "events_published": 0,
-            "events_processed": 0,
-            "subscribers_count": 0,
-            "errors": 0,
-        }
-        
-        self.logger.info(f"{self.__class__.__name__} initialized")
+        self.logger.info("EventManager initialized")
     
-    # ==========================================================================
-    # PUBLIC METHODS
-    # ==========================================================================
-    def subscribe(self, *args, **kwargs) -> bool:
+    def register_handler(self, event_type: EventType, handler: Callable) -> None:
         """
-        Subscribe to events with flexible parameter handling.
+        Register a handler function for a specific event type.
         
         Args:
-            event_type: Type of event to subscribe to
-            callback: Callback function to invoke
-            subscriber_id: Optional subscriber identifier
-            
-        Returns:
-            bool: True if subscription successful
+            event_type: The type of event to handle
+            handler: Callback function to invoke when event occurs
         """
-        try:
-            # Parse arguments
-            event_type, callback, subscriber_id = self._parse_subscribe_args(args, kwargs)
-            
-            # Validate inputs
-            if not self._validate_subscription(event_type, callback):
-                return False
-            
-            # Create subscription
-            event_type_str = str(event_type)
-            
-            with self._lock:
-                if event_type_str not in self._subscribers:
-                    self._subscribers[event_type_str] = []
-                
-                subscriber_info = {
-                    "callback": callback,
-                    "subscriber_id": subscriber_id or f"sub_{len(self._subscribers[event_type_str])}"
-                }
-                
-                self._subscribers[event_type_str].append(subscriber_info)
-                self.stats["subscribers_count"] = len(self._subscribers)
-            
-            self.logger.debug(f"Successfully subscribed to {event_type_str}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error subscribing to {event_type}: {str(e)}")
-            self.stats["errors"] += 1
-            return False
+        with self._lock:
+            if handler not in self.handlers[event_type]:
+                self.handlers[event_type].append(handler)
+                self.logger.debug(f"Registered handler {handler.__name__} for {event_type.name}")
     
-    def unsubscribe(self, subscriber_id: str) -> bool:
+    def register_async_handler(self, event_type: EventType, handler: Callable) -> None:
         """
-        Unsubscribe from events.
+        Register an async handler function for a specific event type.
         
         Args:
-            subscriber_id: Subscriber identifier
-            
-        Returns:
-            bool: True if unsubscription successful
+            event_type: The type of event to handle
+            handler: Async callback function to invoke when event occurs
         """
-        try:
-            with self._lock:
-                removed = False
-                for event_type, subscribers in self._subscribers.items():
-                    self._subscribers[event_type] = [
-                        sub for sub in subscribers 
-                        if sub.get("subscriber_id") != subscriber_id
-                    ]
-                    if len(subscribers) != len(self._subscribers[event_type]):
-                        removed = True
-                
-                if removed:
-                    self.stats["subscribers_count"] = sum(
-                        len(subs) for subs in self._subscribers.values()
-                    )
-                    self.logger.debug(f"Unsubscribed {subscriber_id}")
-                    return True
-                else:
-                    self.logger.warning(f"Subscriber {subscriber_id} not found")
-                    return False
-                    
-        except Exception as e:
-            self.logger.error(f"Error in unsubscribe: {e}")
-            self.stats["errors"] += 1
-            return False
+        with self._lock:
+            if handler not in self._async_handlers[event_type]:
+                self._async_handlers[event_type].append(handler)
+                self.logger.debug(f"Registered async handler {handler.__name__} for {event_type.name}")
     
-    def publish(self, event_type, data=None, source="unknown") -> bool:
+    def unregister_handler(self, event_type: EventType, handler: Callable) -> None:
         """
-        Publish event to subscribers.
+        Unregister a handler function for a specific event type.
         
         Args:
-            event_type: Type of event or Event object
-            data: Event data dictionary
-            source: Event source identifier
-            
-        Returns:
-            bool: True if published successfully
+            event_type: The type of event
+            handler: Handler function to remove
         """
-        try:
-            # Extract event information
-            actual_event_type, event_data, event_source = self._extract_event_info(
-                event_type, data, source
-            )
+        with self._lock:
+            if handler in self.handlers[event_type]:
+                self.handlers[event_type].remove(handler)
+                self.logger.debug(f"Unregistered handler {handler.__name__} for {event_type.name}")
             
-            if not actual_event_type:
-                self.logger.warning(f"Invalid event type: {event_type}")
-                return False
-            
-            # Create event info
-            event_info = {
-                "type": actual_event_type,
-                "data": event_data,
-                "timestamp": datetime.now(),
-                "source": event_source,
-            }
-            
-            # Process event
-            with self._lock:
-                self._add_to_history(event_info)
-                self.stats["events_published"] += 1
-                
-                # Notify subscribers
-                subscribers = self._subscribers.get(actual_event_type, [])
-                
-            # Notify outside lock to prevent deadlocks
-            self._notify_subscribers(subscribers, event_info)
-            self.stats["events_processed"] += 1
-            
-            self.logger.debug(
-                f"Published {actual_event_type} to {len(subscribers)} subscribers"
-            )
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error in publish: {e}")
-            self.stats["errors"] += 1
-            return False
+            if handler in self._async_handlers[event_type]:
+                self._async_handlers[event_type].remove(handler)
+                self.logger.debug(f"Unregistered async handler {handler.__name__} for {event_type.name}")
     
-    def create_event(
-        self,
-        event_type: EventType,
-        data: Dict[str, Any],
-        source: str = "unknown",
-        priority: EventPriority = EventPriority.NORMAL,
-        correlation_id: Optional[str] = None,
-    ) -> Event:
+    def publish(self, event: Event) -> None:
         """
-        Create a new event.
+        Publish an event to the system.
         
         Args:
-            event_type: Type of event
-            data: Event data
-            source: Event source
-            priority: Event priority
-            correlation_id: Optional correlation ID
-            
-        Returns:
-            Event object
+            event: Event to publish
         """
-        return Event(
-            id=f"evt_{uuid.uuid4().hex[:8]}",
+        # Add to history
+        with self._lock:
+            self.event_history.append(event)
+            if len(self.event_history) > self.max_history:
+                self.event_history.pop(0)
+        
+        # Add to queue for processing
+        self.event_queue.put((event.priority, event.timestamp, event))
+        self.logger.debug(f"Published event: {event.type.name} from {event.source}")
+    
+    def publish_event(self, event_type: EventType, data: Any, 
+                     source: str = "System", priority: int = 5) -> None:
+        """
+        Convenience method to publish an event.
+        
+        Args:
+            event_type: Type of event to publish
+            data: Event data payload
+            source: Source component name
+            priority: Event priority (0=highest)
+        """
+        event = Event(
             type=event_type,
             data=data,
-            timestamp=datetime.now(),
             source=source,
-            priority=priority,
-            correlation_id=correlation_id,
+            priority=priority
         )
+        self.publish(event)
     
-    def get_subscriber_count(self) -> int:
-        """Get number of active subscribers."""
-        with self._lock:
-            return sum(len(subs) for subs in self._subscribers.values())
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get event manager statistics."""
-        with self._lock:
-            return dict(self.stats)
-    
-    def get_event_history(self, count: int = 100) -> List[Event]:
-        """Get recent event history."""
-        with self._lock:
-            return self.event_history[-count:]
-    
-    def clear_history(self):
-        """Clear event history."""
-        with self._lock:
-            self.event_history.clear()
-            self.logger.debug("Event history cleared")
-    
-    # ==========================================================================
-    # PRIVATE METHODS
-    # ==========================================================================
-    def _parse_subscribe_args(self, args: tuple, kwargs: dict) -> tuple:
-        """Parse subscribe method arguments."""
-        if len(args) >= 2:
-            event_type = args[0]
-            callback = args[1]
-            subscriber_id = args[2] if len(args) > 2 else kwargs.get("subscriber_id")
-        elif len(args) == 1 and "callback" in kwargs:
-            event_type = args[0]
-            callback = kwargs["callback"]
-            subscriber_id = kwargs.get("subscriber_id")
-        else:
-            event_type = kwargs.get("event_type")
-            callback = kwargs.get("callback")
-            subscriber_id = kwargs.get("subscriber_id")
+    def _process_event(self, event: Event) -> None:
+        """
+        Process a single event by calling all registered handlers.
         
-        return event_type, callback, subscriber_id
-    
-    def _validate_subscription(self, event_type, callback) -> bool:
-        """Validate subscription parameters."""
-        if not event_type:
-            self.logger.warning("Subscribe called without event_type")
-            return False
-        
-        if callback is None or not callable(callback):
-            self.logger.warning(f"Invalid callback: {type(callback)}")
-            return False
-        
-        return True
-    
-    def _extract_event_info(self, event_type, data, source) -> tuple:
-        """Extract event information from various input types."""
-        if hasattr(event_type, "__dict__") and hasattr(event_type, "type"):
-            # Event object
-            actual_event_type = str(getattr(event_type, "type", "UNKNOWN"))
-            event_data = getattr(event_type, "data", data or {})
-            event_source = getattr(event_type, "source", source)
-        elif hasattr(event_type, "value"):
-            # Enum with value
-            actual_event_type = str(event_type.value)
-            event_data = data or {}
-            event_source = source
-        else:
-            # String
-            actual_event_type = str(event_type)
-            event_data = data or {}
-            event_source = source
-        
-        return actual_event_type, event_data, event_source
-    
-    def _add_to_history(self, event_info: dict):
-        """Add event to history with size limit."""
-        self.event_history.append(event_info)
-        if len(self.event_history) > MAX_EVENT_HISTORY:
-            self.event_history = self.event_history[-MAX_EVENT_HISTORY:]
-    
-    def _notify_subscribers(self, subscribers: list, event_info: dict):
-        """Notify subscribers of event."""
-        for subscriber_info in subscribers:
+        Args:
+            event: Event to process
+        """
+        # Process synchronous handlers
+        handlers = self.handlers.get(event.type, [])
+        for handler in handlers:
             try:
-                callback = subscriber_info["callback"]
-                callback(event_info)
+                handler(event)
             except Exception as e:
-                self.logger.error(f"Error notifying subscriber: {e}")
-                self.stats["errors"] += 1
+                self.logger.error(
+                    f"Error in handler {handler.__name__} for event {event.type.name}: {str(e)}"
+                )
+                self.logger.error(traceback.format_exc())
+        
+        # Process async handlers
+        async_handlers = self._async_handlers.get(event.type, [])
+        if async_handlers:
+            asyncio.create_task(self._process_async_handlers(event, async_handlers))
     
-    # ==========================================================================
-    # LIFECYCLE METHODS
-    # ==========================================================================
-    def start(self):
-        """Start the event manager worker thread."""
-        if not self._running:
-            self._running = True
-            self.logger.info("EventManager started")
+    async def _process_async_handlers(self, event: Event, handlers: List[Callable]) -> None:
+        """
+        Process async handlers for an event.
+        
+        Args:
+            event: Event to process
+            handlers: List of async handlers
+        """
+        for handler in handlers:
+            try:
+                await handler(event)
+            except Exception as e:
+                self.logger.error(
+                    f"Error in async handler {handler.__name__} for event {event.type.name}: {str(e)}"
+                )
+                self.logger.error(traceback.format_exc())
     
-    def stop(self):
-        """Stop the event manager worker thread."""
-        if self._running:
-            self._running = False
-            self.logger.info("EventManager stopped")
+    def start(self) -> None:
+        """Start the event processing system."""
+        self.is_running = True
+        self.logger.info("EventManager started")
     
-    def cleanup(self):
-        """Clean up event manager resources."""
-        self.stop()
-        self.clear_history()
-        self._subscribers.clear()
-        self.logger.info("EventManager cleanup completed")
+    def stop(self) -> None:
+        """Stop the event processing system."""
+        self.is_running = False
+        self.logger.info("EventManager stopped")
     
-    def is_running(self) -> bool:
-        """Check if event manager is running."""
-        return self._running
+    def process_events(self, max_events: Optional[int] = None) -> int:
+        """
+        Process pending events in the queue.
+        
+        Args:
+            max_events: Maximum number of events to process (None=all)
+            
+        Returns:
+            Number of events processed
+        """
+        if not self.is_running:
+            return 0
+        
+        processed = 0
+        while not self.event_queue.empty() and (max_events is None or processed < max_events):
+            try:
+                _, _, event = self.event_queue.get(timeout=0.1)
+                self._process_event(event)
+                processed += 1
+            except queue.Empty:
+                break
+            except Exception as e:
+                self.logger.error(f"Error processing event: {str(e)}")
+        
+        return processed
+    
+    def get_handlers_count(self, event_type: Optional[EventType] = None) -> int:
+        """
+        Get the number of registered handlers.
+        
+        Args:
+            event_type: Specific event type to check (None=all)
+            
+        Returns:
+            Number of registered handlers
+        """
+        if event_type:
+            return len(self.handlers.get(event_type, []))
+        else:
+            return sum(len(handlers) for handlers in self.handlers.values())
+    
+    def get_event_history(self, event_type: Optional[EventType] = None, 
+                         limit: int = 100) -> List[Event]:
+        """
+        Get recent event history.
+        
+        Args:
+            event_type: Filter by event type (None=all)
+            limit: Maximum number of events to return
+            
+        Returns:
+            List of recent events
+        """
+        with self._lock:
+            if event_type:
+                filtered = [e for e in self.event_history if e.type == event_type]
+            else:
+                filtered = self.event_history.copy()
+        
+        return filtered[-limit:]
+    
+    def clear_handlers(self, event_type: Optional[EventType] = None) -> None:
+        """
+        Clear registered handlers.
+        
+        Args:
+            event_type: Clear handlers for specific type (None=all)
+        """
+        with self._lock:
+            if event_type:
+                self.handlers[event_type].clear()
+                self._async_handlers[event_type].clear()
+                self.logger.info(f"Cleared handlers for {event_type.name}")
+            else:
+                self.handlers.clear()
+                self._async_handlers.clear()
+                self.logger.info("Cleared all handlers")
 
-# ==============================================================================
-# MODULE FUNCTIONS
-# ==============================================================================
-# Global instance
-_event_manager_instance: Optional[EventManager] = None
+# =============================================================================
+# Singleton Instance
+# =============================================================================
+_event_manager_instance = None
 
 def get_event_manager() -> EventManager:
     """
-    Get singleton event manager instance.
+    Get the singleton EventManager instance.
     
     Returns:
-        EventManager instance
+        The global EventManager instance
     """
     global _event_manager_instance
     if _event_manager_instance is None:
         _event_manager_instance = EventManager()
     return _event_manager_instance
 
-# ==============================================================================
-# MODULE INITIALIZATION
-# ==============================================================================
-# Export all public symbols
-__all__ = [
-    'EventManager',
-    'Event', 
-    'EventType',
-    'EventPriority',
-    'EventSubscription',
-    'get_event_manager'
-]
-
-# ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
+# =============================================================================
+# Example Usage and Testing
+# =============================================================================
 if __name__ == "__main__":
-    # Module testing code
-    manager = EventManager()
+    # Example usage
+    em = get_event_manager()
     
-    if manager.start():
-        print("✅ EventManager test passed")
-        
-        # Test subscription
-        def test_callback(event):
-            print(f"Received event: {event}")
-        
-        manager.subscribe(EventType.TRADE_EXECUTED, test_callback)
-        
-        # Test publishing
-        manager.publish(EventType.TRADE_EXECUTED, {"symbol": "SPY", "price": 450.0})
-        
-        # Show statistics
-        stats = manager.get_statistics()
-        print(f"Statistics: {stats}")
-        
-        # Cleanup
-        manager.stop()
-        manager.cleanup()
-    else:
-        print("❌ EventManager test failed")
+    # Define a sample handler
+    def handle_trade(event: Event):
+        print(f"Trade executed: {event.data}")
+    
+    # Register handler
+    em.register_handler(EventType.TRADE_EXECUTED, handle_trade)
+    
+    # Start event manager
+    em.start()
+    
+    # Publish an event
+    em.publish_event(
+        EventType.TRADE_EXECUTED,
+        {"symbol": "SPY", "quantity": 100, "price": 450.50},
+        source="TradingEngine"
+    )
+    
+    # Process events
+    em.process_events()
+    
+    # Stop event manager
+    em.stop()

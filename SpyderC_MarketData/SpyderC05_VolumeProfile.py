@@ -45,7 +45,7 @@ from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 from SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager
 
 # ==============================================================================

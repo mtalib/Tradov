@@ -46,7 +46,7 @@ from SpyderU_Utilities.SpyderU07_Constants import (
     PositionSide, TRADING_DAYS_PER_YEAR, OPTION_MULTIPLIER
 )
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, EventPriority
-from SpyderB_Broker.SpyderB01_IBClient import IBClient, TickerId
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient, TickerId
 from SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, IBPosition
 
 # Try to import Greeks calculator, but make it optional
@@ -256,7 +256,7 @@ class PositionTracker:
     - Risk metric calculation
     """
     
-    def __init__(self, ib_client: IBClient = None, event_manager: EventManager = None):
+    def __init__(self, ib_client: SpyderClient = None, event_manager: EventManager = None):
         """
         Initialize position tracker.
         
@@ -943,7 +943,7 @@ if __name__ == "__main__":
     from SpyderA_Core.SpyderA05_EventManager import EventManager
     
     # Mock IB client
-    class MockIBClient:
+    class MockSpyderClient:
         def __init__(self):
             self.callbacks = defaultdict(list)
         
@@ -961,7 +961,7 @@ if __name__ == "__main__":
     
     # Initialize
     event_manager = EventManager()
-    ib_client = MockIBClient()
+    ib_client = MockSpyderClient()
     tracker = PositionTracker(ib_client, event_manager)
     
     # Create test contract

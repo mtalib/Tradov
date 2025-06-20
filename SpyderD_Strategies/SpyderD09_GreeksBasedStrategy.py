@@ -46,7 +46,7 @@ from SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import (
     OPRAGreeksHandler, ValidatedGreeks, PortfolioGreeks
 )
 from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 
 # ==============================================================================
 # CONSTANTS
@@ -1002,7 +1002,7 @@ class GreeksBasedStrategy(BaseStrategy):
 if __name__ == "__main__":
     from SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler
     from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-    from SpyderB_Broker.SpyderB01_IBClient import IBClient
+    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
     
     # Initialize components
     opra_handler = OPRAGreeksHandler()

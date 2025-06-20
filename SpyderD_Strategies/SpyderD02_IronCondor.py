@@ -39,7 +39,7 @@ import pandas as pd
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, StrategySignal, PositionType
-from SpyderB_Broker.SpyderB01_IBClient import get_ib_client
+from SpyderB_Broker.SpyderB01_SpyderClient import get_ib_client
 from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
 from SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager

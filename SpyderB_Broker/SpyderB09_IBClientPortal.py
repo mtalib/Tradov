@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderB09_IBClientPortal.py
+Module: SpyderB09_SpyderClientPortal.py
 Group: B (Broker Interface)
 Purpose: Interactive Brokers Client Portal Web API interface
 
@@ -94,7 +94,7 @@ class OrderStatus(Enum):
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
-class IBClientPortal:
+class SpyderClientPortal:
     """
     Interactive Brokers Client Portal Web API Client.
     
@@ -111,7 +111,7 @@ class IBClientPortal:
         account_id: Current account ID
         
     Example:
-        >>> client = IBClientPortal()
+        >>> client = SpyderClientPortal()
         >>> client.authenticate()
         >>> positions = client.get_positions()
     """
@@ -505,15 +505,15 @@ class IBClientPortal:
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def get_client_portal_client(config: Dict = None) -> IBClientPortal:
+def get_client_portal_client(config: Dict = None) -> SpyderClientPortal:
     """
-    Get IBClientPortal instance.
+    Get SpyderClientPortal instance.
     
     Args:
         config: Configuration dictionary
         
     Returns:
-        IBClientPortal instance
+        SpyderClientPortal instance
     """
     if config is None:
         from SpyderA_Core.SpyderA03_Configuration import get_config_manager
@@ -521,13 +521,13 @@ def get_client_portal_client(config: Dict = None) -> IBClientPortal:
         config = config_manager.get_config()
     
     base_url = config.get("ib", {}).get("client_portal", {}).get("base_url", DEFAULT_BASE_URL)
-    return IBClientPortal(base_url, config)
+    return SpyderClientPortal(base_url, config)
 
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
 __all__ = [
-    'IBClientPortal',
+    'SpyderClientPortal',
     'get_client_portal_client',
     'AuthStatus',
     'OrderStatus'
@@ -538,9 +538,9 @@ __all__ = [
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    client = IBClientPortal()
+    client = SpyderClientPortal()
     
-    print("✅ IBClientPortal created successfully")
+    print("✅ SpyderClientPortal created successfully")
     
     # Test authentication status
     auth_status = client.get_auth_status()

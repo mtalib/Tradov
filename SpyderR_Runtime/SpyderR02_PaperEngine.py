@@ -42,7 +42,7 @@ from ibapi.order import Order
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderB_Broker.SpyderB01_IBClient import IBClient as SpyderIBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient as SpyderIBClient
 from SpyderB_Broker.SpyderB02_OrderManager import OrderManager
 from SpyderB_Broker.SpyderB03_PositionTracker import PositionTracker
 from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, Signal

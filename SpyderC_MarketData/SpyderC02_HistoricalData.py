@@ -46,7 +46,7 @@ from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 from SpyderH_Storage.SpyderH03_MarketDataCache import MarketDataCache
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 
 # ==============================================================================
 # CONSTANTS

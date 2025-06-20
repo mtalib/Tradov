@@ -92,17 +92,17 @@ class TradingEngine:
     all system components to provide automated trading capabilities.
     """
 
-    def __init__(self, config, ib_client, event_manager):
+    def __init__(self, config, spyder_client, event_manager):
         """
         Initialize trading engine.
 
         Args:
             config: Configuration manager instance
-            ib_client: Interactive Brokers client
+            spyder_client: Interactive Brokers client
             event_manager: Event manager instance
         """
         self.config = config
-        self.ib_client = ib_client
+        self.spyder_client = spyder_client
         self.event_manager = event_manager
 
         # Initialize logger and error handler
@@ -399,7 +399,7 @@ class TradingEngine:
             
             # Get instance (pass dependencies if needed)
             if component_name in ['order_manager', 'position_manager']:
-                instance = factory(self.ib_client)
+                instance = factory(self.spyder_client)
             else:
                 instance = factory()
             
@@ -689,21 +689,21 @@ class TradingEngine:
 # =============================================================================
 # Module Functions
 # =============================================================================
-def get_trading_engine(config=None, ib_client=None, event_manager=None):
+def get_trading_engine(config=None, spyder_client=None, event_manager=None):
     """
     Get trading engine instance.
 
     Args:
         config: Configuration manager
-        ib_client: IB client
+        spyder_client: IB client
         event_manager: Event manager
 
     Returns:
         TradingEngine instance
     """
     global _TRADING_ENGINE_INSTANCE
-    if _TRADING_ENGINE_INSTANCE is None and all([config, ib_client, event_manager]):
-        _TRADING_ENGINE_INSTANCE = TradingEngine(config, ib_client, event_manager)
+    if _TRADING_ENGINE_INSTANCE is None and all([config, spyder_client, event_manager]):
+        _TRADING_ENGINE_INSTANCE = TradingEngine(config, spyder_client, event_manager)
     return _TRADING_ENGINE_INSTANCE
 
 
@@ -725,7 +725,7 @@ if __name__ == "__main__":
         def get(self, key, default=None):
             return default
     
-    class MockIBClient:
+    class MockSpyderClient:
         def is_connected(self):
             return True
     
@@ -738,10 +738,10 @@ if __name__ == "__main__":
     
     # Create engine
     config = MockConfig()
-    ib_client = MockIBClient()
+    spyder_client = MockSpyderClient()
     event_manager = MockEventManager()
     
-    engine = TradingEngine(config, ib_client, event_manager)
+    engine = TradingEngine(config, spyder_client, event_manager)
     
     # Test status
     status = engine.get_status()

@@ -47,7 +47,7 @@ from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder, OptionRight
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 

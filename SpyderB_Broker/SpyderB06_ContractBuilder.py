@@ -42,7 +42,7 @@ from scipy.stats import norm
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 
 # ==============================================================================
 # CONSTANTS
@@ -163,7 +163,7 @@ class ContractBuilder:
     - Expiration date calculation
     """
     
-    def __init__(self, ib_client: Optional[IBClient] = None):
+    def __init__(self, ib_client: Optional[SpyderClient] = None):
         """
         Initialize contract builder.
         

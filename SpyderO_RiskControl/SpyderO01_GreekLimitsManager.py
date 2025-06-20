@@ -46,7 +46,7 @@ from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU07_Constants import AlertLevel
 from SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler, PortfolioGreeks
 from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 from SpyderJ_Alerts.SpyderJ01_AlertManager import AlertManager
 
 # ==============================================================================
