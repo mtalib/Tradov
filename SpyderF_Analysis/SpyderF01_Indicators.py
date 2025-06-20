@@ -175,7 +175,7 @@ class TechnicalIndicators:
             use_talib: Whether to use TA-Lib library
             use_finta: Whether to use Finta library
         """
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self._use_talib = use_talib and HAS_TALIB
         self._use_finta = use_finta and HAS_FINTA

@@ -194,7 +194,7 @@ class EventManager:
     
     def __init__(self):
         """Initialize the EventManager."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # Subscription management

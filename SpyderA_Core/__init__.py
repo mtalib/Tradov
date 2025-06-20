@@ -16,39 +16,20 @@ Version: 1.4
 """
 
 # ==============================================================================
-# MODULE IMPORTS
+# MODULE IMPORTS - Simplified to avoid circular imports
 # ==============================================================================
-from .SpyderA01_Main import SpyderApplication, main
-from .SpyderA02_TradingEngine import TradingEngine, get_trading_engine
-from .SpyderA03_Configuration import ConfigManager, get_config_manager
-from .SpyderA04_Scheduler import TradingScheduler, get_scheduler
-from .SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager
+# We'll import these directly when needed instead of at package level
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
-    # Main application
-    "SpyderApplication",
-    "main",
-    
-    # Trading engine
-    "TradingEngine",
-    "get_trading_engine",
-    
-    # Configuration - Fixed class names
-    "ConfigManager",
-    "get_config_manager",
-    
-    # Scheduler - Fixed class names
-    "TradingScheduler", 
-    "get_scheduler",
-    
-    # Event management
-    "EventManager",
-    "Event",
-    "EventType",
-    "get_event_manager",
+    # Modules available
+    "SpyderA01_Main",
+    "SpyderA02_TradingEngine",
+    "SpyderA03_Configuration",
+    "SpyderA04_Scheduler",
+    "SpyderA05_EventManager",
 ]
 
 # ==============================================================================

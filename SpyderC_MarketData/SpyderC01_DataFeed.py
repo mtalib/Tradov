@@ -170,7 +170,7 @@ class DataFeedManager:
     
     def __init__(self, config: Optional[DataFeedConfig] = None):
         """Initialize data feed manager."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # Configuration

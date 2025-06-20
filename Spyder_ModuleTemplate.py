@@ -89,7 +89,7 @@ class ModuleClassName:
     
     def __init__(self):
         """Initialize the module."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.state = ModuleState.INITIALIZED
         

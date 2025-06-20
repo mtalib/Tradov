@@ -242,7 +242,7 @@ class IBDataTypeManager:
     
     def __init__(self):
         """Initialize the IB data type manager."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         self.logger.info(f"{self.__class__.__name__} initialized")

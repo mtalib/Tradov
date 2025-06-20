@@ -118,7 +118,7 @@ class IBClient:
     
     def __init__(self, config=None):
         """Initialize IB Web API Client."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # Configuration
@@ -322,7 +322,7 @@ class IBGatewayClient:
                 "ib_insync is required for IBGatewayClient. Please install: pip install ib_insync"
             )
         
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # IB connection
@@ -680,7 +680,7 @@ def get_ib_client(config=None) -> Union[IBClient, IBGatewayClient]:
     Returns:
         Union[IBClient, IBGatewayClient]: Client instance
     """
-    logger = SpyderLogger(__name__)
+    logger = SpyderLogger.get_logger(__name__)
     
     # Check environment variables first
     use_gateway_env = os.getenv("IB_USE_GATEWAY", "false").lower()

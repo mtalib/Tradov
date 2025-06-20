@@ -167,7 +167,7 @@ class LiveEngine:
     
     def __init__(self, broker_interface, risk_manager, config: LiveTradingConfig):
         """Initialize the live engine."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config
         self.broker = broker_interface

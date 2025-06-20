@@ -138,7 +138,7 @@ class TradingCalendar:
     
     def __init__(self, exchange: Exchange = Exchange.NYSE):
         """Initialize the trading calendar."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # Exchange and timezone

@@ -65,7 +65,7 @@ try:
     from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
     from SpyderB_Broker.SpyderB01_IBClient import IBClient
     from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-    from SpyderG_GUI.SpyderG01_MainWindow import MainWindow
+    from SpyderG_GUI.SpyderG01_MainWindow import SpyderMainWindow as MainWindow
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError as e:
     print(f"Error importing Spyder modules: {e}")
@@ -130,7 +130,7 @@ class SpyderApplication:
             config_path: Path to configuration file
             headless: Run without GUI
         """
-        self.logger = SpyderLogger(__name__)
+        self.logger = get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.headless = headless
         self.is_running = False
@@ -166,7 +166,7 @@ class SpyderApplication:
         LOG_PATH.mkdir(parents=True, exist_ok=True)
         
         # Configure logger
-        self.logger.set_level(log_level)
+        self.logger.setLevel(log_level)
         self.logger.add_file_handler(log_file)
         
     async def initialize_components(self):

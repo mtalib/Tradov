@@ -194,7 +194,7 @@ class VolatilitySurfaceAnalyzer:
             symbol: Underlying symbol to analyze
         """
         self.symbol = symbol
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # Data sources

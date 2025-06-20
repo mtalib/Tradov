@@ -195,7 +195,7 @@ class AIAgentMonitor:
     
     def __init__(self, agent_manager):
         """Initialize the AI agent monitor."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.agent_manager = agent_manager
         

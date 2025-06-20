@@ -169,7 +169,7 @@ class TechnicalIndicators:
         Args:
             use_pandas_ta: Whether to use pandas-ta library
         """
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self._use_pandas_ta = use_pandas_ta and HAS_PANDAS_TA
         self.cache: Dict[str, Tuple[Any, int]] = {}

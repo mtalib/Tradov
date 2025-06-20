@@ -17,33 +17,41 @@ Version: 1.4
 # ==============================================================================
 # MODULE IMPORTS
 # ==============================================================================
-from .SpyderG01_MainWindow import MainWindow
-from .SpyderG02_Dashboard import Dashboard, DashboardWidget
-from .SpyderG03_GUIEntry import start_gui, SpyderGUI
+from .SpyderG01_MainWindow import SpyderMainWindow
+from .SpyderG02_Dashboard import TradingDashboard as G02_TradingDashboard
+from .SpyderG03_GUIEntry import main as start_gui, SpyderGUIApplication
 from .SpyderG04_OptionChainWidget import OptionChainWidget
 from .SpyderG05_ChartWidget import ChartWidget
-from .SpyderG06_TradingDashboard import TradingDashboard
+from .SpyderG06_TradingDashboard import SpyderTradingDashboard as TradingDashboard
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
     # Main window
-    "MainWindow",
+    "SpyderMainWindow",
+    "MainWindow",  # Alias for backward compatibility
     
     # Dashboard
-    "Dashboard",
-    "DashboardWidget",
     "TradingDashboard",
+    "Dashboard",  # Alias for backward compatibility
+    "DashboardWidget",  # Alias for backward compatibility
     
     # GUI entry
     "start_gui",
-    "SpyderGUI",
+    "SpyderGUI",  # Alias
+    "SpyderGUIApplication",
     
     # Widgets
     "OptionChainWidget",
     "ChartWidget",
 ]
+
+# Create aliases for backward compatibility
+MainWindow = SpyderMainWindow
+Dashboard = G02_TradingDashboard
+DashboardWidget = G02_TradingDashboard
+SpyderGUI = SpyderGUIApplication
 
 # ==============================================================================
 # PACKAGE METADATA

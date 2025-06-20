@@ -118,7 +118,7 @@ class IBClientPortal:
     
     def __init__(self, base_url: str = DEFAULT_BASE_URL, config: Dict = None):
         """Initialize IB Client Portal client."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # Configuration

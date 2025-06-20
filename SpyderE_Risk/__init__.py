@@ -19,7 +19,7 @@ Version: 1.4
 # ==============================================================================
 from .SpyderE01_RiskManager import RiskManager, get_risk_manager
 from .SpyderE02_PositionSizer import PositionSizer, SizingMethod
-from .SpyderE03_StopLossManager import StopLossManager, StopLossType
+from .SpyderE03_StopLossManager import StopLossManager, StopType  # Changed from StopLossType
 from .SpyderE04_DrawdownControl import DrawdownController
 from .SpyderE06_RiskMetrics import RiskMetrics, PortfolioRisk
 
@@ -37,7 +37,7 @@ __all__ = [
     
     # Stop loss
     "StopLossManager",
-    "StopLossType",
+    "StopType",  # Changed from StopLossType
     
     # Drawdown control
     "DrawdownController",

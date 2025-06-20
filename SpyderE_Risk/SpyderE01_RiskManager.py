@@ -236,7 +236,7 @@ class RiskManager:
     
     def __init__(self, config=None):
         """Initialize risk manager."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # Configuration

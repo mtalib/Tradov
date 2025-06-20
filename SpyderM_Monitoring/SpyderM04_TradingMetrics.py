@@ -224,7 +224,7 @@ class TradingMetrics:
     
     def __init__(self):
         """Initialize the trading metrics system."""
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
         # Metrics storage

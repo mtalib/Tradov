@@ -176,7 +176,7 @@ class TradeRepository:
     
     def __init__(self, dal: 'DataAccessLayer'):
         self.dal = dal
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         
     async def create(self, trade: Trade) -> str:
         """Create a new trade"""
@@ -329,7 +329,7 @@ class PositionRepository:
     
     def __init__(self, dal: 'DataAccessLayer'):
         self.dal = dal
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         
     async def update_position(
         self,
@@ -408,7 +408,7 @@ class MarketDataRepository:
     
     def __init__(self, dal: 'DataAccessLayer'):
         self.dal = dal
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         
     async def save_tick(self, data: MarketData):
         """Save market data tick"""
@@ -486,7 +486,7 @@ class DataAccessLayer:
         if hasattr(self, '_initialized'):
             return
             
-        self.logger = SpyderLogger(__name__)
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = get_config_manager()
         

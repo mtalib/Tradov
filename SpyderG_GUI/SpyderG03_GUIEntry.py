@@ -534,3 +534,8 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+# Convenience function for compatibility
+def start_gui():
+    """Convenience function to start the GUI application"""
+    return main()
+
