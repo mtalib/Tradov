@@ -157,6 +157,8 @@ class SpyderApplication:
         
         self.logger.info(f"Initializing {APPLICATION_NAME} v{VERSION}")
         
+    
+    
     def _setup_logging(self):
         """Configure application logging."""
         log_config = self.config.get('logging', {})
@@ -201,10 +203,9 @@ class SpyderApplication:
             # Initialize trading engine
             self.logger.info("Initializing trading engine...")
             self.trading_engine = TradingEngine(
+                config=self.config,
                 ib_client=self.ib_client,
-                risk_manager=self.risk_manager,
-                event_manager=self.event_manager,
-                config=self.config
+                event_manager=self.event_manager
             )
             
             # Register event handlers
@@ -242,6 +243,8 @@ class SpyderApplication:
         self.main_window.setWindowTitle(f"{APPLICATION_NAME} v{VERSION}")
         self.main_window.show()
     
+    
+    
     def _register_event_handlers(self):
         """Register event handlers for system events."""
         # System events
@@ -258,17 +261,23 @@ class SpyderApplication:
         # Risk events
         self.event_manager.register_handler(EventType.RISK_LIMIT_EXCEEDED, self._handle_risk_limit)
     
+    
+    
     def _handle_system_error(self, event: Event):
         """Handle system error events."""
         self.logger.error(f"System error: {event.data}")
         if not self.headless and self.main_window:
             self.main_window.show_error(str(event.data))
     
+    
+    
     def _handle_system_warning(self, event: Event):
         """Handle system warning events."""
         self.logger.warning(f"System warning: {event.data}")
         if not self.headless and self.main_window:
             self.main_window.show_warning(str(event.data))
+    
+    
     
     def _handle_trade_executed(self, event: Event):
         """Handle trade execution events."""
@@ -282,6 +291,8 @@ class SpyderApplication:
         if not self.headless and self.main_window:
             self.main_window.update_trades(trade_data)
     
+    
+    
     def _handle_position_updated(self, event: Event):
         """Handle position update events."""
         position_data = event.data
@@ -294,10 +305,14 @@ class SpyderApplication:
         if not self.headless and self.main_window:
             self.main_window.update_positions(position_data)
     
+    
+    
     def _handle_market_data(self, event: Event):
         """Handle market data events."""
         # Cache market data
         self.dal.market_data.cache_quote(event.data)
+    
+    
     
     def _handle_risk_limit(self, event: Event):
         """Handle risk limit exceeded events."""
@@ -355,6 +370,8 @@ class SpyderApplication:
         
         self.logger.info("Trading system started successfully")
     
+    
+    
     def stop_trading(self):
         """Stop the trading system."""
         if not self.is_running:
@@ -373,6 +390,8 @@ class SpyderApplication:
         
         self.is_running = False
         self.logger.info("Trading system stopped")
+    
+    
     
     def _is_market_open(self) -> bool:
         """Check if market is currently open."""
@@ -413,10 +432,19 @@ class SpyderApplication:
             self.logger.error(f"Application error: {str(e)}")
             raise
         finally:
-            await self.shutdown()
+            finally:
+
+    def save_state(self):
+        """Save application state."""
+        try:
+            self.logger.info("Saving application state...")
+            # TODO: Implement actual state saving
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save state: {e}")
+            return False
     
-    async def shutdown(self):
-        """Perform graceful shutdown."""
+    async def shutdown(self):        """Perform graceful shutdown."""
         self.logger.info("Initiating graceful shutdown...")
         
         try:
@@ -446,7 +474,9 @@ class SpyderApplication:
         except Exception as e:
             self.logger.error(f"Error during shutdown: {str(e)}")
     
-    def _save_state(self):
+    
+    
+    def save_state(self):
         """Save application state to disk."""
         state = {
             'version': VERSION,
