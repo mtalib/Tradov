@@ -20,8 +20,8 @@ Version: 1.4
 # ==============================================================================
 from .SpyderA01_Main import SpyderApplication, main
 from .SpyderA02_TradingEngine import TradingEngine, get_trading_engine
-from .SpyderA03_Configuration import Configuration, get_config
-from .SpyderA04_Scheduler import Scheduler, get_scheduler
+from .SpyderA03_Configuration import ConfigManager, get_config_manager
+from .SpyderA04_Scheduler import TradingScheduler, get_scheduler
 from .SpyderA05_EventManager import EventManager, Event, EventType, get_event_manager
 
 # ==============================================================================
@@ -36,12 +36,12 @@ __all__ = [
     "TradingEngine",
     "get_trading_engine",
     
-    # Configuration
-    "Configuration",
-    "get_config",
+    # Configuration - Fixed class names
+    "ConfigManager",
+    "get_config_manager",
     
-    # Scheduler
-    "Scheduler", 
+    # Scheduler - Fixed class names
+    "TradingScheduler", 
     "get_scheduler",
     
     # Event management

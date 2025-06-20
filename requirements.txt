@@ -45,11 +45,11 @@ yfinance>=0.2.18
 pandas-market-calendars>=4.1.4
 exchange-calendars>=4.2.0
 
-# Technical analysis
-ta>=0.10.2
-ta-lib>=0.4.28  # Requires system library: sudo apt-get install ta-lib
-tulipy>=0.4.0
-pandas-ta>=0.3.14b
+# Technical analysis (UPDATED - using pandas-ta instead of ta-lib)
+pandas-ta>=0.3.14b  # Pure Python, no C dependencies!
+ta>=0.10.2  # Additional indicators
+tulipy>=0.4.0  # Fast technical indicators (optional)
+# REMOVED: ta-lib - causes installation issues
 
 # =============================================================================
 # MACHINE LEARNING AND AI
@@ -67,78 +67,65 @@ lightgbm>=4.0.0
 
 # ML utilities
 imbalanced-learn>=0.11.0
+shap>=0.42.0  # Model interpretability
 optuna>=3.2.0  # Hyperparameter optimization
-shap>=0.42.0   # Model explainability
 
 # =============================================================================
 # DATABASE AND STORAGE
 # =============================================================================
 
-# Database
+# Database connectivity
 sqlalchemy>=2.0.0
-alembic>=1.11.0  # Database migrations
-psycopg2-binary>=2.9.6  # PostgreSQL support
-
-# Caching
-redis>=4.5.0
-cachetools>=5.3.0
+psycopg2-binary>=2.9.6  # PostgreSQL
+pymongo>=4.4.0  # MongoDB (optional)
+redis>=4.6.0  # Redis cache (optional)
 
 # Data serialization
 msgpack>=1.0.5
-pyarrow>=12.0.0
+protobuf>=4.23.0
+pyarrow>=12.0.0  # For Parquet files
 
 # =============================================================================
-# USER INTERFACE
+# GUI AND VISUALIZATION
 # =============================================================================
 
-# Qt for desktop GUI
+# GUI Framework
 PyQt5>=5.15.9
-pyqtgraph>=0.13.3
+pyqtgraph>=0.13.0  # Fast plotting for PyQt
+
+# Plotting and visualization
 matplotlib>=3.7.0
 seaborn>=0.12.0
-plotly>=5.14.0
-
-# Web interface (optional)
-# dash>=2.11.0
-# flask>=2.3.0
-# fastapi>=0.100.0
+plotly>=5.15.0
+dash>=2.11.0  # Optional: for web dashboards
 
 # =============================================================================
-# NETWORKING AND COMMUNICATION
+# WEB AND API
 # =============================================================================
 
-# HTTP clients
+# Web framework
+flask>=2.3.0
+flask-cors>=4.0.0
+flask-socketio>=5.3.0  # Real-time updates
+
+# API clients
 requests>=2.31.0
-aiohttp>=3.8.0
-urllib3>=2.0.0
-
-# WebSocket
+aiohttp>=3.8.0  # Async HTTP
 websocket-client>=1.6.0
-websockets>=11.0
-
-# Network utilities
-netifaces>=0.11.0
-psutil>=5.9.0
-
-# =============================================================================
-# SECURITY AND ENCRYPTION
-# =============================================================================
-
-# Encryption
-cryptography>=41.0.0
-pycryptodome>=3.18.0
-
-# Authentication
-python-jose>=3.3.0
-passlib>=1.7.4
+python-socketio>=5.9.0
 
 # =============================================================================
 # UTILITIES
 # =============================================================================
 
+# Encryption and security
+cryptography>=41.0.0
+pycryptodome>=3.18.0
+python-jose>=3.3.0  # JWT tokens
+
 # Task scheduling
-schedule>=1.2.0
 apscheduler>=3.10.0
+schedule>=1.2.0
 celery>=5.3.0  # Optional: for distributed tasks
 
 # Retry and resilience
@@ -195,16 +182,22 @@ sphinx-rtd-theme>=1.3.0
 # azure-storage-blob>=12.17.0  # Azure
 
 # =============================================================================
-# SYSTEM SPECIFIC NOTES
+# INSTALLATION NOTES
 # =============================================================================
 
-# For Ubuntu/Debian systems, install these system packages first:
+# For Ubuntu/Debian systems, you now only need these system packages:
 # sudo apt-get update
 # sudo apt-get install -y python3-dev python3-pip
 # sudo apt-get install -y libpq-dev  # For PostgreSQL
-# sudo apt-get install -y ta-lib  # For TA-Lib
 # sudo apt-get install -y libxml2-dev libxslt1-dev  # For some data packages
 # sudo apt-get install -y libatlas-base-dev gfortran  # For numpy/scipy
+
+# NO LONGER NEEDED: ta-lib system library installation!
+# The switch to pandas-ta eliminates the need for:
+# - wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+# - tar -xzf ta-lib-0.4.0-src.tar.gz
+# - ./configure --prefix=/usr
+# - make && sudo make install
 
 # For PyQt5 on Ubuntu:
 # sudo apt-get install -y python3-pyqt5 pyqt5-dev-tools

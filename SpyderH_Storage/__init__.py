@@ -16,15 +16,21 @@ Version: 1.4
 # ==============================================================================
 # MODULE IMPORTS
 # ==============================================================================
-from .SpyderH01_DataAccessLayer import DataAccessLayer, get_dal
+from .SpyderH01_DataAccessLayer import DataAccessLayer, get_data_access_layer
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
     "DataAccessLayer",
-    "get_dal",
+    "get_data_access_layer",
 ]
+
+# ==============================================================================
+# CONVENIENCE ALIAS
+# ==============================================================================
+# For backward compatibility and shorter name
+get_dal = get_data_access_layer
 
 # ==============================================================================
 # PACKAGE METADATA
