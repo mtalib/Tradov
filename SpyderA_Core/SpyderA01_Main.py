@@ -47,8 +47,8 @@ import json
 # =============================================================================
 try:
     import pytz
-    from PyQt5.QtWidgets import QApplication
-    from PyQt5.QtCore import QTimer
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QTimer
 except ImportError as e:
     print(f"Warning: Missing required dependency: {e}")
     print("Please install requirements: pip install -r requirements.txt")
@@ -420,7 +420,7 @@ class SpyderApplication:
 
             # Run GUI event loop if not headless
             if not self.headless:
-                self.gui_app.exec_()
+                self.gui_app.exec()
             else:
                 # Keep running until interrupted
                 while self.is_running:

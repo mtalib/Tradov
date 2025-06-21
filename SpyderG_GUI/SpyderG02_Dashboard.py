@@ -34,36 +34,8 @@ import threading
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt5.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QGridLayout,
-    QLabel,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
-    QSplitter,
-    QGroupBox,
-    QTabWidget,
-    QTextEdit,
-    QProgressBar,
-    QComboBox,
-    QSpinBox,
-    QDoubleSpinBox,
-    QCheckBox,
-    QMessageBox,
-    QDialog,
-    QDialogButtonBox,
-    QFrame,
-    QScrollArea,
-)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThread
-from PyQt5.QtGui import QFont, QPalette, QColor, QIcon, QPixmap
-
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThread
+from PyQt6.QtGui import QFont, QPalette, QColor, QIcon, QPixmap
 import pandas as pd
 import numpy as np
 
@@ -123,7 +95,7 @@ class TradingModeSelectorDialog(QDialog):
 
         # Title
         title = QLabel("Select Trading Mode")
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_font = QFont()
         title_font.setPointSize(18)
         title_font.setBold(True)
@@ -178,7 +150,7 @@ class TradingModeSelectorDialog(QDialog):
                 f"{self.paper_stats['trades']} trades, "
                 f"{self.paper_stats['win_rate']:.1%} win rate"
             )
-            stats_label.setAlignment(Qt.AlignCenter)
+            stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(stats_label)
 
         # Live trading mode
@@ -481,7 +453,7 @@ class TradingDashboard(QMainWindow):
 
         # Mode banner (will be updated based on selected mode)
         self.mode_banner = QLabel("No Mode Selected")
-        self.mode_banner.setAlignment(Qt.AlignCenter)
+        self.mode_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.mode_banner.setStyleSheet(
             """
             QLabel {
@@ -499,7 +471,7 @@ class TradingDashboard(QMainWindow):
         main_layout.addWidget(control_panel)
 
         # Main content splitter
-        content_splitter = QSplitter(Qt.Horizontal)
+        content_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left panel - Positions and Orders
         left_panel = self._create_left_panel()
@@ -707,7 +679,7 @@ class TradingDashboard(QMainWindow):
         """Show mode selector dialog"""
         dialog = TradingModeSelectorDialog(self, self.trading_mode)
 
-        if dialog.exec_():
+        if dialog.exec():
             new_mode = dialog.selected_mode
             if new_mode != self.trading_mode:
                 self.change_trading_mode(new_mode)
@@ -954,20 +926,20 @@ class TradingDashboard(QMainWindow):
         slow_timer.start(SLOW_UPDATE_MS)
         self.update_timers.append(slow_timer)
 
-    @pyqtSlot()
+    @Slot()
     def _update_fast(self):
         """Fast updates - positions and orders"""
         self._update_positions()
         self._update_orders()
         self._update_market_internals()
 
-    @pyqtSlot()
+    @Slot()
     def _update_normal(self):
         """Normal updates - account and strategy"""
         self._update_account_info()
         self._update_strategy_performance()
 
-    @pyqtSlot()
+    @Slot()
     def _update_slow(self):
         """Slow updates - charts"""
         self._update_charts()
@@ -1117,7 +1089,7 @@ class TradingDashboard(QMainWindow):
         if widget.rowCount() == 0:
             widget.insertRow(0)
             item = QTableWidgetItem(text)
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             widget.setItem(0, 0, item)
             widget.setSpan(0, 0, 1, widget.columnCount())
 

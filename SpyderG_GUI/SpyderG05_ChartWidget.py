@@ -14,7 +14,8 @@ Description:
 
 Author: Mohamed Talib
 Date: 2025-06-05
-Version: 1.4
+Version: 1.5
+Updated: 2025-06-22 - Migrated to PyQt6
 """
 
 # ==============================================================================
@@ -30,33 +31,23 @@ import threading
 import time
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS
+# PYTHON PATH SETUP
 # ==============================================================================
-from PyQt5.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QComboBox,
-    QLabel,
-    QCheckBox,
-    QSpinBox,
-    QGroupBox,
-    QSplitter,
-    QSlider,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
-    QMenu,
-    QAction,
-    QFileDialog,
-    QColorDialog,
-    QInputDialog,
-    QMessageBox,
-)
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QPointF
-from PyQt5.QtGui import QPalette, QColor, QFont, QPen, QBrush, QPixmap
+import sys
+from pathlib import Path
 
+# Add project root to Python path
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS - UPDATED TO PYQT6
+# ==============================================================================
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, \
+    QCheckBox, QGroupBox, QSplitter, QMenu, QApplication, QComboBox
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QPointF
+from PyQt6.QtGui import QPalette, QColor, QFont, QPen, QBrush, QPixmap, QAction
 try:
     import pyqtgraph as pg
 
@@ -69,8 +60,42 @@ except ImportError:
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderA_Core.SpyderA05_EventManager import Event, EventType
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from SpyderA_Core.SpyderA05_EventManager import Event, EventType
+except ImportError as e:
+    print(f"Warning: Cannot import Spyder modules: {e}")
+    print("Creating fallback logger...")
+    
+    # Create fallback logger
+    import logging
+    
+    class FallbackLogger:
+        def __init__(self, name):
+            self.logger = logging.getLogger(name)
+            self.logger.setLevel(logging.INFO)
+            if not self.logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                handler.setFormatter(formatter)
+                self.logger.addHandler(handler)
+        
+        @classmethod
+        def get_logger(cls, name):
+            return cls(name).logger
+    
+    SpyderLogger = FallbackLogger
+    
+    # Create fallback Event classes
+    class EventType:
+        MARKET_DATA = "market_data"
+        PRICE = "price"
+        TRADE = "trade"
+    
+    class Event:
+        def __init__(self, event_type, data=None):
+            self.type = event_type
+            self.data = data or {}
 
 # ==============================================================================
 # CONSTANTS
@@ -203,6 +228,9 @@ class ChartWidget(QWidget):
 
         self.logger.info("ChartWidget initialized")
 
+    # ==========================================================================
+    # UI SETUP METHODS
+    # ==========================================================================
     def setup_ui(self):
         """Setup the complete chart UI"""
         layout = QVBoxLayout()
@@ -214,7 +242,7 @@ class ChartWidget(QWidget):
 
         if PYQTGRAPH_AVAILABLE:
             # Create main chart area
-            self.chart_splitter = QSplitter(Qt.Vertical)
+            self.chart_splitter = QSplitter(Qt.Orientation.Vertical)
 
             # Price chart - create the widget properly
             self.price_widget = pg.PlotWidget(
@@ -492,7 +520,7 @@ class ChartWidget(QWidget):
             "Chart visualization requires pyqtgraph\n"
             "Install with: pip install pyqtgraph"
         )
-        fallback_label.setAlignment(Qt.AlignCenter)
+        fallback_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         fallback_label.setStyleSheet("color: #ff0000; font-size: 14px; padding: 50px;")
         layout.addWidget(fallback_label)
 
@@ -545,7 +573,7 @@ class ChartWidget(QWidget):
                 self.price_items["current_price"] = pg.InfiniteLine(
                     angle=0,
                     pos=price,
-                    pen=pg.mkPen(color="y", width=2, style=Qt.DashLine),
+                    pen=pg.mkPen(color="y", width=2, style=Qt.PenStyle.DashLine),
                     label=f"${price:.2f}",
                     labelOpts={"position": 0.95, "color": "y"},
                 )
@@ -579,14 +607,22 @@ class ChartWidget(QWidget):
 
     def _draw_price_chart(self):
         """Draw price candles/bars"""
+        if not hasattr(self, 'main_plot') or self.main_plot is None:
+            return
+
         self.main_plot.clear()
 
         # Re-add persistent items
-        self.main_plot.addItem(self.v_line, ignoreBounds=True)
-        self.main_plot.addItem(self.h_line, ignoreBounds=True)
-        self.main_plot.addItem(self.crosshair_price_label, ignoreBounds=True)
-        self.main_plot.addItem(self.crosshair_time_label, ignoreBounds=True)
-        self.main_plot.addItem(self.info_label, ignoreBounds=True)
+        if hasattr(self, 'v_line'):
+            self.main_plot.addItem(self.v_line, ignoreBounds=True)
+        if hasattr(self, 'h_line'):
+            self.main_plot.addItem(self.h_line, ignoreBounds=True)
+        if hasattr(self, 'crosshair_price_label'):
+            self.main_plot.addItem(self.crosshair_price_label, ignoreBounds=True)
+        if hasattr(self, 'crosshair_time_label'):
+            self.main_plot.addItem(self.crosshair_time_label, ignoreBounds=True)
+        if hasattr(self, 'info_label'):
+            self.main_plot.addItem(self.info_label, ignoreBounds=True)
 
         # Prepare data
         timestamps = list(range(len(self.price_data)))
@@ -641,8 +677,29 @@ class ChartWidget(QWidget):
                 )
                 self.main_plot.addItem(body)
 
+    def _draw_ohlc_bars(self, timestamps):
+        """Draw OHLC bars"""
+        # Placeholder implementation
+        pass
+
+    def _draw_line_chart(self, timestamps):
+        """Draw line chart"""
+        if not self.price_data:
+            return
+
+        closes = [candle["close"] for candle in self.price_data]
+        self.main_plot.plot(timestamps, closes, pen=pg.mkPen(color="yellow", width=2))
+
+    def _draw_heikin_ashi(self, timestamps):
+        """Draw Heikin Ashi candles"""
+        # Placeholder implementation
+        pass
+
     def _draw_volume_chart(self):
         """Draw volume bars with buy/sell pressure"""
+        if not hasattr(self, 'volume_plot') or self.volume_plot is None:
+            return
+
         self.volume_plot.clear()
 
         volumes = []
@@ -931,7 +988,7 @@ class ChartWidget(QWidget):
                 self.main_plot.plot(
                     x,
                     upper,
-                    pen=pg.mkPen(color=BB_COLOR, width=1, style=Qt.DashLine),
+                    pen=pg.mkPen(color=BB_COLOR, width=1, style=Qt.PenStyle.DashLine),
                     name="BB Upper",
                 )
 
@@ -944,7 +1001,7 @@ class ChartWidget(QWidget):
                 self.main_plot.plot(
                     x,
                     lower,
-                    pen=pg.mkPen(color=BB_COLOR, width=1, style=Qt.DashLine),
+                    pen=pg.mkPen(color=BB_COLOR, width=1, style=Qt.PenStyle.DashLine),
                     name="BB Lower",
                 )
 
@@ -992,10 +1049,10 @@ class ChartWidget(QWidget):
 
             # Overbought/oversold levels
             self.rsi_plot.addLine(
-                y=70, pen=pg.mkPen(RSI_OVERBOUGHT_COLOR, width=1, style=Qt.DashLine)
+                y=70, pen=pg.mkPen(RSI_OVERBOUGHT_COLOR, width=1, style=Qt.PenStyle.DashLine)
             )
             self.rsi_plot.addLine(
-                y=30, pen=pg.mkPen(RSI_OVERSOLD_COLOR, width=1, style=Qt.DashLine)
+                y=30, pen=pg.mkPen(RSI_OVERSOLD_COLOR, width=1, style=Qt.PenStyle.DashLine)
             )
 
             # Fill zones
@@ -1052,7 +1109,7 @@ class ChartWidget(QWidget):
 
             # Zero line
             self.macd_plot.addLine(
-                y=0, pen=pg.mkPen("white", width=1, style=Qt.DashLine)
+                y=0, pen=pg.mkPen("white", width=1, style=Qt.PenStyle.DashLine)
             )
 
     def _draw_stochastic(self):
@@ -1090,10 +1147,10 @@ class ChartWidget(QWidget):
 
         # Overbought/oversold levels
         self.stoch_plot.addLine(
-            y=80, pen=pg.mkPen(RSI_OVERBOUGHT_COLOR, width=1, style=Qt.DashLine)
+            y=80, pen=pg.mkPen(RSI_OVERBOUGHT_COLOR, width=1, style=Qt.PenStyle.DashLine)
         )
         self.stoch_plot.addLine(
-            y=20, pen=pg.mkPen(RSI_OVERSOLD_COLOR, width=1, style=Qt.DashLine)
+            y=20, pen=pg.mkPen(RSI_OVERSOLD_COLOR, width=1, style=Qt.PenStyle.DashLine)
         )
 
     # ==========================================================================
@@ -1107,7 +1164,7 @@ class ChartWidget(QWidget):
 
         # Change cursor
         if PYQTGRAPH_AVAILABLE:
-            self.price_widget.setCursor(Qt.CrossCursor)
+            self.price_widget.setCursor(Qt.CursorShape.CrossCursor)
 
         self.logger.info(f"Selected drawing tool: {tool_type}")
 
@@ -1145,7 +1202,7 @@ class ChartWidget(QWidget):
             points=self.drawing_points.copy(),
             color="yellow",
             width=2,
-            style=Qt.SolidLine,
+            style=Qt.PenStyle.SolidLine,
         )
 
         # Draw it
@@ -1160,7 +1217,7 @@ class ChartWidget(QWidget):
         self.drawing_in_progress = False
 
         if PYQTGRAPH_AVAILABLE:
-            self.price_widget.setCursor(Qt.ArrowCursor)
+            self.price_widget.setCursor(Qt.CursorShape.ArrowCursor)
 
         # Emit signal
         self.drawing_completed.emit(
@@ -1203,6 +1260,23 @@ class ChartWidget(QWidget):
         )
         self.main_plot.addItem(line)
 
+    def _draw_vertical_line(self, drawing: DrawingTool):
+        """Draw vertical line"""
+        if not drawing.points:
+            return
+
+        line = pg.InfiniteLine(
+            angle=90,
+            pos=drawing.points[0][0],
+            pen=pg.mkPen(drawing.color, width=drawing.width, style=drawing.style),
+        )
+        self.main_plot.addItem(line)
+
+    def _draw_rectangle(self, drawing: DrawingTool):
+        """Draw rectangle"""
+        # Placeholder implementation
+        pass
+
     def _draw_fibonacci(self, drawing: DrawingTool):
         """Draw Fibonacci retracement"""
         if len(drawing.points) < 2:
@@ -1220,7 +1294,7 @@ class ChartWidget(QWidget):
             line = pg.InfiniteLine(
                 angle=0,
                 pos=y,
-                pen=pg.mkPen(color, width=1, style=Qt.DashLine),
+                pen=pg.mkPen(color, width=1, style=Qt.PenStyle.DashLine),
                 label=f"{level:.1%}",
                 labelOpts={"position": 0.02, "color": color},
             )
@@ -1285,7 +1359,7 @@ class ChartWidget(QWidget):
         self.trade_markers.extend([scatter, label])
 
     def add_level_line(
-        self, price: float, color: str, label: str, style: Qt.PenStyle = Qt.SolidLine
+        self, price: float, color: str, label: str, style: Qt.PenStyle = Qt.PenStyle.SolidLine
     ):
         """Add horizontal level line"""
         if not PYQTGRAPH_AVAILABLE or not self.main_plot:
@@ -1362,23 +1436,6 @@ class ChartWidget(QWidget):
             subscriber_id="chart_trades",
         )
 
-    def _setup_event_subscriptions(self):
-        """Subscribe to relevant events."""
-        try:
-            if self.event_manager:
-                # Only subscribe if handler methods exist
-                if hasattr(self, "_handle_market_data"):
-                    self.event_manager.subscribe(
-                        "MARKET_DATA", self._handle_market_data
-                    )
-                if hasattr(self, "_handle_trade_data"):
-                    self.event_manager.subscribe(
-                        "TRADE_EXECUTED", self._handle_trade_data
-                    )
-
-        except Exception as e:
-            self.logger.error(f"Failed to set up event subscriptions: {e}")
-
     def _handle_market_data(self, event):
         """Handle market data updates."""
         try:
@@ -1387,26 +1444,11 @@ class ChartWidget(QWidget):
 
             if symbol == "SPY":
                 price = market_data.get("last", 0)
-                timestamp = market_data.get("timestamp", datetime.now())
+                timestamp = market_data.get("timestamp", datetime.datetime.now())
                 self.add_price_data(timestamp, price, price, price, price, 0)
 
         except Exception as e:
             self.logger.error(f"Error handling market data: {e}")
-
-    def _handle_trade_data(self, event):
-        """Handle trade execution events."""
-        try:
-            trade_data = event.get("data", {})
-            # Add trade marker to chart
-            if hasattr(self, "add_trade_marker"):
-                self.add_trade_marker(
-                    trade_data.get("timestamp", datetime.now()),
-                    trade_data.get("price", 0),
-                    trade_data.get("side", "BUY"),
-                    trade_data.get("quantity", 0),
-                )
-        except Exception as e:
-            self.logger.error(f"Error handling trade data: {e}")
 
     def _handle_price_update(self, event: Event):
         """Handle price update events"""
@@ -1451,7 +1493,7 @@ class ChartWidget(QWidget):
     def _on_mouse_moved(self, pos):
         """Handle mouse move events."""
         try:
-            if not self.crosshair_enabled or not hasattr(self, "main_plot"):
+            if not hasattr(self, 'crosshair_enabled') or not self.crosshair_enabled or not hasattr(self, "main_plot"):
                 return
 
             # Get mouse position in plot coordinates
@@ -1470,187 +1512,18 @@ class ChartWidget(QWidget):
         except Exception as e:
             self.logger.error(f"Error in mouse move handler: {str(e)}")
 
-    def _on_mouse_clicked(self, event):
-        """Handle mouse click events."""
-        try:
-            if not hasattr(self, "main_plot"):
-                return
-
-            # Get click position
-            pos = event.scenePos()
-            mouse_point = self.main_plot.vb.mapSceneToView(pos)
-
-            # Handle right-click for context menu
-            if event.button() == Qt.RightButton:
-                self._show_context_menu(event.screenPos())
-
-            self.logger.debug(f"Mouse clicked at: {mouse_point.x()}, {mouse_point.y()}")
-
-        except Exception as e:
-            self.logger.error(f"Error in mouse click handler: {str(e)}")
-
-    def _show_context_menu(self, position):
-        """Show context menu at position."""
-        try:
-            if not hasattr(self, "_create_indicators_menu"):
-                return
-
-            menu = self._create_indicators_menu()
-            menu.exec_(position)
-
-        except Exception as e:
-            self.logger.error(f"Error showing context menu: {str(e)}")
-
     def _on_timeframe_changed(self, timeframe: str):
         """Handle timeframe change from combo box."""
         try:
-            self.current_timeframe = timeframe
-
-            # Update chart data based on new timeframe
-            self._update_chart_timeframe(timeframe)
-
-            # Refresh chart display
-            self.update_charts()
-
+            self.timeframe = timeframe
+            self.timeframe_changed.emit(timeframe)
             self.logger.info(f"Timeframe changed to: {timeframe}")
-
         except Exception as e:
             self.logger.error(f"Error changing timeframe: {str(e)}")
-
-    def _update_chart_timeframe(self, timeframe: str):
-        """Update chart data for new timeframe."""
-        try:
-            # Clear existing data
-            if hasattr(self, "price_data"):
-                self.price_data.clear()
-
-            if hasattr(self, "time_data"):
-                self.time_data.clear()
-
-            # Clear chart plots
-            if hasattr(self, "price_widget") and self.price_widget:
-                self.price_widget.clear()
-
-            # Recreate plot items for new timeframe
-            if hasattr(self, "price_widget") and PYQTGRAPH_AVAILABLE:
-                self.price_line = self.price_widget.plot(pen="yellow", name="Price")
-
-            # Request new data for the timeframe (if data manager exists)
-            if hasattr(self, "data_manager") and self.data_manager:
-                self.data_manager.request_historical_data(timeframe)
-
-            self.logger.debug(f"Chart timeframe updated to: {timeframe}")
-
-        except Exception as e:
-            self.logger.error(f"Error updating chart timeframe: {str(e)}")
-
-    def _on_symbol_changed(self, symbol: str):
-        """Handle symbol change from combo box."""
-        try:
-            self.current_symbol = symbol
-
-            # Clear existing data
-            self._clear_chart_data()
-
-            # Update chart title
-            if hasattr(self, "price_widget") and self.price_widget:
-                self.price_widget.setTitle(f"{symbol} Price Chart")
-
-            # Request new data for symbol
-            if hasattr(self, "data_manager") and self.data_manager:
-                self.data_manager.request_symbol_data(symbol)
-
-            self.logger.info(f"Symbol changed to: {symbol}")
-
-        except Exception as e:
-            self.logger.error(f"Error changing symbol: {str(e)}")
-
-    def _clear_chart_data(self):
-        """Clear all chart data."""
-        try:
-            # Clear data containers
-            if hasattr(self, "price_data"):
-                self.price_data.clear()
-
-            if hasattr(self, "time_data"):
-                self.time_data.clear()
-
-            # Clear chart displays
-            if hasattr(self, "price_widget") and self.price_widget:
-                self.price_widget.clear()
-
-            # Clear indicator charts
-            for widget in getattr(self, "indicator_widgets", []):
-                if widget:
-                    widget.clear()
-
-        except Exception as e:
-            self.logger.error(f"Error clearing chart data: {str(e)}")
-
-    def update_charts(self):
-        """Update all chart displays."""
-        try:
-            # Update main price chart
-            self._update_price_chart()
-
-            # Update indicator charts
-            self._update_indicator_charts()
-
-            # Update crosshair if enabled
-            if hasattr(self, "crosshair_enabled") and self.crosshair_enabled:
-                self._update_crosshair()
-
-        except Exception as e:
-            self.logger.error(f"Error updating charts: {str(e)}")
-
-    def _update_price_chart(self):
-        """Update the main price chart display."""
-        try:
-            if not hasattr(self, "price_widget") or not self.price_widget:
-                return
-
-            if not hasattr(self, "price_data") or not self.price_data:
-                return
-
-            # Update price line with current data
-            if hasattr(self, "price_line") and self.price_line:
-                x_data = list(range(len(self.price_data)))
-                y_data = list(self.price_data)
-                self.price_line.setData(x_data, y_data)
-
-        except Exception as e:
-            self.logger.error(f"Error updating price chart: {str(e)}")
-
-    def _update_indicator_charts(self):
-        """Update indicator chart displays."""
-        try:
-            # Placeholder for indicator updates
-            # This would update RSI, MACD, etc. charts
-            pass
-
-        except Exception as e:
-            self.logger.error(f"Error updating indicator charts: {str(e)}")
-
-    def _update_crosshair(self):
-        """Update crosshair display."""
-        try:
-            # Placeholder for crosshair updates
-            if hasattr(self, "v_line") and hasattr(self, "h_line"):
-                # Update crosshair visibility based on settings
-                if self.crosshair_enabled:
-                    self.v_line.show()
-                    self.h_line.show()
-                else:
-                    self.v_line.hide()
-                    self.h_line.hide()
-
-        except Exception as e:
-            self.logger.error(f"Error updating crosshair: {str(e)}")
 
     def _on_chart_type_changed(self, chart_type: str):
         """Handle chart type change."""
         try:
-            self.chart_type = chart_type
             self.update_charts()
             self.logger.info(f"Chart type changed to: {chart_type}")
         except Exception as e:
@@ -1675,6 +1548,7 @@ class ChartWidget(QWidget):
 
             self._update_indicators()
             self.update_charts()
+            self.indicator_toggled.emit(ma_name, enabled)
             self.logger.info(f"Moving average {ma_name}: {enabled}")
         except Exception as e:
             self.logger.error(f"Error toggling MA {ma_name}: {str(e)}")
@@ -1689,6 +1563,7 @@ class ChartWidget(QWidget):
 
             self._update_indicators()
             self.update_charts()
+            self.indicator_toggled.emit(indicator_name, enabled)
             self.logger.info(f"Indicator {indicator_name}: {enabled}")
         except Exception as e:
             self.logger.error(f"Error toggling indicator {indicator_name}: {str(e)}")
@@ -1730,3 +1605,33 @@ class ChartWidget(QWidget):
                 self.price_widget.autoRange()
         except Exception as e:
             self.logger.error(f"Error auto-ranging: {str(e)}")
+
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+if __name__ == "__main__":
+    app = QApplication([])
+
+    # Create and show the chart widget
+    chart = ChartWidget()
+    chart.show()
+
+    # Add some test data
+    import random
+    base_price = 450.0
+    for i in range(100):
+        timestamp = datetime.datetime.now() - datetime.timedelta(minutes=5*i)
+        price_change = random.uniform(-2, 2)
+        base_price += price_change
+
+        high = base_price + random.uniform(0, 1)
+        low = base_price - random.uniform(0, 1)
+        close = base_price + random.uniform(-0.5, 0.5)
+        volume = random.randint(1000, 10000)
+
+        chart.add_price_data(timestamp, base_price, high, low, close, volume)
+
+    chart.update_charts()
+
+    app.exec()

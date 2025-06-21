@@ -29,31 +29,20 @@ from typing import Optional, Dict, Any
 import threading
 import time
 
+
+# Add project root to Python path
+from pathlib import Path
+import sys
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt5.QtWidgets import QApplication, QSplashScreen, QMessageBox
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread
-from PyQt5.QtGui import QPixmap, QFont
-
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
-# Core modules
-from SpyderA_Core.SpyderA01_Main import SpyderApplication
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderA_Core.SpyderA03_Configuration import get_config_manager
-
-# GUI modules
-from SpyderG_GUI.SpyderG02_Dashboard import TradingDashboard
-
-# Utilities
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
+from PyQt6.QtWidgets import QApplication, QSplashScreen, QMessageBox
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread
+from PyQt6.QtGui import QPixmap, QFont
 APP_NAME = "Spyder Trading System"
 APP_VERSION = "1.0.0"
 CONFIG_FILE = Path.home() / ".spyder" / "config.json"
@@ -298,15 +287,15 @@ class SpyderSplashScreen(QSplashScreen):
         self.setPixmap(pixmap)
         
         # Set text properties
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
         
         # Add text
-        font = QFont("Arial", 16, QFont.Bold)
+        font = QFont("Arial", 16, QFont.Weight.Bold)
         self.setFont(font)
         
         self.showMessage(
             "SPYDER Trading System\nAutomated SPY Options Trading",
-            Qt.AlignCenter | Qt.AlignBottom,
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom,
             Qt.white
         )
         
@@ -314,7 +303,7 @@ class SpyderSplashScreen(QSplashScreen):
         """Update splash screen message"""
         self.showMessage(
             f"SPYDER Trading System\n{message}",
-            Qt.AlignCenter | Qt.AlignBottom,
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom,
             Qt.white
         )
 
@@ -362,7 +351,7 @@ class SpyderGUIApplication:
             QTimer.singleShot(1000, self._show_main_window)
             
             # Start application
-            return self.app.exec_()
+            return self.app.exec()
             
         except Exception as e:
             self.logger.critical(f"Application startup failed: {e}")
