@@ -141,6 +141,7 @@ Key Features
 
 Technology Stack
 
+Ubuntu 
 Language: Python 3.8+
 GUI: PyQt6
 Database: SQLite
