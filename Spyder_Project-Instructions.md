@@ -142,7 +142,7 @@ Key Features
 Technology Stack
 
 Language: Python 3.8+
-GUI: PyQt5
+GUI: PyQt6
 Database: SQLite
 Broker: Interactive Brokers API
 ML: TensorFlow, scikit-learn, PyTorch
