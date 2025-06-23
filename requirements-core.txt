@@ -1,0 +1,51 @@
+# ==============================================================================
+# SPYDER - CORE DEPENDENCIES (Python 3.13 Compatible)
+# Essential dependencies required for basic Spyder functionality
+# ==============================================================================
+
+# Configuration & Settings
+toml>=0.10.2
+pyyaml>=6.0
+python-dotenv>=1.0.0
+jsonschema>=4.18.0
+
+# Logging & Monitoring  
+colorlog>=6.7.0
+python-json-logger>=2.0.7
+structlog>=23.1.0
+
+# Data Processing (Core) - FIXED for Python 3.13
+pandas>=2.0.0
+numpy>=2.0.0  # Updated for Python 3.13 compatibility
+scipy>=1.11.0  # Updated for Python 3.13
+python-dateutil>=2.8.0
+pytz>=2023.3
+
+# Database & Storage
+sqlalchemy>=2.0.0
+redis>=4.6.0
+
+# Security & Encryption
+cryptography>=41.0.0
+
+# Network & Communication
+requests>=2.31.0
+websocket-client>=1.6.0
+aiohttp>=3.8.0
+
+# System Utilities
+psutil>=5.9.0
+netifaces>=0.11.0
+
+# Async Support
+nest-asyncio>=1.5.6
+
+# Retry & Resilience
+tenacity>=8.2.3
+
+# Caching
+cachetools>=5.3.0
+
+# Development Tools (Basic)
+pytest>=7.4.0
+black>=23.7.0

@@ -515,7 +515,10 @@ def main():
 
     # Enable debug logging if requested
     if args.debug:
-        app.logger.set_level('DEBUG')
+        # Use SpyderLogger class method instead of instance method
+        from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+        SpyderLogger.set_level('DEBUG')
+        app.logger.info("Debug logging enabled")
 
     # Run the application
     try:

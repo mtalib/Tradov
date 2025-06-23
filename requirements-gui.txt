@@ -1,0 +1,21 @@
+# ==============================================================================
+# SPYDER - GUI DEPENDENCIES (Ubuntu - PyQt6)
+# GUI framework and visualization dependencies
+# ==============================================================================
+
+# GUI Framework - PyQt6 (matches SpyderA01_Main.py imports)
+PyQt6>=6.4.0
+pyqtgraph>=0.13.0
+
+# Plotting & Visualization
+matplotlib>=3.7.0,<4.0.0
+seaborn>=0.12.0,<1.0.0
+plotly>=5.15.0,<6.0.0
+
+# Web Dashboard
+flask>=2.3.0,<3.0.0
+flask-cors>=4.0.0,<5.0.0
+dash>=2.11.0,<3.0.0
+
+# GUI Testing
+pytest-qt>=4.2.0,<5.0.0

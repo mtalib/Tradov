@@ -5,28 +5,30 @@ SPYDER - Automated SPY Options Trading System
 SpyderB_Broker Package
 
 This package handles all broker interactions, primarily with Interactive Brokers Gateway.
+Uses ib-insync library (NO IBAPI dependencies).
 """
 
 # Version
-__version__ = '1.0.0'
+__version__ = '1.5.0'
 
-# Package imports
-from .SpyderB01_SpyderClient import SpyderClient, get_spyder_client, TickerId
-from .SpyderB02_OrderManager import OrderManager
-from .SpyderB03_PositionTracker import PositionTracker
-from .SpyderB04_AccountManager import AccountManager
-from .SpyderB05_ConnectionManager import ConnectionManager
-from .SpyderB06_ContractBuilder import ContractBuilder
-from .SpyderB09_IBClientPortal import SpyderClientPortal
+# Main imports
+try:
+    from .SpyderB01_SpyderClient import SpyderClient, get_spyder_client
+    HAS_SPYDER_CLIENT = True
+except ImportError:
+    print("WARNING: SpyderClient not available")
+    HAS_SPYDER_CLIENT = False
+
+# Type aliases
+TickerId = int
 
 # Public API
 __all__ = [
     'SpyderClient',
-    'get_spyder_client',
+    'get_spyder_client', 
     'TickerId',
-    'OrderManager',
-    'PositionTracker',
-    'AccountManager',
-    'ConnectionManager',
-    'ContractBuilder',
 ]
+
+# Additional exports if available
+if HAS_SPYDER_CLIENT:
+    __all__.extend(['HAS_SPYDER_CLIENT'])
