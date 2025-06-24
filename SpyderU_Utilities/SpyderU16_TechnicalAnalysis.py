@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 SPYDER - Technical Analysis Wrapper
-Module: SpyderU15_TechnicalAnalysis.py
+Module: SpyderU16_TechnicalAnalysis.py
 Purpose: Unified technical analysis using 'ta' library
 """
 

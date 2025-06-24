@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 SPYDER - Performance Metrics (Alternative to empyrical)
-Module: SpyderU14_PerformanceMetrics.py
+Module: SpyderU15_PerformanceMetrics.py
 Group: U (Utilities)
 Purpose: Calculate trading performance metrics
 
