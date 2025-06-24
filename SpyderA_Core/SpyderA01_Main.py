@@ -66,7 +66,13 @@ try:
     from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
     from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
     from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-    from SpyderG_GUI.SpyderG01_MainWindow import SpyderMainWindow as MainWindow
+    try:
+        from SpyderG_GUI.SpyderG01_MainWindow import SpyderMainWindow as MainWindow
+        HAS_GUI = True
+    except (ImportError, NameError, SyntaxError) as e:
+        print(f"Warning: GUI not available: {e}")
+        MainWindow = None
+        HAS_GUI = False
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError as e:
     print(f"Error importing Spyder modules: {e}")
