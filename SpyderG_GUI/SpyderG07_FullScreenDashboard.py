@@ -14,7 +14,7 @@ Description:
 
 Author: Mohamed Talib
 Date: 2025-06-24
-Version: 1.0
+Version: 1.1 - Enhanced with window controls and keyboard shortcuts
 """
 
 # ==============================================================================
@@ -35,13 +35,13 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QTextEdit, QGroupBox, QFrame, QSplitter, QHeaderView,
-    QProgressBar, QTabWidget, QScrollArea
+    QProgressBar, QTabWidget, QScrollArea, QMessageBox
 )
 from PyQt6.QtCore import (
     Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QSize, QRect
 )
 from PyQt6.QtGui import (
-    QFont, QPalette, QColor, QIcon, QPixmap, QPainter, QBrush
+    QFont, QPalette, QColor, QIcon, QPixmap, QPainter, QBrush, QShortcut, QKeySequence
 )
 
 # Matplotlib imports for charting
@@ -334,6 +334,7 @@ class SpyderFullScreenDashboard(QMainWindow):
         # Setup
         self.setup_ui()
         self.setup_timers()
+        self.setup_shortcuts()
         
         # Initialize with test data
         self.load_test_data()
@@ -342,6 +343,13 @@ class SpyderFullScreenDashboard(QMainWindow):
         """Setup the main UI."""
         self.setWindowTitle("SPYDER Trading Dashboard - Full Screen")
         self.setGeometry(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+        
+        # Allow window to be closed and minimized even in fullscreen
+        self.setWindowFlags(
+            Qt.WindowType.Window |
+            Qt.WindowType.WindowMinimizeButtonHint |
+            Qt.WindowType.WindowCloseButtonHint
+        )
         
         # Set dark theme
         self.setStyleSheet(f"""
@@ -372,7 +380,7 @@ class SpyderFullScreenDashboard(QMainWindow):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
         
-        # Top panel - Ticker ribbon and market internals
+        # Top panel - Ticker ribbon and controls
         top_panel = self.create_top_panel()
         main_layout.addWidget(top_panel, 1)  # 10% height
         
@@ -403,10 +411,106 @@ class SpyderFullScreenDashboard(QMainWindow):
         central_widget.setLayout(main_layout)
         
     def create_top_panel(self) -> QWidget:
-        """Create top panel with tickers and market internals."""
+        """Create top panel with tickers, market internals, and window controls."""
         panel = QWidget()
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        
+        # Window controls bar
+        controls_bar = QWidget()
+        controls_bar.setMaximumHeight(30)
+        controls_bar.setStyleSheet(f"""
+            QWidget {{
+                background-color: #1a1a1a;
+                border-bottom: 1px solid {COLOR_BORDER};
+            }}
+        """)
+        
+        controls_layout = QHBoxLayout(controls_bar)
+        controls_layout.setContentsMargins(10, 2, 10, 2)
+        
+        # Left side - Title
+        title_label = QLabel("SPYDER Trading Dashboard")
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLOR_TEXT};
+                font-weight: bold;
+                font-size: 12px;
+            }}
+        """)
+        
+        # Right side - Window controls
+        window_controls = QWidget()
+        controls_btn_layout = QHBoxLayout(window_controls)
+        controls_btn_layout.setContentsMargins(0, 0, 0, 0)
+        controls_btn_layout.setSpacing(5)
+        
+        # Toggle fullscreen button
+        self.fullscreen_btn = QPushButton("⛶")
+        self.fullscreen_btn.setMaximumSize(25, 25)
+        self.fullscreen_btn.setToolTip("Toggle Fullscreen (F11)")
+        self.fullscreen_btn.clicked.connect(self.toggle_fullscreen)
+        self.fullscreen_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3a3a3a;
+                border: 1px solid #555;
+                border-radius: 3px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+        """)
+        
+        # Minimize button
+        minimize_btn = QPushButton("−")
+        minimize_btn.setMaximumSize(25, 25)
+        minimize_btn.setToolTip("Minimize")
+        minimize_btn.clicked.connect(self.showMinimized)
+        minimize_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3a3a3a;
+                border: 1px solid #555;
+                border-radius: 3px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+        """)
+        
+        # Close button
+        close_btn = QPushButton("×")
+        close_btn.setMaximumSize(25, 25)
+        close_btn.setToolTip("Close Application (Ctrl+Q)")
+        close_btn.clicked.connect(self.close_application)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;
+                border: 1px solid #b71c1c;
+                border-radius: 3px;
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f44336;
+            }
+        """)
+        
+        controls_btn_layout.addWidget(self.fullscreen_btn)
+        controls_btn_layout.addWidget(minimize_btn)
+        controls_btn_layout.addWidget(close_btn)
+        
+        controls_layout.addWidget(title_label)
+        controls_layout.addStretch()
+        controls_layout.addWidget(window_controls)
+        
+        # Main ticker and internals layout
+        main_content = QWidget()
+        content_layout = QHBoxLayout(main_content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
         
         # Ticker ribbon
         ticker_layout = QHBoxLayout()
@@ -423,9 +527,13 @@ class SpyderFullScreenDashboard(QMainWindow):
         # Market internals
         self.market_internals = MarketInternalsWidget()
         
-        # Add to layout
-        layout.addWidget(ticker_container, 4)
-        layout.addWidget(self.market_internals, 1)
+        # Add to content layout
+        content_layout.addWidget(ticker_container, 4)
+        content_layout.addWidget(self.market_internals, 1)
+        
+        # Add to main panel layout
+        layout.addWidget(controls_bar)
+        layout.addWidget(main_content)
         
         panel.setLayout(layout)
         return panel
@@ -835,6 +943,59 @@ class SpyderFullScreenDashboard(QMainWindow):
         
         self.figure.tight_layout()
         self.canvas.draw()
+        
+    def setup_shortcuts(self):
+        """Setup keyboard shortcuts."""
+        # F11 - Toggle fullscreen
+        self.fullscreen_shortcut = QShortcut(QKeySequence("F11"), self)
+        self.fullscreen_shortcut.activated.connect(self.toggle_fullscreen)
+        
+        # ESC - Exit fullscreen (not close app)
+        self.escape_shortcut = QShortcut(QKeySequence("Escape"), self)
+        self.escape_shortcut.activated.connect(self.exit_fullscreen)
+        
+        # Ctrl+Q - Close application
+        self.quit_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
+        self.quit_shortcut.activated.connect(self.close_application)
+        
+        # Alt+F4 - Close application (Windows standard)
+        self.alt_f4_shortcut = QShortcut(QKeySequence("Alt+F4"), self)
+        self.alt_f4_shortcut.activated.connect(self.close_application)
+        
+    def toggle_fullscreen(self):
+        """Toggle between fullscreen and windowed mode."""
+        if self.isFullScreen():
+            self.showNormal()
+            self.fullscreen_btn.setText("⛶")
+            self.fullscreen_btn.setToolTip("Enter Fullscreen (F11)")
+            self.add_log("Exited fullscreen mode", "INFO")
+        else:
+            self.showFullScreen()
+            self.fullscreen_btn.setText("⛷")
+            self.fullscreen_btn.setToolTip("Exit Fullscreen (F11)")
+            self.add_log("Entered fullscreen mode", "INFO")
+            
+    def exit_fullscreen(self):
+        """Exit fullscreen mode (ESC key behavior)."""
+        if self.isFullScreen():
+            self.showNormal()
+            self.fullscreen_btn.setText("⛶")
+            self.fullscreen_btn.setToolTip("Enter Fullscreen (F11)")
+            self.add_log("Exited fullscreen mode", "INFO")
+            
+    def close_application(self):
+        """Close the application with confirmation."""
+        reply = QMessageBox.question(
+            self,
+            'Confirm Exit',
+            'Are you sure you want to exit SPYDER Dashboard?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.add_log("Closing SPYDER Dashboard", "INFO")
+            self.close()
         
     def setup_timers(self):
         """Setup update timers."""
