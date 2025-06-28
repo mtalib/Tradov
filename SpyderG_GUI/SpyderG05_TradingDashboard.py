@@ -5,16 +5,22 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderG05_TradingDashboard.py
 Group: G (GUI/User Interface)
-Purpose: Full-screen 1920x1080 trading dashboard with comprehensive market view
+Purpose: Enhanced monitoring dashboard with real-time visualization
 
 Description:
-    This module provides a full-screen trading dashboard optimized for 1920x1080
-    resolution. It displays 14 key market symbols, real-time options positions,
-    SPY chart, and comprehensive risk metrics for professional options trading.
+    This module provides a comprehensive monitoring dashboard for the SPYDER
+    automated trading system. Features include:
+    - System health monitoring
+    - P&L tracking and performance metrics
+    - Risk monitoring with Greeks display
+    - Active positions management
+    - Trading activity logs
+    - Optional advanced visualizations with PyQtGraph
+    - Optional ZeroMQ integration for real-time updates
 
-Author: Mohamed Talib
-Date: 2025-06-24
-Version: 1.1 - Enhanced with window controls and keyboard shortcuts
+Author: SPYDER Team
+Date: 2025-06-28
+Version: 3.0 - Complete Enhanced Dashboard
 """
 
 # ==============================================================================
@@ -25,8 +31,10 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
-import threading
+from collections import deque
 import json
+import numpy as np
+import logging
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -35,186 +43,138 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QTextEdit, QGroupBox, QFrame, QSplitter, QHeaderView,
-    QProgressBar, QTabWidget, QScrollArea, QMessageBox
+    QProgressBar, QTabWidget, QScrollArea, QMessageBox,
+    QComboBox, QSpinBox, QDoubleSpinBox
 )
 from PyQt6.QtCore import (
-    Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QSize, QRect
+    Qt, QTimer, pyqtSignal, QThread, pyqtSlot, QSize
 )
 from PyQt6.QtGui import (
-    QFont, QPalette, QColor, QIcon, QPixmap, QPainter, QBrush, QShortcut, QKeySequence
+    QFont, QColor, QPainter, QBrush, QShortcut, QKeySequence
 )
 
-# Matplotlib imports for charting
-import matplotlib
-matplotlib.use('QtAgg')  # PyQt6 backend
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from matplotlib.patches import Rectangle
+# Optional imports
+try:
+    import pyqtgraph as pg
+    PYQTGRAPH_AVAILABLE = True
+except ImportError:
+    PYQTGRAPH_AVAILABLE = False
+    print("PyQtGraph not installed. Advanced visualizations disabled.")
+
+try:
+    import zmq
+    ZEROMQ_AVAILABLE = True
+except ImportError:
+    ZEROMQ_AVAILABLE = False
+    print("ZeroMQ not installed. Real-time updates disabled.")
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-import sys
-import os
-
-# Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+except ImportError:
+    class SpyderLogger:
+        @staticmethod
+        def get_logger(name):
+            return logging.getLogger(name)
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Window dimensions
+# Window settings
 WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
 
-# Market symbols
-TICKER_SYMBOLS = [
-    'SPY', 'SPX', 'VIX', 'IWM', 'QQQ', 'TLT', '/ES', 'DIA', 
-    'GLD', 'UVXY', 'ES', 'MES', 'XSP', 'NANOS'
-]
-
 # Update intervals
-TICKER_UPDATE_MS = 1000      # 1 second
-POSITION_UPDATE_MS = 2000    # 2 seconds
-CHART_UPDATE_MS = 5000       # 5 seconds
+UPDATE_INTERVAL_MS = 1000
+PNL_UPDATE_MS = 2000
+RISK_UPDATE_MS = 5000
 
-# Color scheme
+# Colors
 COLOR_BACKGROUND = "#0a0a0a"
-COLOR_PANEL = "#1a1a1a"
-COLOR_BORDER = "#333333"
-COLOR_TEXT = "#ffffff"
+COLOR_PANEL = "#141414"
+COLOR_BORDER = "#2a2a2a"
+COLOR_TEXT = "#e0e0e0"
 COLOR_POSITIVE = "#00ff41"
 COLOR_NEGATIVE = "#ff1744"
-COLOR_NEUTRAL = "#ffd700"
 COLOR_WARNING = "#ff9800"
+COLOR_INFO = "#00bcd4"
+COLOR_NEUTRAL = "#888888"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class TickerData:
-    """Market ticker data structure."""
-    symbol: str
-    price: float
-    change: float
-    change_pct: float
-    volume: int
-    bid: float
-    ask: float
-    high: float
-    low: float
-    timestamp: datetime
-
+class SystemStatus:
+    """System component status."""
+    component: str
+    status: str
+    latency_ms: float
+    last_update: datetime
+    message: str
 
 @dataclass
-class OptionPosition:
-    """Options position data structure."""
-    symbol: str
+class PnLMetrics:
+    """P&L tracking metrics."""
+    daily_pnl: float
+    daily_pnl_pct: float
+    weekly_pnl: float
+    monthly_pnl: float
+    yearly_pnl: float
+    realized_pnl: float
+    unrealized_pnl: float
+    total_trades: int
+    winning_trades: int
+    losing_trades: int
+    win_rate: float
+    profit_factor: float
+    sharpe_ratio: float
+    max_drawdown: float
+    current_drawdown: float
+
+@dataclass
+class RiskMetrics:
+    """Portfolio risk metrics."""
+    portfolio_delta: float
+    portfolio_gamma: float
+    portfolio_theta: float
+    portfolio_vega: float
+    var_95: float
+    margin_used: float
+    margin_available: float
+    buying_power: float
+    leverage: float
+    beta_to_spy: float
+    correlation_to_spy: float
+    max_loss_scenario: float
+
+@dataclass
+class TradingActivity:
+    """Trading activity log entry."""
+    timestamp: datetime
+    activity_type: str
     strategy: str
-    strikes: List[float]
-    expiry: str
-    contracts: int
-    entry_price: float
-    current_price: float
-    pnl: float
-    pnl_pct: float
-    delta: float
-    theta: float
-    vega: float
-    gamma: float
-    iv: float
-    time_remaining: str
-    status: str  # 'staged', 'active', 'closed'
-
+    symbol: str
+    description: str
+    pnl_impact: Optional[float]
+    severity: str
 
 # ==============================================================================
-# CUSTOM WIDGETS
+# MONITORING WIDGETS
 # ==============================================================================
-class TickerWidget(QFrame):
-    """Individual ticker display widget."""
-    
-    def __init__(self, symbol: str):
-        super().__init__()
-        self.symbol = symbol
-        self.setup_ui()
-        
-    def setup_ui(self):
-        """Setup ticker widget UI."""
-        self.setFrameStyle(QFrame.Shape.Box)  # Fixed for PyQt6
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLOR_PANEL};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 5px;
-            }}
-        """)
-        
-        layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
-        
-        # Symbol label
-        self.symbol_label = QLabel(self.symbol)
-        self.symbol_label.setStyleSheet(f"""
-            QLabel {{
-                color: {COLOR_TEXT};
-                font-size: 14px;
-                font-weight: bold;
-            }}
-        """)
-        self.symbol_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Price label
-        self.price_label = QLabel("---")
-        self.price_label.setStyleSheet(f"""
-            QLabel {{
-                color: {COLOR_TEXT};
-                font-size: 18px;
-                font-weight: bold;
-            }}
-        """)
-        self.price_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Change label
-        self.change_label = QLabel("---")
-        self.change_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        layout.addWidget(self.symbol_label)
-        layout.addWidget(self.price_label)
-        layout.addWidget(self.change_label)
-        
-        self.setLayout(layout)
-        
-    def update_data(self, data: TickerData):
-        """Update ticker display with new data."""
-        self.price_label.setText(f"${data.price:.2f}")
-        
-        # Update change with color
-        change_text = f"{data.change:+.2f} ({data.change_pct:+.2f}%)"
-        if data.change > 0:
-            color = COLOR_POSITIVE
-        elif data.change < 0:
-            color = COLOR_NEGATIVE
-        else:
-            color = COLOR_NEUTRAL
-            
-        self.change_label.setText(change_text)
-        self.change_label.setStyleSheet(f"QLabel {{ color: {color}; font-size: 12px; }}")
-
-
-class MarketInternalsWidget(QGroupBox):
-    """Market internals display widget."""
+class SystemHealthWidget(QGroupBox):
+    """System health monitoring widget."""
     
     def __init__(self):
-        super().__init__("Market Internals")
+        super().__init__("System Health")
+        self.components = {}
         self.setup_ui()
         
     def setup_ui(self):
-        """Setup market internals UI."""
+        """Setup system health UI."""
         self.setStyleSheet(f"""
             QGroupBox {{
                 color: {COLOR_TEXT};
@@ -222,63 +182,373 @@ class MarketInternalsWidget(QGroupBox):
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 5px;
                 font-weight: bold;
-                padding-top: 10px;
+                font-size: 12px;
+                padding-top: 15px;
             }}
         """)
         
         layout = QGridLayout()
+        layout.setSpacing(10)
         
-        # TICK
-        self.tick_label = QLabel("TICK:")
-        self.tick_value = QLabel("---")
-        self.tick_label.setStyleSheet(f"color: {COLOR_TEXT};")
-        layout.addWidget(self.tick_label, 0, 0)
-        layout.addWidget(self.tick_value, 0, 1)
+        components = [
+            ("IB Gateway", "Connection to Interactive Brokers"),
+            ("Market Data", "Real-time data feeds"),
+            ("Strategy Engine", "Automated strategy execution"),
+            ("Risk Manager", "Risk monitoring and limits"),
+            ("ML Models", "Machine learning predictions"),
+            ("Database", "Data storage and retrieval")
+        ]
         
-        # ADD
-        self.add_label = QLabel("ADD:")
-        self.add_value = QLabel("---")
-        self.add_label.setStyleSheet(f"color: {COLOR_TEXT};")
-        layout.addWidget(self.add_label, 1, 0)
-        layout.addWidget(self.add_value, 1, 1)
-        
-        # VOLD
-        self.vold_label = QLabel("VOLD:")
-        self.vold_value = QLabel("---")
-        self.vold_label.setStyleSheet(f"color: {COLOR_TEXT};")
-        layout.addWidget(self.vold_label, 2, 0)
-        layout.addWidget(self.vold_value, 2, 1)
-        
-        # VIX Level
-        self.vix_label = QLabel("VIX Level:")
-        self.vix_indicator = QLabel("---")
-        layout.addWidget(self.vix_label, 3, 0)
-        layout.addWidget(self.vix_indicator, 3, 1)
+        for i, (name, description) in enumerate(components):
+            row = i // 2
+            col = (i % 2) * 3
+            
+            name_label = QLabel(name)
+            name_label.setStyleSheet(f"color: {COLOR_TEXT}; font-weight: bold;")
+            
+            status_indicator = QLabel("●")
+            status_indicator.setStyleSheet(f"color: {COLOR_NEUTRAL}; font-size: 16px;")
+            status_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            latency_label = QLabel("-- ms")
+            latency_label.setStyleSheet(f"color: {COLOR_NEUTRAL}; font-size: 10px;")
+            
+            layout.addWidget(name_label, row, col)
+            layout.addWidget(status_indicator, row, col + 1)
+            layout.addWidget(latency_label, row, col + 2)
+            
+            self.components[name] = {
+                'indicator': status_indicator,
+                'latency': latency_label
+            }
         
         self.setLayout(layout)
+        
+    def update_status(self, status: SystemStatus):
+        """Update component status."""
+        if status.component in self.components:
+            color_map = {
+                'healthy': COLOR_POSITIVE,
+                'degraded': COLOR_WARNING,
+                'critical': COLOR_NEGATIVE,
+                'offline': COLOR_NEUTRAL
+            }
+            color = color_map.get(status.status, COLOR_NEUTRAL)
+            
+            self.components[status.component]['indicator'].setStyleSheet(
+                f"color: {color}; font-size: 16px;"
+            )
+            self.components[status.component]['latency'].setText(
+                f"{status.latency_ms:.0f} ms"
+            )
 
+class PnLDisplayWidget(QGroupBox):
+    """P&L display widget."""
+    
+    def __init__(self):
+        super().__init__("P&L Performance")
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """Setup P&L display UI."""
+        self.setStyleSheet(f"""
+            QGroupBox {{
+                color: {COLOR_TEXT};
+                background-color: {COLOR_PANEL};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 12px;
+                padding-top: 15px;
+            }}
+        """)
+        
+        layout = QGridLayout()
+        layout.setSpacing(10)
+        
+        # Daily P&L
+        self.daily_pnl_label = QLabel("Daily P&L")
+        self.daily_pnl_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.daily_pnl_value = QLabel("$0.00")
+        self.daily_pnl_value.setStyleSheet(f"""
+            font-size: 24px; 
+            font-weight: bold; 
+            color: {COLOR_NEUTRAL};
+        """)
+        self.daily_pnl_pct = QLabel("0.00%")
+        self.daily_pnl_pct.setStyleSheet(f"font-size: 14px; color: {COLOR_NEUTRAL};")
+        
+        layout.addWidget(self.daily_pnl_label, 0, 0, 1, 2)
+        layout.addWidget(self.daily_pnl_value, 1, 0, 1, 2)
+        layout.addWidget(self.daily_pnl_pct, 2, 0, 1, 2)
+        
+        # Separator
+        separator = QFrame()
+        separator.setFrameStyle(QFrame.Shape.HLine)
+        separator.setStyleSheet(f"background-color: {COLOR_BORDER};")
+        layout.addWidget(separator, 3, 0, 1, 2)
+        
+        # Other metrics
+        metrics = [
+            ("Weekly", "$0.00"),
+            ("Monthly", "$0.00"),
+            ("Yearly", "$0.00"),
+            ("Realized", "$0.00"),
+            ("Unrealized", "$0.00"),
+            ("Win Rate", "0.0%"),
+            ("Profit Factor", "0.00"),
+            ("Sharpe Ratio", "0.00")
+        ]
+        
+        self.metric_labels = {}
+        row = 4
+        for i, (name, default) in enumerate(metrics):
+            label = QLabel(f"{name}:")
+            label.setStyleSheet("font-size: 11px;")
+            value = QLabel(default)
+            value.setStyleSheet(f"font-size: 11px; color: {COLOR_NEUTRAL};")
+            
+            col = (i % 2) * 2
+            if i % 2 == 0 and i > 0:
+                row += 1
+                
+            layout.addWidget(label, row, col)
+            layout.addWidget(value, row, col + 1)
+            
+            self.metric_labels[name] = value
+        
+        self.setLayout(layout)
+        
+    def update_metrics(self, metrics: PnLMetrics):
+        """Update P&L metrics display."""
+        # Daily P&L
+        self.daily_pnl_value.setText(f"${metrics.daily_pnl:,.2f}")
+        self.daily_pnl_pct.setText(f"{metrics.daily_pnl_pct:+.2f}%")
+        
+        color = COLOR_POSITIVE if metrics.daily_pnl >= 0 else COLOR_NEGATIVE
+        self.daily_pnl_value.setStyleSheet(f"""
+            font-size: 24px; 
+            font-weight: bold; 
+            color: {color};
+        """)
+        self.daily_pnl_pct.setStyleSheet(f"font-size: 14px; color: {color};")
+        
+        # Update other metrics
+        self.metric_labels["Weekly"].setText(f"${metrics.weekly_pnl:,.2f}")
+        self.metric_labels["Monthly"].setText(f"${metrics.monthly_pnl:,.2f}")
+        self.metric_labels["Yearly"].setText(f"${metrics.yearly_pnl:,.2f}")
+        self.metric_labels["Realized"].setText(f"${metrics.realized_pnl:,.2f}")
+        self.metric_labels["Unrealized"].setText(f"${metrics.unrealized_pnl:,.2f}")
+        self.metric_labels["Win Rate"].setText(f"{metrics.win_rate:.1f}%")
+        self.metric_labels["Profit Factor"].setText(f"{metrics.profit_factor:.2f}")
+        self.metric_labels["Sharpe Ratio"].setText(f"{metrics.sharpe_ratio:.2f}")
+
+class RiskMonitorWidget(QGroupBox):
+    """Risk monitoring widget."""
+    
+    def __init__(self):
+        super().__init__("Risk Monitor")
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """Setup risk monitor UI."""
+        self.setStyleSheet(f"""
+            QGroupBox {{
+                color: {COLOR_TEXT};
+                background-color: {COLOR_PANEL};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 12px;
+                padding-top: 15px;
+            }}
+        """)
+        
+        layout = QVBoxLayout()
+        layout.setSpacing(10)
+        
+        # Greeks display
+        greeks_layout = QGridLayout()
+        self.greek_bars = {}
+        
+        greeks = [
+            ("Delta", -100, 100, 0),
+            ("Gamma", -50, 50, 0),
+            ("Theta", -500, 0, -100),
+            ("Vega", -1000, 1000, 0)
+        ]
+        
+        for i, (name, min_val, max_val, warn_val) in enumerate(greeks):
+            label = QLabel(f"{name}:")
+            value = QLabel("0.00")
+            
+            bar = QProgressBar()
+            bar.setMinimum(min_val)
+            bar.setMaximum(max_val)
+            bar.setValue(0)
+            bar.setTextVisible(False)
+            bar.setMaximumHeight(10)
+            bar.setStyleSheet(f"""
+                QProgressBar {{
+                    background-color: #1a1a1a;
+                    border: 1px solid {COLOR_BORDER};
+                    border-radius: 5px;
+                }}
+                QProgressBar::chunk {{
+                    background-color: {COLOR_INFO};
+                    border-radius: 5px;
+                }}
+            """)
+            
+            greeks_layout.addWidget(label, i, 0)
+            greeks_layout.addWidget(value, i, 1)
+            greeks_layout.addWidget(bar, i, 2)
+            
+            self.greek_bars[name] = {'value': value, 'bar': bar, 'warn': warn_val}
+        
+        # Risk metrics
+        risk_layout = QGridLayout()
+        self.risk_labels = {}
+        
+        risk_metrics = [
+            ("Margin Used", "$0"),
+            ("Buying Power", "$0"),
+            ("VaR (95%)", "$0"),
+            ("Max Drawdown", "0.0%"),
+            ("Leverage", "0.0x"),
+            ("Beta to SPY", "0.00")
+        ]
+        
+        for i, (name, default) in enumerate(risk_metrics):
+            label = QLabel(f"{name}:")
+            value = QLabel(default)
+            
+            row = i // 2
+            col = (i % 2) * 2
+            
+            risk_layout.addWidget(label, row, col)
+            risk_layout.addWidget(value, row, col + 1)
+            
+            self.risk_labels[name] = value
+        
+        layout.addLayout(greeks_layout)
+        
+        separator = QFrame()
+        separator.setFrameStyle(QFrame.Shape.HLine)
+        separator.setStyleSheet(f"background-color: {COLOR_BORDER};")
+        layout.addWidget(separator)
+        
+        layout.addLayout(risk_layout)
+        self.setLayout(layout)
+        
+    def update_metrics(self, metrics: RiskMetrics):
+        """Update risk metrics display."""
+        # Update Greeks
+        greeks = {
+            "Delta": metrics.portfolio_delta,
+            "Gamma": metrics.portfolio_gamma,
+            "Theta": metrics.portfolio_theta,
+            "Vega": metrics.portfolio_vega
+        }
+        
+        for name, value in greeks.items():
+            if name in self.greek_bars:
+                self.greek_bars[name]['value'].setText(f"{value:.2f}")
+                self.greek_bars[name]['bar'].setValue(int(value))
+        
+        # Update risk metrics
+        self.risk_labels["Margin Used"].setText(f"${metrics.margin_used:,.0f}")
+        self.risk_labels["Buying Power"].setText(f"${metrics.buying_power:,.0f}")
+        self.risk_labels["VaR (95%)"].setText(f"${metrics.var_95:,.0f}")
+        self.risk_labels["Max Drawdown"].setText(f"{metrics.max_loss_scenario:.1f}%")
+        self.risk_labels["Leverage"].setText(f"{metrics.leverage:.1f}x")
+        self.risk_labels["Beta to SPY"].setText(f"{metrics.beta_to_spy:.2f}")
+
+class ActivityLogWidget(QGroupBox):
+    """Trading activity log widget."""
+    
+    def __init__(self):
+        super().__init__("Trading Activity")
+        self.log_entries = deque(maxlen=100)
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """Setup activity log UI."""
+        self.setStyleSheet(f"""
+            QGroupBox {{
+                color: {COLOR_TEXT};
+                background-color: {COLOR_PANEL};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 12px;
+                padding-top: 15px;
+            }}
+        """)
+        
+        layout = QVBoxLayout()
+        
+        self.log_display = QTextEdit()
+        self.log_display.setReadOnly(True)
+        self.log_display.setMaximumHeight(200)
+        self.log_display.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: #0a0a0a;
+                color: {COLOR_TEXT};
+                border: 1px solid {COLOR_BORDER};
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 10px;
+            }}
+        """)
+        
+        layout.addWidget(self.log_display)
+        self.setLayout(layout)
+        
+    def add_activity(self, activity: TradingActivity):
+        """Add trading activity to log."""
+        self.log_entries.append(activity)
+        
+        timestamp = activity.timestamp.strftime("%H:%M:%S")
+        
+        color_map = {
+            'info': COLOR_INFO,
+            'warning': COLOR_WARNING,
+            'error': COLOR_NEGATIVE,
+            'critical': COLOR_NEGATIVE
+        }
+        color = color_map.get(activity.severity, COLOR_TEXT)
+        
+        pnl_text = ""
+        if activity.pnl_impact is not None:
+            pnl_color = COLOR_POSITIVE if activity.pnl_impact >= 0 else COLOR_NEGATIVE
+            pnl_text = f' <span style="color: {pnl_color};">[${activity.pnl_impact:+,.2f}]</span>'
+        
+        log_html = f'<span style="color: {color};">[{timestamp}] {activity.activity_type.upper()}: {activity.description}</span>{pnl_text}'
+        
+        self.log_display.append(log_html)
+        
+        cursor = self.log_display.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self.log_display.setTextCursor(cursor)
 
 class PositionsTableWidget(QTableWidget):
-    """Options positions table widget."""
+    """Active positions table."""
     
-    def __init__(self, position_type: str):
+    def __init__(self):
         super().__init__()
-        self.position_type = position_type
         self.setup_ui()
         
     def setup_ui(self):
         """Setup positions table UI."""
-        # Table configuration
         headers = [
-            'Strategy', 'Symbol', 'Strikes', 'Expiry', 'Contracts',
-            'Entry', 'Current', 'P&L', 'P&L%', 'Delta', 'Theta',
-            'IV', 'Time Left', 'Action'
+            'ID', 'Strategy', 'Symbol', 'Strikes', 'Expiry', 'DTE',
+            'Contracts', 'Entry Cost', 'Current', 'Unreal P&L', 'Real P&L',
+            'Delta', 'Theta', 'Status'
         ]
         
         self.setColumnCount(len(headers))
         self.setHorizontalHeaderLabels(headers)
         
-        # Styling
         self.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {COLOR_PANEL};
@@ -287,71 +557,55 @@ class PositionsTableWidget(QTableWidget):
                 gridline-color: {COLOR_BORDER};
             }}
             QHeaderView::section {{
-                background-color: #2a2a2a;
+                background-color: #1a1a1a;
                 color: {COLOR_TEXT};
                 border: 1px solid {COLOR_BORDER};
+                padding: 5px;
+                font-size: 11px;
+            }}
+            QTableWidget::item {{
                 padding: 3px;
+                font-size: 10px;
             }}
         """)
         
-        # Column widths
+        self.setColumnWidth(0, 60)
+        self.setColumnWidth(1, 100)
+        self.setColumnWidth(2, 50)
+        self.setColumnWidth(3, 100)
+        self.setColumnWidth(4, 70)
+        self.setColumnWidth(5, 40)
+        
         self.horizontalHeader().setStretchLastSection(True)
         self.verticalHeader().setVisible(False)
-        
-        # Enable sorting
+        self.setAlternatingRowColors(True)
         self.setSortingEnabled(True)
-
 
 # ==============================================================================
 # MAIN DASHBOARD
 # ==============================================================================
-class SpyderFullScreenDashboard(QMainWindow):
-    """Full-screen trading dashboard for Spyder system."""
-    
-    # Signals
-    position_closed = pyqtSignal(str)  # position_id
-    strategy_changed = pyqtSignal(str)  # strategy_name
+class SpyderEnhancedMonitoringDashboard(QMainWindow):
+    """Enhanced monitoring dashboard for SPYDER automated trading system."""
     
     def __init__(self):
         """Initialize the dashboard."""
         super().__init__()
-        # Use the get_logger method from SpyderLogger
         self.logger = SpyderLogger.get_logger(__name__)
-        self.error_handler = SpyderErrorHandler()  # No logger parameter needed
         
-        # Data storage
-        self.ticker_data: Dict[str, TickerData] = {}
-        self.positions: Dict[str, List[OptionPosition]] = {
-            'staged': [],
-            'active': [],
-            'closed': []
-        }
-        self.test_prices = {}  # Store original prices for reference
-        
-        # UI components
-        self.ticker_widgets: Dict[str, TickerWidget] = {}
-        
-        # Setup
+        # Setup UI
         self.setup_ui()
         self.setup_timers()
         self.setup_shortcuts()
         
-        # Initialize with test data
+        # Load initial data
         self.load_test_data()
         
     def setup_ui(self):
         """Setup the main UI."""
-        self.setWindowTitle("SPYDER Trading Dashboard - Full Screen")
+        self.setWindowTitle("SPYDER - Enhanced Automated Trading System Monitor")
         self.setGeometry(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
         
-        # Allow window to be closed and minimized even in fullscreen
-        self.setWindowFlags(
-            Qt.WindowType.Window |
-            Qt.WindowType.WindowMinimizeButtonHint |
-            Qt.WindowType.WindowCloseButtonHint
-        )
-        
-        # Set dark theme
+        # Apply dark theme
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: {COLOR_BACKGROUND};
@@ -359,15 +613,41 @@ class SpyderFullScreenDashboard(QMainWindow):
             QLabel {{
                 color: {COLOR_TEXT};
             }}
+            QGroupBox {{
+                color: {COLOR_TEXT};
+                background-color: {COLOR_PANEL};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 5px;
+                margin-top: 10px;
+                font-weight: bold;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+            }}
             QPushButton {{
                 background-color: #2a2a2a;
                 color: {COLOR_TEXT};
                 border: 1px solid {COLOR_BORDER};
-                padding: 5px;
+                padding: 5px 15px;
                 border-radius: 3px;
             }}
             QPushButton:hover {{
                 background-color: #3a3a3a;
+            }}
+            QTabWidget::pane {{
+                background-color: {COLOR_PANEL};
+                border: 1px solid {COLOR_BORDER};
+            }}
+            QTabBar::tab {{
+                background-color: #1a1a1a;
+                color: {COLOR_TEXT};
+                padding: 8px 16px;
+                margin-right: 2px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: #2a2a2a;
             }}
         """)
         
@@ -377,821 +657,288 @@ class SpyderFullScreenDashboard(QMainWindow):
         
         # Main layout
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(5)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
         
-        # Top panel - Ticker ribbon and controls
-        top_panel = self.create_top_panel()
-        main_layout.addWidget(top_panel, 1)  # 10% height
+        # Header
+        header = self.create_header()
+        main_layout.addWidget(header)
         
-        # Middle section - Main content
-        middle_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Content tabs
+        self.tab_widget = QTabWidget()
         
-        # Left panel - Positions
-        left_panel = self.create_left_panel()
-        middle_splitter.addWidget(left_panel)
+        # Overview tab
+        overview_tab = self.create_overview_tab()
+        self.tab_widget.addTab(overview_tab, "📊 Overview")
         
-        # Center panel - Chart
-        center_panel = self.create_center_panel()
-        middle_splitter.addWidget(center_panel)
+        # Add more tabs if PyQtGraph is available
+        if PYQTGRAPH_AVAILABLE:
+            options_tab = self.create_options_tab()
+            self.tab_widget.addTab(options_tab, "📈 Options Analytics")
         
-        # Right panel - Strategy & Risk
-        right_panel = self.create_right_panel()
-        middle_splitter.addWidget(right_panel)
+        main_layout.addWidget(self.tab_widget)
         
-        # Set splitter sizes (30%, 45%, 25%)
-        middle_splitter.setSizes([576, 864, 480])
-        
-        main_layout.addWidget(middle_splitter, 8)  # 80% height
-        
-        # Bottom panel - System status and logs
-        bottom_panel = self.create_bottom_panel()
-        main_layout.addWidget(bottom_panel, 1)  # 10% height
+        # Status bar
+        self.create_status_bar()
         
         central_widget.setLayout(main_layout)
         
-    def create_top_panel(self) -> QWidget:
-        """Create top panel with tickers, market internals, and window controls."""
-        panel = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-        
-        # Window controls bar
-        controls_bar = QWidget()
-        controls_bar.setMaximumHeight(30)
-        controls_bar.setStyleSheet(f"""
+    def create_header(self) -> QWidget:
+        """Create header bar."""
+        header = QWidget()
+        header.setMaximumHeight(60)
+        header.setStyleSheet(f"""
             QWidget {{
-                background-color: #1a1a1a;
-                border-bottom: 1px solid {COLOR_BORDER};
+                background-color: {COLOR_PANEL};
+                border-bottom: 2px solid {COLOR_BORDER};
             }}
         """)
         
-        controls_layout = QHBoxLayout(controls_bar)
-        controls_layout.setContentsMargins(10, 2, 10, 2)
+        layout = QHBoxLayout()
+        layout.setContentsMargins(20, 10, 20, 10)
         
-        # Left side - Title
-        title_label = QLabel("SPYDER Trading Dashboard")
-        title_label.setStyleSheet(f"""
+        # Title
+        title = QLabel("🕷️ SPYDER Automated Trading Monitor")
+        title.setStyleSheet(f"""
             QLabel {{
                 color: {COLOR_TEXT};
+                font-size: 20px;
                 font-weight: bold;
-                font-size: 12px;
             }}
         """)
         
-        # Right side - Window controls
-        window_controls = QWidget()
-        controls_btn_layout = QHBoxLayout(window_controls)
-        controls_btn_layout.setContentsMargins(0, 0, 0, 0)
-        controls_btn_layout.setSpacing(5)
+        # Time
+        self.time_label = QLabel()
+        self.time_label.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 14px;")
         
-        # Toggle fullscreen button
-        self.fullscreen_btn = QPushButton("⛶")
-        self.fullscreen_btn.setMaximumSize(25, 25)
-        self.fullscreen_btn.setToolTip("Toggle Fullscreen (F11)")
-        self.fullscreen_btn.clicked.connect(self.toggle_fullscreen)
-        self.fullscreen_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3a3a3a;
-                border: 1px solid #555;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-        """)
-        
-        # Minimize button
-        minimize_btn = QPushButton("−")
-        minimize_btn.setMaximumSize(25, 25)
-        minimize_btn.setToolTip("Minimize")
-        minimize_btn.clicked.connect(self.showMinimized)
-        minimize_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3a3a3a;
-                border: 1px solid #555;
-                border-radius: 3px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-        """)
-        
-        # Close button
-        close_btn = QPushButton("×")
-        close_btn.setMaximumSize(25, 25)
-        close_btn.setToolTip("Close Application (Ctrl+Q)")
-        close_btn.clicked.connect(self.close_application)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #d32f2f;
-                border: 1px solid #b71c1c;
-                border-radius: 3px;
+        # Emergency stop
+        self.emergency_btn = QPushButton("🛑 EMERGENCY STOP")
+        self.emergency_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_NEGATIVE};
                 color: white;
+                font-weight: bold;
+                padding: 8px 20px;
+                border: none;
+                border-radius: 3px;
                 font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #f44336;
-            }
-        """)
-        
-        controls_btn_layout.addWidget(self.fullscreen_btn)
-        controls_btn_layout.addWidget(minimize_btn)
-        controls_btn_layout.addWidget(close_btn)
-        
-        controls_layout.addWidget(title_label)
-        controls_layout.addStretch()
-        controls_layout.addWidget(window_controls)
-        
-        # Main ticker and internals layout
-        main_content = QWidget()
-        content_layout = QHBoxLayout(main_content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Ticker ribbon
-        ticker_layout = QHBoxLayout()
-        ticker_layout.setSpacing(5)
-        
-        for symbol in TICKER_SYMBOLS:
-            ticker_widget = TickerWidget(symbol)
-            self.ticker_widgets[symbol] = ticker_widget
-            ticker_layout.addWidget(ticker_widget)
-            
-        ticker_container = QWidget()
-        ticker_container.setLayout(ticker_layout)
-        
-        # Market internals
-        self.market_internals = MarketInternalsWidget()
-        
-        # Add to content layout
-        content_layout.addWidget(ticker_container, 4)
-        content_layout.addWidget(self.market_internals, 1)
-        
-        # Add to main panel layout
-        layout.addWidget(controls_bar)
-        layout.addWidget(main_content)
-        
-        panel.setLayout(layout)
-        return panel
-        
-    def create_left_panel(self) -> QWidget:
-        """Create left panel with positions tables."""
-        panel = QTabWidget()
-        panel.setStyleSheet(f"""
-            QTabWidget::pane {{
-                background-color: {COLOR_PANEL};
-                border: 1px solid {COLOR_BORDER};
             }}
-            QTabBar::tab {{
-                background-color: #2a2a2a;
-                color: {COLOR_TEXT};
-                padding: 8px 16px;
-                margin-right: 2px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: #3a3a3a;
+            QPushButton:hover {{
+                background-color: #d32f2f;
             }}
         """)
+        self.emergency_btn.clicked.connect(self.emergency_stop)
         
-        # Staged positions
-        self.staged_table = PositionsTableWidget('staged')
-        panel.addTab(self.staged_table, "📋 Staged")
-        
-        # Active positions
-        self.active_table = PositionsTableWidget('active')
-        panel.addTab(self.active_table, "📈 Active")
-        
-        # Closed positions
-        self.closed_table = PositionsTableWidget('closed')
-        panel.addTab(self.closed_table, "✅ Closed")
-        
-        return panel
-        
-    def create_center_panel(self) -> QWidget:
-        """Create center panel with SPY chart."""
-        panel = QGroupBox("SPY 5-Minute Chart")
-        panel.setStyleSheet(f"""
-            QGroupBox {{
-                color: {COLOR_TEXT};
-                background-color: {COLOR_PANEL};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 5px;
-                font-weight: bold;
-                font-size: 14px;
-                padding-top: 10px;
-            }}
-        """)
-        
-        layout = QVBoxLayout()
-        
-        # Chart controls
-        controls_layout = QHBoxLayout()
-        
-        # Indicator buttons
-        self.vwap_btn = QPushButton("VWAP")
-        self.vwap_btn.setCheckable(True)
-        self.vwap_btn.setChecked(True)
-        
-        self.ema20_btn = QPushButton("EMA 20")
-        self.ema20_btn.setCheckable(True)
-        self.ema20_btn.setChecked(True)
-        
-        self.ema50_btn = QPushButton("EMA 50")
-        self.ema50_btn.setCheckable(True)
-        self.ema50_btn.setChecked(True)
-        
-        self.volume_btn = QPushButton("Volume Profile")
-        self.volume_btn.setCheckable(True)
-        
-        controls_layout.addWidget(QLabel("Indicators:"))
-        controls_layout.addWidget(self.vwap_btn)
-        controls_layout.addWidget(self.ema20_btn)
-        controls_layout.addWidget(self.ema50_btn)
-        controls_layout.addWidget(self.volume_btn)
-        controls_layout.addStretch()
-        
-        # Chart setup with matplotlib
-        self.figure = Figure(figsize=(10, 6), facecolor=COLOR_PANEL)
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setStyleSheet(f"background-color: {COLOR_PANEL};")
-        
-        # Setup the chart
-        self.setup_chart()
-        
-        layout.addLayout(controls_layout)
-        layout.addWidget(self.canvas)
-        
-        panel.setLayout(layout)
-        return panel
-        
-    def create_right_panel(self) -> QWidget:
-        """Create right panel with strategy and risk metrics."""
-        panel = QWidget()
-        layout = QVBoxLayout()
-        layout.setSpacing(5)
-        
-        # Active strategy
-        strategy_group = QGroupBox("Active Strategy")
-        strategy_group.setStyleSheet(f"""
-            QGroupBox {{
-                color: {COLOR_TEXT};
-                background-color: {COLOR_PANEL};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 5px;
-                font-weight: bold;
-                padding-top: 10px;
-            }}
-        """)
-        
-        strategy_layout = QVBoxLayout()
-        self.strategy_label = QLabel("Iron Condor - Range Bound")
-        self.strategy_label.setStyleSheet("font-size: 16px; color: #00ff41;")
-        self.regime_label = QLabel("Market Regime: Low Volatility")
-        strategy_layout.addWidget(self.strategy_label)
-        strategy_layout.addWidget(self.regime_label)
-        strategy_group.setLayout(strategy_layout)
-        
-        # Risk gauges
-        risk_group = QGroupBox("Risk Metrics")
-        risk_group.setStyleSheet(f"""
-            QGroupBox {{
-                color: {COLOR_TEXT};
-                background-color: {COLOR_PANEL};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 5px;
-                font-weight: bold;
-                padding-top: 10px;
-            }}
-        """)
-        
-        risk_layout = QGridLayout()
-        
-        # Portfolio Greeks
-        self.delta_gauge = self.create_risk_gauge("Portfolio Delta", 0.15, -1, 1)
-        self.theta_gauge = self.create_risk_gauge("Theta Decay", -45.5, -100, 0)
-        self.vega_gauge = self.create_risk_gauge("Vega Risk", -125, -500, 500)
-        self.max_loss_gauge = self.create_risk_gauge("Max Loss", -2500, -5000, 0)
-        
-        risk_layout.addWidget(self.delta_gauge, 0, 0)
-        risk_layout.addWidget(self.theta_gauge, 1, 0)
-        risk_layout.addWidget(self.vega_gauge, 2, 0)
-        risk_layout.addWidget(self.max_loss_gauge, 3, 0)
-        
-        risk_group.setLayout(risk_layout)
-        
-        # Performance metrics
-        perf_group = QGroupBox("Today's Performance")
-        perf_group.setStyleSheet(f"""
-            QGroupBox {{
-                color: {COLOR_TEXT};
-                background-color: {COLOR_PANEL};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 5px;
-                font-weight: bold;
-                padding-top: 10px;
-            }}
-        """)
-        
-        perf_layout = QGridLayout()
-        
-        self.total_pnl_label = QLabel("Total P&L:")
-        self.total_pnl_value = QLabel("$1,245.00")
-        self.total_pnl_value.setStyleSheet(f"color: {COLOR_POSITIVE}; font-size: 18px; font-weight: bold;")
-        
-        self.win_rate_label = QLabel("Win Rate:")
-        self.win_rate_value = QLabel("75% (6/8)")
-        
-        self.avg_win_label = QLabel("Avg Win:")
-        self.avg_win_value = QLabel("$287.50")
-        self.avg_win_value.setStyleSheet(f"color: {COLOR_POSITIVE};")
-        
-        self.avg_loss_label = QLabel("Avg Loss:")
-        self.avg_loss_value = QLabel("$125.00")
-        self.avg_loss_value.setStyleSheet(f"color: {COLOR_NEGATIVE};")
-        
-        perf_layout.addWidget(self.total_pnl_label, 0, 0)
-        perf_layout.addWidget(self.total_pnl_value, 0, 1)
-        perf_layout.addWidget(self.win_rate_label, 1, 0)
-        perf_layout.addWidget(self.win_rate_value, 1, 1)
-        perf_layout.addWidget(self.avg_win_label, 2, 0)
-        perf_layout.addWidget(self.avg_win_value, 2, 1)
-        perf_layout.addWidget(self.avg_loss_label, 3, 0)
-        perf_layout.addWidget(self.avg_loss_value, 3, 1)
-        
-        perf_group.setLayout(perf_layout)
-        
-        # Add all groups
-        layout.addWidget(strategy_group)
-        layout.addWidget(risk_group)
-        layout.addWidget(perf_group)
+        layout.addWidget(title)
         layout.addStretch()
+        layout.addWidget(self.time_label)
+        layout.addWidget(self.emergency_btn)
         
-        panel.setLayout(layout)
-        return panel
+        header.setLayout(layout)
+        return header
         
-    def create_bottom_panel(self) -> QWidget:
-        """Create bottom panel with system status and logs."""
-        panel = QWidget()
-        layout = QHBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        # System status
-        status_group = QGroupBox("System Status")
-        status_group.setStyleSheet(f"""
-            QGroupBox {{
-                color: {COLOR_TEXT};
-                background-color: {COLOR_PANEL};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 5px;
-                font-weight: bold;
-                padding-top: 10px;
-            }}
-        """)
-        
-        status_layout = QHBoxLayout()
-        
-        # Connection indicators
-        self.ib_status = QLabel("IB Gateway: Connected")
-        self.ib_status.setStyleSheet(f"color: {COLOR_POSITIVE};")
-        
-        self.data_status = QLabel("Market Data: Live")
-        self.data_status.setStyleSheet(f"color: {COLOR_POSITIVE};")
-        
-        self.strategy_status = QLabel("Strategy: Running")
-        self.strategy_status.setStyleSheet(f"color: {COLOR_POSITIVE};")
-        
-        status_layout.addWidget(self.ib_status)
-        status_layout.addWidget(QLabel("|"))
-        status_layout.addWidget(self.data_status)
-        status_layout.addWidget(QLabel("|"))
-        status_layout.addWidget(self.strategy_status)
-        status_layout.addStretch()
-        
-        status_group.setLayout(status_layout)
-        
-        # Logs
-        logs_group = QGroupBox("System Logs")
-        logs_group.setStyleSheet(f"""
-            QGroupBox {{
-                color: {COLOR_TEXT};
-                background-color: {COLOR_PANEL};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 5px;
-                font-weight: bold;
-                padding-top: 10px;
-            }}
-        """)
-        
-        logs_layout = QVBoxLayout()
-        
-        self.log_display = QTextEdit()
-        self.log_display.setReadOnly(True)
-        self.log_display.setMaximumHeight(100)
-        self.log_display.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: #0a0a0a;
-                color: {COLOR_TEXT};
-                border: 1px solid {COLOR_BORDER};
-                font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 11px;
-            }}
-        """)
-        
-        # Add sample logs
-        self.add_log("System initialized successfully", "INFO")
-        self.add_log("Connected to IB Gateway", "SUCCESS")
-        self.add_log("Market data feed active", "SUCCESS")
-        self.add_log("Iron Condor strategy activated", "INFO")
-        
-        logs_layout.addWidget(self.log_display)
-        logs_group.setLayout(logs_layout)
-        
-        # Add to main layout
-        layout.addWidget(status_group, 1)
-        layout.addWidget(logs_group, 2)
-        
-        panel.setLayout(layout)
-        return panel
-        
-    def create_risk_gauge(self, label: str, value: float, min_val: float, max_val: float) -> QWidget:
-        """Create a risk gauge widget."""
+    def create_overview_tab(self) -> QWidget:
+        """Create overview tab."""
         widget = QWidget()
-        layout = QVBoxLayout()
+        layout = QGridLayout()
         
-        # Label
-        label_widget = QLabel(label)
-        label_widget.setStyleSheet(f"color: {COLOR_TEXT}; font-weight: bold;")
+        # System health
+        self.system_health = SystemHealthWidget()
+        layout.addWidget(self.system_health, 0, 0)
         
-        # Value
-        value_widget = QLabel(f"{value:+.1f}")
-        if value > 0:
-            color = COLOR_POSITIVE if "Theta" not in label else COLOR_NEGATIVE
-        else:
-            color = COLOR_NEGATIVE if "Theta" not in label else COLOR_POSITIVE
-        value_widget.setStyleSheet(f"color: {color}; font-size: 16px; font-weight: bold;")
+        # P&L display
+        self.pnl_display = PnLDisplayWidget()
+        layout.addWidget(self.pnl_display, 0, 1)
         
-        # Progress bar
-        progress = QProgressBar()
-        progress.setMinimum(int(min_val * 100))
-        progress.setMaximum(int(max_val * 100))
-        progress.setValue(int(value * 100))
-        progress.setTextVisible(False)
-        progress.setMaximumHeight(10)
-        progress.setStyleSheet(f"""
-            QProgressBar {{
-                background-color: #2a2a2a;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 5px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {color};
-                border-radius: 5px;
-            }}
-        """)
+        # Risk monitor
+        self.risk_monitor = RiskMonitorWidget()
+        layout.addWidget(self.risk_monitor, 0, 2)
         
-        layout.addWidget(label_widget)
-        layout.addWidget(value_widget)
-        layout.addWidget(progress)
-        layout.setSpacing(2)
+        # Positions table
+        positions_group = QGroupBox("Active Positions")
+        positions_layout = QVBoxLayout()
+        self.positions_table = PositionsTableWidget()
+        positions_layout.addWidget(self.positions_table)
+        positions_group.setLayout(positions_layout)
+        layout.addWidget(positions_group, 1, 0, 1, 2)
+        
+        # Activity log
+        self.activity_log = ActivityLogWidget()
+        layout.addWidget(self.activity_log, 1, 2)
         
         widget.setLayout(layout)
         return widget
         
-    def setup_chart(self):
-        """Setup the SPY chart with matplotlib."""
-        self.figure.clear()
+    def create_options_tab(self) -> QWidget:
+        """Create options analytics tab (if PyQtGraph available)."""
+        widget = QWidget()
+        layout = QVBoxLayout()
         
-        # Create subplot with dark background
-        self.ax = self.figure.add_subplot(111)
-        self.ax.set_facecolor('#0a0a0a')
-        self.figure.patch.set_facecolor(COLOR_PANEL)
+        label = QLabel("Advanced Options Analytics")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("font-size: 16px; padding: 20px;")
+        layout.addWidget(label)
         
-        # Style the chart
-        self.ax.spines['bottom'].set_color(COLOR_TEXT)
-        self.ax.spines['top'].set_color(COLOR_TEXT)
-        self.ax.spines['left'].set_color(COLOR_TEXT)
-        self.ax.spines['right'].set_color(COLOR_TEXT)
-        self.ax.tick_params(colors=COLOR_TEXT)
-        self.ax.xaxis.label.set_color(COLOR_TEXT)
-        self.ax.yaxis.label.set_color(COLOR_TEXT)
+        # Add PyQtGraph visualizations here
         
-        # Generate test candlestick data
-        times = []
-        opens = []
-        highs = []
-        lows = []
-        closes = []
+        widget.setLayout(layout)
+        return widget
         
-        base_price = 585.0
-        current_time = datetime.now()
+    def create_status_bar(self):
+        """Create status bar."""
+        self.status_bar = self.statusBar()
+        self.status_bar.setStyleSheet(f"""
+            QStatusBar {{
+                background-color: {COLOR_PANEL};
+                color: {COLOR_TEXT};
+                border-top: 1px solid {COLOR_BORDER};
+            }}
+        """)
         
-        for i in range(78):  # 78 5-minute candles
-            time_point = current_time - timedelta(minutes=(78-i)*5)
-            times.append(time_point)
-            
-            # Generate OHLC
-            open_price = base_price + (i % 5) * 0.1
-            high_price = open_price + 0.3
-            low_price = open_price - 0.2
-            close_price = open_price + 0.1
-            
-            opens.append(open_price)
-            highs.append(high_price)
-            lows.append(low_price)
-            closes.append(close_price)
-            
-            base_price = close_price
+        # Status widgets
+        self.status_bar.addPermanentWidget(QLabel("PyQtGraph: "))
+        pyqtgraph_status = QLabel("Available" if PYQTGRAPH_AVAILABLE else "Not Installed")
+        pyqtgraph_status.setStyleSheet(
+            f"color: {COLOR_POSITIVE if PYQTGRAPH_AVAILABLE else COLOR_WARNING};"
+        )
+        self.status_bar.addPermanentWidget(pyqtgraph_status)
         
-        # Plot candlesticks
-        for i in range(len(times)):
-            color = COLOR_POSITIVE if closes[i] >= opens[i] else COLOR_NEGATIVE
-            # High-Low line
-            self.ax.plot([times[i], times[i]], [lows[i], highs[i]], 
-                        color=color, linewidth=1)
-            # Body
-            height = abs(closes[i] - opens[i])
-            bottom = min(closes[i], opens[i])
-            rect = Rectangle((mdates.date2num(times[i]) - 0.0005, bottom), 
-                           0.001, height, facecolor=color, edgecolor=color)
-            self.ax.add_patch(rect)
+        self.status_bar.addPermanentWidget(QLabel(" | ZeroMQ: "))
+        zmq_status = QLabel("Available" if ZEROMQ_AVAILABLE else "Not Installed")
+        zmq_status.setStyleSheet(
+            f"color: {COLOR_POSITIVE if ZEROMQ_AVAILABLE else COLOR_WARNING};"
+        )
+        self.status_bar.addPermanentWidget(zmq_status)
         
-        # Add VWAP line (simulated)
-        vwap = [sum(closes[:i+1])/(i+1) for i in range(len(closes))]
-        self.ax.plot(times, vwap, color='#00ffff', linewidth=2, label='VWAP')
-        
-        # Add EMA lines (simulated)
-        self.ax.plot(times, [base_price - 0.5] * len(times), 
-                    color='#ffff00', linewidth=1, label='EMA 20')
-        self.ax.plot(times, [base_price - 1.0] * len(times), 
-                    color='#ff00ff', linewidth=1, label='EMA 50')
-        
-        # Format x-axis
-        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        self.ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
-        self.figure.autofmt_xdate()
-        
-        # Labels and legend
-        self.ax.set_xlabel('Time', color=COLOR_TEXT)
-        self.ax.set_ylabel('Price ($)', color=COLOR_TEXT)
-        self.ax.set_title('SPY 5-Minute Chart', color=COLOR_TEXT, fontsize=14)
-        self.ax.legend(loc='upper left', facecolor=COLOR_PANEL, edgecolor=COLOR_BORDER)
-        self.ax.grid(True, alpha=0.2, color=COLOR_BORDER)
-        
-        self.figure.tight_layout()
-        self.canvas.draw()
+    def setup_timers(self):
+        """Setup update timers."""
+        # Time update
+        self.time_timer = QTimer()
+        self.time_timer.timeout.connect(self.update_time)
+        self.time_timer.start(1000)
         
     def setup_shortcuts(self):
         """Setup keyboard shortcuts."""
-        # F11 - Toggle fullscreen
+        # F11 - Fullscreen
         self.fullscreen_shortcut = QShortcut(QKeySequence("F11"), self)
         self.fullscreen_shortcut.activated.connect(self.toggle_fullscreen)
         
-        # ESC - Exit fullscreen (not close app)
-        self.escape_shortcut = QShortcut(QKeySequence("Escape"), self)
-        self.escape_shortcut.activated.connect(self.exit_fullscreen)
-        
-        # Ctrl+Q - Close application
+        # Ctrl+Q - Quit
         self.quit_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
-        self.quit_shortcut.activated.connect(self.close_application)
+        self.quit_shortcut.activated.connect(self.close)
         
-        # Alt+F4 - Close application (Windows standard)
-        self.alt_f4_shortcut = QShortcut(QKeySequence("Alt+F4"), self)
-        self.alt_f4_shortcut.activated.connect(self.close_application)
+    def update_time(self):
+        """Update current time."""
+        self.time_label.setText(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         
     def toggle_fullscreen(self):
-        """Toggle between fullscreen and windowed mode."""
+        """Toggle fullscreen mode."""
         if self.isFullScreen():
             self.showNormal()
-            self.fullscreen_btn.setText("⛶")
-            self.fullscreen_btn.setToolTip("Enter Fullscreen (F11)")
-            self.add_log("Exited fullscreen mode", "INFO")
         else:
             self.showFullScreen()
-            self.fullscreen_btn.setText("⛷")
-            self.fullscreen_btn.setToolTip("Exit Fullscreen (F11)")
-            self.add_log("Entered fullscreen mode", "INFO")
             
-    def exit_fullscreen(self):
-        """Exit fullscreen mode (ESC key behavior)."""
-        if self.isFullScreen():
-            self.showNormal()
-            self.fullscreen_btn.setText("⛶")
-            self.fullscreen_btn.setToolTip("Enter Fullscreen (F11)")
-            self.add_log("Exited fullscreen mode", "INFO")
-            
-    def close_application(self):
-        """Close the application with confirmation."""
-        reply = QMessageBox.question(
+    def emergency_stop(self):
+        """Handle emergency stop."""
+        reply = QMessageBox.critical(
             self,
-            'Confirm Exit',
-            'Are you sure you want to exit SPYDER Dashboard?',
+            "Emergency Stop",
+            "This will immediately close all positions and halt trading.\n\n"
+            "Are you sure you want to execute EMERGENCY STOP?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.add_log("Closing SPYDER Dashboard", "INFO")
-            self.close()
-        
-    def setup_timers(self):
-        """Setup update timers."""
-        # Ticker updates
-        self.ticker_timer = QTimer()
-        self.ticker_timer.timeout.connect(self.update_tickers)
-        self.ticker_timer.start(TICKER_UPDATE_MS)
-        
-        # Position updates
-        self.position_timer = QTimer()
-        self.position_timer.timeout.connect(self.update_positions)
-        self.position_timer.start(POSITION_UPDATE_MS)
-        
-        # Chart updates
-        self.chart_timer = QTimer()
-        self.chart_timer.timeout.connect(self.update_chart)
-        self.chart_timer.start(CHART_UPDATE_MS)
-        
+            self.logger.critical("EMERGENCY STOP ACTIVATED")
+            # In production, this would trigger actual emergency procedures
+            
     def load_test_data(self):
         """Load test data for demonstration."""
-        # Initialize ticker data
-        self.test_prices = {
-            'SPY': 585.25, 'SPX': 5850.75, 'VIX': 15.32, 'IWM': 225.18,
-            'QQQ': 485.92, 'TLT': 92.45, '/ES': 5852.50, 'DIA': 425.33,
-            'GLD': 195.67, 'UVXY': 22.18, 'ES': 5852.50, 'MES': 5852.50,
-            'XSP': 585.25, 'NANOS': 20.45
-        }
+        # System health
+        components = ["IB Gateway", "Market Data", "Strategy Engine", 
+                     "Risk Manager", "ML Models", "Database"]
         
-        for symbol, price in self.test_prices.items():
-            change = (price * 0.01) * (1 if hash(symbol) % 2 == 0 else -1)
-            self.ticker_data[symbol] = TickerData(
-                symbol=symbol,
-                price=price,
-                change=change,
-                change_pct=(change / price) * 100,
-                volume=1000000,
-                bid=price - 0.01,
-                ask=price + 0.01,
-                high=price + 1,
-                low=price - 1,
-                timestamp=datetime.now()
+        for component in components:
+            status = SystemStatus(
+                component=component,
+                status="healthy",
+                latency_ms=np.random.randint(5, 50),
+                last_update=datetime.now(),
+                message="Operating normally"
             )
+            self.system_health.update_status(status)
             
-        # Add test positions
-        self.add_test_positions()
-        
-    def add_test_positions(self):
-        """Add test option positions."""
-        # Staged position
-        staged = OptionPosition(
-            symbol="SPY",
-            strategy="Iron Condor",
-            strikes=[580, 582, 588, 590],
-            expiry="26JUN24",
-            contracts=10,
-            entry_price=1.25,
-            current_price=1.25,
-            pnl=0,
-            pnl_pct=0,
-            delta=0.02,
-            theta=-25.5,
-            vega=-85.2,
-            gamma=-0.001,
-            iv=15.8,
-            time_remaining="2d 5h",
-            status="staged"
+        # P&L metrics
+        metrics = PnLMetrics(
+            daily_pnl=2450.00,
+            daily_pnl_pct=2.45,
+            weekly_pnl=8750.00,
+            monthly_pnl=35200.00,
+            yearly_pnl=125000.00,
+            realized_pnl=22500.00,
+            unrealized_pnl=2950.00,
+            total_trades=145,
+            winning_trades=98,
+            losing_trades=47,
+            win_rate=67.6,
+            profit_factor=2.35,
+            sharpe_ratio=1.85,
+            max_drawdown=8.5,
+            current_drawdown=2.1
         )
-        self.positions['staged'].append(staged)
+        self.pnl_display.update_metrics(metrics)
         
-        # Active positions
-        active1 = OptionPosition(
-            symbol="SPY",
-            strategy="Bull Put Spread",
-            strikes=[582, 584],
-            expiry="24JUN24",
-            contracts=20,
-            entry_price=0.85,
-            current_price=0.42,
-            pnl=860,
-            pnl_pct=50.6,
-            delta=0.15,
-            theta=-18.2,
-            vega=-42.5,
-            gamma=-0.003,
-            iv=14.2,
-            time_remaining="5h 30m",
-            status="active"
+        # Risk metrics
+        risk = RiskMetrics(
+            portfolio_delta=45.5,
+            portfolio_gamma=-2.3,
+            portfolio_theta=-156.8,
+            portfolio_vega=-245.2,
+            var_95=3500.0,
+            margin_used=45000.0,
+            margin_available=155000.0,
+            buying_power=200000.0,
+            leverage=1.2,
+            beta_to_spy=0.85,
+            correlation_to_spy=0.78,
+            max_loss_scenario=12.5
         )
-        self.positions['active'].append(active1)
+        self.risk_monitor.update_metrics(risk)
         
-        # Update tables
-        self.update_positions()
+        # Sample activities
+        activities = [
+            TradingActivity(
+                timestamp=datetime.now() - timedelta(minutes=30),
+                activity_type="order",
+                strategy="Iron Condor",
+                symbol="SPY",
+                description="Opened 10x Iron Condor 440/445/455/460",
+                pnl_impact=None,
+                severity="info"
+            ),
+            TradingActivity(
+                timestamp=datetime.now() - timedelta(minutes=15),
+                activity_type="fill",
+                strategy="Bull Put Spread",
+                symbol="SPY",
+                description="Filled 20x Bull Put Spread 445/447 @ $0.85",
+                pnl_impact=None,
+                severity="info"
+            ),
+            TradingActivity(
+                timestamp=datetime.now() - timedelta(minutes=5),
+                activity_type="adjustment",
+                strategy="Iron Condor",
+                symbol="SPY",
+                description="Rolled put side up to 442/447",
+                pnl_impact=-125.00,
+                severity="warning"
+            )
+        ]
         
-    def update_tickers(self):
-        """Update ticker displays."""
-        for symbol, widget in self.ticker_widgets.items():
-            if symbol in self.ticker_data:
-                # Simulate price movement
-                data = self.ticker_data[symbol]
-                data.price += (0.01 if hash(str(datetime.now())) % 2 == 0 else -0.01)
-                data.change = data.price - self.test_prices.get(symbol, data.price)
-                data.change_pct = (data.change / self.test_prices.get(symbol, data.price)) * 100
-                widget.update_data(data)
-                
-    def update_positions(self):
-        """Update position tables."""
-        # Update each table
-        for position_type, table in [
-            ('staged', self.staged_table),
-            ('active', self.active_table),
-            ('closed', self.closed_table)
-        ]:
-            positions = self.positions.get(position_type, [])
-            table.setRowCount(len(positions))
-            
-            for row, pos in enumerate(positions):
-                # Strategy
-                table.setItem(row, 0, QTableWidgetItem(pos.strategy))
-                
-                # Symbol
-                table.setItem(row, 1, QTableWidgetItem(pos.symbol))
-                
-                # Strikes
-                strikes_str = "/".join([str(s) for s in pos.strikes])
-                table.setItem(row, 2, QTableWidgetItem(strikes_str))
-                
-                # Expiry
-                table.setItem(row, 3, QTableWidgetItem(pos.expiry))
-                
-                # Contracts
-                table.setItem(row, 4, QTableWidgetItem(str(pos.contracts)))
-                
-                # Entry price
-                table.setItem(row, 5, QTableWidgetItem(f"${pos.entry_price:.2f}"))
-                
-                # Current price
-                table.setItem(row, 6, QTableWidgetItem(f"${pos.current_price:.2f}"))
-                
-                # P&L
-                pnl_item = QTableWidgetItem(f"${pos.pnl:+.2f}")
-                pnl_item.setForeground(QBrush(QColor(COLOR_POSITIVE if pos.pnl > 0 else COLOR_NEGATIVE)))
-                table.setItem(row, 7, pnl_item)
-                
-                # P&L %
-                pnl_pct_item = QTableWidgetItem(f"{pos.pnl_pct:+.1f}%")
-                pnl_pct_item.setForeground(QBrush(QColor(COLOR_POSITIVE if pos.pnl_pct > 0 else COLOR_NEGATIVE)))
-                table.setItem(row, 8, pnl_pct_item)
-                
-                # Greeks
-                table.setItem(row, 9, QTableWidgetItem(f"{pos.delta:.3f}"))
-                table.setItem(row, 10, QTableWidgetItem(f"{pos.theta:.2f}"))
-                
-                # IV
-                table.setItem(row, 11, QTableWidgetItem(f"{pos.iv:.1f}%"))
-                
-                # Time remaining
-                table.setItem(row, 12, QTableWidgetItem(pos.time_remaining))
-                
-                # Action button
-                if position_type == 'active':
-                    close_btn = QPushButton("Close")
-                    close_btn.clicked.connect(lambda checked, r=row: self.close_position(r))
-                    table.setCellWidget(row, 13, close_btn)
-                    
-    def update_chart(self):
-        """Update chart data."""
-        # In production, this would fetch real-time data
-        pass
-        
-    def close_position(self, position_id: int):
-        """Close a position."""
-        self.logger.info(f"Closing position {position_id}")
-        # Implementation would close the actual position
-        
-    def add_log(self, message: str, level: str = "INFO"):
-        """Add a log entry."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        
-        # Color based on level
-        if level == "SUCCESS":
-            color = COLOR_POSITIVE
-        elif level == "ERROR":
-            color = COLOR_NEGATIVE
-        elif level == "WARNING":
-            color = COLOR_WARNING
-        else:
-            color = COLOR_TEXT
-            
-        log_html = f'<span style="color: {color};">[{timestamp}] {message}</span>'
-        self.log_display.append(log_html)
-        
-        # Keep only last 100 lines
-        cursor = self.log_display.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        self.log_display.setTextCursor(cursor)
-
+        for activity in activities:
+            self.activity_log.add_activity(activity)
 
 # ==============================================================================
 # MAIN ENTRY POINT
@@ -1204,11 +951,10 @@ def main():
     app.setStyle('Fusion')
     
     # Create and show dashboard
-    dashboard = SpyderFullScreenDashboard()
-    dashboard.showFullScreen()
+    dashboard = SpyderEnhancedMonitoringDashboard()
+    dashboard.show()
     
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
