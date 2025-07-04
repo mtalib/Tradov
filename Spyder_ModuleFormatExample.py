@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+THIS IS AN EXAMPLE OF HOW A PYTHON MODULE SHOULD BE STRUCTURED
+
+
 SPYDER - Automated SPY Options Trading System
 
 Module: Spyder[Group][Number]_[Purpose].py

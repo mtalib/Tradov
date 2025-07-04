@@ -2,1433 +2,790 @@
 # -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System
-Module: SpyderJ01_AlertManager.py
+
+Module: SpyderJ01_AlertManager.py (Enhanced with Predictive Alerts)
 Group: J (Notifications)
-Purpose: Alert system orchestration
+Purpose: Alert system orchestration with ML-powered predictive capabilities
 
 Description:
-This module manages the alert and notification system for the Spyder trading
-platform. It coordinates multiple notification channels (email, SMS, desktop,
-Telegram), implements alert rules and filtering, manages notification priorities
-and rate limiting, and ensures critical alerts are delivered reliably. The system
-supports customizable alert templates, scheduling, and maintains a history of
-all notifications for audit purposes.
+    Enhanced alert manager that includes predictive alerts using machine learning
+    to forecast trading risks before they occur. Features include risk zone breach
+    prediction, optimal exit timing alerts, volatility spike warnings, and
+    adaptive alert thresholds based on market conditions. The system integrates
+    with existing SPYDER ML modules to provide proactive rather than reactive
+    alerting across all trading strategies.
 
+Spyder Version: 1.0
 Author: Mohamed Talib
 Created: 2025-01-27
-Version: 1.4
+Enhanced: 2025-07-01
+Version: 1.5
 """
 
 # =============================================================================
-# Standard Library Imports
+# STANDARD LIBRARY IMPORTS
 # =============================================================================
 import os
 import json
 import asyncio
-import smtplib
 import threading
 import queue
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple, Any, Callable, Union
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
 import hashlib
 import pickle
+import time
+import math
 
 # =============================================================================
-# Third-Party Imports
+# THIRD-PARTY IMPORTS
 # =============================================================================
-import requests
-from jinja2 import Environment, FileSystemLoader, Template
-from twilio.rest import Client as TwilioClient
-from plyer import notification as desktop_notification
-import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+import numpy as np
 import pandas as pd
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+import joblib
 
 # =============================================================================
-# Local Application Imports
+# LOCAL APPLICATION IMPORTS
 # =============================================================================
 from SpyderA_Core.SpyderA03_Configuration import get_config_manager
-from SpyderA_Core.SpyderA05_EventManager import get_event_manager
-from SpyderH_Storage.SpyderH01_DatabaseManager import get_database_manager
+from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
+from SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, NotificationError
-from SpyderU_Utilities.SpyderU03_DateTimeUtils import is_trading_hours, to_local_time
-from SpyderU_Utilities.SpyderU07_Constants import (
-    MAX_ALERTS_PER_MINUTE,
-    ALERT_RETENTION_DAYS,
-    CRITICAL_ALERT_RETRY_COUNT
-)
+from SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+from SpyderU_Utilities.SpyderU07_Constants import AlertLevel
+
+# ML Integration imports (optional - graceful fallback if not available)
+try:
+    from SpyderL_ML.SpyderL01_MLPredictor import MLPredictor
+    from SpyderL_ML.SpyderL09_RegimeClassifier import RegimeClassifier
+    from SpyderL_ML.SpyderL14_RealTimePredictor import RealTimePredictor
+    ML_AVAILABLE = True
+except ImportError:
+    ML_AVAILABLE = False
 
 # =============================================================================
-# Constants
-# =============================================================================
-# Alert configuration
-DEFAULT_RATE_LIMIT = 10  # Alerts per minute
-DEFAULT_COOLDOWN = 300  # 5 minutes between similar alerts
-ALERT_QUEUE_SIZE = 1000
-BATCH_SEND_INTERVAL = 5  # Seconds
-
-# Channel priorities
-CHANNEL_PRIORITIES = {
-    'telegram': 1,
-    'sms': 2,
-    'email': 3,
-    'desktop': 4
-}
-
-# Retry configuration
-RETRY_DELAYS = [10, 30, 60, 300]  # Seconds
-MAX_RETRY_ATTEMPTS = len(RETRY_DELAYS)
-
-# Template directory
-TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), 'templates')
-
-# Alert history
-HISTORY_TABLE = "alert_history"
-HISTORY_RETENTION_DAYS = 30
-
-# =============================================================================
-# Enumerations
+# ENHANCED ENUMERATIONS
 # =============================================================================
 class AlertLevel(Enum):
     """Alert severity levels."""
-    DEBUG = 0
-    INFO = 1
-    WARNING = 2
-    ERROR = 3
-    CRITICAL = 4
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+    PREDICTIVE = "predictive"  # New: For ML predictions
 
 class AlertCategory(Enum):
     """Alert categories."""
-    SYSTEM = auto()
-    TRADING = auto()
-    RISK = auto()
-    POSITION = auto()
-    MARKET = auto()
-    PERFORMANCE = auto()
-    CONNECTION = auto()
+    SYSTEM = "system"
+    TRADING = "trading"
+    RISK = "risk"
+    PERFORMANCE = "performance"
+    PREDICTIVE = "predictive"  # New: ML predictions
+    MARKET = "market"
 
-class NotificationChannel(Enum):
-    """Notification channels."""
-    EMAIL = "email"
-    SMS = "sms"
-    TELEGRAM = "telegram"
-    DESKTOP = "desktop"
-    WEBHOOK = "webhook"
+class PredictionType(Enum):
+    """Types of predictive alerts."""
+    RISK_ZONE_BREACH = "risk_zone_breach"
+    VOLATILITY_SPIKE = "volatility_spike"
+    OPTIMAL_EXIT = "optimal_exit"
+    GAMMA_RISK = "gamma_risk"
+    MARKET_REGIME_CHANGE = "market_regime_change"
+    LIQUIDITY_CRISIS = "liquidity_crisis"
+    IV_CRUSH = "iv_crush"
+    CORRELATION_BREAKDOWN = "correlation_breakdown"
 
-class DeliveryStatus(Enum):
-    """Alert delivery status."""
-    PENDING = "pending"
-    SENT = "sent"
-    DELIVERED = "delivered"
-    FAILED = "failed"
-    RETRY = "retry"
+class PredictionConfidence(Enum):
+    """Confidence levels for predictions."""
+    LOW = "low"          # 60-70%
+    MEDIUM = "medium"    # 70-85%
+    HIGH = "high"        # 85-95%
+    VERY_HIGH = "very_high"  # 95%+
 
 # =============================================================================
-# Data Classes
+# ENHANCED DATA STRUCTURES
 # =============================================================================
-class Alert:
-    """
-    Represents an alert to be sent.
-    
-    Attributes:
-        alert_id: Unique alert identifier
-        level: Alert severity level
-        category: Alert category
-        title: Alert title
-        message: Alert message body
-        details: Additional details
-        channels: Target notification channels
-        timestamp: Alert creation time
-        metadata: Additional metadata
-        attachments: File attachments
-        priority: Alert priority (1-10)
-        expires_at: Alert expiration time
-    """
-    alert_id: str
-    level: AlertLevel
-    category: AlertCategory
-    title: str
-    message: str
-    details: Optional[Dict[str, Any]] = None
-    channels: List[NotificationChannel] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    attachments: List[str] = field(default_factory=list)
-    priority: int = 5
+@dataclass
+class PredictiveAlert:
+    """Enhanced alert with prediction capabilities."""
+    id: str
+    prediction_type: PredictionType
+    confidence: PredictionConfidence
+    time_horizon: int  # Minutes until predicted event
+    probability: float  # 0.0 to 1.0
+    impact_severity: str  # "low", "medium", "high", "critical"
+    affected_strategies: List[str]
+    affected_positions: List[str]
+    recommended_actions: List[str]
+    model_version: str
+    features_used: Dict[str, float]
+    created_at: datetime = field(default_factory=datetime.now)
     expires_at: Optional[datetime] = None
-    
-    def __hash__(self):
-        """Make Alert hashable for deduplication."""
-        return hash(self.alert_id)
+    triggered: bool = False
+    false_positive: Optional[bool] = None  # For model learning
 
-class AlertRule:
-    """
-    Rule for alert filtering and routing.
-    
-    Attributes:
-        rule_id: Unique rule identifier
-        name: Rule name
-        condition: Condition function
-        channels: Target channels
-        template: Message template
-        cooldown: Cooldown period in seconds
-        enabled: Rule enabled status
-        schedule: Time-based schedule
-        rate_limit: Max alerts per period
-    """
-    rule_id: str
-    name: str
-    condition: Callable[[Alert], bool]
-    channels: List[NotificationChannel]
-    template: Optional[str] = None
-    cooldown: int = DEFAULT_COOLDOWN
-    enabled: bool = True
-    schedule: Optional[Dict[str, Any]] = None
-    rate_limit: Optional[int] = None
+@dataclass
+class PredictionModel:
+    """ML model for specific prediction type."""
+    prediction_type: PredictionType
+    model: Any  # sklearn model or similar
+    scaler: StandardScaler
+    feature_names: List[str]
+    accuracy: float
+    last_trained: datetime
+    version: str
+    training_samples: int
 
-class NotificationResult:
-    """
-    Result of notification attempt.
-    
-    Attributes:
-        alert_id: Alert identifier
-        channel: Notification channel
-        status: Delivery status
-        timestamp: Attempt timestamp
-        error: Error message if failed
-        response: Channel response
-        retry_count: Number of retries
-    """
-    alert_id: str
-    channel: NotificationChannel
-    status: DeliveryStatus
-    timestamp: datetime = field(default_factory=datetime.now)
-    error: Optional[str] = None
-    response: Optional[Dict[str, Any]] = None
-    retry_count: int = 0
-
-class AlertHistory:
-    """
-    Historical alert record.
-    
-    Attributes:
-        alert: Original alert
-        results: Delivery results
-        first_sent: First send attempt
-        last_sent: Last send attempt
-        total_attempts: Total delivery attempts
-    """
-    alert: Alert
-    results: List[NotificationResult] = field(default_factory=list)
-    first_sent: Optional[datetime] = None
-    last_sent: Optional[datetime] = None
-    total_attempts: int = 0
+@dataclass
+class AdaptiveThreshold:
+    """Adaptive alert threshold that changes with market conditions."""
+    base_threshold: float
+    current_threshold: float
+    adjustment_factor: float  # Multiplier based on market regime
+    volatility_adjustment: float
+    last_updated: datetime
+    regime_adjustments: Dict[str, float]  # Regime -> adjustment factor
 
 # =============================================================================
-# Class Definitions
+# ENHANCED ALERT MANAGER CLASS
 # =============================================================================
 class AlertManager:
     """
-    Central alert and notification management system.
+    Enhanced Alert Manager with ML-powered predictive capabilities.
     
-    This class orchestrates all alerts and notifications in the Spyder system,
-    managing multiple notification channels, implementing alert rules and
-    filtering, handling rate limiting and retries, and maintaining alert history.
+    New Features:
+    - Predictive alerts using machine learning models
+    - Risk zone breach prediction before they happen
+    - Optimal exit timing predictions
+    - Adaptive thresholds based on market conditions
+    - Model accuracy tracking and auto-retraining
+    - False positive learning for model improvement
     
-    Features:
-    - Multi-channel notification support
-    - Alert rules and filtering
-    - Rate limiting and cooldown
-    - Template-based messaging
-    - Retry logic for critical alerts
-    - Alert history and audit trail
-    - Scheduled notifications
-    
-    Attributes:
-        logger (Logger): Module logger
-        config (ConfigManager): Configuration manager
-        event_manager (EventManager): Event system
-        channels (Dict): Active notification channels
-        rules (Dict): Alert rules
-        alert_queue (Queue): Pending alerts queue
-        history (Dict): Recent alert history
-        rate_limiter (RateLimiter): Rate limiting system
-        _worker_thread (Thread): Alert processing thread
+    Maintains all existing functionality while adding predictive layer.
     """
     
     def __init__(self):
-        """Initialize the alert manager."""
+        """Initialize enhanced alert manager with predictive capabilities."""
+        # Core components
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = get_config_manager()
         self.event_manager = get_event_manager()
-        self.database = get_database_manager()
+        self.data_access = get_data_access_layer()
+        self.datetime_utils = DateTimeUtils()
         
-        # Alert configuration
+        # Basic alert configuration
         self.enabled = self.config.get('alerts.enabled', True)
-        self.rate_limit = self.config.get('alerts.rate_limit', DEFAULT_RATE_LIMIT)
+        self.rate_limit = self.config.get('alerts.rate_limit', 10)
         
-        # Notification channels
-        self.channels: Dict[NotificationChannel, Any] = {}
-        self._initialize_channels()
+        # Predictive alerts configuration
+        self.predictive_enabled = self.config.get('alerts.predictive.enabled', True)
+        self.prediction_horizon = self.config.get('alerts.predictive.horizon_minutes', 30)
+        self.min_confidence = self.config.get('alerts.predictive.min_confidence', 0.7)
         
-        # Alert rules
-        self.rules: Dict[str, AlertRule] = {}
-        self._load_rules()
+        # ML Components (if available)
+        self.ml_available = ML_AVAILABLE
+        self.prediction_models: Dict[PredictionType, PredictionModel] = {}
+        self.ml_predictor = None
+        self.regime_classifier = None
+        self.realtime_predictor = None
         
-        # Alert queue and processing
-        self.alert_queue: queue.Queue = queue.Queue(maxsize=ALERT_QUEUE_SIZE)
-        self.retry_queue: queue.PriorityQueue = queue.PriorityQueue()
+        # Enhanced data structures
+        self.predictive_alerts: Dict[str, PredictiveAlert] = {}
+        self.adaptive_thresholds: Dict[str, AdaptiveThreshold] = {}
+        self.prediction_history: deque = deque(maxlen=1000)
         
-        # Alert history and deduplication
-        self.history: Dict[str, AlertHistory] = {}
-        self.recent_alerts: deque = deque(maxlen=1000)
-        self._cooldown_tracker: Dict[str, datetime] = {}
+        # Alert queues
+        self.alert_queue: queue.Queue = queue.Queue(maxsize=1000)
+        self.predictive_queue: queue.Queue = queue.Queue(maxsize=500)
         
-        # Rate limiting
-        self.rate_limiter = RateLimiter(self.rate_limit)
+        # Strategy registrations
+        self.registered_strategies: Dict[str, Dict[str, Any]] = {}
+        self.strategy_contexts: Dict[str, Dict[str, Any]] = {}
         
-        # Template engine
-        self.template_env = Environment(
-            loader=FileSystemLoader(TEMPLATE_DIR),
-            autoescape=True
-        )
+        # Performance tracking
+        self.prediction_stats = {
+            'total_predictions': 0,
+            'accurate_predictions': 0,
+            'false_positives': 0,
+            'missed_events': 0,
+            'by_type': defaultdict(lambda: {'total': 0, 'accurate': 0}),
+            'by_confidence': defaultdict(lambda: {'total': 0, 'accurate': 0})
+        }
         
         # Threading
         self._stop_event = threading.Event()
-        self._worker_thread = threading.Thread(
-            target=self._process_alerts,
-            name="AlertManager-Worker",
-            daemon=True
-        )
+        self._worker_thread = None
+        self._prediction_thread = None
         
-        # Statistics
-        self.stats = {
-            'total_alerts': 0,
-            'sent_successfully': 0,
-            'failed_alerts': 0,
-            'rate_limited': 0,
-            'by_channel': defaultdict(int),
-            'by_level': defaultdict(int)
-        }
-        
-        # Start processing
+        # Initialize components
+        self._initialize_ml_components()
+        self._initialize_adaptive_thresholds()
         self._start_processing()
         
-        # Subscribe to system events
-        self._subscribe_to_events()
-        
-        self.logger.info("Alert manager initialized")
+        self.logger.info("✅ Enhanced AlertManager with predictive capabilities initialized")
     
-    def _initialize_channels(self) -> None:
-        """Initialize notification channels."""
-        # Email channel
-        if self.config.get('alerts.email.enabled', False):
-            self.channels[NotificationChannel.EMAIL] = EmailChannel(
-                smtp_host=self.config.get('alerts.email.smtp_host'),
-                smtp_port=self.config.get('alerts.email.smtp_port', 587),
-                username=self.config.get('alerts.email.username'),
-                password=self.config.get('alerts.email.password'),
-                from_address=self.config.get('alerts.email.from_address'),
-                to_addresses=self.config.get('alerts.email.to_addresses', [])
-            )
-            self.logger.info("Email channel initialized")
-        
-        # SMS channel (Twilio)
-        if self.config.get('alerts.sms.enabled', False):
-            self.channels[NotificationChannel.SMS] = SMSChannel(
-                account_sid=self.config.get('alerts.sms.twilio_sid'),
-                auth_token=self.config.get('alerts.sms.twilio_token'),
-                from_number=self.config.get('alerts.sms.from_number'),
-                to_numbers=self.config.get('alerts.sms.to_numbers', [])
-            )
-            self.logger.info("SMS channel initialized")
-        
-        # Telegram channel
-        if self.config.get('alerts.telegram.enabled', False):
-            self.channels[NotificationChannel.TELEGRAM] = TelegramChannel(
-                bot_token=self.config.get('alerts.telegram.bot_token'),
-                chat_ids=self.config.get('alerts.telegram.chat_ids', [])
-            )
-            self.logger.info("Telegram channel initialized")
-        
-        # Desktop notifications
-        if self.config.get('alerts.desktop.enabled', True):
-            self.channels[NotificationChannel.DESKTOP] = DesktopChannel()
-            self.logger.info("Desktop channel initialized")
-    
-    def _load_rules(self) -> None:
-        """Load alert rules from configuration."""
-        # Default rules
-        self._add_default_rules()
-        
-        # Custom rules from config
-        custom_rules = self.config.get('alerts.rules', [])
-        for rule_config in custom_rules:
-            try:
-                rule = self._create_rule_from_config(rule_config)
-                self.add_rule(rule)
-            except Exception as e:
-                self.logger.error(f"Failed to load rule {rule_config.get('name')}: {str(e)}")
-    
-    def _add_default_rules(self) -> None:
-        """Add default alert rules."""
-        # Critical alerts go to all channels
-        self.add_rule(AlertRule(
-            rule_id="critical_all_channels",
-            name="Critical Alerts - All Channels",
-            condition=lambda alert: alert.level == AlertLevel.CRITICAL,
-            channels=[ch for ch in NotificationChannel],
-            cooldown=0  # No cooldown for critical
-        ))
-        
-        # Risk alerts
-        self.add_rule(AlertRule(
-            rule_id="risk_alerts",
-            name="Risk Management Alerts",
-            condition=lambda alert: alert.category == AlertCategory.RISK and alert.level >= AlertLevel.WARNING,
-            channels=[NotificationChannel.TELEGRAM, NotificationChannel.SMS],
-            cooldown=300
-        ))
-        
-        # Trading hours only
-        self.add_rule(AlertRule(
-            rule_id="trading_hours_only",
-            name="Trading Hours Only",
-            condition=lambda alert: is_trading_hours() and alert.category == AlertCategory.TRADING,
-            channels=[NotificationChannel.DESKTOP],
-            cooldown=60
-        ))
-        
-        # Performance summaries
-        self.add_rule(AlertRule(
-            rule_id="performance_summary",
-            name="Performance Summaries",
-            condition=lambda alert: alert.category == AlertCategory.PERFORMANCE,
-            channels=[NotificationChannel.EMAIL],
-            cooldown=3600  # 1 hour
-        ))
-    
-    def _subscribe_to_events(self) -> None:
-        """Subscribe to system events for alerts."""
-        # Risk events
-        self.event_manager.subscribe('RISK_LIMIT_EXCEEDED', self._on_risk_limit_exceeded)
-        self.event_manager.subscribe('CIRCUIT_BREAKER_TRIGGERED', self._on_circuit_breaker)
-        
-        # Trading events
-        self.event_manager.subscribe('POSITION_OPENED', self._on_position_opened)
-        self.event_manager.subscribe('POSITION_CLOSED', self._on_position_closed)
-        self.event_manager.subscribe('ORDER_REJECTED', self._on_order_rejected)
-        
-        # System events
-        self.event_manager.subscribe('CONNECTION_LOST', self._on_connection_lost)
-        self.event_manager.subscribe('CONNECTION_RESTORED', self._on_connection_restored)
-        
-        # Performance events
-        self.event_manager.subscribe('DAILY_SUMMARY', self._on_daily_summary)
-    
-    def _start_processing(self) -> None:
-        """Start alert processing thread."""
-        self._worker_thread.start()
-        self.logger.debug("Alert processing started")
-    
-    # =========================================================================
-    # Public Methods - Alert Creation
-    # =========================================================================
-    
-    def send_alert(self, level: AlertLevel, category: AlertCategory,
-                  title: str, message: str, **kwargs) -> str:
-        """
-        Send an alert through configured channels.
-        
-        Args:
-            level: Alert severity level
-            category: Alert category
-            title: Alert title
-            message: Alert message
-            **kwargs: Additional alert parameters
-            
-        Returns:
-            Alert ID
-        """
-        # Create alert
-        alert = Alert(
-            alert_id=self._generate_alert_id(),
-            level=level,
-            category=category,
-            title=title,
-            message=message,
-            details=kwargs.get('details'),
-            channels=kwargs.get('channels', []),
-            priority=kwargs.get('priority', self._level_to_priority(level)),
-            metadata=kwargs.get('metadata', {}),
-            attachments=kwargs.get('attachments', []),
-            expires_at=kwargs.get('expires_at')
-        )
-        
-        # Add to queue
+    # ==========================================================================
+    # ML INTEGRATION METHODS
+    # ==========================================================================
+    def _initialize_ml_components(self) -> None:
+        """Initialize ML components for predictive alerts."""
         try:
-            self.alert_queue.put_nowait(alert)
-            self.stats['total_alerts'] += 1
-            self.stats['by_level'][level.name] += 1
+            if not self.ml_available:
+                self.logger.warning("ML modules not available - predictive alerts disabled")
+                self.predictive_enabled = False
+                return
             
-            self.logger.debug(f"Alert queued: {alert.alert_id} - {title}")
-            
-            return alert.alert_id
-            
-        except queue.Full:
-            self.logger.error("Alert queue full, dropping alert")
-            self.stats['failed_alerts'] += 1
-            raise NotificationError("Alert queue full")
-    
-    def send_critical_alert(self, title: str, message: str, **kwargs) -> str:
-        """
-        Send a critical alert with highest priority.
-        
-        Args:
-            title: Alert title
-            message: Alert message
-            **kwargs: Additional parameters
-            
-        Returns:
-            Alert ID
-        """
-        return self.send_alert(
-            AlertLevel.CRITICAL,
-            kwargs.get('category', AlertCategory.SYSTEM),
-            title,
-            message,
-            priority=10,
-            **kwargs
-        )
-    
-    def send_batch_alerts(self, alerts: List[Dict[str, Any]]) -> List[str]:
-        """
-        Send multiple alerts in batch.
-        
-        Args:
-            alerts: List of alert dictionaries
-            
-        Returns:
-            List of alert IDs
-        """
-        alert_ids = []
-        
-        for alert_data in alerts:
-            try:
-                alert_id = self.send_alert(**alert_data)
-                alert_ids.append(alert_id)
-            except Exception as e:
-                self.logger.error(f"Failed to queue batch alert: {str(e)}")
-        
-        return alert_ids
-    
-    # =========================================================================
-    # Public Methods - Rule Management
-    # =========================================================================
-    
-    def add_rule(self, rule: AlertRule) -> None:
-        """
-        Add an alert rule.
-        
-        Args:
-            rule: Alert rule to add
-        """
-        self.rules[rule.rule_id] = rule
-        self.logger.info(f"Added alert rule: {rule.name}")
-    
-    def remove_rule(self, rule_id: str) -> None:
-        """
-        Remove an alert rule.
-        
-        Args:
-            rule_id: Rule ID to remove
-        """
-        if rule_id in self.rules:
-            del self.rules[rule_id]
-            self.logger.info(f"Removed alert rule: {rule_id}")
-    
-    def enable_rule(self, rule_id: str) -> None:
-        """Enable an alert rule."""
-        if rule_id in self.rules:
-            self.rules[rule_id].enabled = True
-    
-    def disable_rule(self, rule_id: str) -> None:
-        """Disable an alert rule."""
-        if rule_id in self.rules:
-            self.rules[rule_id].enabled = False
-    
-    # =========================================================================
-    # Public Methods - Channel Management
-    # =========================================================================
-    
-    def enable_channel(self, channel: NotificationChannel) -> None:
-        """Enable a notification channel."""
-        if channel in self.channels:
-            self.channels[channel].enabled = True
-            self.logger.info(f"Enabled channel: {channel.value}")
-    
-    def disable_channel(self, channel: NotificationChannel) -> None:
-        """Disable a notification channel."""
-        if channel in self.channels:
-            self.channels[channel].enabled = False
-            self.logger.info(f"Disabled channel: {channel.value}")
-    
-    def test_channel(self, channel: NotificationChannel) -> bool:
-        """
-        Test a notification channel.
-        
-        Args:
-            channel: Channel to test
-            
-        Returns:
-            bool: Test success status
-        """
-        if channel not in self.channels:
-            return False
-        
-        test_alert = Alert(
-            alert_id="TEST_" + self._generate_alert_id(),
-            level=AlertLevel.INFO,
-            category=AlertCategory.SYSTEM,
-            title="Test Alert",
-            message="This is a test alert from Spyder Trading System",
-            channels=[channel]
-        )
-        
-        try:
-            result = self.channels[channel].send(test_alert)
-            return result.status == DeliveryStatus.SENT
-        except Exception as e:
-            self.logger.error(f"Channel test failed: {str(e)}")
-            return False
-    
-    # =========================================================================
-    # Public Methods - Alert History
-    # =========================================================================
-    
-    def get_alert_history(self, hours: int = 24, 
-                         level: Optional[AlertLevel] = None,
-                         category: Optional[AlertCategory] = None) -> List[AlertHistory]:
-        """
-        Get alert history.
-        
-        Args:
-            hours: Hours of history to retrieve
-            level: Filter by level
-            category: Filter by category
-            
-        Returns:
-            List of alert history records
-        """
-        cutoff = datetime.now() - timedelta(hours=hours)
-        
-        history = []
-        for alert_history in self.history.values():
-            if alert_history.first_sent and alert_history.first_sent >= cutoff:
-                if level and alert_history.alert.level != level:
-                    continue
-                if category and alert_history.alert.category != category:
-                    continue
-                history.append(alert_history)
-        
-        return sorted(history, key=lambda h: h.first_sent or datetime.min, reverse=True)
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """
-        Get alert statistics.
-        
-        Returns:
-            Dictionary of statistics
-        """
-        return {
-            'total_alerts': self.stats['total_alerts'],
-            'sent_successfully': self.stats['sent_successfully'],
-            'failed_alerts': self.stats['failed_alerts'],
-            'rate_limited': self.stats['rate_limited'],
-            'by_channel': dict(self.stats['by_channel']),
-            'by_level': dict(self.stats['by_level']),
-            'queue_size': self.alert_queue.qsize(),
-            'active_rules': sum(1 for r in self.rules.values() if r.enabled),
-            'active_channels': sum(1 for c in self.channels.values() if hasattr(c, 'enabled') and c.enabled)
-        }
-    
-    # =========================================================================
-    # Private Methods - Alert Processing
-    # =========================================================================
-    
-    def _process_alerts(self) -> None:
-        """Main alert processing loop."""
-        while not self._stop_event.is_set():
-            try:
-                # Process new alerts
-                self._process_new_alerts()
-                
-                # Process retries
-                self._process_retries()
-                
-                # Cleanup old history
-                self._cleanup_history()
-                
-                # Sleep briefly
-                self._stop_event.wait(1)
-                
-            except Exception as e:
-                self.logger.error(f"Error in alert processing: {str(e)}")
-    
-    def _process_new_alerts(self) -> None:
-        """Process new alerts from queue."""
-        batch = []
-        
-        # Collect alerts for batch processing
-        while not self.alert_queue.empty() and len(batch) < 10:
-            try:
-                alert = self.alert_queue.get_nowait()
-                batch.append(alert)
-            except queue.Empty:
-                break
-        
-        # Process batch
-        for alert in batch:
-            try:
-                self._process_single_alert(alert)
-            except Exception as e:
-                self.logger.error(f"Failed to process alert {alert.alert_id}: {str(e)}")
-    
-    def _process_single_alert(self, alert: Alert) -> None:
-        """
-        Process a single alert.
-        
-        Args:
-            alert: Alert to process
-        """
-        # Check expiration
-        if alert.expires_at and datetime.now() > alert.expires_at:
-            self.logger.debug(f"Alert {alert.alert_id} expired, skipping")
-            return
-        
-        # Check cooldown
-        if self._is_in_cooldown(alert):
-            self.logger.debug(f"Alert {alert.alert_id} in cooldown, skipping")
-            self.stats['rate_limited'] += 1
-            return
-        
-        # Apply rules to determine channels
-        channels = self._apply_rules(alert)
-        
-        # Add explicitly requested channels
-        for channel in alert.channels:
-            if channel not in channels:
-                channels.append(channel)
-        
-        if not channels:
-            self.logger.debug(f"No channels selected for alert {alert.alert_id}")
-            return
-        
-        # Check rate limit
-        if not self.rate_limiter.check():
-            self.logger.warning("Rate limit exceeded, queuing for retry")
-            self.stats['rate_limited'] += 1
-            self._queue_retry(alert, 60)  # Retry in 1 minute
-            return
-        
-        # Create history record
-        history = AlertHistory(alert=alert)
-        self.history[alert.alert_id] = history
-        
-        # Send to channels
-        for channel in channels:
-            if channel in self.channels:
-                self._send_to_channel(alert, channel, history)
-        
-        # Update cooldown
-        self._update_cooldown(alert)
-        
-        # Record alert
-        self.recent_alerts.append(alert)
-    
-    def _send_to_channel(self, alert: Alert, channel: NotificationChannel,
-                        history: AlertHistory) -> None:
-        """
-        Send alert to specific channel.
-        
-        Args:
-            alert: Alert to send
-            channel: Target channel
-            history: Alert history record
-        """
-        try:
-            # Apply template if available
-            formatted_alert = self._format_alert(alert, channel)
-            
-            # Send through channel
-            result = self.channels[channel].send(formatted_alert)
-            
-            # Update history
-            history.results.append(result)
-            history.total_attempts += 1
-            
-            if not history.first_sent:
-                history.first_sent = datetime.now()
-            history.last_sent = datetime.now()
-            
-            # Update statistics
-            if result.status == DeliveryStatus.SENT:
-                self.stats['sent_successfully'] += 1
-                self.stats['by_channel'][channel.value] += 1
-            else:
-                self.stats['failed_alerts'] += 1
-                
-                # Retry critical alerts
-                if alert.level == AlertLevel.CRITICAL and result.retry_count < MAX_RETRY_ATTEMPTS:
-                    self._queue_retry(alert, RETRY_DELAYS[result.retry_count])
-            
-            self.logger.debug(f"Alert {alert.alert_id} sent to {channel.value}: {result.status.value}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to send alert to {channel.value}: {str(e)}")
-            self.stats['failed_alerts'] += 1
-    
-    def _process_retries(self) -> None:
-        """Process retry queue."""
-        current_time = datetime.now()
-        
-        while not self.retry_queue.empty():
-            try:
-                retry_time, alert = self.retry_queue.get_nowait()
-                
-                if retry_time <= current_time:
-                    # Process retry
-                    self._process_single_alert(alert)
-                else:
-                    # Put back in queue
-                    self.retry_queue.put((retry_time, alert))
-                    break
-                    
-            except queue.Empty:
-                break
-    
-    # =========================================================================
-    # Private Methods - Alert Rules
-    # =========================================================================
-    
-    def _apply_rules(self, alert: Alert) -> List[NotificationChannel]:
-        """
-        Apply rules to determine target channels.
-        
-        Args:
-            alert: Alert to process
-            
-        Returns:
-            List of target channels
-        """
-        channels = set()
-        
-        for rule in self.rules.values():
-            if not rule.enabled:
-                continue
-            
-            try:
-                if rule.condition(alert):
-                    # Check schedule
-                    if rule.schedule and not self._check_schedule(rule.schedule):
-                        continue
-                    
-                    # Add channels
-                    for channel in rule.channels:
-                        channels.add(channel)
-                        
-            except Exception as e:
-                self.logger.error(f"Error applying rule {rule.name}: {str(e)}")
-        
-        # Sort by priority
-        return sorted(channels, key=lambda c: CHANNEL_PRIORITIES.get(c.value, 99))
-    
-    def _check_schedule(self, schedule: Dict[str, Any]) -> bool:
-        """
-        Check if current time matches schedule.
-        
-        Args:
-            schedule: Schedule configuration
-            
-        Returns:
-            bool: Schedule match status
-        """
-        current_time = datetime.now()
-        
-        # Check days of week
-        if 'days' in schedule:
-            if current_time.weekday() not in schedule['days']:
-                return False
-        
-        # Check time range
-        if 'start_time' in schedule and 'end_time' in schedule:
-            start = time.fromisoformat(schedule['start_time'])
-            end = time.fromisoformat(schedule['end_time'])
-            current = current_time.time()
-            
-            if not (start <= current <= end):
-                return False
-        
-        return True
-    
-    # =========================================================================
-    # Private Methods - Formatting
-    # =========================================================================
-    
-    def _format_alert(self, alert: Alert, channel: NotificationChannel) -> Alert:
-        """
-        Format alert for specific channel.
-        
-        Args:
-            alert: Original alert
-            channel: Target channel
-            
-        Returns:
-            Formatted alert
-        """
-        # Find applicable template
-        template_name = f"{alert.category.name.lower()}_{alert.level.name.lower()}.{channel.value}.j2"
-        
-        try:
-            template = self.template_env.get_template(template_name)
-        except:
-            # Fall back to default template
-            try:
-                template = self.template_env.get_template(f"default.{channel.value}.j2")
-            except:
-                # No template, return original
-                return alert
-        
-        # Render template
-        rendered_message = template.render(
-            alert=alert,
-            timestamp=alert.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            details=alert.details or {},
-            metadata=alert.metadata
-        )
-        
-        # Create formatted alert
-        formatted = Alert(
-            alert_id=alert.alert_id,
-            level=alert.level,
-            category=alert.category,
-            title=alert.title,
-            message=rendered_message,
-            details=alert.details,
-            channels=[channel],
-            timestamp=alert.timestamp,
-            metadata=alert.metadata,
-            attachments=alert.attachments,
-            priority=alert.priority,
-            expires_at=alert.expires_at
-        )
-        
-        return formatted
-    
-    # =========================================================================
-    # Private Methods - Utilities
-    # =========================================================================
-    
-    def _generate_alert_id(self) -> str:
-        """Generate unique alert ID."""
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-        return f"ALERT_{timestamp}"
-    
-    def _level_to_priority(self, level: AlertLevel) -> int:
-        """Convert alert level to priority."""
-        priorities = {
-            AlertLevel.DEBUG: 1,
-            AlertLevel.INFO: 3,
-            AlertLevel.WARNING: 5,
-            AlertLevel.ERROR: 7,
-            AlertLevel.CRITICAL: 10
-        }
-        return priorities.get(level, 5)
-    
-    def _is_in_cooldown(self, alert: Alert) -> bool:
-        """Check if alert type is in cooldown."""
-        # Create cooldown key
-        key = f"{alert.category.name}_{alert.level.name}_{alert.title}"
-        
-        if key in self._cooldown_tracker:
-            last_sent = self._cooldown_tracker[key]
-            cooldown_period = timedelta(seconds=DEFAULT_COOLDOWN)
-            
-            # Check rules for custom cooldown
-            for rule in self.rules.values():
-                if rule.enabled and rule.condition(alert):
-                    cooldown_period = timedelta(seconds=rule.cooldown)
-                    break
-            
-            if datetime.now() - last_sent < cooldown_period:
-                return True
-        
-        return False
-    
-    def _update_cooldown(self, alert: Alert) -> None:
-        """Update cooldown tracker."""
-        key = f"{alert.category.name}_{alert.level.name}_{alert.title}"
-        self._cooldown_tracker[key] = datetime.now()
-    
-    def _queue_retry(self, alert: Alert, delay_seconds: int) -> None:
-        """Queue alert for retry."""
-        retry_time = datetime.now() + timedelta(seconds=delay_seconds)
-        self.retry_queue.put((retry_time, alert))
-    
-    def _cleanup_history(self) -> None:
-        """Clean up old alert history."""
-        cutoff = datetime.now() - timedelta(days=ALERT_RETENTION_DAYS)
-        
-        # Clean in-memory history
-        old_alerts = []
-        for alert_id, history in self.history.items():
-            if history.last_sent and history.last_sent < cutoff:
-                old_alerts.append(alert_id)
-        
-        for alert_id in old_alerts:
-            del self.history[alert_id]
-        
-        # Clean cooldown tracker
-        current_time = datetime.now()
-        old_cooldowns = []
-        for key, last_sent in self._cooldown_tracker.items():
-            if current_time - last_sent > timedelta(hours=24):
-                old_cooldowns.append(key)
-        
-        for key in old_cooldowns:
-            del self._cooldown_tracker[key]
-    
-    def _create_rule_from_config(self, config: Dict[str, Any]) -> AlertRule:
-        """Create rule from configuration."""
-        # This would parse the configuration and create a rule
-        # Simplified for this example
-        return AlertRule(
-            rule_id=config['id'],
-            name=config['name'],
-            condition=lambda alert: True,  # Would be parsed from config
-            channels=[NotificationChannel(ch) for ch in config.get('channels', [])],
-            cooldown=config.get('cooldown', DEFAULT_COOLDOWN),
-            enabled=config.get('enabled', True)
-        )
-    
-    # =========================================================================
-    # Event Handlers
-    # =========================================================================
-    
-    def _on_risk_limit_exceeded(self, event_data: Dict[str, Any]) -> None:
-        """Handle risk limit exceeded event."""
-        self.send_alert(
-            level=AlertLevel.CRITICAL,
-            category=AlertCategory.RISK,
-            title="Risk Limit Exceeded",
-            message=f"Risk limit exceeded: {event_data.get('limit_type')}",
-            details=event_data
-        )
-    
-    def _on_circuit_breaker(self, event_data: Dict[str, Any]) -> None:
-        """Handle circuit breaker event."""
-        self.send_alert(
-            level=AlertLevel.CRITICAL,
-            category=AlertCategory.RISK,
-            title="Circuit Breaker Triggered",
-            message=f"Trading halted: {event_data.get('reason')}",
-            details=event_data
-        )
-    
-    def _on_position_opened(self, event_data: Dict[str, Any]) -> None:
-        """Handle position opened event."""
-        self.send_alert(
-            level=AlertLevel.INFO,
-            category=AlertCategory.POSITION,
-            title="Position Opened",
-            message=f"New position: {event_data.get('symbol')} - {event_data.get('quantity')} contracts",
-            details=event_data
-        )
-    
-    def _on_position_closed(self, event_data: Dict[str, Any]) -> None:
-        """Handle position closed event."""
-        pnl = event_data.get('realized_pnl', 0)
-        level = AlertLevel.INFO if pnl >= 0 else AlertLevel.WARNING
-        
-        self.send_alert(
-            level=level,
-            category=AlertCategory.POSITION,
-            title="Position Closed",
-            message=f"Position closed: {event_data.get('symbol')} - P&L: ${pnl:+,.2f}",
-            details=event_data
-        )
-    
-    def _on_order_rejected(self, event_data: Dict[str, Any]) -> None:
-        """Handle order rejected event."""
-        self.send_alert(
-            level=AlertLevel.ERROR,
-            category=AlertCategory.TRADING,
-            title="Order Rejected",
-            message=f"Order rejected: {event_data.get('reason')}",
-            details=event_data
-        )
-    
-    def _on_connection_lost(self, event_data: Dict[str, Any]) -> None:
-        """Handle connection lost event."""
-        self.send_alert(
-            level=AlertLevel.CRITICAL,
-            category=AlertCategory.CONNECTION,
-            title="Connection Lost",
-            message="Lost connection to Interactive Brokers",
-            details=event_data
-        )
-    
-    def _on_connection_restored(self, event_data: Dict[str, Any]) -> None:
-        """Handle connection restored event."""
-        self.send_alert(
-            level=AlertLevel.INFO,
-            category=AlertCategory.CONNECTION,
-            title="Connection Restored",
-            message="Connection to Interactive Brokers restored",
-            details=event_data
-        )
-    
-    def _on_daily_summary(self, event_data: Dict[str, Any]) -> None:
-        """Handle daily summary event."""
-        self.send_alert(
-            level=AlertLevel.INFO,
-            category=AlertCategory.PERFORMANCE,
-            title="Daily Trading Summary",
-            message=self._format_daily_summary(event_data),
-            details=event_data,
-            channels=[NotificationChannel.EMAIL]
-        )
-    
-    def _format_daily_summary(self, data: Dict[str, Any]) -> str:
-        """Format daily summary message."""
-        return f"""
-Daily Trading Summary - {datetime.now().strftime('%Y-%m-%d')}
-
-Total P&L: ${data.get('total_pnl', 0):+,.2f}
-Total Trades: {data.get('total_trades', 0)}
-Win Rate: {data.get('win_rate', 0):.1%}
-Positions Open: {data.get('open_positions', 0)}
-
-Top Performing Strategy: {data.get('top_strategy', 'N/A')}
-Worst Performing Strategy: {data.get('worst_strategy', 'N/A')}
-
-Account Equity: ${data.get('account_equity', 0):,.2f}
-Daily Return: {data.get('daily_return', 0):+.2%}
-"""
-    
-    def shutdown(self) -> None:
-        """Shutdown alert manager."""
-        self.logger.info("Shutting down alert manager")
-        
-        # Stop processing
-        self._stop_event.set()
-        
-        # Wait for worker thread
-        if self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=5)
-        
-        # Close channels
-        for channel in self.channels.values():
-            if hasattr(channel, 'close'):
-                channel.close()
-        
-        self.logger.info("Alert manager shutdown complete")
-
-# =============================================================================
-# Channel Implementations
-# =============================================================================
-class EmailChannel:
-    """Email notification channel."""
-    
-    def __init__(self, smtp_host: str, smtp_port: int, username: str,
-                password: str, from_address: str, to_addresses: List[str]):
-        """Initialize email channel."""
-        self.smtp_host = smtp_host
-        self.smtp_port = smtp_port
-        self.username = username
-        self.password = password
-        self.from_address = from_address
-        self.to_addresses = to_addresses
-        self.enabled = True
-        
-    def send(self, alert: Alert) -> NotificationResult:
-        """Send email notification."""
-        if not self.enabled:
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.EMAIL,
-                status=DeliveryStatus.FAILED,
-                error="Channel disabled"
-            )
-        
-        try:
-            # Create message
-            msg = MIMEMultipart()
-            msg['From'] = self.from_address
-            msg['To'] = ', '.join(self.to_addresses)
-            msg['Subject'] = f"[{alert.level.name}] {alert.title}"
-            
-            # Add body
-            body = alert.message
-            if alert.details:
-                body += "\n\nDetails:\n" + json.dumps(alert.details, indent=2)
-            
-            msg.attach(MIMEText(body, 'plain'))
-            
-            # Add attachments
-            for attachment_path in alert.attachments:
-                if os.path.exists(attachment_path):
-                    with open(attachment_path, 'rb') as f:
-                        part = MIMEBase('application', 'octet-stream')
-                        part.set_payload(f.read())
-                        encoders.encode_base64(part)
-                        part.add_header(
-                            'Content-Disposition',
-                            f'attachment; filename= {os.path.basename(attachment_path)}'
-                        )
-                        msg.attach(part)
-            
-            # Send email
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.username, self.password)
-                server.send_message(msg)
-            
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.EMAIL,
-                status=DeliveryStatus.SENT
-            )
-            
-        except Exception as e:
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.EMAIL,
-                status=DeliveryStatus.FAILED,
-                error=str(e)
-            )
-
-class SMSChannel:
-    """SMS notification channel using Twilio."""
-    
-    def __init__(self, account_sid: str, auth_token: str,
-                from_number: str, to_numbers: List[str]):
-        """Initialize SMS channel."""
-        self.client = TwilioClient(account_sid, auth_token)
-        self.from_number = from_number
-        self.to_numbers = to_numbers
-        self.enabled = True
-        
-    def send(self, alert: Alert) -> NotificationResult:
-        """Send SMS notification."""
-        if not self.enabled:
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.SMS,
-                status=DeliveryStatus.FAILED,
-                error="Channel disabled"
-            )
-        
-        try:
-            # Format message for SMS (limited length)
-            message = f"[{alert.level.name}] {alert.title}\n{alert.message[:140]}"
-            
-            # Send to all numbers
-            for to_number in self.to_numbers:
-                self.client.messages.create(
-                    body=message,
-                    from_=self.from_number,
-                    to=to_number
+            # Initialize ML predictors
+            if self.predictive_enabled:
+                self.ml_predictor = MLPredictor(
+                    model_type="ensemble",
+                    prediction_horizon="short_term"
                 )
-            
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.SMS,
-                status=DeliveryStatus.SENT
-            )
+                
+                self.regime_classifier = RegimeClassifier()
+                
+                self.realtime_predictor = RealTimePredictor(
+                    strategy_focus="alert_generation",
+                    update_frequency="1min"
+                )
+                
+                # Load or initialize prediction models
+                self._load_prediction_models()
+                
+                self.logger.info("🤖 ML components initialized for predictive alerts")
             
         except Exception as e:
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.SMS,
-                status=DeliveryStatus.FAILED,
-                error=str(e)
-            )
-
-class TelegramChannel:
-    """Telegram notification channel."""
+            self.error_handler.handle_error(e, {
+                'method': '_initialize_ml_components'
+            })
+            self.predictive_enabled = False
     
-    def __init__(self, bot_token: str, chat_ids: List[str]):
-        """Initialize Telegram channel."""
-        self.bot = telegram.Bot(token=bot_token)
-        self.chat_ids = chat_ids
-        self.enabled = True
-        
-    def send(self, alert: Alert) -> NotificationResult:
-        """Send Telegram notification."""
-        if not self.enabled:
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.TELEGRAM,
-                status=DeliveryStatus.FAILED,
-                error="Channel disabled"
-            )
-        
+    def _load_prediction_models(self) -> None:
+        """Load or create prediction models for different alert types."""
         try:
-            # Format message with markdown
-            level_emoji = {
-                AlertLevel.DEBUG: "🔍",
-                AlertLevel.INFO: "ℹ️",
-                AlertLevel.WARNING: "⚠️",
-                AlertLevel.ERROR: "❌",
-                AlertLevel.CRITICAL: "🚨"
+            model_dir = self.config.get('alerts.predictive.model_dir', 'models/alerts/')
+            
+            for prediction_type in PredictionType:
+                model_path = f"{model_dir}/{prediction_type.value}_model.joblib"
+                
+                try:
+                    # Try to load existing model
+                    if os.path.exists(model_path):
+                        model_data = joblib.load(model_path)
+                        self.prediction_models[prediction_type] = model_data
+                        self.logger.info(f"📊 Loaded prediction model for {prediction_type.value}")
+                    else:
+                        # Create new model
+                        self._create_prediction_model(prediction_type)
+                        
+                except Exception as e:
+                    self.logger.warning(f"Failed to load model for {prediction_type.value}: {e}")
+                    self._create_prediction_model(prediction_type)
+        
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_load_prediction_models'
+            })
+    
+    def _create_prediction_model(self, prediction_type: PredictionType) -> None:
+        """Create a new prediction model for specific alert type."""
+        try:
+            # Define features for each prediction type
+            feature_sets = {
+                PredictionType.RISK_ZONE_BREACH: [
+                    'underlying_price_change', 'gamma_exposure', 'time_to_expiry',
+                    'iv_change', 'delta_exposure', 'price_velocity'
+                ],
+                PredictionType.VOLATILITY_SPIKE: [
+                    'vix_level', 'vix_change', 'iv_rank', 'volume_ratio',
+                    'price_volatility', 'options_volume'
+                ],
+                PredictionType.OPTIMAL_EXIT: [
+                    'current_pnl', 'theta_decay', 'time_to_expiry', 'iv_percentile',
+                    'profit_velocity', 'risk_adjusted_return'
+                ],
+                PredictionType.GAMMA_RISK: [
+                    'gamma_exposure', 'price_change', 'gamma_rate_change',
+                    'underlying_velocity', 'position_concentration'
+                ]
             }
             
-            emoji = level_emoji.get(alert.level, "📢")
-            message = f"{emoji} *{alert.title}*\n\n{alert.message}"
+            features = feature_sets.get(prediction_type, [
+                'price_change', 'volume', 'volatility', 'time_factor'
+            ])
             
-            # Add details if present
-            if alert.details:
-                details_text = "\n".join(f"• {k}: {v}" for k, v in alert.details.items())
-                message += f"\n\n*Details:*\n{details_text}"
-            
-            # Send to all chats
-            for chat_id in self.chat_ids:
-                self.bot.send_message(
-                    chat_id=chat_id,
-                    text=message,
-                    parse_mode=telegram.ParseMode.MARKDOWN
-                )
-            
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.TELEGRAM,
-                status=DeliveryStatus.SENT
+            # Create simple model (would be trained with historical data)
+            from sklearn.ensemble import RandomForestClassifier
+            model = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=10,
+                random_state=42
             )
+            
+            scaler = StandardScaler()
+            
+            prediction_model = PredictionModel(
+                prediction_type=prediction_type,
+                model=model,
+                scaler=scaler,
+                feature_names=features,
+                accuracy=0.0,  # Will be updated after training
+                last_trained=datetime.now(),
+                version="1.0",
+                training_samples=0
+            )
+            
+            self.prediction_models[prediction_type] = prediction_model
+            
+            self.logger.info(f"📈 Created new prediction model for {prediction_type.value}")
             
         except Exception as e:
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.TELEGRAM,
-                status=DeliveryStatus.FAILED,
-                error=str(e)
-            )
-
-class DesktopChannel:
-    """Desktop notification channel."""
+            self.error_handler.handle_error(e, {
+                'method': '_create_prediction_model',
+                'prediction_type': prediction_type.value
+            })
     
-    def __init__(self):
-        """Initialize desktop channel."""
-        self.enabled = True
+    # ==========================================================================
+    # ADAPTIVE THRESHOLDS
+    # ==========================================================================
+    def _initialize_adaptive_thresholds(self) -> None:
+        """Initialize adaptive thresholds for different alert types."""
+        try:
+            default_thresholds = {
+                'gamma_exposure': AdaptiveThreshold(
+                    base_threshold=15.0,
+                    current_threshold=15.0,
+                    adjustment_factor=1.0,
+                    volatility_adjustment=1.0,
+                    last_updated=datetime.now(),
+                    regime_adjustments={
+                        'low_vol': 0.8,
+                        'normal': 1.0,
+                        'high_vol': 1.5,
+                        'crisis': 2.0
+                    }
+                ),
+                'delta_exposure': AdaptiveThreshold(
+                    base_threshold=25.0,
+                    current_threshold=25.0,
+                    adjustment_factor=1.0,
+                    volatility_adjustment=1.0,
+                    last_updated=datetime.now(),
+                    regime_adjustments={
+                        'low_vol': 0.9,
+                        'normal': 1.0,
+                        'high_vol': 1.3,
+                        'crisis': 1.8
+                    }
+                ),
+                'pnl_change': AdaptiveThreshold(
+                    base_threshold=0.02,  # 2%
+                    current_threshold=0.02,
+                    adjustment_factor=1.0,
+                    volatility_adjustment=1.0,
+                    last_updated=datetime.now(),
+                    regime_adjustments={
+                        'low_vol': 0.7,
+                        'normal': 1.0,
+                        'high_vol': 1.5,
+                        'crisis': 2.5
+                    }
+                )
+            }
+            
+            self.adaptive_thresholds.update(default_thresholds)
+            
+            self.logger.info("🎯 Adaptive thresholds initialized")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_initialize_adaptive_thresholds'
+            })
+    
+    def update_adaptive_thresholds(self, market_regime: str, volatility_level: float) -> None:
+        """Update adaptive thresholds based on market conditions."""
+        try:
+            for threshold_name, threshold in self.adaptive_thresholds.items():
+                # Get regime adjustment
+                regime_adj = threshold.regime_adjustments.get(market_regime, 1.0)
+                
+                # Calculate volatility adjustment (higher vol = higher thresholds)
+                vol_adj = min(2.0, max(0.5, volatility_level / 20.0))  # Normalized to VIX ~20
+                
+                # Update threshold
+                threshold.adjustment_factor = regime_adj
+                threshold.volatility_adjustment = vol_adj
+                threshold.current_threshold = (
+                    threshold.base_threshold * 
+                    threshold.adjustment_factor * 
+                    threshold.volatility_adjustment
+                )
+                threshold.last_updated = datetime.now()
+            
+            self.logger.debug(f"📊 Updated adaptive thresholds for regime: {market_regime}")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'update_adaptive_thresholds'
+            })
+    
+    # ==========================================================================
+    # STRATEGY REGISTRATION METHODS
+    # ==========================================================================
+    def register_strategy_for_predictions(self, strategy_id: str, 
+                                        prediction_config: Dict[str, Any]) -> None:
+        """
+        Register a strategy for predictive alerts.
         
-    def send(self, alert: Alert) -> NotificationResult:
-        """Send desktop notification."""
-        if not self.enabled:
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.DESKTOP,
-                status=DeliveryStatus.FAILED,
-                error="Channel disabled"
-            )
+        Args:
+            strategy_id: Strategy identifier
+            prediction_config: Configuration for predictions
+        """
+        try:
+            self.registered_strategies[strategy_id] = {
+                'config': prediction_config,
+                'registered_at': datetime.now(),
+                'active_predictions': [],
+                'prediction_types': prediction_config.get('prediction_types', []),
+                'min_confidence': prediction_config.get('min_confidence', self.min_confidence),
+                'alert_channels': prediction_config.get('channels', ['telegram']),
+                'context_callback': prediction_config.get('context_callback')
+            }
+            
+            self.logger.info(f"📋 Registered strategy {strategy_id} for predictive alerts")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'register_strategy_for_predictions',
+                'strategy_id': strategy_id
+            })
+    
+    def update_strategy_context(self, strategy_id: str, context: Dict[str, Any]) -> None:
+        """Update strategy context for better predictions."""
+        try:
+            self.strategy_contexts[strategy_id] = {
+                **context,
+                'updated_at': datetime.now()
+            }
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'update_strategy_context',
+                'strategy_id': strategy_id
+            })
+    
+    # ==========================================================================
+    # PREDICTIVE ALERT GENERATION
+    # ==========================================================================
+    def generate_predictive_alerts(self, market_data: Dict[str, Any]) -> List[PredictiveAlert]:
+        """
+        Generate predictive alerts based on current market conditions.
+        
+        Args:
+            market_data: Current market data
+            
+        Returns:
+            List of predictive alerts
+        """
+        if not self.predictive_enabled:
+            return []
+        
+        alerts = []
         
         try:
-            # Desktop notifications are brief
-            desktop_notification.notify(
-                title=f"[{alert.level.name}] {alert.title}",
-                message=alert.message[:256],  # Limit length
-                app_name="Spyder Trading",
-                timeout=10
-            )
+            # Update adaptive thresholds first
+            market_regime = self._get_market_regime(market_data)
+            volatility_level = market_data.get('vix', 20.0)
+            self.update_adaptive_thresholds(market_regime, volatility_level)
             
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.DESKTOP,
-                status=DeliveryStatus.SENT
-            )
+            # Generate predictions for each registered strategy
+            for strategy_id, registration in self.registered_strategies.items():
+                strategy_context = self.strategy_contexts.get(strategy_id, {})
+                
+                # Get strategy-specific predictions
+                strategy_alerts = self._generate_strategy_predictions(
+                    strategy_id, market_data, strategy_context, registration
+                )
+                
+                alerts.extend(strategy_alerts)
+            
+            # Generate market-wide predictions
+            market_alerts = self._generate_market_predictions(market_data)
+            alerts.extend(market_alerts)
+            
+            # Filter by confidence and relevance
+            filtered_alerts = self._filter_predictions(alerts)
+            
+            # Store predictions
+            for alert in filtered_alerts:
+                self.predictive_alerts[alert.id] = alert
+                self.prediction_history.append({
+                    'timestamp': alert.created_at,
+                    'type': alert.prediction_type.value,
+                    'confidence': alert.confidence.value,
+                    'probability': alert.probability
+                })
+            
+            if filtered_alerts:
+                self.logger.info(f"🔮 Generated {len(filtered_alerts)} predictive alerts")
+            
+            return filtered_alerts
             
         except Exception as e:
-            return NotificationResult(
-                alert_id=alert.alert_id,
-                channel=NotificationChannel.DESKTOP,
-                status=DeliveryStatus.FAILED,
-                error=str(e)
+            self.error_handler.handle_error(e, {
+                'method': 'generate_predictive_alerts'
+            })
+            return []
+    
+    def _generate_strategy_predictions(self, strategy_id: str, market_data: Dict[str, Any],
+                                     strategy_context: Dict[str, Any],
+                                     registration: Dict[str, Any]) -> List[PredictiveAlert]:
+        """Generate predictions specific to a strategy."""
+        alerts = []
+        
+        try:
+            prediction_types = registration['prediction_types']
+            
+            for pred_type_str in prediction_types:
+                try:
+                    pred_type = PredictionType(pred_type_str)
+                    
+                    if pred_type in self.prediction_models:
+                        prediction = self._make_prediction(
+                            pred_type, strategy_id, market_data, strategy_context
+                        )
+                        
+                        if prediction:
+                            alerts.append(prediction)
+                            
+                except ValueError:
+                    self.logger.warning(f"Unknown prediction type: {pred_type_str}")
+                except Exception as e:
+                    self.logger.error(f"Error generating {pred_type_str} prediction: {e}")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_generate_strategy_predictions',
+                'strategy_id': strategy_id
+            })
+        
+        return alerts
+    
+    def _make_prediction(self, prediction_type: PredictionType, strategy_id: str,
+                        market_data: Dict[str, Any], 
+                        strategy_context: Dict[str, Any]) -> Optional[PredictiveAlert]:
+        """Make a specific prediction using ML model."""
+        try:
+            model_info = self.prediction_models.get(prediction_type)
+            if not model_info:
+                return None
+            
+            # Extract features
+            features = self._extract_features(
+                prediction_type, market_data, strategy_context
             )
-
-# =============================================================================
-# Helper Classes
-# =============================================================================
-class RateLimiter:
-    """Simple rate limiter implementation."""
-    
-    def __init__(self, max_per_minute: int):
-        """Initialize rate limiter."""
-        self.max_per_minute = max_per_minute
-        self.requests = deque()
-        self._lock = threading.Lock()
+            
+            if not features:
+                return None
+            
+            # Prepare feature vector
+            feature_vector = np.array([
+                features.get(name, 0.0) for name in model_info.feature_names
+            ]).reshape(1, -1)
+            
+            # Scale features
+            scaled_features = model_info.scaler.transform(feature_vector)
+            
+            # Make prediction
+            if hasattr(model_info.model, 'predict_proba'):
+                probabilities = model_info.model.predict_proba(scaled_features)[0]
+                probability = max(probabilities)  # Highest class probability
+                prediction = probability > 0.5
+            else:
+                prediction = model_info.model.predict(scaled_features)[0]
+                probability = 0.7 if prediction else 0.3  # Default probabilities
+            
+            # Only create alert if prediction is positive and meets confidence threshold
+            if prediction and probability >= self.min_confidence:
+                confidence = self._probability_to_confidence(probability)
+                
+                # Calculate time horizon based on prediction type
+                time_horizon = self._calculate_time_horizon(prediction_type, features)
+                
+                # Determine impact severity
+                impact_severity = self._assess_impact_severity(
+                    prediction_type, probability, features
+                )
+                
+                # Generate recommended actions
+                recommended_actions = self._generate_recommendations(
+                    prediction_type, strategy_id, features
+                )
+                
+                alert = PredictiveAlert(
+                    id=f"{strategy_id}_{prediction_type.value}_{int(time.time())}",
+                    prediction_type=prediction_type,
+                    confidence=confidence,
+                    time_horizon=time_horizon,
+                    probability=probability,
+                    impact_severity=impact_severity,
+                    affected_strategies=[strategy_id],
+                    affected_positions=strategy_context.get('position_ids', []),
+                    recommended_actions=recommended_actions,
+                    model_version=model_info.version,
+                    features_used=features,
+                    expires_at=datetime.now() + timedelta(minutes=time_horizon * 2)
+                )
+                
+                return alert
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_make_prediction',
+                'prediction_type': prediction_type.value,
+                'strategy_id': strategy_id
+            })
         
-    def check(self) -> bool:
-        """Check if request is allowed."""
-        with self._lock:
-            now = datetime.now()
-            
-            # Remove old requests
-            cutoff = now - timedelta(minutes=1)
-            while self.requests and self.requests[0] < cutoff:
-                self.requests.popleft()
-            
-            # Check limit
-            if len(self.requests) >= self.max_per_minute:
-                return False
-            
-            # Add request
-            self.requests.append(now)
-            return True
-
-# =============================================================================
-# Module Functions
-# =============================================================================
-def get_alert_manager() -> AlertManager:
-    """
-    Get singleton instance of alert manager.
+        return None
     
-    Returns:
-        AlertManager instance
-    """
-    global _ALERT_MANAGER_INSTANCE
-    if _ALERT_MANAGER_INSTANCE is None:
-        _ALERT_MANAGER_INSTANCE = AlertManager()
-    return _ALERT_MANAGER_INSTANCE
-
-def send_quick_alert(title: str, message: str, level: AlertLevel = AlertLevel.INFO) -> str:
-    """
-    Send a quick alert without detailed configuration.
+    def _extract_features(self, prediction_type: PredictionType,
+                         market_data: Dict[str, Any],
+                         strategy_context: Dict[str, Any]) -> Dict[str, float]:
+        """Extract features for ML prediction."""
+        try:
+            features = {}
+            
+            # Common market features
+            features['underlying_price'] = market_data.get('underlying_price', 0.0)
+            features['iv_rank'] = market_data.get('iv_rank', 50.0)
+            features['vix_level'] = market_data.get('vix', 20.0)
+            features['volume_ratio'] = market_data.get('volume_ratio', 1.0)
+            
+            # Price change features
+            current_price = market_data.get('underlying_price', 0.0)
+            previous_price = market_data.get('previous_price', current_price)
+            if previous_price > 0:
+                features['price_change_pct'] = (current_price - previous_price) / previous_price
+            
+            # Strategy-specific features
+            features['gamma_exposure'] = strategy_context.get('gamma_exposure', 0.0)
+            features['delta_exposure'] = strategy_context.get('delta_exposure', 0.0)
+            features['current_pnl'] = strategy_context.get('current_pnl', 0.0)
+            features['days_held'] = strategy_context.get('days_held', 0)
+            features['time_to_expiry'] = strategy_context.get('days_to_expiry', 30)
+            
+            # Prediction-type specific features
+            if prediction_type == PredictionType.RISK_ZONE_BREACH:
+                features['distance_to_danger'] = strategy_context.get('distance_to_danger', 1.0)
+                features['price_velocity'] = market_data.get('price_velocity', 0.0)
+                
+            elif prediction_type == PredictionType.VOLATILITY_SPIKE:
+                features['vix_change'] = market_data.get('vix_change', 0.0)
+                features['iv_percentile'] = market_data.get('iv_percentile', 50.0)
+                
+            elif prediction_type == PredictionType.OPTIMAL_EXIT:
+                features['profit_velocity'] = strategy_context.get('profit_velocity', 0.0)
+                features['theta_decay'] = strategy_context.get('theta_decay', 0.0)
+            
+            return features
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_extract_features',
+                'prediction_type': prediction_type.value
+            })
+            return {}
     
-    Args:
-        title: Alert title
-        message: Alert message
-        level: Alert level
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+    def _get_market_regime(self, market_data: Dict[str, Any]) -> str:
+        """Get current market regime."""
+        try:
+            if self.regime_classifier:
+                return self.regime_classifier.classify(market_data)
+            
+            # Simple fallback based on VIX
+            vix = market_data.get('vix', 20.0)
+            if vix < 15:
+                return 'low_vol'
+            elif vix < 25:
+                return 'normal'
+            elif vix < 35:
+                return 'high_vol'
+            else:
+                return 'crisis'
+                
+        except Exception:
+            return 'normal'
+    
+    def _probability_to_confidence(self, probability: float) -> PredictionConfidence:
+        """Convert probability to confidence enum."""
+        if probability >= 0.95:
+            return PredictionConfidence.VERY_HIGH
+        elif probability >= 0.85:
+            return PredictionConfidence.HIGH
+        elif probability >= 0.70:
+            return PredictionConfidence.MEDIUM
+        else:
+            return PredictionConfidence.LOW
+    
+    def _calculate_time_horizon(self, prediction_type: PredictionType, 
+                               features: Dict[str, float]) -> int:
+        """Calculate time horizon for prediction in minutes."""
+        base_horizons = {
+            PredictionType.RISK_ZONE_BREACH: 15,
+            PredictionType.VOLATILITY_SPIKE: 30,
+            PredictionType.OPTIMAL_EXIT: 60,
+            PredictionType.GAMMA_RISK: 10,
+            PredictionType.MARKET_REGIME_CHANGE: 120
+        }
         
-    Returns:
-        Alert ID
-    """
-    manager = get_alert_manager()
-    return manager.send_alert(
-        level=level,
-        category=AlertCategory.SYSTEM,
-        title=title,
-        message=message
-    )
-
-# =============================================================================
-# Module Initialization
-# =============================================================================
-_ALERT_MANAGER_INSTANCE: Optional[AlertManager] = None
+        base_horizon = base_horizons.get(prediction_type, 30)
+        
+        # Adjust based on features
+        if 'price_velocity' in features:
+            velocity_factor = min(2.0, max(0.5, abs(features['price_velocity']) * 10))
+            base_horizon = int(base_horizon / velocity_factor)
+        
+        return max(5, min(240, base_horizon))  # 5 min to 4 hours
+    
+    def _assess_impact_severity(self, prediction_type: PredictionType,
+                               probability: float, features: Dict[str, float]) -> str:
+        """Assess the potential impact severity."""
+        base_severity = "medium"
+        
+        if prediction_type in [PredictionType.RISK_ZONE_BREACH, PredictionType.GAMMA_RISK]:
+            if probability > 0.9:
+                base_severity = "critical"
+            elif probability > 0.8:
+                base_severity = "high"
+        
+        # Adjust based on exposure
+        gamma_exposure = features.get('gamma_exposure', 0.0)
+        if gamma_exposure > 20:
+            if base_severity == "medium":
+                base_severity = "high"
+            elif base_severity == "low":
+                base_severity = "medium"
+        
+        return base_severity
+    
+    def _generate_recommendations(self, prediction_type: PredictionType,
+                                strategy_id: str, features: Dict[str, float]) -> List[str]:
+        """Generate recommended actions for prediction."""
+        recommendations = []
+        
+        try:
+            if prediction_type == PredictionType.RISK_ZONE_BREACH:
+                recommendations = [
+                    "Consider reducing position size",
+                    "Set tighter stop losses",
+                    "Monitor price

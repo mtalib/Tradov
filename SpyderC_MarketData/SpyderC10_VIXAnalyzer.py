@@ -16,8 +16,8 @@ Description:
 
 Spyder Version: 1.0
 Architect: Mohamed Talib
-Date Created: 2025-06-28
-Last Updated: 2025-06-28 Time: 18:00:00
+Date Created: 2025-07-01
+Last Updated: 2025-07-01 Time: 15:00:00
 """
 
 # ==============================================================================
@@ -45,1205 +45,481 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats, interpolate
 from sklearn.linear_model import LinearRegression
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderB_Broker.SpyderB01_IBClient import IBClient
+from SpyderB_Broker.SpyderB01_SpyderClient import IBClient
 from SpyderC_MarketData.SpyderC01_DataFeed import DataFeed
 from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# VIX Levels and Regimes
-VIX_LOW = 12.0
-VIX_NORMAL_LOW = 15.0
-VIX_NORMAL_HIGH = 20.0
-VIX_ELEVATED = 25.0
-VIX_HIGH = 30.0
-VIX_EXTREME = 40.0
+# VIX Futures months and symbols
+VIX_FUTURES_MONTHS = [
+    'F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'
+]
 
-# Term Structure Parameters
-CONTANGO_THRESHOLD = 0.05  # 5% premium for contango
-BACKWARDATION_THRESHOLD = -0.05  # 5% discount for backwardation
-STEEP_CURVE_THRESHOLD = 0.15  # 15% for steep curve
+# VIX regime thresholds
+VIX_LOW_THRESHOLD = 15.0
+VIX_MEDIUM_THRESHOLD = 20.0
+VIX_HIGH_THRESHOLD = 30.0
+VIX_EXTREME_THRESHOLD = 40.0
 
-# Mean Reversion Parameters
-VIX_MEAN = 16.0  # Long-term VIX mean
-MEAN_REVERSION_SPEED = 5.0  # Ornstein-Uhlenbeck parameter
-ZSCORE_THRESHOLD = 2.0  # Standard deviations for signals
+# Term structure analysis parameters
+TERM_STRUCTURE_MONTHS = 6
+CONTANGO_THRESHOLD = 0.02  # 2% slope
+BACKWARDATION_THRESHOLD = -0.02  # -2% slope
 
-# Trading Signal Parameters
-VIX_SPY_CORRELATION_WINDOW = 20  # Days
-DIVERGENCE_THRESHOLD = 0.3  # Correlation divergence
-SPIKE_THRESHOLD = 0.25  # 25% intraday spike
+# Mean reversion parameters
+MEAN_REVERSION_LOOKBACK = 252  # 1 year of trading days
+MEAN_REVERSION_ZSCORE_THRESHOLD = 2.0
+PERCENTILE_EXTREME_THRESHOLD = 95
 
-# VIX Futures Symbols
-VIX_FUTURES_MONTHS = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
-MAX_FUTURES_MONTHS = 9  # Track up to 9 months out
+# VIX options parameters
+VIX_OPTIONS_STRIKES_RANGE = 20  # Number of strikes above/below ATM
+MIN_VIX_OPTION_VOLUME = 10
+MIN_VIX_OPTION_OI = 50
 
-# Update Frequencies
-VIX_UPDATE_INTERVAL = 5  # Seconds
-TERM_STRUCTURE_UPDATE = 60  # Seconds
-REGIME_CHECK_INTERVAL = 30  # Seconds
+# Update frequencies
+VIX_UPDATE_FREQUENCY = 5  # seconds
+TERM_STRUCTURE_UPDATE_FREQUENCY = 30  # seconds
+HISTORICAL_DATA_DAYS = 504  # 2 years
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class VIXRegime(Enum):
     """VIX volatility regimes"""
-    LOW_VOL = "low_volatility"          # VIX < 12
-    NORMAL = "normal"                   # VIX 12-20
-    ELEVATED = "elevated"               # VIX 20-25
-    HIGH_VOL = "high_volatility"        # VIX 25-30
-    STRESS = "market_stress"            # VIX 30-40
-    PANIC = "panic"                     # VIX > 40
+    ULTRA_LOW = "ultra_low"        # < 12
+    LOW = "low"                    # 12-15
+    NORMAL = "normal"              # 15-20
+    ELEVATED = "elevated"          # 20-30
+    HIGH = "high"                  # 30-40
+    EXTREME = "extreme"            # > 40
 
 class TermStructureShape(Enum):
     """VIX term structure shapes"""
-    CONTANGO = "contango"               # Normal, upward sloping
-    BACKWARDATION = "backwardation"     # Inverted, stress
-    FLAT = "flat"                       # Neutral
-    STEEP_CONTANGO = "steep_contango"   # Very bullish
-    STEEP_BACKWARDATION = "steep_backwardation"  # Very bearish
+    STEEP_CONTANGO = "steep_contango"
+    CONTANGO = "contango"
+    FLAT = "flat"
+    BACKWARDATION = "backwardation"
+    STEEP_BACKWARDATION = "steep_backwardation"
 
 class VIXSignal(Enum):
     """VIX-based trading signals"""
-    MEAN_REVERSION_LONG = "mean_reversion_long"
-    MEAN_REVERSION_SHORT = "mean_reversion_short"
+    BULLISH_MEAN_REVERSION = "bullish_mean_reversion"
+    BEARISH_MEAN_REVERSION = "bearish_mean_reversion"
+    VOLATILITY_EXPANSION = "volatility_expansion"
+    VOLATILITY_CONTRACTION = "volatility_contraction"
+    REGIME_SHIFT_UP = "regime_shift_up"
+    REGIME_SHIFT_DOWN = "regime_shift_down"
+    NEUTRAL = "neutral"
+
+class VIXEventType(Enum):
+    """VIX event types"""
+    SPIKE = "spike"
+    CRASH = "crash"
     REGIME_CHANGE = "regime_change"
-    TERM_STRUCTURE_TRADE = "term_structure_trade"
-    VOLATILITY_SPIKE = "volatility_spike"
-    DIVERGENCE_SIGNAL = "divergence_signal"
-    CONTANGO_ROLL = "contango_roll"
-    COMPLACENCY_WARNING = "complacency_warning"
+    STRUCTURE_INVERSION = "structure_inversion"
+    EXTREME_READING = "extreme_reading"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
 class VIXData:
-    """Current VIX data snapshot"""
+    """Current VIX data point"""
     timestamp: datetime
     vix_spot: float
-    vix_close: float
-    vix_high: float
-    vix_low: float
     vix_change: float
     vix_change_pct: float
-    
-    # Related indices
-    vix9d: Optional[float] = None  # 9-day VIX
-    vix3m: Optional[float] = None  # 3-month VIX
-    vvix: Optional[float] = None   # VIX of VIX
-    
-    # Ratios
+    vix9d: Optional[float] = None
+    vix3m: Optional[float] = None
+    vix6m: Optional[float] = None
     vix_vix3m_ratio: Optional[float] = None
-    vix_vix9d_ratio: Optional[float] = None
+    volume: Optional[int] = None
+    open_interest: Optional[int] = None
 
 @dataclass
-class VIXFuture:
-    """VIX future contract data"""
-    symbol: str
-    expiry: date
+class VIXFuturesData:
+    """VIX futures data"""
+    contract_month: str
+    days_to_expiry: int
     price: float
     volume: int
     open_interest: int
-    days_to_expiry: int
-    basis: float  # vs spot VIX
-    roll_yield: float  # vs previous month
+    bid: float
+    ask: float
+    spread: float
+    implied_volatility: Optional[float] = None
 
 @dataclass
-class TermStructure:
+class VIXTermStructure:
     """VIX term structure analysis"""
     timestamp: datetime
-    spot_vix: float
-    futures: List[VIXFuture]
-    
-    # Structure metrics
+    futures_curve: List[VIXFuturesData]
     shape: TermStructureShape
-    slope: float  # Overall slope
-    curvature: float  # Second derivative
-    
-    # Key spreads
+    slope: float
+    curvature: float
     front_month_basis: float
     second_month_basis: float
-    calendar_spread: float  # M2-M1
-    
-    # Roll characteristics
-    daily_roll: float  # Contango/backwardation cost
-    annualized_roll: float
+    daily_roll: float
+    term_structure_percentile: float
 
 @dataclass
 class VIXRegimeAnalysis:
-    """Comprehensive VIX regime analysis"""
+    """VIX regime analysis"""
     timestamp: datetime
     current_regime: VIXRegime
-    regime_duration: int  # Days in current regime
-    
-    # Statistical measures
-    percentile_1y: float  # 1-year percentile
-    percentile_5y: float  # 5-year percentile
-    zscore: float  # Standard score
-    
-    # Mean reversion
-    distance_from_mean: float
-    expected_reversion: float  # Target level
+    regime_duration: int  # days in current regime
+    previous_regime: VIXRegime
+    regime_transition_probability: Dict[VIXRegime, float]
+    percentile_1y: float
+    percentile_3m: float
+    zscore: float
+    expected_reversion: float
     reversion_probability: float
-    
-    # Regime transition probabilities
-    regime_transitions: Dict[VIXRegime, float]
+    regime_stability: float
 
 @dataclass
-class VIXDivergence:
-    """VIX-SPY divergence analysis"""
+class VIXOptionsFlow:
+    """VIX options flow analysis"""
     timestamp: datetime
-    vix_spy_correlation: float
-    historical_correlation: float
-    divergence_score: float
-    
-    # Divergence details
-    vix_trend: str  # 'up', 'down', 'flat'
-    spy_trend: str
-    is_divergent: bool
-    divergence_type: str  # 'bullish' or 'bearish'
-    
-    # Signal strength
-    confidence: float
-    suggested_action: str
+    call_volume: int
+    put_volume: int
+    call_put_ratio: float
+    net_premium: float
+    max_pain: float
+    gamma_exposure: float
+    unusual_activity: List[Dict[str, Any]]
+
+@dataclass
+class VIXEvent:
+    """VIX event detection"""
+    timestamp: datetime
+    event_type: VIXEventType
+    magnitude: float
+    duration: timedelta
+    description: str
+    impact_score: float
+    related_events: List[str]
+
+@dataclass
+class VIXForecast:
+    """VIX forecast data"""
+    timestamp: datetime
+    forecast_horizon: int  # days
+    expected_vix: float
+    confidence_interval: Tuple[float, float]
+    probability_distribution: Dict[float, float]
+    regime_probabilities: Dict[VIXRegime, float]
 
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
 class VIXAnalyzer:
     """
-    Advanced VIX analysis and volatility regime detection.
-    
-    This class provides comprehensive VIX analysis including term structure,
-    mean reversion signals, regime detection, and SPY correlation analysis.
-    It generates actionable trading signals for volatility strategies.
-    
-    Attributes:
-        logger: Module logger
-        current_vix: Current VIX data
-        term_structure: Current term structure
-        regime_analysis: Current regime analysis
-        
-    Example:
-        >>> vix_analyzer = VIXAnalyzer()
-        >>> regime = vix_analyzer.get_current_regime()
-        >>> signals = vix_analyzer.generate_vix_signals()
+    Advanced VIX analysis system for volatility regime detection,
+    term structure analysis, and mean reversion signals.
     """
     
-    def __init__(self,
-                 ib_client: Optional[IBClient] = None,
-                 data_feed: Optional[DataFeed] = None):
+    def __init__(self, ib_client: Optional[IBClient] = None, config: Optional[Dict] = None):
         """
         Initialize VIX analyzer.
         
         Args:
-            ib_client: IB client for market data
-            data_feed: Data feed for real-time updates
+            ib_client: Interactive Brokers client for live data
+            config: Configuration dictionary
         """
-        self.logger = SpyderLogger.get_logger(__name__)
+        # Core components
+        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
-        
-        # Data sources
-        self.ib_client = ib_client or IBClient()
-        self.data_feed = data_feed or DataFeed()
         self.event_manager = get_event_manager()
         
-        # Current state
+        # Configuration
+        self.config = config or {}
+        self.ib_client = ib_client
+        
+        # Data storage
         self.current_vix: Optional[VIXData] = None
-        self.term_structure: Optional[TermStructure] = None
+        self.vix_history: deque = deque(maxlen=HISTORICAL_DATA_DAYS)
+        self.futures_data: Dict[str, VIXFuturesData] = {}
+        self.term_structure: Optional[VIXTermStructure] = None
         self.regime_analysis: Optional[VIXRegimeAnalysis] = None
+        self.options_flow: Optional[VIXOptionsFlow] = None
         
-        # Historical data
-        self.vix_history: Deque[VIXData] = deque(maxlen=390 * 20)  # 20 days intraday
-        self.regime_history: Deque[Tuple[datetime, VIXRegime]] = deque(maxlen=1000)
-        self.term_structure_history: Deque[TermStructure] = deque(maxlen=100)
+        # Analysis components
+        self.regime_detector = VIXRegimeDetector()
+        self.term_structure_analyzer = TermStructureAnalyzer()
+        self.event_detector = VIXEventDetector()
+        self.forecaster = VIXForecaster()
         
-        # Futures tracking
-        self.vix_futures: Dict[str, VIXFuture] = {}
-        self.futures_expirations: List[date] = []
+        # State tracking
+        self.is_running = False
+        self.last_update = None
+        self.update_thread = None
         
-        # Statistical parameters
-        self.vix_mean = VIX_MEAN
-        self.vix_std = 8.0  # Will be updated dynamically
-        self.mean_reversion_speed = MEAN_REVERSION_SPEED
-        
-        # SPY correlation tracking
-        self.spy_prices: Deque[float] = deque(maxlen=390 * 20)
-        self.correlation_window = VIX_SPY_CORRELATION_WINDOW
-        
-        # Threading
-        self._lock = threading.RLock()
-        self._monitor_thread: Optional[threading.Thread] = None
-        self._running = False
-        
-        # Initialize components
+        # Initialize
         self._initialize_historical_data()
         
-        self.logger.info(f"{self.__class__.__name__} initialized")
-    
+        self.logger.info("VIX Analyzer initialized successfully")
+
     # ==========================================================================
-    # PUBLIC METHODS - REAL-TIME ANALYSIS
+    # PUBLIC METHODS - DATA UPDATES
     # ==========================================================================
     
-    def update_vix_data(self, vix_data: Optional[Dict[str, float]] = None) -> VIXData:
+    def start_real_time_analysis(self) -> None:
+        """Start real-time VIX analysis"""
+        if self.is_running:
+            self.logger.warning("VIX analysis already running")
+            return
+            
+        self.is_running = True
+        self.update_thread = threading.Thread(target=self._update_loop, daemon=True)
+        self.update_thread.start()
+        
+        self.logger.info("Started real-time VIX analysis")
+
+    def stop_real_time_analysis(self) -> None:
+        """Stop real-time VIX analysis"""
+        self.is_running = False
+        if self.update_thread:
+            self.update_thread.join(timeout=5.0)
+        
+        self.logger.info("Stopped real-time VIX analysis")
+
+    def update_vix_data(self) -> VIXData:
         """
         Update current VIX data.
         
-        Args:
-            vix_data: Optional VIX data dict, fetches if None
-            
         Returns:
-            Updated VIX data
+            Current VIX data
         """
         try:
-            if vix_data is None:
-                vix_data = self._fetch_vix_data()
+            if self.ib_client:
+                vix_data = self._fetch_live_vix_data()
+            else:
+                vix_data = self._fetch_simulated_vix_data()
             
-            # Create VIX data object
-            prev_vix = self.current_vix.vix_spot if self.current_vix else vix_data['close']
+            self.current_vix = vix_data
+            self.vix_history.append(vix_data)
+            self.last_update = datetime.now()
             
-            current = VIXData(
-                timestamp=datetime.now(),
-                vix_spot=vix_data['last'],
-                vix_close=vix_data['close'],
-                vix_high=vix_data['high'],
-                vix_low=vix_data['low'],
-                vix_change=vix_data['last'] - vix_data['close'],
-                vix_change_pct=(vix_data['last'] - vix_data['close']) / vix_data['close'] * 100,
-                vix9d=vix_data.get('vix9d'),
-                vix3m=vix_data.get('vix3m'),
-                vvix=vix_data.get('vvix')
-            )
+            # Emit update event
+            self.event_manager.emit_event(Event(
+                type=EventType.DATA_UPDATE,
+                source=self.__class__.__name__,
+                data={'vix_data': vix_data}
+            ))
             
-            # Calculate ratios
-            if current.vix3m:
-                current.vix_vix3m_ratio = current.vix_spot / current.vix3m
-            if current.vix9d:
-                current.vix_vix9d_ratio = current.vix_spot / current.vix9d
-            
-            # Update state
-            with self._lock:
-                self.current_vix = current
-                self.vix_history.append(current)
-            
-            # Check for significant changes
-            self._check_vix_alerts(current, prev_vix)
-            
-            return current
+            return vix_data
             
         except Exception as e:
-            self.logger.error(f"Error updating VIX data: {e}")
-            self.error_handler.handle_error(e)
+            self.error_handler.handle_error(e, "update_vix_data")
             raise
-    
-    def analyze_term_structure(self) -> TermStructure:
+
+    def update_futures_data(self) -> Dict[str, VIXFuturesData]:
         """
-        Analyze VIX futures term structure.
+        Update VIX futures data.
+        
+        Returns:
+            Dictionary of VIX futures data by contract month
+        """
+        try:
+            if self.ib_client:
+                futures_data = self._fetch_live_futures_data()
+            else:
+                futures_data = self._fetch_simulated_futures_data()
+            
+            self.futures_data = futures_data
+            
+            # Update term structure analysis
+            self.term_structure = self.term_structure_analyzer.analyze(
+                list(futures_data.values())
+            )
+            
+            return futures_data
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "update_futures_data")
+            raise
+
+    # ==========================================================================
+    # PUBLIC METHODS - ANALYSIS
+    # ==========================================================================
+    
+    def analyze_regime(self) -> VIXRegimeAnalysis:
+        """
+        Analyze current VIX regime.
+        
+        Returns:
+            VIX regime analysis
+        """
+        if not self.current_vix or len(self.vix_history) < 30:
+            raise ValueError("Insufficient VIX data for regime analysis")
+        
+        try:
+            regime_analysis = self.regime_detector.analyze(
+                self.current_vix,
+                list(self.vix_history)
+            )
+            
+            self.regime_analysis = regime_analysis
+            
+            # Check for regime changes
+            if (self.regime_analysis and 
+                regime_analysis.current_regime != self.regime_analysis.current_regime):
+                
+                self._emit_regime_change_event(regime_analysis)
+            
+            return regime_analysis
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "analyze_regime")
+            raise
+
+    def analyze_term_structure(self) -> VIXTermStructure:
+        """
+        Analyze VIX term structure.
         
         Returns:
             Term structure analysis
         """
+        if not self.futures_data:
+            self.update_futures_data()
+        
         try:
-            # Update futures data
-            self._update_futures_data()
-            
-            if not self.vix_futures or not self.current_vix:
-                raise ValueError("Insufficient data for term structure analysis")
-            
-            # Sort futures by expiry
-            sorted_futures = sorted(self.vix_futures.values(), key=lambda x: x.expiry)
-            
-            # Calculate shape and metrics
-            shape = self._determine_term_structure_shape(sorted_futures)
-            slope = self._calculate_term_slope(sorted_futures)
-            curvature = self._calculate_curvature(sorted_futures)
-            
-            # Key spreads
-            front_month = sorted_futures[0] if sorted_futures else None
-            second_month = sorted_futures[1] if len(sorted_futures) > 1 else None
-            
-            front_basis = front_month.basis if front_month else 0
-            second_basis = second_month.basis if second_month else 0
-            calendar_spread = (second_month.price - front_month.price) if (front_month and second_month) else 0
-            
-            # Roll calculations
-            daily_roll = self._calculate_daily_roll(front_month, second_month) if (front_month and second_month) else 0
-            
-            structure = TermStructure(
-                timestamp=datetime.now(),
-                spot_vix=self.current_vix.vix_spot,
-                futures=sorted_futures,
-                shape=shape,
-                slope=slope,
-                curvature=curvature,
-                front_month_basis=front_basis,
-                second_month_basis=second_basis,
-                calendar_spread=calendar_spread,
-                daily_roll=daily_roll,
-                annualized_roll=daily_roll * 252
+            term_structure = self.term_structure_analyzer.analyze(
+                list(self.futures_data.values())
             )
             
-            # Update state
-            with self._lock:
-                self.term_structure = structure
-                self.term_structure_history.append(structure)
+            self.term_structure = term_structure
             
-            # Generate signals if applicable
-            self._check_term_structure_signals(structure)
+            # Check for structure inversions
+            if term_structure.shape in [TermStructureShape.BACKWARDATION, 
+                                      TermStructureShape.STEEP_BACKWARDATION]:
+                self._emit_structure_inversion_event(term_structure)
             
-            return structure
+            return term_structure
             
         except Exception as e:
-            self.logger.error(f"Error analyzing term structure: {e}")
-            self.error_handler.handle_error(e)
+            self.error_handler.handle_error(e, "analyze_term_structure")
             raise
-    
-    def analyze_regime(self) -> VIXRegimeAnalysis:
+
+    def detect_events(self) -> List[VIXEvent]:
         """
-        Analyze current VIX regime and transition probabilities.
+        Detect VIX events (spikes, crashes, etc.).
         
         Returns:
-            Comprehensive regime analysis
+            List of detected VIX events
         """
+        if len(self.vix_history) < 20:
+            return []
+        
         try:
-            if not self.current_vix:
-                raise ValueError("No current VIX data available")
-            
-            vix = self.current_vix.vix_spot
-            
-            # Determine current regime
-            regime = self._classify_vix_regime(vix)
-            
-            # Calculate regime duration
-            regime_duration = self._calculate_regime_duration(regime)
-            
-            # Statistical measures
-            percentile_1y = self._calculate_percentile(vix, 252)
-            percentile_5y = self._calculate_percentile(vix, 252 * 5)
-            zscore = (vix - self.vix_mean) / self.vix_std
-            
-            # Mean reversion analysis
-            distance_from_mean = vix - self.vix_mean
-            expected_reversion = self._calculate_mean_reversion_target(vix)
-            reversion_prob = self._calculate_reversion_probability(vix)
-            
-            # Regime transition probabilities
-            transitions = self._calculate_regime_transitions(regime)
-            
-            analysis = VIXRegimeAnalysis(
-                timestamp=datetime.now(),
-                current_regime=regime,
-                regime_duration=regime_duration,
-                percentile_1y=percentile_1y,
-                percentile_5y=percentile_5y,
-                zscore=zscore,
-                distance_from_mean=distance_from_mean,
-                expected_reversion=expected_reversion,
-                reversion_probability=reversion_prob,
-                regime_transitions=transitions
+            events = self.event_detector.detect_events(
+                self.current_vix,
+                list(self.vix_history)
             )
             
-            # Update state
-            with self._lock:
-                self.regime_analysis = analysis
-                
-                # Track regime changes
-                if not self.regime_history or self.regime_history[-1][1] != regime:
-                    self.regime_history.append((datetime.now(), regime))
+            # Emit events
+            for event in events:
+                self._emit_vix_event(event)
             
-            return analysis
+            return events
             
         except Exception as e:
-            self.logger.error(f"Error analyzing regime: {e}")
-            self.error_handler.handle_error(e)
-            raise
-    
-    def detect_divergence(self, spy_price: float) -> VIXDivergence:
+            self.error_handler.handle_error(e, "detect_events")
+            return []
+
+    def generate_signals(self) -> List[VIXSignal]:
         """
-        Detect VIX-SPY divergence.
-        
-        Args:
-            spy_price: Current SPY price
-            
-        Returns:
-            Divergence analysis
-        """
-        try:
-            if not self.current_vix:
-                raise ValueError("No current VIX data")
-            
-            # Update SPY price history
-            self.spy_prices.append(spy_price)
-            
-            # Need sufficient history
-            if len(self.vix_history) < self.correlation_window * 78:  # 78 = 5-min bars per day
-                return self._create_no_divergence()
-            
-            # Calculate correlations
-            vix_spy_corr = self._calculate_vix_spy_correlation(self.correlation_window)
-            historical_corr = self._calculate_historical_correlation()
-            
-            # Determine trends
-            vix_trend = self._determine_trend(
-                [v.vix_spot for v in list(self.vix_history)[-78:]]
-            )
-            spy_trend = self._determine_trend(list(self.spy_prices)[-78:])
-            
-            # Check for divergence
-            is_divergent = abs(vix_spy_corr - historical_corr) > DIVERGENCE_THRESHOLD
-            
-            # Classify divergence
-            divergence_type = 'none'
-            suggested_action = 'hold'
-            
-            if is_divergent:
-                if vix_trend == 'up' and spy_trend == 'up':
-                    divergence_type = 'bearish'
-                    suggested_action = 'buy_puts'
-                elif vix_trend == 'down' and spy_trend == 'down':
-                    divergence_type = 'bullish'
-                    suggested_action = 'buy_calls'
-            
-            # Calculate confidence
-            divergence_score = abs(vix_spy_corr - historical_corr)
-            confidence = min(divergence_score / 0.5, 1.0) if is_divergent else 0
-            
-            divergence = VIXDivergence(
-                timestamp=datetime.now(),
-                vix_spy_correlation=vix_spy_corr,
-                historical_correlation=historical_corr,
-                divergence_score=divergence_score,
-                vix_trend=vix_trend,
-                spy_trend=spy_trend,
-                is_divergent=is_divergent,
-                divergence_type=divergence_type,
-                confidence=confidence,
-                suggested_action=suggested_action
-            )
-            
-            return divergence
-            
-        except Exception as e:
-            self.logger.error(f"Error detecting divergence: {e}")
-            return self._create_no_divergence()
-    
-    # ==========================================================================
-    # PUBLIC METHODS - SIGNAL GENERATION
-    # ==========================================================================
-    
-    def generate_vix_signals(self) -> List[Dict[str, Any]]:
-        """
-        Generate comprehensive VIX-based trading signals.
+        Generate VIX-based trading signals.
         
         Returns:
-            List of actionable trading signals
+            List of VIX signals
         """
-        signals = []
-        
         if not all([self.current_vix, self.regime_analysis, self.term_structure]):
-            self.logger.warning("Insufficient data for signal generation")
-            return signals
+            return [VIXSignal.NEUTRAL]
         
-        # Mean reversion signals
-        mean_rev_signals = self._generate_mean_reversion_signals()
-        signals.extend(mean_rev_signals)
-        
-        # Term structure signals
-        term_signals = self._generate_term_structure_signals()
-        signals.extend(term_signals)
-        
-        # Regime change signals
-        regime_signals = self._generate_regime_signals()
-        signals.extend(regime_signals)
-        
-        # Spike/crash signals
-        spike_signals = self._generate_spike_signals()
-        signals.extend(spike_signals)
-        
-        # Sort by confidence
-        signals.sort(key=lambda x: x['confidence'], reverse=True)
-        
-        return signals
-    
-    def get_volatility_forecast(self, horizon: int = 5) -> Dict[str, float]:
+        try:
+            signals = []
+            
+            # Mean reversion signals
+            if self.regime_analysis.zscore > MEAN_REVERSION_ZSCORE_THRESHOLD:
+                signals.append(VIXSignal.BEARISH_MEAN_REVERSION)
+            elif self.regime_analysis.zscore < -MEAN_REVERSION_ZSCORE_THRESHOLD:
+                signals.append(VIXSignal.BULLISH_MEAN_REVERSION)
+            
+            # Volatility expansion/contraction
+            if (self.current_vix.vix_change_pct > 20 and 
+                self.regime_analysis.current_regime in [VIXRegime.HIGH, VIXRegime.EXTREME]):
+                signals.append(VIXSignal.VOLATILITY_EXPANSION)
+            elif (self.current_vix.vix_change_pct < -15 and 
+                  self.regime_analysis.current_regime == VIXRegime.LOW):
+                signals.append(VIXSignal.VOLATILITY_CONTRACTION)
+            
+            # Regime shift signals
+            regime_prob = max(self.regime_analysis.regime_transition_probability.values())
+            if regime_prob > 0.7:
+                target_regime = max(
+                    self.regime_analysis.regime_transition_probability.items(),
+                    key=lambda x: x[1]
+                )[0]
+                
+                if target_regime.value > self.regime_analysis.current_regime.value:
+                    signals.append(VIXSignal.REGIME_SHIFT_UP)
+                else:
+                    signals.append(VIXSignal.REGIME_SHIFT_DOWN)
+            
+            return signals if signals else [VIXSignal.NEUTRAL]
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "generate_signals")
+            return [VIXSignal.NEUTRAL]
+
+    def forecast_vix(self, horizon_days: int = 5) -> VIXForecast:
         """
-        Forecast volatility over specified horizon.
+        Generate VIX forecast.
         
         Args:
-            horizon: Forecast horizon in days
+            horizon_days: Forecast horizon in days
             
         Returns:
-            Volatility forecast metrics
+            VIX forecast
         """
-        if not self.current_vix:
-            return {}
+        if len(self.vix_history) < 50:
+            raise ValueError("Insufficient data for VIX forecasting")
         
-        current_vix = self.current_vix.vix_spot
-        
-        # Mean reversion forecast
-        mean_rev_forecast = self._mean_reversion_forecast(current_vix, horizon)
-        
-        # Term structure implied forecast
-        term_forecast = self._term_structure_forecast(horizon)
-        
-        # Regime-based forecast
-        regime_forecast = self._regime_based_forecast(horizon)
-        
-        # Weighted average
-        weights = {'mean_rev': 0.4, 'term': 0.3, 'regime': 0.3}
-        weighted_forecast = (
-            weights['mean_rev'] * mean_rev_forecast +
-            weights['term'] * term_forecast +
-            weights['regime'] * regime_forecast
-        )
-        
-        return {
-            'current_vix': current_vix,
-            'mean_reversion_forecast': mean_rev_forecast,
-            'term_structure_forecast': term_forecast,
-            'regime_forecast': regime_forecast,
-            'weighted_forecast': weighted_forecast,
-            'confidence_interval': self._calculate_forecast_ci(weighted_forecast, horizon)
-        }
-    
-    # ==========================================================================
-    # PRIVATE METHODS - DATA FETCHING
-    # ==========================================================================
-    
-    def _fetch_vix_data(self) -> Dict[str, float]:
-        """Fetch current VIX data from IB."""
         try:
-            # Get VIX index data
-            vix_contract = self.ib_client.create_index_contract('VIX')
-            vix_data = self.ib_client.get_market_data(vix_contract)
-            
-            # Get related indices if available
-            vix9d_data = self._safe_fetch_index('VIX9D')
-            vix3m_data = self._safe_fetch_index('VIX3M')
-            vvix_data = self._safe_fetch_index('VVIX')
-            
-            return {
-                'last': vix_data['last'],
-                'close': vix_data['close'],
-                'high': vix_data['high'],
-                'low': vix_data['low'],
-                'vix9d': vix9d_data.get('last') if vix9d_data else None,
-                'vix3m': vix3m_data.get('last') if vix3m_data else None,
-                'vvix': vvix_data.get('last') if vvix_data else None
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching VIX data: {e}")
-            # Return mock data for testing
-            return {
-                'last': 16.5,
-                'close': 16.0,
-                'high': 17.0,
-                'low': 15.5,
-                'vix9d': 15.0,
-                'vix3m': 18.0,
-                'vvix': 90.0
-            }
-    
-    def _safe_fetch_index(self, symbol: str) -> Optional[Dict[str, float]]:
-        """Safely fetch index data."""
-        try:
-            contract = self.ib_client.create_index_contract(symbol)
-            return self.ib_client.get_market_data(contract)
-        except:
-            return None
-    
-    def _update_futures_data(self) -> None:
-        """Update VIX futures data."""
-        try:
-            # Generate futures symbols
-            futures_symbols = self._generate_futures_symbols()
-            
-            # Clear old data
-            self.vix_futures.clear()
-            
-            # Fetch each future
-            for symbol in futures_symbols[:MAX_FUTURES_MONTHS]:
-                try:
-                    contract = self.ib_client.create_futures_contract(
-                        symbol=symbol,
-                        exchange='CFE'
-                    )
-                    
-                    data = self.ib_client.get_market_data(contract)
-                    if data and data.get('last'):
-                        # Create future object
-                        expiry = self._parse_futures_expiry(symbol)
-                        days_to_expiry = (expiry - date.today()).days
-                        
-                        future = VIXFuture(
-                            symbol=symbol,
-                            expiry=expiry,
-                            price=data['last'],
-                            volume=data.get('volume', 0),
-                            open_interest=data.get('open_interest', 0),
-                            days_to_expiry=days_to_expiry,
-                            basis=data['last'] - self.current_vix.vix_spot,
-                            roll_yield=0  # Calculated later
-                        )
-                        
-                        self.vix_futures[symbol] = future
-                        
-                except Exception as e:
-                    self.logger.debug(f"Could not fetch {symbol}: {e}")
-            
-            # Calculate roll yields
-            self._calculate_roll_yields()
-            
-        except Exception as e:
-            self.logger.error(f"Error updating futures data: {e}")
-    
-    def _generate_futures_symbols(self) -> List[str]:
-        """Generate VIX futures symbols for next N months."""
-        symbols = []
-        current_date = date.today()
-        
-        for i in range(MAX_FUTURES_MONTHS):
-            future_date = current_date + timedelta(days=30 * i)
-            month_code = VIX_FUTURES_MONTHS[future_date.month - 1]
-            year_code = str(future_date.year)[-1]
-            symbols.append(f"VX{month_code}{year_code}")
-        
-        return symbols
-    
-    # ==========================================================================
-    # PRIVATE METHODS - ANALYSIS
-    # ==========================================================================
-    
-    def _classify_vix_regime(self, vix: float) -> VIXRegime:
-        """Classify VIX level into regime."""
-        if vix < VIX_LOW:
-            return VIXRegime.LOW_VOL
-        elif vix < VIX_NORMAL_HIGH:
-            return VIXRegime.NORMAL
-        elif vix < VIX_ELEVATED:
-            return VIXRegime.ELEVATED
-        elif vix < VIX_HIGH:
-            return VIXRegime.HIGH_VOL
-        elif vix < VIX_EXTREME:
-            return VIXRegime.STRESS
-        else:
-            return VIXRegime.PANIC
-    
-    def _determine_term_structure_shape(self, futures: List[VIXFuture]) -> TermStructureShape:
-        """Determine term structure shape."""
-        if len(futures) < 2:
-            return TermStructureShape.FLAT
-        
-        # Calculate average slope
-        slopes = []
-        for i in range(len(futures) - 1):
-            slope = (futures[i+1].price - futures[i].price) / futures[i].price
-            slopes.append(slope)
-        
-        avg_slope = np.mean(slopes)
-        
-        if avg_slope > CONTANGO_THRESHOLD:
-            if avg_slope > STEEP_CURVE_THRESHOLD:
-                return TermStructureShape.STEEP_CONTANGO
-            return TermStructureShape.CONTANGO
-        elif avg_slope < BACKWARDATION_THRESHOLD:
-            if avg_slope < -STEEP_CURVE_THRESHOLD:
-                return TermStructureShape.STEEP_BACKWARDATION
-            return TermStructureShape.BACKWARDATION
-        else:
-            return TermStructureShape.FLAT
-    
-    def _calculate_mean_reversion_target(self, current_vix: float) -> float:
-        """Calculate mean reversion target using Ornstein-Uhlenbeck."""
-        # OU process: dX = θ(μ - X)dt + σdW
-        # Expected value: E[X(t)] = X(0)e^(-θt) + μ(1 - e^(-θt))
-        
-        time_horizon = 20 / 252  # 20 trading days
-        theta = self.mean_reversion_speed
-        
-        expected_vix = (
-            current_vix * np.exp(-theta * time_horizon) +
-            self.vix_mean * (1 - np.exp(-theta * time_horizon))
-        )
-        
-        return expected_vix
-    
-    def _calculate_reversion_probability(self, current_vix: float) -> float:
-        """Calculate probability of mean reversion."""
-        zscore = abs((current_vix - self.vix_mean) / self.vix_std)
-        
-        # Higher z-score = higher probability of reversion
-        if zscore > 3:
-            return 0.95
-        elif zscore > 2:
-            return 0.85
-        elif zscore > 1:
-            return 0.70
-        else:
-            return 0.50
-    
-    def _calculate_vix_spy_correlation(self, window: int) -> float:
-        """Calculate rolling VIX-SPY correlation."""
-        if len(self.vix_history) < window or len(self.spy_prices) < window:
-            return -0.75  # Default negative correlation
-        
-        # Get returns
-        vix_values = [v.vix_spot for v in list(self.vix_history)[-window:]]
-        spy_values = list(self.spy_prices)[-window:]
-        
-        vix_returns = pd.Series(vix_values).pct_change().dropna()
-        spy_returns = pd.Series(spy_values).pct_change().dropna()
-        
-        if len(vix_returns) < 2:
-            return -0.75
-        
-        return vix_returns.corr(spy_returns)
-    
-    def _generate_mean_reversion_signals(self) -> List[Dict[str, Any]]:
-        """Generate mean reversion trading signals."""
-        signals = []
-        
-        if not self.regime_analysis:
-            return signals
-        
-        zscore = self.regime_analysis.zscore
-        
-        # Long volatility signal (VIX too low)
-        if zscore < -ZSCORE_THRESHOLD:
-            signals.append({
-                'type': VIXSignal.MEAN_REVERSION_LONG,
-                'direction': 'LONG_VOL',
-                'confidence': min(abs(zscore) / 3, 1.0),
-                'entry_vix': self.current_vix.vix_spot,
-                'target_vix': self.regime_analysis.expected_reversion,
-                'suggested_trades': [
-                    'Buy VIX calls',
-                    'Buy SPY puts',
-                    'Long volatility ETFs'
-                ],
-                'timeframe': '5-20 days',
-                'risk': 'Time decay if VIX stays low'
-            })
-        
-        # Short volatility signal (VIX too high)
-        elif zscore > ZSCORE_THRESHOLD:
-            signals.append({
-                'type': VIXSignal.MEAN_REVERSION_SHORT,
-                'direction': 'SHORT_VOL',
-                'confidence': min(zscore / 3, 1.0),
-                'entry_vix': self.current_vix.vix_spot,
-                'target_vix': self.regime_analysis.expected_reversion,
-                'suggested_trades': [
-                    'Sell VIX calls',
-                    'Sell SPY puts',
-                    'Short volatility ETFs'
-                ],
-                'timeframe': '5-20 days',
-                'risk': 'Volatility can spike higher'
-            })
-        
-        return signals
-    
-    def _generate_term_structure_signals(self) -> List[Dict[str, Any]]:
-        """Generate term structure based signals."""
-        signals = []
-        
-        if not self.term_structure:
-            return signals
-        
-        # Steep contango - sell volatility
-        if self.term_structure.shape == TermStructureShape.STEEP_CONTANGO:
-            signals.append({
-                'type': VIXSignal.CONTANGO_ROLL,
-                'direction': 'SHORT_VOL',
-                'confidence': 0.8,
-                'structure': 'Steep Contango',
-                'daily_roll': f"{self.term_structure.daily_roll:.3f}",
-                'suggested_trades': [
-                    'Short VXX/UVXY',
-                    'VIX call spreads',
-                    'SPY put spreads (sell)'
-                ],
-                'timeframe': 'Daily roll harvest',
-                'risk': 'Volatility spike risk'
-            })
-        
-        # Backwardation - volatility event likely
-        elif self.term_structure.shape in [TermStructureShape.BACKWARDATION, 
-                                          TermStructureShape.STEEP_BACKWARDATION]:
-            signals.append({
-                'type': VIXSignal.TERM_STRUCTURE_TRADE,
-                'direction': 'HEDGE',
-                'confidence': 0.9,
-                'structure': 'Backwardation',
-                'message': 'Market stress - hedging recommended',
-                'suggested_trades': [
-                    'Buy portfolio protection',
-                    'Reduce risk exposure',
-                    'Long volatility positions'
-                ],
-                'timeframe': 'Immediate',
-                'risk': 'Whipsaw if stress resolves quickly'
-            })
-        
-        return signals
-    
-    def _check_vix_alerts(self, current: VIXData, prev_vix: float) -> None:
-        """Check for VIX-based alerts."""
-        # Intraday spike detection
-        intraday_change = abs(current.vix_spot - prev_vix) / prev_vix
-        
-        if intraday_change > SPIKE_THRESHOLD:
-            event = Event(
-                type=EventType.MARKET_ALERT,
-                data={
-                    'alert_type': 'VIX_SPIKE',
-                    'current_vix': current.vix_spot,
-                    'previous_vix': prev_vix,
-                    'change_pct': intraday_change * 100,
-                    'message': f'VIX spike detected: {intraday_change*100:.1f}% move',
-                    'action': 'Review positions and hedges'
-                }
-            )
-            self.event_manager.emit(event)
-        
-        # Regime change detection
-        if self.regime_analysis:
-            current_regime = self._classify_vix_regime(current.vix_spot)
-            if self.regime_history and self.regime_history[-1][1] != current_regime:
-                event = Event(
-                    type=EventType.ANALYTICS,
-                    data={
-                        'type': 'VIX_REGIME_CHANGE',
-                        'old_regime': self.regime_history[-1][1].value,
-                        'new_regime': current_regime.value,
-                        'vix_level': current.vix_spot,
-                        'implications': self._get_regime_implications(current_regime)
-                    }
-                )
-                self.event_manager.emit(event)
-    
-    # ==========================================================================
-    # PRIVATE METHODS - UTILITIES
-    # ==========================================================================
-    
-    def _initialize_historical_data(self) -> None:
-        """Initialize historical VIX statistics."""
-        try:
-            # Fetch historical VIX data
-            historical_data = self.ib_client.get_historical_data(
-                contract=self.ib_client.create_index_contract('VIX'),
-                duration='1 Y',
-                bar_size='1 day'
+            forecast = self.forecaster.generate_forecast(
+                list(self.vix_history),
+                horizon_days
             )
             
-            if historical_data and not historical_data.empty:
-                # Calculate statistics
-                vix_values = historical_data['close'].values
-                self.vix_mean = np.mean(vix_values)
-                self.vix_std = np.std(vix_values)
-                
-                self.logger.info(f"VIX statistics initialized: mean={self.vix_mean:.2f}, std={self.vix_std:.2f}")
+            return forecast
             
         except Exception as e:
-            self.logger.warning(f"Could not initialize historical data: {e}")
-            # Use defaults
-            self.vix_mean = VIX_MEAN
-            self.vix_std = 8.0
-    
-    def _calculate_percentile(self, value: float, lookback_days: int) -> float:
-        """Calculate historical percentile rank."""
-        if len(self.vix_history) < lookback_days:
-            return 50.0
-        
-        historical_values = [v.vix_spot for v in list(self.vix_history)[-lookback_days*78:]]
-        return stats.percentileofscore(historical_values, value)
-    
-    def _calculate_regime_duration(self, current_regime: VIXRegime) -> int:
-        """Calculate days in current regime."""
-        if not self.regime_history:
-            return 0
-        
-        # Find last regime change
-        for i in range(len(self.regime_history) - 1, -1, -1):
-            if self.regime_history[i][1] != current_regime:
-                regime_start = self.regime_history[i][0]
-                return (datetime.now() - regime_start).days
-        
-        # If no change found, return total history length
-        return (datetime.now() - self.regime_history[0][0]).days
-    
-    def _calculate_regime_transitions(self, current_regime: VIXRegime) -> Dict[VIXRegime, float]:
-        """Calculate regime transition probabilities."""
-        # Simplified transition matrix based on historical patterns
-        transitions = {regime: 0.0 for regime in VIXRegime}
-        
-        # Define typical transitions
-        if current_regime == VIXRegime.LOW_VOL:
-            transitions[VIXRegime.NORMAL] = 0.7
-            transitions[VIXRegime.LOW_VOL] = 0.2
-            transitions[VIXRegime.ELEVATED] = 0.1
-            
-        elif current_regime == VIXRegime.NORMAL:
-            transitions[VIXRegime.NORMAL] = 0.5
-            transitions[VIXRegime.LOW_VOL] = 0.2
-            transitions[VIXRegime.ELEVATED] = 0.3
-            
-        elif current_regime == VIXRegime.ELEVATED:
-            transitions[VIXRegime.NORMAL] = 0.4
-            transitions[VIXRegime.HIGH_VOL] = 0.3
-            transitions[VIXRegime.ELEVATED] = 0.3
-            
-        elif current_regime == VIXRegime.HIGH_VOL:
-            transitions[VIXRegime.ELEVATED] = 0.4
-            transitions[VIXRegime.STRESS] = 0.2
-            transitions[VIXRegime.NORMAL] = 0.2
-            transitions[VIXRegime.HIGH_VOL] = 0.2
-            
-        elif current_regime == VIXRegime.STRESS:
-            transitions[VIXRegime.HIGH_VOL] = 0.5
-            transitions[VIXRegime.PANIC] = 0.2
-            transitions[VIXRegime.STRESS] = 0.3
-            
-        else:  # PANIC
-            transitions[VIXRegime.STRESS] = 0.6
-            transitions[VIXRegime.HIGH_VOL] = 0.3
-            transitions[VIXRegime.PANIC] = 0.1
-        
-        return transitions
-    
-    def _get_regime_implications(self, regime: VIXRegime) -> str:
-        """Get trading implications for regime."""
-        implications = {
-            VIXRegime.LOW_VOL: "Complacency risk - consider cheap protection",
-            VIXRegime.NORMAL: "Normal market conditions - standard strategies",
-            VIXRegime.ELEVATED: "Increased caution - reduce position sizes",
-            VIXRegime.HIGH_VOL: "Risk-off environment - defensive positioning",
-            VIXRegime.STRESS: "Market stress - prioritize capital preservation",
-            VIXRegime.PANIC: "Extreme conditions - wait for stabilization"
-        }
-        return implications.get(regime, "Monitor closely")
-    
-    def _parse_futures_expiry(self, symbol: str) -> date:
-        """Parse expiry date from futures symbol."""
-        # VX{month}{year} format
-        month_code = symbol[2]
-        year_code = symbol[3]
-        
-        month = VIX_FUTURES_MONTHS.index(month_code) + 1
-        year = 2020 + int(year_code)
-        
-        # VIX futures expire on Wednesday, 30 days before SPX expiry
-        # Simplified - would need actual calendar in production
-        return date(year, month, 15)
-    
-    def _calculate_daily_roll(self, front: VIXFuture, second: VIXFuture) -> float:
-        """Calculate daily roll between futures."""
-        if not front or not second:
-            return 0.0
-        
-        # Daily theta from contango/backwardation
-        days_between = (second.expiry - front.expiry).days
-        if days_between == 0:
-            return 0.0
-        
-        return (second.price - front.price) / days_between
-    
-    def _calculate_roll_yields(self) -> None:
-        """Calculate roll yields for all futures."""
-        sorted_futures = sorted(self.vix_futures.values(), key=lambda x: x.expiry)
-        
-        for i in range(1, len(sorted_futures)):
-            curr = sorted_futures[i]
-            prev = sorted_futures[i-1]
-            
-            days_diff = (curr.expiry - prev.expiry).days
-            if days_diff > 0:
-                curr.roll_yield = ((curr.price / prev.price) - 1) * 365 / days_diff
-    
-    def _determine_trend(self, values: List[float]) -> str:
-        """Determine trend direction."""
-        if len(values) < 2:
-            return 'flat'
-        
-        # Simple linear regression
-        x = np.arange(len(values))
-        slope, _ = np.polyfit(x, values, 1)
-        
-        if slope > 0.001:
-            return 'up'
-        elif slope < -0.001:
-            return 'down'
-        else:
-            return 'flat'
-    
-    def _create_no_divergence(self) -> VIXDivergence:
-        """Create default no-divergence object."""
-        return VIXDivergence(
-            timestamp=datetime.now(),
-            vix_spy_correlation=-0.75,
-            historical_correlation=-0.75,
-            divergence_score=0,
-            vix_trend='flat',
-            spy_trend='flat',
-            is_divergent=False,
-            divergence_type='none',
-            confidence=0,
-            suggested_action='hold'
-        )
-    
+            self.error_handler.handle_error(e, "forecast_vix")
+            raise
+
     # ==========================================================================
-    # PUBLIC METHODS - MONITORING
+    # PUBLIC METHODS - UTILITY
     # ==========================================================================
     
-    def start_monitoring(self) -> None:
-        """Start VIX monitoring."""
-        if self._running:
-            return
+    def get_summary(self) -> Dict[str, Any]:
+        """
+        Get comprehensive VIX analysis summary.
         
-        self._running = True
-        self._monitor_thread = threading.Thread(
-            target=self._monitoring_loop,
-            name="VIX-Monitor",
-            daemon=True
-        )
-        self._monitor_thread.start()
-        self.logger.info("VIX monitoring started")
-    
-    def stop_monitoring(self) -> None:
-        """Stop VIX monitoring."""
-        self._running = False
-        if self._monitor_thread:
-            self._monitor_thread.join(timeout=5)
-        self.logger.info("VIX monitoring stopped")
-    
-    def _monitoring_loop(self) -> None:
-        """Main monitoring loop."""
-        last_vix_update = time.time()
-        last_structure_update = time.time()
-        last_regime_check = time.time()
-        
-        while self._running:
-            try:
-                current_time = time.time()
-                
-                # Update VIX data
-                if current_time - last_vix_update >= VIX_UPDATE_INTERVAL:
-                    self.update_vix_data()
-                    last_vix_update = current_time
-                
-                # Update term structure
-                if current_time - last_structure_update >= TERM_STRUCTURE_UPDATE:
-                    self.analyze_term_structure()
-                    last_structure_update = current_time
-                
-                # Check regime
-                if current_time - last_regime_check >= REGIME_CHECK_INTERVAL:
-                    self.analyze_regime()
-                    last_regime_check = current_time
-                
-                time.sleep(1)
-                
-            except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
-                time.sleep(5)
-    
-    # ==========================================================================
-    # PUBLIC METHODS - VISUALIZATION
-    # ==========================================================================
-    
-    def plot_vix_analysis(self, save_path: Optional[str] = None) -> None:
-        """Create comprehensive VIX analysis plot."""
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
-        
-        # Plot 1: VIX time series with regimes
-        if self.vix_history:
-            times = [v.timestamp for v in self.vix_history]
-            values = [v.vix_spot for v in self.vix_history]
-            
-            ax1.plot(times, values, 'b-', linewidth=2)
-            ax1.axhline(self.vix_mean, color='red', linestyle='--', alpha=0.5, label='Mean')
-            ax1.fill_between(times, self.vix_mean - self.vix_std, self.vix_mean + self.vix_std,
-                           alpha=0.2, color='gray', label='±1 STD')
-            
-            # Mark regime zones
-            ax1.axhspan(0, VIX_LOW, alpha=0.1, color='green', label='Low Vol')
-            ax1.axhspan(VIX_HIGH, VIX_EXTREME, alpha=0.1, color='red', label='High Vol')
-            
-            ax1.set_title('VIX Level and Regimes')
-            ax1.set_ylabel('VIX')
-            ax1.legend()
-            ax1.grid(True, alpha=0.3)
-        
-        # Plot 2: Term Structure
-        if self.term_structure and self.term_structure.futures:
-            expiries = [f.days_to_expiry for f in self.term_structure.futures]
-            prices = [f.price for f in self.term_structure.futures]
-            
-            ax2.plot(expiries, prices, 'go-', linewidth=2, markersize=8, label='Futures')
-            ax2.axhline(self.current_vix.vix_spot, color='blue', linestyle='--', label='Spot VIX')
-            
-            ax2.set_title(f'VIX Term Structure ({self.term_structure.shape.value})')
-            ax2.set_xlabel('Days to Expiry')
-            ax2.set_ylabel('VIX Level')
-            ax2.legend()
-            ax2.grid(True, alpha=0.3)
-        
-        # Plot 3: VIX Distribution
-        if len(self.vix_history) > 100:
-            recent_values = [v.vix_spot for v in list(self.vix_history)[-1000:]]
-            ax3.hist(recent_values, bins=30, alpha=0.7, color='blue', edgecolor='black')
-            ax3.axvline(self.current_vix.vix_spot, color='red', linewidth=2, label='Current')
-            ax3.axvline(self.vix_mean, color='green', linestyle='--', label='Mean')
-            
-            ax3.set_title('VIX Distribution (Recent)')
-            ax3.set_xlabel('VIX Level')
-            ax3.set_ylabel('Frequency')
-            ax3.legend()
-        
-        # Plot 4: Regime Transition Matrix
-        if self.regime_analysis:
-            regimes = list(VIXRegime)
-            transitions = self.regime_analysis.regime_transitions
-            
-            # Create matrix
-            matrix = np.zeros((len(regimes), len(regimes)))
-            current_idx = regimes.index(self.regime_analysis.current_regime)
-            
-            for i, regime in enumerate(regimes):
-                matrix[current_idx, i] = transitions.get(regime, 0)
-            
-            im = ax4.imshow(matrix, cmap='YlOrRd', aspect='auto')
-            ax4.set_xticks(range(len(regimes)))
-            ax4.set_yticks(range(len(regimes)))
-            ax4.set_xticklabels([r.value.split('_')[0] for r in regimes], rotation=45)
-            ax4.set_yticklabels([r.value.split('_')[0] for r in regimes])
-            ax4.set_title('Regime Transition Probabilities')
-            
-            # Add probability text
-            for i in range(len(regimes)):
-                for j in range(len(regimes)):
-                    if matrix[i, j] > 0:
-                        ax4.text(j, i, f'{matrix[i, j]:.2f}', ha='center', va='center')
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        else:
-            plt.show()
-    
-    def get_summary_dashboard(self) -> Dict[str, Any]:
-        """Get VIX analysis summary for dashboard."""
+        Returns:
+            Dictionary containing VIX analysis summary
+        """
         if not all([self.current_vix, self.regime_analysis, self.term_structure]):
             return {'status': 'insufficient_data'}
         
@@ -1262,6 +538,520 @@ class VIXAnalyzer:
             'reversion_probability': f"{self.regime_analysis.reversion_probability:.0%}",
             'vix_vix3m_ratio': f"{self.current_vix.vix_vix3m_ratio:.2f}" if self.current_vix.vix_vix3m_ratio else "N/A"
         }
+
+    # ==========================================================================
+    # PRIVATE METHODS - DATA FETCHING
+    # ==========================================================================
+    
+    def _fetch_live_vix_data(self) -> VIXData:
+        """Fetch live VIX data from IB"""
+        # Implementation for live data fetching
+        # This would use the IB client to get real VIX data
+        pass
+
+    def _fetch_simulated_vix_data(self) -> VIXData:
+        """Generate simulated VIX data for testing"""
+        base_vix = 20.0
+        if self.current_vix:
+            base_vix = self.current_vix.vix_spot
+        
+        # Simple random walk with mean reversion
+        change = np.random.normal(0, 0.5) - 0.1 * (base_vix - 20.0) / 20.0
+        new_vix = max(5.0, base_vix + change)
+        
+        return VIXData(
+            timestamp=datetime.now(),
+            vix_spot=new_vix,
+            vix_change=change,
+            vix_change_pct=(change / base_vix) * 100,
+            vix9d=new_vix * np.random.uniform(0.95, 1.05),
+            vix3m=new_vix * np.random.uniform(1.0, 1.2),
+            vix6m=new_vix * np.random.uniform(1.1, 1.3),
+            vix_vix3m_ratio=new_vix / (new_vix * np.random.uniform(1.0, 1.2)),
+            volume=np.random.randint(100000, 500000),
+            open_interest=np.random.randint(1000000, 3000000)
+        )
+
+    def _fetch_live_futures_data(self) -> Dict[str, VIXFuturesData]:
+        """Fetch live VIX futures data from IB"""
+        # Implementation for live futures data
+        pass
+
+    def _fetch_simulated_futures_data(self) -> Dict[str, VIXFuturesData]:
+        """Generate simulated VIX futures data"""
+        futures_data = {}
+        base_vix = self.current_vix.vix_spot if self.current_vix else 20.0
+        
+        for i, month in enumerate(VIX_FUTURES_MONTHS[:6]):
+            days_to_expiry = 30 + i * 30
+            # Futures typically in contango
+            price = base_vix * (1 + 0.02 * i + np.random.uniform(-0.01, 0.01))
+            
+            futures_data[month] = VIXFuturesData(
+                contract_month=month,
+                days_to_expiry=days_to_expiry,
+                price=price,
+                volume=np.random.randint(1000, 10000),
+                open_interest=np.random.randint(10000, 50000),
+                bid=price - 0.05,
+                ask=price + 0.05,
+                spread=0.10
+            )
+        
+        return futures_data
+
+    # ==========================================================================
+    # PRIVATE METHODS - HELPER FUNCTIONS
+    # ==========================================================================
+    
+    def _initialize_historical_data(self) -> None:
+        """Initialize historical VIX data"""
+        # In a real implementation, this would load historical data
+        # For now, generate some sample data
+        for i in range(100):
+            self.vix_history.append(self._fetch_simulated_vix_data())
+
+    def _update_loop(self) -> None:
+        """Main update loop for real-time analysis"""
+        while self.is_running:
+            try:
+                # Update VIX data
+                self.update_vix_data()
+                
+                # Update futures data every 30 seconds
+                if (not self.last_update or 
+                    (datetime.now() - self.last_update).seconds >= TERM_STRUCTURE_UPDATE_FREQUENCY):
+                    self.update_futures_data()
+                
+                # Run analysis
+                self.analyze_regime()
+                self.analyze_term_structure()
+                self.detect_events()
+                
+                time.sleep(VIX_UPDATE_FREQUENCY)
+                
+            except Exception as e:
+                self.error_handler.handle_error(e, "_update_loop")
+                time.sleep(10)  # Wait longer on error
+
+    def _emit_regime_change_event(self, regime_analysis: VIXRegimeAnalysis) -> None:
+        """Emit regime change event"""
+        event_data = {
+            'previous_regime': regime_analysis.previous_regime.value,
+            'new_regime': regime_analysis.current_regime.value,
+            'transition_probability': max(regime_analysis.regime_transition_probability.values())
+        }
+        
+        self.event_manager.emit_event(Event(
+            type=EventType.SIGNAL_GENERATED,
+            source=self.__class__.__name__,
+            data=event_data
+        ))
+
+    def _emit_structure_inversion_event(self, term_structure: VIXTermStructure) -> None:
+        """Emit term structure inversion event"""
+        event_data = {
+            'structure_shape': term_structure.shape.value,
+            'slope': term_structure.slope,
+            'front_month_basis': term_structure.front_month_basis
+        }
+        
+        self.event_manager.emit_event(Event(
+            type=EventType.SIGNAL_GENERATED,
+            source=self.__class__.__name__,
+            data=event_data
+        ))
+
+    def _emit_vix_event(self, vix_event: VIXEvent) -> None:
+        """Emit VIX event"""
+        event_data = {
+            'event_type': vix_event.event_type.value,
+            'magnitude': vix_event.magnitude,
+            'impact_score': vix_event.impact_score,
+            'description': vix_event.description
+        }
+        
+        self.event_manager.emit_event(Event(
+            type=EventType.SIGNAL_GENERATED,
+            source=self.__class__.__name__,
+            data=event_data
+        ))
+
+# ==============================================================================
+# HELPER CLASSES
+# ==============================================================================
+class VIXRegimeDetector:
+    """VIX regime detection and classification"""
+    
+    def __init__(self):
+        self.regime_history = deque(maxlen=1000)
+        self.scaler = StandardScaler()
+        self.kmeans = KMeans(n_clusters=6, random_state=42)
+    
+    def analyze(self, current_vix: VIXData, vix_history: List[VIXData]) -> VIXRegimeAnalysis:
+        """Analyze VIX regime"""
+        # Determine current regime
+        current_regime = self._classify_regime(current_vix.vix_spot)
+        
+        # Calculate regime duration
+        regime_duration = self._calculate_regime_duration(current_regime)
+        
+        # Calculate statistics
+        vix_values = [v.vix_spot for v in vix_history[-252:]]  # 1 year
+        percentile_1y = stats.percentileofscore(vix_values, current_vix.vix_spot)
+        
+        vix_values_3m = [v.vix_spot for v in vix_history[-63:]]  # 3 months
+        percentile_3m = stats.percentileofscore(vix_values_3m, current_vix.vix_spot)
+        
+        mean_vix = np.mean(vix_values)
+        std_vix = np.std(vix_values)
+        zscore = (current_vix.vix_spot - mean_vix) / std_vix
+        
+        # Calculate mean reversion
+        expected_reversion = self._calculate_mean_reversion_target(vix_values)
+        reversion_probability = self._calculate_reversion_probability(
+            current_vix.vix_spot, expected_reversion, std_vix
+        )
+        
+        # Calculate regime transition probabilities
+        transition_probs = self._calculate_transition_probabilities(
+            current_regime, vix_history
+        )
+        
+        return VIXRegimeAnalysis(
+            timestamp=datetime.now(),
+            current_regime=current_regime,
+            regime_duration=regime_duration,
+            previous_regime=self.regime_history[-1] if self.regime_history else current_regime,
+            regime_transition_probability=transition_probs,
+            percentile_1y=percentile_1y,
+            percentile_3m=percentile_3m,
+            zscore=zscore,
+            expected_reversion=expected_reversion,
+            reversion_probability=reversion_probability,
+            regime_stability=self._calculate_regime_stability(vix_history)
+        )
+    
+    def _classify_regime(self, vix_level: float) -> VIXRegime:
+        """Classify VIX regime based on level"""
+        if vix_level < 12:
+            return VIXRegime.ULTRA_LOW
+        elif vix_level < 15:
+            return VIXRegime.LOW
+        elif vix_level < 20:
+            return VIXRegime.NORMAL
+        elif vix_level < 30:
+            return VIXRegime.ELEVATED
+        elif vix_level < 40:
+            return VIXRegime.HIGH
+        else:
+            return VIXRegime.EXTREME
+    
+    def _calculate_regime_duration(self, current_regime: VIXRegime) -> int:
+        """Calculate how long current regime has persisted"""
+        if not self.regime_history:
+            return 1
+        
+        duration = 1
+        for regime in reversed(self.regime_history):
+            if regime == current_regime:
+                duration += 1
+            else:
+                break
+        
+        return duration
+    
+    def _calculate_mean_reversion_target(self, vix_values: List[float]) -> float:
+        """Calculate mean reversion target"""
+        # Use exponentially weighted mean for target
+        weights = np.exp(np.linspace(-1, 0, len(vix_values)))
+        weights = weights / weights.sum()
+        return np.average(vix_values, weights=weights)
+    
+    def _calculate_reversion_probability(self, current_vix: float, 
+                                       target: float, std: float) -> float:
+        """Calculate probability of mean reversion"""
+        z = abs(current_vix - target) / std
+        # Higher z-score means higher reversion probability
+        return min(0.95, 1 / (1 + np.exp(-z + 2)))
+    
+    def _calculate_transition_probabilities(self, current_regime: VIXRegime,
+                                          vix_history: List[VIXData]) -> Dict[VIXRegime, float]:
+        """Calculate regime transition probabilities"""
+        # Simplified transition model
+        transitions = {regime: 0.1 for regime in VIXRegime}
+        transitions[current_regime] = 0.4  # Persistence
+        
+        # Adjust based on recent volatility
+        recent_volatility = np.std([v.vix_spot for v in vix_history[-20:]])
+        if recent_volatility > 3:
+            # High volatility increases transition probability
+            if current_regime in [VIXRegime.LOW, VIXRegime.NORMAL]:
+                transitions[VIXRegime.ELEVATED] += 0.2
+                transitions[VIXRegime.HIGH] += 0.1
+            elif current_regime == VIXRegime.ELEVATED:
+                transitions[VIXRegime.HIGH] += 0.2
+                transitions[VIXRegime.EXTREME] += 0.1
+        
+        # Normalize probabilities
+        total = sum(transitions.values())
+        return {k: v/total for k, v in transitions.items()}
+    
+    def _calculate_regime_stability(self, vix_history: List[VIXData]) -> float:
+        """Calculate regime stability score"""
+        if len(vix_history) < 20:
+            return 0.5
+        
+        # Count regime changes in recent history
+        regimes = [self._classify_regime(v.vix_spot) for v in vix_history[-20:]]
+        changes = sum(1 for i in range(1, len(regimes)) if regimes[i] != regimes[i-1])
+        
+        # Higher stability = fewer changes
+        return max(0.0, 1.0 - changes / 19.0)
+
+
+class TermStructureAnalyzer:
+    """VIX term structure analysis"""
+    
+    def analyze(self, futures_data: List[VIXFuturesData]) -> VIXTermStructure:
+        """Analyze VIX term structure"""
+        if len(futures_data) < 2:
+            raise ValueError("Insufficient futures data for term structure analysis")
+        
+        # Sort by expiration
+        sorted_futures = sorted(futures_data, key=lambda x: x.days_to_expiry)
+        
+        # Calculate slope and curvature
+        prices = [f.price for f in sorted_futures]
+        days = [f.days_to_expiry for f in sorted_futures]
+        
+        # Linear regression for slope
+        slope, intercept, r_value, p_value, std_err = stats.linregress(days, prices)
+        
+        # Determine shape
+        shape = self._determine_shape(slope, prices)
+        
+        # Calculate basis (futures premium over VIX spot)
+        vix_spot = prices[0] * 0.98  # Approximate VIX spot
+        front_month_basis = (sorted_futures[0].price - vix_spot) / vix_spot
+        second_month_basis = (sorted_futures[1].price - vix_spot) / vix_spot if len(sorted_futures) > 1 else 0
+        
+        # Calculate daily roll yield
+        if len(sorted_futures) >= 2:
+            days_diff = sorted_futures[1].days_to_expiry - sorted_futures[0].days_to_expiry
+            price_diff = sorted_futures[1].price - sorted_futures[0].price
+            daily_roll = price_diff / days_diff if days_diff > 0 else 0
+        else:
+            daily_roll = 0
+        
+        # Calculate curvature (second derivative)
+        if len(prices) >= 3:
+            curvature = prices[2] - 2*prices[1] + prices[0]
+        else:
+            curvature = 0
+        
+        return VIXTermStructure(
+            timestamp=datetime.now(),
+            futures_curve=sorted_futures,
+            shape=shape,
+            slope=slope,
+            curvature=curvature,
+            front_month_basis=front_month_basis,
+            second_month_basis=second_month_basis,
+            daily_roll=daily_roll,
+            term_structure_percentile=self._calculate_term_structure_percentile(slope)
+        )
+    
+    def _determine_shape(self, slope: float, prices: List[float]) -> TermStructureShape:
+        """Determine term structure shape"""
+        if slope > 0.05:
+            return TermStructureShape.STEEP_CONTANGO
+        elif slope > 0.02:
+            return TermStructureShape.CONTANGO
+        elif slope > -0.02:
+            return TermStructureShape.FLAT
+        elif slope > -0.05:
+            return TermStructureShape.BACKWARDATION
+        else:
+            return TermStructureShape.STEEP_BACKWARDATION
+    
+    def _calculate_term_structure_percentile(self, slope: float) -> float:
+        """Calculate where current slope ranks historically"""
+        # Historical slopes (this would come from database in real implementation)
+        historical_slopes = np.random.normal(0.02, 0.03, 1000)  # Simulated
+        return stats.percentileofscore(historical_slopes, slope)
+
+
+class VIXEventDetector:
+    """VIX event detection system"""
+    
+    def __init__(self):
+        self.event_history = deque(maxlen=1000)
+    
+    def detect_events(self, current_vix: VIXData, vix_history: List[VIXData]) -> List[VIXEvent]:
+        """Detect VIX events"""
+        events = []
+        
+        if len(vix_history) < 20:
+            return events
+        
+        # Spike detection
+        spike_event = self._detect_spike(current_vix, vix_history)
+        if spike_event:
+            events.append(spike_event)
+        
+        # Crash detection
+        crash_event = self._detect_crash(current_vix, vix_history)
+        if crash_event:
+            events.append(crash_event)
+        
+        # Extreme reading detection
+        extreme_event = self._detect_extreme_reading(current_vix, vix_history)
+        if extreme_event:
+            events.append(extreme_event)
+        
+        return events
+    
+    def _detect_spike(self, current_vix: VIXData, vix_history: List[VIXData]) -> Optional[VIXEvent]:
+        """Detect VIX spikes"""
+        if current_vix.vix_change_pct > 25:  # 25% daily increase
+            return VIXEvent(
+                timestamp=current_vix.timestamp,
+                event_type=VIXEventType.SPIKE,
+                magnitude=current_vix.vix_change_pct,
+                duration=timedelta(days=1),
+                description=f"VIX spike of {current_vix.vix_change_pct:.1f}%",
+                impact_score=min(1.0, current_vix.vix_change_pct / 50),
+                related_events=[]
+            )
+        return None
+    
+    def _detect_crash(self, current_vix: VIXData, vix_history: List[VIXData]) -> Optional[VIXEvent]:
+        """Detect VIX crashes"""
+        if current_vix.vix_change_pct < -20:  # 20% daily decrease
+            return VIXEvent(
+                timestamp=current_vix.timestamp,
+                event_type=VIXEventType.CRASH,
+                magnitude=abs(current_vix.vix_change_pct),
+                duration=timedelta(days=1),
+                description=f"VIX crash of {current_vix.vix_change_pct:.1f}%",
+                impact_score=min(1.0, abs(current_vix.vix_change_pct) / 30),
+                related_events=[]
+            )
+        return None
+    
+    def _detect_extreme_reading(self, current_vix: VIXData, vix_history: List[VIXData]) -> Optional[VIXEvent]:
+        """Detect extreme VIX readings"""
+        vix_values = [v.vix_spot for v in vix_history[-252:]]  # 1 year
+        percentile = stats.percentileofscore(vix_values, current_vix.vix_spot)
+        
+        if percentile > 95 or percentile < 5:
+            return VIXEvent(
+                timestamp=current_vix.timestamp,
+                event_type=VIXEventType.EXTREME_READING,
+                magnitude=percentile if percentile > 95 else 100 - percentile,
+                duration=timedelta(days=1),
+                description=f"Extreme VIX reading: {percentile:.0f}th percentile",
+                impact_score=min(1.0, (percentile - 50) / 50 if percentile > 50 else (50 - percentile) / 50),
+                related_events=[]
+            )
+        return None
+
+
+class VIXForecaster:
+    """VIX forecasting system"""
+    
+    def __init__(self):
+        self.models = {}
+        self.ensemble_weights = {}
+    
+    def generate_forecast(self, vix_history: List[VIXData], horizon_days: int) -> VIXForecast:
+        """Generate VIX forecast"""
+        vix_values = [v.vix_spot for v in vix_history]
+        
+        # Simple models for demonstration
+        forecasts = {
+            'mean_reversion': self._mean_reversion_forecast(vix_values, horizon_days),
+            'random_walk': self._random_walk_forecast(vix_values, horizon_days),
+            'ar_model': self._ar_forecast(vix_values, horizon_days)
+        }
+        
+        # Ensemble forecast
+        weights = {'mean_reversion': 0.4, 'random_walk': 0.3, 'ar_model': 0.3}
+        expected_vix = sum(forecasts[model] * weight for model, weight in weights.items())
+        
+        # Confidence intervals (simplified)
+        std_dev = np.std(vix_values[-30:])  # Recent volatility
+        confidence_interval = (
+            expected_vix - 1.96 * std_dev,
+            expected_vix + 1.96 * std_dev
+        )
+        
+        # Regime probabilities
+        regime_probs = self._forecast_regime_probabilities(expected_vix)
+        
+        return VIXForecast(
+            timestamp=datetime.now(),
+            forecast_horizon=horizon_days,
+            expected_vix=expected_vix,
+            confidence_interval=confidence_interval,
+            probability_distribution={},  # Would be populated in full implementation
+            regime_probabilities=regime_probs
+        )
+    
+    def _mean_reversion_forecast(self, vix_values: List[float], horizon: int) -> float:
+        """Mean reversion forecast"""
+        current_vix = vix_values[-1]
+        long_term_mean = np.mean(vix_values[-252:])  # 1 year mean
+        reversion_speed = 0.1  # Assumption
+        
+        # Exponential decay toward mean
+        return long_term_mean + (current_vix - long_term_mean) * np.exp(-reversion_speed * horizon)
+    
+    def _random_walk_forecast(self, vix_values: List[float], horizon: int) -> float:
+        """Random walk forecast"""
+        return vix_values[-1]  # Random walk forecast is current value
+    
+    def _ar_forecast(self, vix_values: List[float], horizon: int) -> float:
+        """Autoregressive forecast"""
+        if len(vix_values) < 20:
+            return vix_values[-1]
+        
+        # Simple AR(1) model
+        y = np.array(vix_values[1:])
+        x = np.array(vix_values[:-1])
+        
+        # Linear regression
+        slope, intercept = np.polyfit(x, y, 1)
+        
+        # Forecast
+        forecast = vix_values[-1]
+        for _ in range(horizon):
+            forecast = intercept + slope * forecast
+        
+        return forecast
+    
+    def _forecast_regime_probabilities(self, expected_vix: float) -> Dict[VIXRegime, float]:
+        """Forecast regime probabilities"""
+        # Simple classification based on expected VIX
+        probs = {regime: 0.1 for regime in VIXRegime}
+        
+        if expected_vix < 12:
+            probs[VIXRegime.ULTRA_LOW] = 0.6
+        elif expected_vix < 15:
+            probs[VIXRegime.LOW] = 0.6
+        elif expected_vix < 20:
+            probs[VIXRegime.NORMAL] = 0.6
+        elif expected_vix < 30:
+            probs[VIXRegime.ELEVATED] = 0.6
+        elif expected_vix < 40:
+            probs[VIXRegime.HIGH] = 0.6
+        else:
+            probs[VIXRegime.EXTREME] = 0.6
+        
+        # Normalize
+        total = sum(probs.values())
+        return {k: v/total for k, v in probs.items()}
 
 # ==============================================================================
 # MODULE FUNCTIONS
@@ -1315,26 +1105,20 @@ if __name__ == "__main__":
     
     # Analyze term structure
     print("\n3. Analyzing Term Structure...")
-    structure = vix_analyzer.analyze_term_structure()
-    print(f"Shape: {structure.shape.value}")
-    print(f"Front Month Basis: {structure.front_month_basis:+.2f}")
-    print(f"Daily Roll: ${structure.daily_roll*1000:+.2f} per 1000 vega")
+    term_structure = vix_analyzer.analyze_term_structure()
+    print(f"Shape: {term_structure.shape.value}")
+    print(f"Slope: {term_structure.slope:.4f}")
+    print(f"Front Month Basis: {term_structure.front_month_basis:.2%}")
     
     # Generate signals
-    print("\n4. Generating VIX Signals...")
-    signals = vix_analyzer.generate_vix_signals()
-    for signal in signals[:3]:
-        print(f"\nSignal: {signal['type'].value}")
-        print(f"Direction: {signal['direction']}")
-        print(f"Confidence: {signal['confidence']:.0%}")
-        if 'suggested_trades' in signal:
-            print(f"Trades: {', '.join(signal['suggested_trades'][:2])}")
+    print("\n4. Generating Signals...")
+    signals = vix_analyzer.generate_signals()
+    print(f"Signals: {[s.value for s in signals]}")
     
     # Get summary
-    print("\n5. Dashboard Summary:")
-    summary = vix_analyzer.get_summary_dashboard()
+    print("\n5. VIX Summary...")
+    summary = vix_analyzer.get_summary()
     for key, value in summary.items():
-        print(f"   {key}: {value}")
+        print(f"  {key}: {value}")
     
-    print("\n" + "=" * 80)
-    print("VIX Analyzer test completed successfully!")
+    print("\n✅ VIX Analyzer test completed successfully")

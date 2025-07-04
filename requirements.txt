@@ -1,6 +1,10 @@
 # ==============================================================================
+# ==============================================================================
 # SPYDER - MASTER REQUIREMENTS FILE
-# Includes all component requirements for complete installation
+# Choose installation type:
+# - Full: pip install -r requirements.txt
+# - Minimal: pip install -r requirements-core.txt requirements-trading.txt  
+# - Custom: See install.sh for options
 # ==============================================================================
 
 # Core dependencies (required)
