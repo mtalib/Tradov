@@ -32,17 +32,10 @@ Each alphabetic letter represents a functional group of Python modules. Some let
 
 # Directory Structure as of 2025-07-04
 `# Spyder Directory Structure
-As of 2025-07-01 v2 
-151 Python Modules Across 20 Functional Groups
+As of 2025-07-07 
 
-config/
-  config_template.py
-  config.py
 # Directory Structure
-```
-config/
-  config_template.py
-  config.py
+
 SpyderA_Core/
   __init__.py
   SpyderA01_Main.py
@@ -58,7 +51,6 @@ SpyderB_Broker/
   SpyderB04_AccountManager.py
   SpyderB05_ConnectionManager.py
   SpyderB06_ContractBuilder.py
-  SpyderB07_IBConnectionManager.py
   SpyderB09_IBClientPortal.py
   SpyderB10_IBDataTypes.py
   SpyderB11_AsyncIOBridge.py
@@ -97,7 +89,6 @@ SpyderD_Strategies/
   SpyderD15_StraddleStrangle.py
   SpyderD16_RatioSpreads.py
   SpyderD17_DiagonalSpread.py
-  SpyderD18_RatioSpread.py
   SpyderD19_JadeLizard.py
   SpyderD21_DoubleCalendar.py
 SpyderE_Risk/
@@ -136,7 +127,7 @@ SpyderI_Integration/
   SpyderI01_IntegrationHub.py
   SpyderI02_EventRouter.py
   SpyderI03_ConfigManager.py
-  SpyderI04_DiagnosticsEngine_Core.py.py
+  SpyderI04_DiagnosticsEngine_Core.py
   SpyderI04_DiagnosticsEngine_DataCollector.py
   SpyderI04_DiagnosticsEngine_HealthChecks.py
   SpyderI04_DiagnosticsEngine_Types.py
@@ -150,6 +141,8 @@ SpyderJ_Alerts/
 SpyderK_Reports/
   __init__.py
   SpyderK01_ReportGenerator.py
+  SpyderK02_DailyTradingReport.py
+  SpyderK03_PerformanceDashboard.py
   SpyderK05_RiskReport.py
   SpyderK07_StrategyComparison.py
 SpyderL_ML/
@@ -167,7 +160,7 @@ SpyderM_Monitoring/
   __init__.py
   SpyderM01_SystemMonitor.py
   SpyderM03_AIAgentMonitor.py
-  SpyderM02_MigrationMonitor.py
+  SpyderM03_MigrationMonitor.py
   SpyderM04_TradingMetrics.py
 SpyderN_OptionsAnalytics/
   __init__.py
@@ -211,6 +204,8 @@ SpyderU_Utilities/
   SpyderU15_PerformanceMetrics.py
   SpyderU16_TechnicalAnalysis.py
   SpyderU17_IBErrorCodes.py
+  SpyderU18_DependencyAnalyzer.py
+  SpyderU19_InteractionMatrix.py
 SpyderX_Agents/
   __init__.py
   SpyderX01_GreeksAgent.py
