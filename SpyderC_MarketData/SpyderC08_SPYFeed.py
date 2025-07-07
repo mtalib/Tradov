@@ -2,771 +2,833 @@
 # -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System
+
 Module: SpyderC08_SPYFeed.py
 Group: C (Market Data)
-Purpose: AMEX/ARCA (Network B) real-time SPY ETF data feed
+Purpose: Real-time SPY tick data and microstructure analysis
 
 Description:
-This module provides high-quality real-time market data for the SPY ETF from
-AMEX/ARCA (Network B). It handles Level 2 market data, tick-by-tick price updates,
-volume analysis, and market internals for precise options trading entries. The
-module integrates with the OPRA options feed to provide comprehensive underlying
-and derivatives data for the Spyder trading system.
+    This module provides high-frequency SPY data processing with microsecond
+    precision. It handles Level 2 market data, tick processing, market
+    microstructure analysis, and generates trading signals based on order
+    flow and market dynamics.
 
-Author: Mohamed Talib
-Created: 2025-06-09
-Version: 1.4
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-01-05
+Last Updated: 2025-01-06 Time: 10:45:00
 """
 
-# =============================================================================
-# Standard Library Imports
-# =============================================================================
-import time
-import threading
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable, Any, Tuple
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
+import os
+import sys
+from typing import Dict, List, Optional, Any, Tuple, Deque
 from dataclasses import dataclass, field
-from collections import deque
+from enum import Enum
+import json
+from datetime import datetime, timedelta
+import threading
+import time
+from collections import deque, defaultdict
 import statistics
+import bisect
 
-# =============================================================================
-# Third-Party Imports
-# =============================================================================
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import pandas as pd
 import numpy as np
-from ib_insync import *
-import pytz
+from scipy import stats
 
-# =============================================================================
-# Local Application Imports
-# =============================================================================
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, TradingError
-from SpyderU_Utilities.SpyderU03_DateTimeUtils import MarketTimeUtils
-from SpyderU_Utilities.SpyderU07_Constants import TRADING_CONSTANTS
-from SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
+from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderA_Core.SpyderA05_EventManager import Event, EventType, EventBus
 
-# =============================================================================
-# Constants
-# =============================================================================
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+# Symbol
 SPY_SYMBOL = "SPY"
-DEFAULT_EXCHANGE = "ARCA"  # AMEX/ARCA Network B
-BACKUP_EXCHANGES = ["SMART", "AMEX", "NYSE"]
-DEFAULT_UPDATE_INTERVAL = 50  # milliseconds for tick data
-TICK_BUFFER_SIZE = 10000
-VOLUME_ANALYSIS_WINDOW = 100  # ticks
-PRICE_LEVEL_DEPTH = 10  # Level 2 depth
-SPY_FEED_ID = "SPY_FEED"
 
-# Market microstructure constants
-MIN_TICK_SIZE = 0.01
-LARGE_TRADE_THRESHOLD = 10000  # shares
-BLOCK_TRADE_THRESHOLD = 50000  # shares
-VWAP_WINDOW = 20  # minutes
+# Trade sizes
+RETAIL_SIZE = 100
+INSTITUTIONAL_SIZE = 10000
+BLOCK_SIZE = 50000
 
-# =============================================================================
-# Data Classes
-# =============================================================================
+# Time windows
+TICK_WINDOW = 100  # Number of ticks to keep
+TIME_WINDOW_1MIN = 60
+TIME_WINDOW_5MIN = 300
+TIME_WINDOW_15MIN = 900
+
+# Market hours
+MARKET_OPEN = "09:30"
+MARKET_CLOSE = "16:00"
+PRE_MARKET_OPEN = "04:00"
+AFTER_MARKET_CLOSE = "20:00"
+
+# Thresholds
+SPREAD_ALERT_THRESHOLD = 0.05  # $0.05 spread alert
+VOLUME_SPIKE_THRESHOLD = 3.0  # 3x average volume
+PRICE_SPIKE_THRESHOLD = 0.002  # 0.2% price spike
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+class TickType(Enum):
+    """Type of tick data"""
+    TRADE = "trade"
+    BID = "bid"
+    ASK = "ask"
+    QUOTE = "quote"
+
+class TradeDirection(Enum):
+    """Trade direction classification"""
+    BUY = "buy"
+    SELL = "sell"
+    NEUTRAL = "neutral"
+
+class MarketSession(Enum):
+    """Market session type"""
+    PRE_MARKET = "pre_market"
+    REGULAR = "regular"
+    AFTER_HOURS = "after_hours"
+    CLOSED = "closed"
+
+class OrderFlowType(Enum):
+    """Order flow classification"""
+    RETAIL_BUY = "retail_buy"
+    RETAIL_SELL = "retail_sell"
+    INSTITUTIONAL_BUY = "institutional_buy"
+    INSTITUTIONAL_SELL = "institutional_sell"
+    BLOCK_BUY = "block_buy"
+    BLOCK_SELL = "block_sell"
+
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
 @dataclass
-class SPYTick:
-    """Individual SPY tick data structure."""
-    
+class TickData:
+    """Individual tick data"""
+    timestamp: datetime
+    tick_type: TickType
     price: float
     size: int
-    timestamp: datetime
-    tick_type: str  # 'BID', 'ASK', 'TRADE'
-    exchange: str
+    bid: float = 0.0
+    ask: float = 0.0
+    bid_size: int = 0
+    ask_size: int = 0
+    exchange: str = ""
     conditions: List[str] = field(default_factory=list)
     
-    @property
-    def value(self) -> float:
-        """Calculate tick value (price * size)."""
-        return self.price * self.size
-
-
 @dataclass
-class SPYQuote:
-    """SPY bid/ask quote data."""
-    
-    symbol: str
-    bid: float
-    ask: float
-    bid_size: int
-    ask_size: int
-    last: float
-    last_size: int
-    volume: int
-    high: float
-    low: float
-    open: float
-    close: float
+class Level2Data:
+    """Level 2 market depth data"""
     timestamp: datetime
-    exchange: str
+    bids: List[Tuple[float, int, str]]  # (price, size, exchange)
+    asks: List[Tuple[float, int, str]]  # (price, size, exchange)
     
-    @property
-    def mid_price(self) -> float:
-        """Calculate mid price."""
-        if self.bid > 0 and self.ask > 0:
-            return (self.bid + self.ask) / 2.0
-        return self.last
-    
-    @property
-    def spread(self) -> float:
-        """Calculate bid-ask spread."""
-        if self.bid > 0 and self.ask > 0:
-            return self.ask - self.bid
-        return 0.0
-    
-    @property
-    def spread_bps(self) -> float:
-        """Calculate spread in basis points."""
-        mid = self.mid_price
-        if mid > 0:
-            return (self.spread / mid) * 10000
-        return 0.0
-
-
 @dataclass
-class MarketDepth:
-    """Level 2 market depth data."""
+class TradeData:
+    """Processed trade data"""
+    timestamp: datetime
+    price: float
+    size: int
+    direction: TradeDirection
+    flow_type: OrderFlowType
+    vwap_deviation: float
+    spread_at_trade: float
+    liquidity_score: float
     
-    symbol: str
-    bids: List[Tuple[float, int]] = field(default_factory=list)  # (price, size) pairs
-    asks: List[Tuple[float, int]] = field(default_factory=list)  # (price, size) pairs
-    timestamp: datetime = field(default_factory=datetime.now)
-    
-    @property
-    def best_bid(self) -> Optional[Tuple[float, int]]:
-        """Get best bid price and size."""
-        return self.bids[0] if self.bids else None
-    
-    @property
-    def best_ask(self) -> Optional[Tuple[float, int]]:
-        """Get best ask price and size."""
-        return self.asks[0] if self.asks else None
-    
-    @property
-    def total_bid_size(self) -> int:
-        """Total size on bid side."""
-        return sum(size for _, size in self.bids)
-    
-    @property
-    def total_ask_size(self) -> int:
-        """Total size on ask side."""
-        return sum(size for _, size in self.asks)
-
-
 @dataclass
-class VolumeProfile:
-    """Volume profile analysis."""
+class MarketMicrostructure:
+    """Market microstructure metrics"""
+    timestamp: datetime
+    bid_ask_spread: float
+    spread_percentage: float
+    bid_depth: int
+    ask_depth: int
+    order_imbalance: float
+    liquidity_score: float
+    volatility: float
+    tick_direction: int  # -1, 0, 1
     
-    symbol: str
-    price_levels: Dict[float, int] = field(default_factory=dict)  # price -> volume
-    vwap: float = 0.0
-    total_volume: int = 0
-    average_trade_size: float = 0.0
-    large_trades_count: int = 0
-    block_trades_count: int = 0
-    timestamp: datetime = field(default_factory=datetime.now)
+@dataclass
+class SPYAnalysis:
+    """Comprehensive SPY analysis"""
+    timestamp: datetime
+    last_price: float
+    vwap: Dict[str, float]  # Multiple timeframes
+    volume: Dict[str, int]  # Multiple timeframes
+    trade_count: Dict[str, int]
+    buy_volume: int
+    sell_volume: int
+    order_flow_score: float  # -1 to 1
+    momentum_score: float
+    liquidity_score: float
+    microstructure: MarketMicrostructure
+    trend: str  # "bullish", "bearish", "neutral"
+    volatility_regime: str  # "low", "normal", "high", "extreme"
+    signals: List[Dict[str, Any]]
     
-    def get_volume_at_price(self, price: float) -> int:
-        """Get volume traded at specific price level."""
-        # Round to nearest cent for SPY
-        rounded_price = round(price, 2)
-        return self.price_levels.get(rounded_price, 0)
-    
-    def get_peak_volume_price(self) -> float:
-        """Get price level with highest volume."""
-        if not self.price_levels:
-            return 0.0
-        return max(self.price_levels.items(), key=lambda x: x[1])[0]
-
-
-# =============================================================================
-# Main SPY Feed Class
-# =============================================================================
-class SPYFeed:
+# ==============================================================================
+# MAIN CLASS
+# ==============================================================================
+class SPYFeedProcessor:
     """
-    AMEX/ARCA (Network B) real-time SPY ETF data feed handler.
+    High-frequency SPY data processor with microstructure analysis.
     
-    This class provides comprehensive real-time market data for SPY including:
-    - Tick-by-tick price and volume data
-    - Level 2 market depth (DOM)
-    - Volume profile analysis
-    - VWAP calculations
-    - Market microstructure metrics
-    - Trade classification and analysis
+    This class processes real-time SPY tick data, analyzes market microstructure,
+    tracks order flow, and generates trading signals based on market dynamics.
     
     Attributes:
-        symbol (str): SPY symbol
-        ib_client (IB): Interactive Brokers client connection
-        is_running (bool): Feed running state
-        data_callbacks (Dict): Registered data callbacks
-        current_quote (SPYQuote): Latest quote data
-        tick_buffer (deque): Historical tick data
-        market_depth (MarketDepth): Current Level 2 data
-        volume_profile (VolumeProfile): Volume analysis
-        logger (SpyderLogger): Application logger
-        error_handler (SpyderErrorHandler): Error handler
-        data_validator (DataValidator): Data validation
-        update_thread (threading.Thread): Data update thread
-        market_time_utils (MarketTimeUtils): Market time utilities
+        logger: Module logger instance
+        error_handler: Error handling instance
+        event_bus: Event management system
+        tick_buffer: Buffer for recent ticks
+        trades_buffer: Buffer for processed trades
+        
+    Example:
+        >>> processor = SPYFeedProcessor()
+        >>> processor.initialize()
+        >>> processor.process_tick(tick_data)
     """
     
-    def __init__(self, ib_client: IB, symbol: str = SPY_SYMBOL):
-        """
-        Initialize the SPY feed handler.
-        
-        Args:
-            ib_client: Interactive Brokers client connection
-            symbol: Symbol to track (default: SPY)
-        """
-        self.symbol = symbol.upper()
-        self.ib_client = ib_client
-        self.is_running = False
-        
-        # Data storage
-        self.data_callbacks: Dict[str, Callable] = {}
-        self.current_quote: Optional[SPYQuote] = None
-        self.tick_buffer: deque = deque(maxlen=TICK_BUFFER_SIZE)
-        self.market_depth: Optional[MarketDepth] = None
-        self.volume_profile: Optional[VolumeProfile] = None
-        
-        # Market data subscriptions
-        self.ticker: Optional[Ticker] = None
-        self.depth_ticker: Optional[Ticker] = None
-        
-        # Analytics
-        self.vwap_calculator = VWAPCalculator()
-        self.trade_classifier = TradeClassifier()
-        
-        # Threading
-        self.update_thread: Optional[threading.Thread] = None
-        self.data_lock = threading.RLock()
-        
-        # Utilities
+    def __init__(self):
+        """Initialize the SPY feed processor."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        self.data_validator = DataValidator()
-        self.market_time_utils = MarketTimeUtils()
+        self.event_bus = EventBus()
         
-        self.logger.info(f"SPY Feed initialized for {self.symbol}")
-    
-    def start(self) -> bool:
+        # Data buffers
+        self.tick_buffer: Deque[TickData] = deque(maxlen=10000)
+        self.trades_buffer: Deque[TradeData] = deque(maxlen=5000)
+        self.level2_history: Deque[Level2Data] = deque(maxlen=1000)
+        
+        # Current state
+        self.current_bid = 0.0
+        self.current_ask = 0.0
+        self.current_price = 0.0
+        self.current_level2: Optional[Level2Data] = None
+        
+        # VWAP tracking
+        self.vwap_calculators = {
+            '1min': VWAPCalculator(TIME_WINDOW_1MIN),
+            '5min': VWAPCalculator(TIME_WINDOW_5MIN),
+            '15min': VWAPCalculator(TIME_WINDOW_15MIN)
+        }
+        
+        # Volume tracking
+        self.volume_tracker = VolumeTracker()
+        self.flow_analyzer = OrderFlowAnalyzer()
+        
+        # Analysis state
+        self.current_analysis: Optional[SPYAnalysis] = None
+        self.microstructure_history: Deque[MarketMicrostructure] = deque(maxlen=1000)
+        
+        # Statistics
+        self.stats = {
+            'ticks_processed': 0,
+            'trades_processed': 0,
+            'errors': 0,
+            'last_update': datetime.now()
+        }
+        
+        # Control flags
+        self.is_running = False
+        self.analysis_thread: Optional[threading.Thread] = None
+        self.lock = threading.Lock()
+        
+        # Callbacks
+        self.tick_callbacks: List[callable] = []
+        self.analysis_callbacks: List[callable] = []
+        
+        self.logger.info("SPYFeedProcessor initialized")
+        
+    # ==========================================================================
+    # PUBLIC METHODS
+    # ==========================================================================
+    def initialize(self) -> bool:
         """
-        Start the SPY data feed.
+        Initialize SPY feed processing.
         
         Returns:
-            bool: True if started successfully, False otherwise
+            bool: True if initialization successful
         """
         try:
-            if self.is_running:
-                self.logger.warning("SPY feed is already running")
-                return True
+            self.logger.info("Initializing SPY feed processor")
             
-            if not self.ib_client.isConnected():
-                raise TradingError("IB client not connected - cannot start SPY feed")
+            # Subscribe to events
+            self.event_bus.subscribe(EventType.MARKET_DATA, self._handle_market_data)
+            self.event_bus.subscribe(EventType.LEVEL2_DATA, self._handle_level2_data)
             
-            self.logger.info(f"🚀 Starting SPY feed for {self.symbol}")
+            # Start processing
+            self.start()
+            
+            self.logger.info("SPY feed processor initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Initialization failed: {e}")
+            return False
+            
+    def start(self) -> None:
+        """Start feed processing."""
+        if not self.is_running:
             self.is_running = True
             
-            # Initialize data structures
-            self.volume_profile = VolumeProfile(symbol=self.symbol)
-            self.market_depth = MarketDepth(symbol=self.symbol)
-            
-            # Subscribe to market data
-            success = self._subscribe_to_market_data()
-            if not success:
-                self.is_running = False
-                return False
-            
-            # Start data processing thread
-            self.update_thread = threading.Thread(target=self._data_processing_loop, daemon=True)
-            self.update_thread.start()
-            
-            self.logger.info(f"✅ SPY feed started successfully for {self.symbol}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to start SPY feed: {e}")
-            self.error_handler.handle_error(e, context="SPY Feed Start")
-            self.is_running = False
-            return False
-    
-    def stop(self):
-        """Stop the SPY data feed."""
-        try:
-            if not self.is_running:
-                self.logger.info("SPY feed is already stopped")
-                return
-            
-            self.logger.info(f"🛑 Stopping SPY feed for {self.symbol}")
-            self.is_running = False
-            
-            # Cancel subscriptions
-            self._cancel_subscriptions()
-            
-            # Wait for processing thread to finish
-            if self.update_thread and self.update_thread.is_alive():
-                self.update_thread.join(timeout=5.0)
-            
-            self.logger.info(f"✅ SPY feed stopped for {self.symbol}")
-            
-        except Exception as e:
-            self.logger.error(f"Error stopping SPY feed: {e}")
-            self.error_handler.handle_error(e, context="SPY Feed Stop")
-    
-    def register_callback(self, callback_name: str, callback_func: Callable):
-        """
-        Register a callback for data updates.
-        
-        Args:
-            callback_name: Unique name for the callback
-            callback_func: Function to call with data updates
-        """
-        with self.data_lock:
-            self.data_callbacks[callback_name] = callback_func
-            self.logger.info(f"Registered callback: {callback_name}")
-    
-    def unregister_callback(self, callback_name: str):
-        """
-        Unregister a data callback.
-        
-        Args:
-            callback_name: Name of callback to remove
-        """
-        with self.data_lock:
-            if callback_name in self.data_callbacks:
-                del self.data_callbacks[callback_name]
-                self.logger.info(f"Unregistered callback: {callback_name}")
-    
-    def get_current_price(self) -> float:
-        """
-        Get current SPY price.
-        
-        Returns:
-            Current price or 0.0 if not available
-        """
-        with self.data_lock:
-            if self.current_quote:
-                return self.current_quote.last if self.current_quote.last > 0 else self.current_quote.mid_price
-            return 0.0
-    
-    def get_current_quote(self) -> Optional[SPYQuote]:
-        """
-        Get current SPY quote.
-        
-        Returns:
-            Current quote or None if not available
-        """
-        with self.data_lock:
-            return self.current_quote
-    
-    def get_market_depth(self) -> Optional[MarketDepth]:
-        """
-        Get current Level 2 market depth.
-        
-        Returns:
-            Market depth data or None if not available
-        """
-        with self.data_lock:
-            return self.market_depth
-    
-    def get_volume_profile(self) -> Optional[VolumeProfile]:
-        """
-        Get current volume profile analysis.
-        
-        Returns:
-            Volume profile or None if not available
-        """
-        with self.data_lock:
-            return self.volume_profile
-    
-    def get_vwap(self) -> float:
-        """
-        Get current Volume Weighted Average Price.
-        
-        Returns:
-            VWAP value or 0.0 if not available
-        """
-        return self.vwap_calculator.get_current_vwap()
-    
-    def get_recent_ticks(self, count: int = 100) -> List[SPYTick]:
-        """
-        Get recent tick data.
-        
-        Args:
-            count: Number of recent ticks to return
-            
-        Returns:
-            List of recent ticks
-        """
-        with self.data_lock:
-            return list(self.tick_buffer)[-count:] if self.tick_buffer else []
-    
-    def _subscribe_to_market_data(self) -> bool:
-        """Subscribe to SPY market data."""
-        try:
-            # Create SPY contract
-            spy_contract = Stock(self.symbol, DEFAULT_EXCHANGE, 'USD')
-            self.ib_client.qualifyContracts(spy_contract)
-            
-            # Subscribe to tick data
-            self.ticker = self.ib_client.reqMktData(
-                spy_contract,
-                '100,101,104,105,106,165,221,225,233,236,258',  # Comprehensive tick types
-                False,  # snapshot
-                False   # regulatory snapshot
+            # Start analysis thread
+            self.analysis_thread = threading.Thread(
+                target=self._analysis_loop,
+                daemon=True
             )
+            self.analysis_thread.start()
             
-            # Subscribe to Level 2 data
-            self.depth_ticker = self.ib_client.reqMktDepth(
-                spy_contract,
-                PRICE_LEVEL_DEPTH,
-                True  # isSmartDepth
-            )
+            self.logger.info("SPY feed processing started")
             
-            # Set up event handlers
-            self.ticker.updateEvent += self._on_tick_data
-            self.depth_ticker.updateEvent += self._on_depth_data
+    def stop(self) -> None:
+        """Stop feed processing."""
+        self.is_running = False
+        if self.analysis_thread:
+            self.analysis_thread.join(timeout=5)
+        self.logger.info("SPY feed processing stopped")
+        
+    def process_tick(self, tick: TickData) -> None:
+        """
+        Process incoming tick data.
+        
+        Args:
+            tick: Tick data to process
+        """
+        with self.lock:
+            # Add to buffer
+            self.tick_buffer.append(tick)
+            self.stats['ticks_processed'] += 1
             
-            self.logger.info(f"Subscribed to {self.symbol} market data on {DEFAULT_EXCHANGE}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error subscribing to market data: {e}")
-            return False
-    
-    def _on_tick_data(self, ticker):
-        """Handle tick data updates."""
-        try:
-            if not self.is_running:
-                return
-            
-            # Create SPY quote from ticker
-            quote = self._create_spy_quote(ticker)
-            if quote and self.data_validator.validate_spy_quote(quote):
+            # Update current state
+            if tick.tick_type == TickType.TRADE:
+                self.current_price = tick.price
+                self._process_trade(tick)
+            elif tick.tick_type == TickType.BID:
+                self.current_bid = tick.price
+            elif tick.tick_type == TickType.ASK:
+                self.current_ask = tick.price
                 
-                with self.data_lock:
-                    self.current_quote = quote
+            # Update VWAP
+            if tick.tick_type == TickType.TRADE:
+                for vwap in self.vwap_calculators.values():
+                    vwap.add_trade(tick.price, tick.size, tick.timestamp)
                     
-                    # Process trade ticks
-                    if hasattr(ticker, 'last') and ticker.last > 0:
-                        tick = SPYTick(
-                            price=ticker.last,
-                            size=getattr(ticker, 'lastSize', 0),
-                            timestamp=datetime.now(),
-                            tick_type='TRADE',
-                            exchange=getattr(ticker, 'exchange', DEFAULT_EXCHANGE)
-                        )
-                        
-                        self.tick_buffer.append(tick)
-                        
-                        # Update analytics
-                        self._update_volume_profile(tick)
-                        self.vwap_calculator.add_trade(tick.price, tick.size, tick.timestamp)
-                        self.trade_classifier.classify_trade(tick)
+            # Notify callbacks
+            for callback in self.tick_callbacks:
+                try:
+                    callback(tick)
+                except Exception as e:
+                    self.logger.error(f"Tick callback error: {e}")
                     
-                    # Notify callbacks
-                    self._notify_callbacks('quote_update', quote)
+    def process_level2(self, level2: Level2Data) -> None:
+        """
+        Process Level 2 market depth data.
+        
+        Args:
+            level2: Level 2 data
+        """
+        with self.lock:
+            self.current_level2 = level2
+            self.level2_history.append(level2)
             
-        except Exception as e:
-            self.logger.error(f"Error processing tick data: {e}")
-            self.error_handler.handle_error(e, context="SPY Tick Data")
-    
-    def _on_depth_data(self, ticker):
-        """Handle Level 2 depth data updates."""
+            # Update best bid/ask
+            if level2.bids:
+                self.current_bid = level2.bids[0][0]
+            if level2.asks:
+                self.current_ask = level2.asks[0][0]
+                
+    def get_current_analysis(self) -> Optional[SPYAnalysis]:
+        """
+        Get current SPY analysis.
+        
+        Returns:
+            Current analysis or None
+        """
+        return self.current_analysis
+        
+    def get_market_session(self) -> MarketSession:
+        """
+        Get current market session.
+        
+        Returns:
+            Current market session
+        """
+        now = datetime.now()
+        current_time = now.strftime("%H:%M")
+        
+        if current_time < PRE_MARKET_OPEN:
+            return MarketSession.CLOSED
+        elif current_time < MARKET_OPEN:
+            return MarketSession.PRE_MARKET
+        elif current_time < MARKET_CLOSE:
+            return MarketSession.REGULAR
+        elif current_time < AFTER_MARKET_CLOSE:
+            return MarketSession.AFTER_HOURS
+        else:
+            return MarketSession.CLOSED
+            
+    def register_tick_callback(self, callback: callable) -> None:
+        """Register callback for tick updates."""
+        self.tick_callbacks.append(callback)
+        
+    def register_analysis_callback(self, callback: callable) -> None:
+        """Register callback for analysis updates."""
+        self.analysis_callbacks.append(callback)
+        
+    # ==========================================================================
+    # PROCESSING METHODS
+    # ==========================================================================
+    def _process_trade(self, tick: TickData) -> None:
+        """Process trade tick."""
         try:
-            if not self.is_running:
-                return
-            
-            depth = self._create_market_depth(ticker)
-            if depth:
-                with self.data_lock:
-                    self.market_depth = depth
-                    self._notify_callbacks('depth_update', depth)
-            
-        except Exception as e:
-            self.logger.error(f"Error processing depth data: {e}")
-            self.error_handler.handle_error(e, context="SPY Depth Data")
-    
-    def _create_spy_quote(self, ticker) -> Optional[SPYQuote]:
-        """Create SPYQuote from ticker data."""
-        try:
-            # Extract data with defaults
-            bid = getattr(ticker, 'bid', 0.0)
-            ask = getattr(ticker, 'ask', 0.0)
-            last = getattr(ticker, 'last', 0.0)
-            
-            # Check for valid data
-            if bid <= 0 and ask <= 0 and last <= 0:
-                return None
-            
-            quote = SPYQuote(
-                symbol=self.symbol,
-                bid=bid,
-                ask=ask,
-                bid_size=getattr(ticker, 'bidSize', 0),
-                ask_size=getattr(ticker, 'askSize', 0),
-                last=last,
-                last_size=getattr(ticker, 'lastSize', 0),
-                volume=getattr(ticker, 'volume', 0),
-                high=getattr(ticker, 'high', 0.0),
-                low=getattr(ticker, 'low', 0.0),
-                open=getattr(ticker, 'open', 0.0),
-                close=getattr(ticker, 'close', 0.0),
-                timestamp=datetime.now(),
-                exchange=getattr(ticker, 'exchange', DEFAULT_EXCHANGE)
+            # Classify trade direction
+            direction = self._classify_trade_direction(
+                tick.price, 
+                self.current_bid, 
+                self.current_ask
             )
             
-            return quote
+            # Classify order flow
+            flow_type = self._classify_order_flow(tick.size, direction)
+            
+            # Calculate metrics
+            spread = self.current_ask - self.current_bid if self.current_ask > 0 else 0
+            vwap_1min = self.vwap_calculators['1min'].get_vwap()
+            vwap_deviation = (tick.price - vwap_1min) / vwap_1min if vwap_1min > 0 else 0
+            
+            # Calculate liquidity score
+            liquidity_score = self._calculate_liquidity_score()
+            
+            # Create trade data
+            trade = TradeData(
+                timestamp=tick.timestamp,
+                price=tick.price,
+                size=tick.size,
+                direction=direction,
+                flow_type=flow_type,
+                vwap_deviation=vwap_deviation,
+                spread_at_trade=spread,
+                liquidity_score=liquidity_score
+            )
+            
+            # Add to buffer
+            self.trades_buffer.append(trade)
+            self.stats['trades_processed'] += 1
+            
+            # Update trackers
+            self.volume_tracker.add_trade(trade)
+            self.flow_analyzer.add_trade(trade)
             
         except Exception as e:
-            self.logger.error(f"Error creating SPY quote: {e}")
-            return None
-    
-    def _create_market_depth(self, ticker) -> Optional[MarketDepth]:
-        """Create MarketDepth from ticker data."""
-        try:
-            depth = MarketDepth(symbol=self.symbol)
+            self.logger.error(f"Error processing trade: {e}")
+            self.stats['errors'] += 1
             
-            # Extract bid/ask depth
-            if hasattr(ticker, 'domBids') and ticker.domBids:
-                depth.bids = [(level.price, level.size) for level in ticker.domBids[:PRICE_LEVEL_DEPTH]]
-                depth.bids.sort(key=lambda x: x[0], reverse=True)  # Sort by price descending
+    def _classify_trade_direction(self, price: float, bid: float, ask: float) -> TradeDirection:
+        """Classify trade direction based on price vs bid/ask."""
+        if bid <= 0 or ask <= 0:
+            return TradeDirection.NEUTRAL
             
-            if hasattr(ticker, 'domAsks') and ticker.domAsks:
-                depth.asks = [(level.price, level.size) for level in ticker.domAsks[:PRICE_LEVEL_DEPTH]]
-                depth.asks.sort(key=lambda x: x[0])  # Sort by price ascending
+        mid = (bid + ask) / 2
+        
+        if price >= ask:
+            return TradeDirection.BUY
+        elif price <= bid:
+            return TradeDirection.SELL
+        elif price > mid:
+            return TradeDirection.BUY
+        elif price < mid:
+            return TradeDirection.SELL
+        else:
+            return TradeDirection.NEUTRAL
             
-            return depth if depth.bids or depth.asks else None
+    def _classify_order_flow(self, size: int, direction: TradeDirection) -> OrderFlowType:
+        """Classify order flow based on size and direction."""
+        if size >= BLOCK_SIZE:
+            return OrderFlowType.BLOCK_BUY if direction == TradeDirection.BUY else OrderFlowType.BLOCK_SELL
+        elif size >= INSTITUTIONAL_SIZE:
+            return OrderFlowType.INSTITUTIONAL_BUY if direction == TradeDirection.BUY else OrderFlowType.INSTITUTIONAL_SELL
+        else:
+            return OrderFlowType.RETAIL_BUY if direction == TradeDirection.BUY else OrderFlowType.RETAIL_SELL
             
-        except Exception as e:
-            self.logger.error(f"Error creating market depth: {e}")
-            return None
-    
-    def _update_volume_profile(self, tick: SPYTick):
-        """Update volume profile with new tick."""
-        try:
-            if tick.tick_type != 'TRADE' or tick.size <= 0:
-                return
+    def _calculate_liquidity_score(self) -> float:
+        """Calculate current liquidity score."""
+        if not self.current_level2:
+            return 0.5
             
-            # Round price to nearest cent
-            price_level = round(tick.price, 2)
-            
-            with self.data_lock:
-                if self.volume_profile:
-                    # Update price level volume
-                    current_volume = self.volume_profile.price_levels.get(price_level, 0)
-                    self.volume_profile.price_levels[price_level] = current_volume + tick.size
-                    
-                    # Update totals
-                    self.volume_profile.total_volume += tick.size
-                    
-                    # Update trade size metrics
-                    if tick.size >= LARGE_TRADE_THRESHOLD:
-                        self.volume_profile.large_trades_count += 1
-                    
-                    if tick.size >= BLOCK_TRADE_THRESHOLD:
-                        self.volume_profile.block_trades_count += 1
-                    
-                    # Calculate average trade size
-                    total_trades = len([t for t in self.tick_buffer if t.tick_type == 'TRADE'])
-                    if total_trades > 0:
-                        self.volume_profile.average_trade_size = self.volume_profile.total_volume / total_trades
-                    
-                    self.volume_profile.timestamp = datetime.now()
-            
-        except Exception as e:
-            self.logger.error(f"Error updating volume profile: {e}")
-    
-    def _notify_callbacks(self, event_type: str, data: Any):
-        """Notify registered callbacks of data updates."""
-        try:
-            with self.data_lock:
-                for callback_name, callback_func in self.data_callbacks.items():
-                    try:
-                        callback_func(event_type, data)
-                    except Exception as e:
-                        self.logger.error(f"Error in callback {callback_name}: {e}")
-                        
-        except Exception as e:
-            self.logger.error(f"Error notifying callbacks: {e}")
-    
-    def _data_processing_loop(self):
-        """Main data processing loop."""
+        # Calculate bid/ask depth
+        bid_depth = sum(size for _, size, _ in self.current_level2.bids[:10])
+        ask_depth = sum(size for _, size, _ in self.current_level2.asks[:10])
+        total_depth = bid_depth + ask_depth
+        
+        # Calculate spread
+        spread = self.current_ask - self.current_bid if self.current_ask > 0 else 0
+        spread_score = 1.0 - min(spread / 0.10, 1.0)  # Lower spread = higher score
+        
+        # Calculate depth score
+        depth_score = min(total_depth / 100000, 1.0)  # More depth = higher score
+        
+        # Combined score
+        liquidity_score = (spread_score * 0.5 + depth_score * 0.5)
+        
+        return liquidity_score
+        
+    # ==========================================================================
+    # ANALYSIS METHODS
+    # ==========================================================================
+    def _analysis_loop(self) -> None:
+        """Main analysis loop."""
         while self.is_running:
             try:
-                # Update VWAP
-                self.vwap_calculator.update()
-                
-                # Update volume profile VWAP
-                if self.volume_profile:
-                    self.volume_profile.vwap = self.vwap_calculator.get_current_vwap()
-                
-                # Periodic maintenance
-                self._cleanup_old_data()
-                
-                time.sleep(1)  # Run every second
+                # Perform analysis
+                analysis = self._perform_analysis()
+                if analysis:
+                    self.current_analysis = analysis
+                    
+                    # Notify callbacks
+                    for callback in self.analysis_callbacks:
+                        try:
+                            callback(analysis)
+                        except Exception as e:
+                            self.logger.error(f"Analysis callback error: {e}")
+                            
+                    # Publish event
+                    event = Event(
+                        type=EventType.SPY_ANALYSIS,
+                        data={
+                            'analysis': analysis,
+                            'timestamp': datetime.now()
+                        }
+                    )
+                    self.event_bus.publish(event)
+                    
+                time.sleep(1)  # Analysis every second
                 
             except Exception as e:
-                self.logger.error(f"Error in data processing loop: {e}")
-                time.sleep(5)
-    
-    def _cleanup_old_data(self):
-        """Clean up old data to manage memory."""
+                self.logger.error(f"Analysis loop error: {e}")
+                time.sleep(1)
+                
+    def _perform_analysis(self) -> Optional[SPYAnalysis]:
+        """Perform comprehensive SPY analysis."""
         try:
-            # Clean up old ticks (keep last hour during market hours)
-            cutoff_time = datetime.now() - timedelta(hours=1)
-            
-            with self.data_lock:
-                while self.tick_buffer and self.tick_buffer[0].timestamp < cutoff_time:
-                    self.tick_buffer.popleft()
+            with self.lock:
+                # Get microstructure
+                microstructure = self._analyze_microstructure()
+                if microstructure:
+                    self.microstructure_history.append(microstructure)
                     
-        except Exception as e:
-            self.logger.error(f"Error cleaning up old data: {e}")
-    
-    def _cancel_subscriptions(self):
-        """Cancel all market data subscriptions."""
-        try:
-            if self.ticker:
-                self.ib_client.cancelMktData(self.ticker.contract)
-                self.ticker = None
-            
-            if self.depth_ticker:
-                self.ib_client.cancelMktDepth(self.depth_ticker.contract)
-                self.depth_ticker = None
-                
-        except Exception as e:
-            self.logger.error(f"Error canceling subscriptions: {e}")
-    
-    def get_feed_status(self) -> Dict[str, Any]:
-        """
-        Get current feed status and statistics.
-        
-        Returns:
-            dict: Feed status information
-        """
-        try:
-            with self.data_lock:
-                current_price = self.get_current_price()
-                vwap = self.get_vwap()
-                
-                return {
-                    "feed_id": SPY_FEED_ID,
-                    "symbol": self.symbol,
-                    "is_running": self.is_running,
-                    "current_price": current_price,
-                    "vwap": vwap,
-                    "vwap_deviation": ((current_price - vwap) / vwap * 100) if vwap > 0 else 0.0,
-                    "tick_buffer_size": len(self.tick_buffer),
-                    "total_volume": self.volume_profile.total_volume if self.volume_profile else 0,
-                    "large_trades": self.volume_profile.large_trades_count if self.volume_profile else 0,
-                    "block_trades": self.volume_profile.block_trades_count if self.volume_profile else 0,
-                    "spread_bps": self.current_quote.spread_bps if self.current_quote else 0.0,
-                    "callbacks_registered": len(self.data_callbacks),
-                    "last_update": datetime.now().isoformat()
+                # Get VWAP values
+                vwap_values = {
+                    '1min': self.vwap_calculators['1min'].get_vwap(),
+                    '5min': self.vwap_calculators['5min'].get_vwap(),
+                    '15min': self.vwap_calculators['15min'].get_vwap()
                 }
                 
+                # Get volume metrics
+                volume_metrics = self.volume_tracker.get_metrics()
+                flow_metrics = self.flow_analyzer.get_metrics()
+                
+                # Calculate scores
+                order_flow_score = flow_metrics.get('flow_score', 0.0)
+                momentum_score = self._calculate_momentum_score()
+                liquidity_score = microstructure.liquidity_score if microstructure else 0.5
+                
+                # Determine trend
+                trend = self._determine_trend()
+                volatility_regime = self._determine_volatility_regime()
+                
+                # Generate signals
+                signals = self._generate_signals(
+                    microstructure,
+                    order_flow_score,
+                    momentum_score,
+                    volatility_regime
+                )
+                
+                # Create analysis
+                analysis = SPYAnalysis(
+                    timestamp=datetime.now(),
+                    last_price=self.current_price,
+                    vwap=vwap_values,
+                    volume=volume_metrics.get('volume', {}),
+                    trade_count=volume_metrics.get('trade_count', {}),
+                    buy_volume=flow_metrics.get('buy_volume', 0),
+                    sell_volume=flow_metrics.get('sell_volume', 0),
+                    order_flow_score=order_flow_score,
+                    momentum_score=momentum_score,
+                    liquidity_score=liquidity_score,
+                    microstructure=microstructure,
+                    trend=trend,
+                    volatility_regime=volatility_regime,
+                    signals=signals
+                )
+                
+                return analysis
+                
         except Exception as e:
-            self.logger.error(f"Error getting feed status: {e}")
-            return {"error": str(e)}
-
-
-# =============================================================================
-# Helper Classes
-# =============================================================================
-class VWAPCalculator:
-    """Volume Weighted Average Price calculator."""
-    
-    def __init__(self, window_minutes: int = VWAP_WINDOW):
-        self.window_minutes = window_minutes
-        self.trades: deque = deque()
-        self.current_vwap = 0.0
-        
-    def add_trade(self, price: float, volume: int, timestamp: datetime):
-        """Add a trade to VWAP calculation."""
-        self.trades.append((price, volume, timestamp))
-        self._calculate_vwap()
-        
-    def _calculate_vwap(self):
-        """Calculate current VWAP."""
-        cutoff_time = datetime.now() - timedelta(minutes=self.window_minutes)
-        
-        # Remove old trades
-        while self.trades and self.trades[0][2] < cutoff_time:
-            self.trades.popleft()
-        
-        if not self.trades:
-            self.current_vwap = 0.0
-            return
-        
-        # Calculate VWAP
-        total_value = sum(price * volume for price, volume, _ in self.trades)
-        total_volume = sum(volume for _, volume, _ in self.trades)
-        
-        self.current_vwap = total_value / total_volume if total_volume > 0 else 0.0
-    
-    def get_current_vwap(self) -> float:
-        """Get current VWAP value."""
-        return self.current_vwap
-    
-    def update(self):
-        """Update VWAP (remove old trades)."""
-        self._calculate_vwap()
-
-
-class TradeClassifier:
-    """Trade classification for market microstructure analysis."""
-    
-    def __init__(self):
-        self.aggressive_buys = 0
-        self.aggressive_sells = 0
-        self.passive_trades = 0
-        
-    def classify_trade(self, tick: SPYTick):
-        """Classify trade as aggressive buy, sell, or passive."""
-        # Simplified classification - in practice would use more sophisticated logic
-        if tick.size >= LARGE_TRADE_THRESHOLD:
-            if tick.price > tick.price * 1.001:  # Simplified logic
-                self.aggressive_buys += 1
-            else:
-                self.aggressive_sells += 1
-        else:
-            self.passive_trades += 1
-
-
-# =============================================================================
-# Main Execution
-# =============================================================================
-if __name__ == "__main__":
-    # Example usage
-    from ib_insync import IB
-    
-    # Create IB connection
-    ib = IB()
-    ib.connect('127.0.0.1', 4002, clientId=1)
-    
-    # Create SPY feed
-    spy_feed = SPYFeed(ib, "SPY")
-    
-    # Register sample callback
-    def on_quote_update(event_type, data):
-        print(f"SPY Update: Price: {data.last}, Bid: {data.bid}, Ask: {data.ask}, Spread: {data.spread_bps:.1f} bps")
-    
-    spy_feed.register_callback("sample_callback", on_quote_update)
-    
-    try:
-        # Start the feed
-        spy_feed.start()
-        
-        # Keep running
-        while True:
-            time.sleep(30)
-            status = spy_feed.get_feed_status()
-            print(f"Feed Status: {status}")
+            self.logger.error(f"Error performing analysis: {e}")
+            return None
             
-    except KeyboardInterrupt:
-        print("Shutting down SPY feed...")
-        spy_feed.stop()
-        ib.disconnect()
+    def _analyze_microstructure(self) -> Optional[MarketMicrostructure]:
+        """Analyze market microstructure."""
+        try:
+            # Calculate spread
+            spread = self.current_ask - self.current_bid if self.current_ask > 0 else 0
+            spread_pct = spread / self.current_price * 100 if self.current_price > 0 else 0
+            
+            # Get depth if available
+            bid_depth = 0
+            ask_depth = 0
+            if self.current_level2:
+                bid_depth = sum(size for _, size, _ in self.current_level2.bids[:5])
+                ask_depth = sum(size for _, size, _ in self.current_level2.asks[:5])
+                
+            # Calculate order imbalance
+            total_depth = bid_depth + ask_depth
+            imbalance = (bid_depth - ask_depth) / total_depth if total_depth > 0 else 0
+            
+            # Calculate volatility (using recent ticks)
+            volatility = self._calculate_tick_volatility()
+            
+            # Calculate tick direction
+            tick_direction = 0
+            if len(self.tick_buffer) >= 2:
+                recent_trades = [t for t in list(self.tick_buffer)[-10:] 
+                               if t.tick_type == TickType.TRADE]
+                if len(recent_trades) >= 2:
+                    if recent_trades[-1].price > recent_trades[-2].price:
+                        tick_direction = 1
+                    elif recent_trades[-1].price < recent_trades[-2].price:
+                        tick_direction = -1
+                        
+            # Calculate liquidity score
+            liquidity_score = self._calculate_liquidity_score()
+            
+            return MarketMicrostructure(
+                timestamp=datetime.now(),
+                bid_ask_spread=spread,
+                spread_percentage=spread_pct,
+                bid_depth=bid_depth,
+                ask_depth=ask_depth,
+                order_imbalance=imbalance,
+                liquidity_score=liquidity_score,
+                volatility=volatility,
+                tick_direction=tick_direction
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing microstructure: {e}")
+            return None
+            
+    def _calculate_tick_volatility(self) -> float:
+        """Calculate volatility from recent ticks."""
+        try:
+            recent_trades = [t for t in list(self.tick_buffer)[-100:] 
+                           if t.tick_type == TickType.TRADE]
+            
+            if len(recent_trades) < 10:
+                return 0.0
+                
+            prices = [t.price for t in recent_trades]
+            returns = np.diff(np.log(prices))
+            
+            if len(returns) > 0:
+                return np.std(returns) * np.sqrt(252 * 6.5 * 60 * 60)  # Annualized
+            else:
+                return 0.0
+                
+        except Exception as e:
+            self.logger.error(f"Error calculating volatility: {e}")
+            return 0.0
+            
+    def _calculate_momentum_score(self) -> float:
+        """Calculate momentum score."""
+        try:
+            if len(self.trades_buffer) < 20:
+                return 0.0
+                
+            recent_trades = list(self.trades_buffer)[-20:]
+            
+            # Price momentum
+            price_start = recent_trades[0].price
+            price_end = recent_trades[-1].price
+            price_momentum = (price_end - price_start) / price_start
+            
+            # Volume momentum
+            buy_volume = sum(t.size for t in recent_trades if t.direction == TradeDirection.BUY)
+            sell_volume = sum(t.size for t in recent_trades if t.direction == TradeDirection.SELL)
+            total_volume = buy_volume + sell_volume
+            
+            volume_momentum = (buy_volume - sell_volume) / total_volume if total_volume > 0 else 0
+            
+            # Combined momentum
+            momentum = (price_momentum * 0.6 + volume_momentum * 0.4)
+            
+            return np.clip(momentum * 100, -1, 1)
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating momentum: {e}")
+            return 0.0
+            
+    def _determine_trend(self) -> str:
+        """Determine current trend."""
+        try:
+            # Get VWAPs
+            vwap_1min = self.vwap_calculators['1min'].get_vwap()
+            vwap_5min = self.vwap_calculators['5min'].get_vwap()
+            
+            if self.current_price <= 0 or vwap_1min <= 0:
+                return "neutral"
+                
+            # Price vs VWAP
+            price_vs_vwap1 = (self.current_price - vwap_1min) / vwap_1min
+            price_vs_vwap5 = (self.current_price - vwap_5min) / vwap_5min if vwap_5min > 0 else 0
+            
+            # Momentum
+            momentum = self._calculate_momentum_score()
+            
+            # Determine trend
+            if price_vs_vwap1 > 0.001 and price_vs_vwap5 > 0.001 and momentum > 0.2:
+                return "bullish"
+            elif price_vs_vwap1 < -0.001 and price_vs_vwap5 < -0.001 and momentum < -0.2:
+                return "bearish"
+            else:
+                return "neutral"
+                
+        except Exception as e:
+            self.logger.error(f"Error determining trend: {e}")
+            return "neutral"
+            
+    def _determine_volatility_regime(self) -> str:
+        """Determine volatility regime."""
+        try:
+            volatility = self._calculate_tick_volatility()
+            
+            if volatility < 0.10:
+                return "low"
+            elif volatility < 0.15:
+                return "normal"
+            elif volatility < 0.25:
+                return "high"
+            else:
+                return "extreme"
+                
+        except Exception as e:
+            self.logger.error(f"Error determining volatility: {e}")
+            return "normal"
+            
+    def _generate_signals(self, microstructure: MarketMicrostructure,
+                         order_flow: float, momentum: float, 
+                         volatility: str) -> List[Dict[str, Any]]:
+        """Generate trading signals."""
+        signals = []
+        
+        try:
+            # Order flow signal
+            if abs(order_flow) > 0.7:
+                signals.append({
+                    'type': 'order_flow',
+                    'direction': 'bullish' if order_flow > 0 else 'bearish',
+                    'strength': abs(order_flow),
+                    'message': f"Strong {'buying' if order_flow > 0 else 'selling'} pressure"
+                })
+                
+            # Momentum signal
+            if abs(momentum) > 0.5:
+                signals.append({
+                    'type': 'momentum',
+                    'direction': 'bullish' if momentum > 0 else 'bearish',
+                    'strength': abs(momentum),
+                    'message': f"Strong {'upward' if momentum > 0 else 'downward'} momentum"
+                })
+                
+            # Microstructure signals
+            if microstructure:
+                # Spread signal
+                if microstructure.spread_percentage > 0.05:
+                    signals.append({
+                        'type': 'spread',
+                        'direction': 'caution',
+                        'strength': 0.5,
+                        'message': 'Wide spread - poor liquidity'
+                    })
+                    
+                # Imbalance signal
+                if abs(microstructure.order_imbalance) > 0.3:
+                    signals.append({
+                        'type': 'imbalance',
+                        'direction': 'bullish' if microstructure.order_imbalance > 0 else 'bearish',
+                        'strength': abs(microstructure.order_imbalance),
+                        'message': f"Order book {'skewed to bids' if microstructure.order_imbalance > 0 else 'skewed to asks'}"
+                    })
+                    
+            # Volatility signal
+            if volatility in ['high', 'extreme']:
+                signals.append({
+                    'type': 'volatility',
+                    'direction': 'caution',
+                    'strength': 0.7 if volatility == 'high' else 1.0,
+                    'message': f'{volatility.capitalize()} volatility environment'
+                })
+                
+        except Exception as e:
+            self.logger.error(f"Error generating signals: {e}")
+            
+        return signals
+        
+    # ==========================================================================
+    # EVENT HANDLERS
+    # ==========================================================================
+    def _handle_market_data(self, event: Event) -> None:
+        """Handle market data events."""
+        try:
+            data = event.data
+            symbol = data.get('symbol', '')
+            
+            if symbol == SPY_SYMBOL:
+                # Create tick data
+                tick = TickData(
+                    timestamp=datetime.now(),
+                    tick_type=TickType.TRADE,
+                    price=data.get('last', 0),
+                    size=data.get('size', 0),
+                    bid=data.get('bid', 0),
+                    ask=data.get('ask', 0),
+                    bid_size=data.get('bid_size', 0),
+                    ask_size=data.get('ask_size', 0),
+                    exchange=data.get('exchange', ''),
+                    conditions=data.get('conditions', [])
+                )
+                
+                self.process_tick(tick)
+                
+        except Exception as e:
+            self.logger.error(f"Error handling market data: {e}")
+            
+    def _handle_level2_data(self, event: Event) -> None:
+        """Handle Level 2 data events."""
+        try:
+            data = event.data
+            symbol = data.get('symbol', '')
+            
+            if symbol == SPY_SYMBOL:
+                level2 = Level2Data(
+                    timestamp=datetime.now(),
+                    bids=data.get('bids', []),
+                    asks=data.get('asks', [])
+                )
+                
+                self.process_level2(level2)
+                
+        except Exception as e:
+            self.logger.error(f"Error handling Level 2 

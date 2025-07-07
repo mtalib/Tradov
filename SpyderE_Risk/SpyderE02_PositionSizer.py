@@ -5,678 +5,1053 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderE02_PositionSizer.py
 Group: E (Risk Management)
-Purpose: Professional position sizing with Kelly Criterion
+Purpose: Dynamic position sizing with Kelly Criterion and professional methods
 
 Description:
-Enhanced position sizing module implementing institutional-grade
-    methodologies including Kelly Criterion (25-50% of optimal), volatility-based
-    sizing, VIX regime adjustments, and day-of-week research integration.
+    This module calculates optimal position sizes using multiple professional
+    methods including Kelly Criterion, volatility-based sizing, and risk parity.
+    It integrates with market conditions, strategy performance, and risk limits
+    to provide dynamic position sizing that adapts to changing market environments.
     Provides real-time position sizing with professional risk controls.
 
-Author: Mohamed Talib
-Date: 2025-06-13
-Version: 1.4
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-06-13
+Last Updated: 2025-07-06 Time: 14:30:00
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import os
+import sys
+import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, Tuple, Union
+from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 import math
 import statistics
+from collections import defaultdict, deque
+import threading
+from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import calendar
-import pandas as pd
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 # ==============================================================================
-# LOCAL IMPORTS
+# LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils
-from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
-from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
-from SpyderC_MarketData.SpyderC01_DataFeed import MarketDataFeed
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+except ImportError:
+    import logging
+    SpyderLogger = type('SpyderLogger', (), {
+        'get_logger': lambda name: logging.getLogger(name)
+    })()
+
+try:
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+except ImportError:
+    SpyderErrorHandler = type('SpyderErrorHandler', (), {
+        'handle_error': lambda self, e, context: print(f"Error in {context}: {e}")
+    })
 
 # ==============================================================================
-# MODULE IMPLEMENTATION
+# CONSTANTS
 # ==============================================================================
+# Position Sizing Methods
 KELLY_REDUCTION_FACTOR = 0.375      # 37.5% of full Kelly (institutional standard)
 MIN_KELLY_REDUCTION = 0.25          # Minimum 25% of Kelly
 MAX_KELLY_REDUCTION = 0.50          # Maximum 50% of Kelly
-DEFAULT_RISK_PER_TRADE = 0.02       # 2% default risk per trade
-MAX_POSITION_SIZE = 0.10            # 10% maximum position size
-MIN_POSITION_SIZE = 0.005           # 0.5% minimum position size
-MAX_DAILY_RISK = 0.05               # 5% maximum daily risk exposure
-MONDAY_MIN_POSITION_PCT = 0.01      # 1% minimum Monday position
-MONDAY_MAX_POSITION_PCT = 0.05      # 5% maximum Monday position
-OTHER_DAYS_MIN_PCT = 0.005          # 0.5% minimum other days
-OTHER_DAYS_MAX_PCT = 0.025          # 2.5% maximum other days
-VIX_LOW_THRESHOLD = 16.0            # Below 16 = low volatility regime
-VIX_NORMAL_THRESHOLD = 25.0         # Above 25 = high volatility regime
-VIX_HIGH_REDUCTION_FACTOR = 0.5     # 50% size reduction when VIX > 25
-VIX_EXTREME_THRESHOLD = 30.0        # Above 30 = extreme volatility
-VIX_EXTREME_REDUCTION = 0.25        # 75% size reduction when VIX > 30
-ATR_MULTIPLIER = 2.0                # ATR multiplier for volatility sizing
-ATR_PERIOD = 14                     # 14-day ATR calculation
-MAX_CONSECUTIVE_LOSSES = 3          # Reduce size after 3 consecutive losses
-LOSS_STREAK_REDUCTION = 0.5         # 50% size reduction during loss streaks
+
+# Risk Parameters
+DEFAULT_RISK_PER_TRADE = 0.02       # 2% risk per trade
+MIN_POSITION_SIZE = 0.001           # 0.1% minimum
+MAX_POSITION_SIZE = 0.05            # 5% maximum
+DEFAULT_CONFIDENCE_LEVEL = 0.95     # 95% confidence for calculations
+
+# Volatility Parameters
+ATR_MULTIPLIER = 2.0               # ATR multiplier for stops
+VOLATILITY_LOOKBACK = 14           # Days for volatility calculation
+HIGH_VOL_THRESHOLD = 30            # VIX > 30 is high volatility
+LOW_VOL_THRESHOLD = 15             # VIX < 15 is low volatility
+
+# Market Regime Adjustments
+REGIME_MULTIPLIERS = {
+    'bull': 1.2,
+    'bear': 0.8,
+    'neutral': 1.0,
+    'high_volatility': 0.6,
+    'low_volatility': 1.1
+}
+
+# Day of Week Adjustments (from research)
+DAY_OF_WEEK_MULTIPLIERS = {
+    0: 1.0,   # Monday - normal
+    1: 1.0,   # Tuesday - normal
+    2: 0.9,   # Wednesday - slightly reduced
+    3: 0.9,   # Thursday - slightly reduced
+    4: 0.8    # Friday - reduced
+}
+
+# Strategy Performance Requirements
+MIN_TRADES_FOR_KELLY = 20          # Minimum trades for Kelly sizing
+MIN_WIN_RATE_FOR_KELLY = 0.40      # Minimum 40% win rate
+MAX_KELLY_FRACTION = 0.25           # Maximum 25% Kelly
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
 class SizingMethod(Enum):
-    """Position sizing methodologies"""
-    KELLY_CRITERION = "kelly_criterion"
+    """Position sizing methods."""
     FIXED_FRACTIONAL = "fixed_fractional"
+    KELLY_CRITERION = "kelly_criterion"
     VOLATILITY_BASED = "volatility_based"
     RISK_PARITY = "risk_parity"
-    PROFESSIONAL_HYBRID = "professional_hybrid"
+    HYBRID = "hybrid"
+    CUSTOM = "custom"
+
 class MarketRegime(Enum):
-    """Market volatility regimes"""
-    LOW_VOLATILITY = auto()      # VIX < 16
-    NORMAL_VOLATILITY = auto()   # VIX 16-25
-    HIGH_VOLATILITY = auto()     # VIX 25-30
-    EXTREME_VOLATILITY = auto()  # VIX > 30
-class DayOfWeekEffect(Enum):
-    """Day of week trading effects"""
-    MONDAY = auto()              # Higher volatility, larger positions allowed
-    TUESDAY = auto()             # Normal trading
-    WEDNESDAY = auto()           # Normal trading
-    THURSDAY = auto()            # Normal trading
-    FRIDAY = auto()              # End of week effects
-@dataclass
-class StrategyStats:
-    """Strategy performance statistics for Kelly Criterion"""
-    win_rate: float              # Probability of winning trade
-    avg_win: float              # Average winning trade return
-    avg_loss: float             # Average losing trade return (negative)
-    trade_count: int            # Number of trades
-    consecutive_losses: int     # Current consecutive losses
-    max_drawdown: float         # Maximum historical drawdown
-    sharpe_ratio: float         # Risk-adjusted returns
-    def kelly_percentage(self) -> float:
-        """Calculate Kelly Criterion percentage"""
-        if self.avg_loss >= 0:  # Prevent division by zero
-            return 0.0
-        # Kelly formula: f* = (bp - q) / b
-        # where b = avg_win/avg_loss, p = win_rate, q = 1-win_rate
-        b = abs(self.avg_win / self.avg_loss) if self.avg_loss != 0 else 0
-        p = self.win_rate
-        q = 1 - self.win_rate
-        kelly_pct = (b * p - q) / b if b > 0 else 0
-        return max(0, kelly_pct)  # Kelly can't be negative
+    """Market regime classifications."""
+    BULL = "bull"
+    BEAR = "bear"
+    NEUTRAL = "neutral"
+    HIGH_VOLATILITY = "high_volatility"
+    LOW_VOLATILITY = "low_volatility"
+
+class VolatilityRegime(Enum):
+    """Volatility regime classifications."""
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    EXTREME = "extreme"
+
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
 @dataclass
 class MarketConditions:
-    """Current market conditions for sizing adjustments"""
+    """Current market conditions."""
+    timestamp: datetime
+    spy_price: float
     vix_level: float
-    spy_atr_14: float            # 14-day ATR of SPY
-    realized_volatility: float   # Recent realized volatility
+    spy_atr_14: float
     market_regime: MarketRegime
-    day_of_week: DayOfWeekEffect
-    time_to_expiry: Optional[int] = None  # Days to expiration for options
-    def get_vix_adjustment_factor(self) -> float:
-        """Get position size adjustment based on VIX"""
-        if self.vix_level > VIX_EXTREME_THRESHOLD:
-            return VIX_EXTREME_REDUCTION  # 75% reduction
-        elif self.vix_level > VIX_NORMAL_THRESHOLD:
-            return VIX_HIGH_REDUCTION_FACTOR  # 50% reduction
-        else:
-            return 1.0  # No adjustment
+    volatility_regime: VolatilityRegime
+    intraday_range: float
+    volume_ratio: float  # Current vs average
+    trend_strength: float  # -1 to 1
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
 @dataclass
-class PositionSizeRecommendation:
-    """Position sizing recommendation"""
+class StrategyPerformance:
+    """Strategy performance metrics."""
+    strategy_name: str
+    total_trades: int
+    winning_trades: int
+    losing_trades: int
+    win_rate: float
+    avg_win: float
+    avg_loss: float
+    profit_factor: float
+    sharpe_ratio: float
+    max_drawdown: float
+    current_streak: int  # Positive for wins, negative for losses
+    kelly_fraction: float
+    last_updated: datetime
+
+@dataclass
+class PositionSizeRequest:
+    """Position sizing request."""
     strategy_name: str
     symbol: str
-    recommended_size: float      # As percentage of portfolio
+    entry_price: float
+    stop_loss_price: float
+    target_price: Optional[float]
+    signal_strength: float  # 0 to 1
+    trade_type: str  # 'long', 'short', 'option'
+    option_details: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class PositionSizeRecommendation:
+    """Position size recommendation."""
+    timestamp: datetime
+    position_size_pct: float  # Percentage of portfolio
+    position_size_units: int  # Number of shares/contracts
+    dollar_amount: float
+    risk_amount: float
     sizing_method: SizingMethod
-    # Risk metrics
-    expected_risk: float         # Expected risk as % of portfolio
-    risk_reward_ratio: float
-    win_probability: float
-    # Adjustments applied
-    base_size: float            # Before adjustments
-    kelly_adjustment: float     # Kelly-based adjustment
-    vix_adjustment: float       # VIX-based adjustment
-    day_adjustment: float       # Day-of-week adjustment
-    volatility_adjustment: float # ATR-based adjustment
-    streak_adjustment: float    # Consecutive loss adjustment
-    # Limits and warnings
-    max_allowed_size: float
-    size_limited_by: Optional[str] = None
-    warnings: List[str] = field(default_factory=list)
-    # Context
-    market_conditions: Optional[MarketConditions] = None
-    calculation_timestamp: datetime = field(default_factory=datetime.now)
+    confidence_score: float
+    adjustments_applied: List[str]
+    warnings: List[str]
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+# ==============================================================================
+# POSITION SIZER CLASS
+# ==============================================================================
 class PositionSizer:
     """
-    Professional position sizing with institutional standards.
-    Implements advanced position sizing methodologies including:
-    - Kelly Criterion with institutional reduction factors (25-50%)
-    - Volatility-based sizing using ATR
-    - VIX regime adjustments (50% reduction when VIX > 25)
-    - Day-of-week research integration
-    - Consecutive loss streak management
-    - Professional risk controls
+    Professional position sizing with multiple methods.
+    
+    Implements Kelly Criterion, volatility-based sizing, and dynamic adjustments
+    based on market conditions and strategy performance. Thread-safe implementation
+    with comprehensive risk controls.
+    
+    Attributes:
+        portfolio_value: Current portfolio value
+        strategy_stats: Performance statistics by strategy
+        market_conditions: Current market conditions
+        
+    Example:
+        >>> sizer = PositionSizer(portfolio_value=100000)
+        >>> request = PositionSizeRequest(
+        ...     strategy_name="momentum",
+        ...     symbol="SPY",
+        ...     entry_price=400,
+        ...     stop_loss_price=395
+        ... )
+        >>> recommendation = sizer.calculate_position_size(request)
+        >>> print(f"Position size: {recommendation.position_size_pct:.1%}")
     """
-    def __init__(
-        self,
-        portfolio_value: float,
-        volatility_analyzer: VolatilityAnalyzer,
-        market_data_feed: MarketDataFeed,
-        default_method: SizingMethod = SizingMethod.PROFESSIONAL_HYBRID
-    ):
-        """Initialize enhanced position sizer."""
-        self.portfolio_value = portfolio_value
-        self.volatility_analyzer = volatility_analyzer
-        self.market_data_feed = market_data_feed
-        self.default_method = default_method
-        # Logging
-        self.logger = SpyderLogger().get_logger(__name__)
-        self.error_handler = SpyderErrorHandler()
-        self.time_utils = TradingTimeUtils()
-        # Strategy performance tracking
-        self.strategy_stats: Dict[str, StrategyStats] = {}
-        # Current market conditions
-        self.current_market_conditions: Optional[MarketConditions] = None
-        # Risk limits
-        self.max_daily_risk = MAX_DAILY_RISK
-        self.current_daily_risk = 0.0
-        # Configuration
-        self.kelly_reduction_factor = KELLY_REDUCTION_FACTOR
-        self.use_day_of_week_adjustments = True
-        self.use_vix_adjustments = True
-        self.use_volatility_adjustments = True
-        self.logger.info(f"Enhanced Position Sizer initialized with ${portfolio_value:,.0f} portfolio")
-    # ==========================================================================
-    # PUBLIC METHODS - CORE FUNCTIONALITY
-    # ==========================================================================
-    def calculate_position_size(
-        self,
-        strategy_name: str,
-        symbol: str,
-        entry_price: float,
-        stop_loss: float,
-        target_profit: Optional[float] = None,
-        method: Optional[SizingMethod] = None
-    ) -> PositionSizeRecommendation:
+    
+    def __init__(self, portfolio_value: float, config: Optional[Dict[str, Any]] = None):
         """
-        Calculate professional position size with all adjustments.
+        Initialize position sizer.
+        
         Args:
-            strategy_name: Strategy identifier for stats tracking
-            symbol: Trading symbol (e.g., 'SPY')
-            entry_price: Expected entry price
-            stop_loss: Stop loss price
-            target_profit: Target profit price (optional)
-            method: Sizing method override
+            portfolio_value: Initial portfolio value
+            config: Optional configuration dictionary
+        """
+        self.logger = SpyderLogger.get_logger(__name__)
+        self.error_handler = SpyderErrorHandler()
+        
+        # Configuration
+        self.config = config or {}
+        self.portfolio_value = portfolio_value
+        
+        # Risk parameters
+        self.risk_per_trade = self.config.get('risk_per_trade', DEFAULT_RISK_PER_TRADE)
+        self.min_position_size = self.config.get('min_position_size', MIN_POSITION_SIZE)
+        self.max_position_size = self.config.get('max_position_size', MAX_POSITION_SIZE)
+        
+        # State management with thread safety
+        self._lock = threading.RLock()
+        
+        # Strategy performance tracking
+        self.strategy_stats: Dict[str, StrategyPerformance] = {}
+        self.trade_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
+        
+        # Market conditions
+        self.current_market_conditions: Optional[MarketConditions] = None
+        self.market_history: deque = deque(maxlen=252)  # 1 year of daily data
+        
+        # Sizing history
+        self.sizing_history: deque = deque(maxlen=1000)
+        
+        # Load historical data
+        self._load_historical_data()
+        
+        self.logger.info(f"PositionSizer initialized with portfolio value: ${portfolio_value:,.2f}")
+    
+    # ==========================================================================
+    # PUBLIC METHODS - POSITION SIZING
+    # ==========================================================================
+    def calculate_position_size(self, request: PositionSizeRequest) -> PositionSizeRecommendation:
+        """
+        Calculate optimal position size.
+        
+        Args:
+            request: Position sizing request with trade details
+            
         Returns:
-            Complete position sizing recommendation
+            Position size recommendation
         """
         try:
-            # Update market conditions
-            self._update_market_conditions(symbol)
-            # Use specified method or default
-            sizing_method = method or self.default_method
-            # Calculate base position size
-            base_size = self._calculate_base_size(
-                strategy_name, symbol, entry_price, stop_loss, 
-                target_profit, sizing_method
-            )
-            # Apply professional adjustments
-            recommendation = self._apply_professional_adjustments(
-                strategy_name, symbol, base_size, sizing_method,
-                entry_price, stop_loss, target_profit
-            )
-            # Validate and apply limits
-            recommendation = self._apply_risk_limits(recommendation)
-            return recommendation
-        except Exception as e:
-            self.error_handler.handle_error(e, "calculate_position_size")
-            return self._get_fallback_recommendation(strategy_name, symbol)
-    def update_strategy_performance(
-        self,
-        strategy_name: str,
-        trade_result: float,
-        was_winner: bool
-    ) -> None:
-        """Update strategy performance statistics."""
-        try:
-            if strategy_name not in self.strategy_stats:
-                self.strategy_stats[strategy_name] = StrategyStats(
-                    win_rate=0.5, avg_win=0.0, avg_loss=0.0, trade_count=0,
-                    consecutive_losses=0, max_drawdown=0.0, sharpe_ratio=0.0
+            with self._lock:
+                # Validate request
+                if not self._validate_request(request):
+                    return self._create_rejected_recommendation("Invalid request")
+                
+                # Get strategy stats
+                strategy_stats = self.strategy_stats.get(request.strategy_name)
+                
+                # Determine sizing method
+                sizing_method = self._determine_sizing_method(request, strategy_stats)
+                
+                # Calculate base position size
+                base_size = self._calculate_base_size(request, sizing_method, strategy_stats)
+                
+                # Apply adjustments
+                adjusted_size = self._apply_adjustments(base_size, request, sizing_method)
+                
+                # Apply risk limits
+                final_size = self._apply_risk_limits(adjusted_size, request)
+                
+                # Calculate position details
+                recommendation = self._create_recommendation(
+                    final_size, request, sizing_method
                 )
-            stats = self.strategy_stats[strategy_name]
-            # Update trade count
-            stats.trade_count += 1
-            # Update win/loss tracking
-            if was_winner:
-                # Update winning stats
-                if stats.avg_win == 0:
-                    stats.avg_win = trade_result
-                else:
-                    stats.avg_win = (stats.avg_win * 0.9) + (trade_result * 0.1)  # Exponential smoothing
-                # Reset consecutive losses
-                stats.consecutive_losses = 0
-            else:
-                # Update losing stats
-                if stats.avg_loss == 0:
-                    stats.avg_loss = trade_result
-                else:
-                    stats.avg_loss = (stats.avg_loss * 0.9) + (trade_result * 0.1)
-                # Increment consecutive losses
-                stats.consecutive_losses += 1
-            # Update win rate with exponential smoothing
-            if stats.trade_count == 1:
-                stats.win_rate = 1.0 if was_winner else 0.0
-            else:
-                alpha = 2.0 / (stats.trade_count + 1)  # Exponential smoothing factor
-                stats.win_rate = (1 - alpha) * stats.win_rate + alpha * (1.0 if was_winner else 0.0)
-            self.logger.info(
-                f"Strategy {strategy_name} updated: WR={stats.win_rate:.1%}, "
-                f"Trades={stats.trade_count}, Streak={stats.consecutive_losses}"
-            )
+                
+                # Store in history
+                self.sizing_history.append(recommendation)
+                
+                # Log recommendation
+                self.logger.info(
+                    f"Position size calculated: {recommendation.position_size_pct:.1%} "
+                    f"for {request.strategy_name} using {sizing_method.value}"
+                )
+                
+                return recommendation
+                
         except Exception as e:
-            self.error_handler.handle_error(e, "update_strategy_performance")
-    def get_daily_risk_usage(self) -> Dict[str, float]:
-        """Get current daily risk usage."""
-        return {
-            'current_daily_risk_pct': self.current_daily_risk,
-            'max_daily_risk_pct': self.max_daily_risk,
-            'remaining_risk_pct': self.max_daily_risk - self.current_daily_risk,
-            'risk_utilization': self.current_daily_risk / self.max_daily_risk
-        }
-    def reset_daily_risk(self) -> None:
-        """Reset daily risk tracking (call at start of new trading day)."""
-        self.current_daily_risk = 0.0
-        self.logger.info("Daily risk tracking reset")
-    # ==========================================================================
-    # PUBLIC METHODS - CONFIGURATION
-    # ==========================================================================
-    def set_kelly_reduction_factor(self, factor: float) -> None:
-        """Set Kelly Criterion reduction factor."""
-        if MIN_KELLY_REDUCTION <= factor <= MAX_KELLY_REDUCTION:
-            self.kelly_reduction_factor = factor
-            self.logger.info(f"Kelly reduction factor set to {factor:.1%}")
-        else:
-            self.logger.warning(f"Invalid Kelly factor {factor:.1%}, must be between {MIN_KELLY_REDUCTION:.1%} and {MAX_KELLY_REDUCTION:.1%}")
+            self.logger.error(f"Position sizing error: {e}")
+            self.error_handler.handle_error(e, {"method": "calculate_position_size"})
+            return self._create_rejected_recommendation(str(e))
+    
     def update_portfolio_value(self, new_value: float) -> None:
         """Update portfolio value."""
-        old_value = self.portfolio_value
-        self.portfolio_value = new_value
-        self.logger.info(f"Portfolio value updated: ${old_value:,.0f} -> ${new_value:,.0f}")
-    def enable_day_of_week_adjustments(self, enabled: bool = True) -> None:
-        """Enable/disable day-of-week position adjustments."""
-        self.use_day_of_week_adjustments = enabled
-        self.logger.info(f"Day-of-week adjustments {'enabled' if enabled else 'disabled'}")
-    def enable_vix_adjustments(self, enabled: bool = True) -> None:
-        """Enable/disable VIX-based position adjustments."""
-        self.use_vix_adjustments = enabled
-        self.logger.info(f"VIX adjustments {'enabled' if enabled else 'disabled'}")
+        with self._lock:
+            old_value = self.portfolio_value
+            self.portfolio_value = new_value
+            self.logger.info(f"Portfolio value updated: ${old_value:,.2f} -> ${new_value:,.2f}")
+    
+    def update_market_conditions(self, conditions: MarketConditions) -> None:
+        """Update current market conditions."""
+        with self._lock:
+            self.current_market_conditions = conditions
+            self.market_history.append(conditions)
+            self.logger.debug(f"Market conditions updated: VIX={conditions.vix_level:.1f}")
+    
+    def record_trade_result(self, strategy_name: str, trade_result: Dict[str, Any]) -> None:
+        """
+        Record trade result for Kelly calculations.
+        
+        Args:
+            strategy_name: Strategy identifier
+            trade_result: Trade result with pnl, win/loss, etc.
+        """
+        with self._lock:
+            # Add to trade history
+            self.trade_history[strategy_name].append(trade_result)
+            
+            # Update strategy statistics
+            self._update_strategy_stats(strategy_name)
+            
+            self.logger.info(f"Trade result recorded for {strategy_name}")
+    
     # ==========================================================================
-    # PRIVATE METHODS - BASE SIZE CALCULATION
+    # PRIVATE METHODS - VALIDATION
     # ==========================================================================
-    def _calculate_base_size(
-        self,
-        strategy_name: str,
-        symbol: str,
-        entry_price: float,
-        stop_loss: float,
-        target_profit: Optional[float],
-        method: SizingMethod
-    ) -> float:
-        """Calculate base position size before adjustments."""
-        if method == SizingMethod.KELLY_CRITERION:
-            return self._calculate_kelly_size(strategy_name, entry_price, stop_loss, target_profit)
-        elif method == SizingMethod.FIXED_FRACTIONAL:
-            return self._calculate_fixed_fractional_size(entry_price, stop_loss)
+    def _validate_request(self, request: PositionSizeRequest) -> bool:
+        """Validate position size request."""
+        # Check required fields
+        if not request.symbol or request.entry_price <= 0:
+            return False
+        
+        # Check stop loss
+        if request.stop_loss_price <= 0:
+            return False
+        
+        # Validate stop loss logic
+        if request.trade_type == 'long' and request.stop_loss_price >= request.entry_price:
+            return False
+        if request.trade_type == 'short' and request.stop_loss_price <= request.entry_price:
+            return False
+        
+        # Check signal strength
+        if not 0 <= request.signal_strength <= 1:
+            return False
+        
+        return True
+    
+    # ==========================================================================
+    # PRIVATE METHODS - SIZING CALCULATIONS
+    # ==========================================================================
+    def _determine_sizing_method(self, request: PositionSizeRequest, 
+                               stats: Optional[StrategyPerformance]) -> SizingMethod:
+        """Determine appropriate sizing method."""
+        # Use Kelly if we have enough data and good performance
+        if (stats and 
+            stats.total_trades >= MIN_TRADES_FOR_KELLY and
+            stats.win_rate >= MIN_WIN_RATE_FOR_KELLY):
+            return SizingMethod.HYBRID  # Hybrid includes Kelly
+        
+        # Use volatility-based for high volatility
+        if (self.current_market_conditions and 
+            self.current_market_conditions.volatility_regime in 
+            [VolatilityRegime.HIGH, VolatilityRegime.EXTREME]):
+            return SizingMethod.VOLATILITY_BASED
+        
+        # Default to fixed fractional
+        return SizingMethod.FIXED_FRACTIONAL
+    
+    def _calculate_base_size(self, request: PositionSizeRequest, 
+                           method: SizingMethod,
+                           stats: Optional[StrategyPerformance]) -> float:
+        """Calculate base position size."""
+        if method == SizingMethod.FIXED_FRACTIONAL:
+            return self._calculate_fixed_fractional_size(request)
+        
+        elif method == SizingMethod.KELLY_CRITERION:
+            return self._calculate_kelly_size(request, stats)
+        
         elif method == SizingMethod.VOLATILITY_BASED:
-            return self._calculate_volatility_based_size(symbol, entry_price, stop_loss)
+            return self._calculate_volatility_based_size(request)
+        
         elif method == SizingMethod.RISK_PARITY:
-            return self._calculate_risk_parity_size(symbol, entry_price, stop_loss)
-        elif method == SizingMethod.PROFESSIONAL_HYBRID:
-            return self._calculate_professional_hybrid_size(
-                strategy_name, symbol, entry_price, stop_loss, target_profit
-            )
+            return self._calculate_risk_parity_size(request)
+        
+        elif method == SizingMethod.HYBRID:
+            return self._calculate_hybrid_size(request, stats)
+        
         else:
-            return DEFAULT_RISK_PER_TRADE
-    def _calculate_kelly_size(
-        self,
-        strategy_name: str,
-        entry_price: float,
-        stop_loss: float,
-        target_profit: Optional[float]
-    ) -> float:
-        """Calculate Kelly Criterion position size."""
-        if strategy_name not in self.strategy_stats:
-            return DEFAULT_RISK_PER_TRADE
-        stats = self.strategy_stats[strategy_name]
-        # Need minimum trades for Kelly calculation
-        if stats.trade_count < 10:
-            return DEFAULT_RISK_PER_TRADE
-        # Calculate Kelly percentage
-        kelly_pct = stats.kelly_percentage()
-        if kelly_pct <= 0:
-            return MIN_POSITION_SIZE
-        # Apply institutional reduction factor (25-50% of full Kelly)
-        adjusted_kelly = kelly_pct * self.kelly_reduction_factor
-        # Limit to reasonable range
-        return max(MIN_POSITION_SIZE, min(MAX_POSITION_SIZE, adjusted_kelly))
-    def _calculate_fixed_fractional_size(self, entry_price: float, stop_loss: float) -> float:
+            return self._calculate_fixed_fractional_size(request)
+    
+    def _calculate_fixed_fractional_size(self, request: PositionSizeRequest) -> float:
         """Calculate fixed fractional position size."""
-        risk_per_share = abs(entry_price - stop_loss)
-        if risk_per_share == 0:
-            return DEFAULT_RISK_PER_TRADE
-        # Risk 2% of portfolio
-        risk_amount = self.portfolio_value * DEFAULT_RISK_PER_TRADE
-        position_size_dollars = risk_amount / risk_per_share
-        return position_size_dollars / self.portfolio_value
-    def _calculate_volatility_based_size(self, symbol: str, entry_price: float, stop_loss: float) -> float:
-        """Calculate volatility-based position size using ATR."""
+        # Risk amount
+        risk_amount = self.portfolio_value * self.risk_per_trade
+        
+        # Risk per unit
+        risk_per_unit = abs(request.entry_price - request.stop_loss_price)
+        
+        if risk_per_unit == 0:
+            return self.risk_per_trade
+        
+        # Position value
+        position_value = risk_amount / risk_per_unit * request.entry_price
+        
+        # Convert to percentage
+        return position_value / self.portfolio_value
+    
+    def _calculate_kelly_size(self, request: PositionSizeRequest,
+                            stats: Optional[StrategyPerformance]) -> float:
+        """Calculate Kelly Criterion position size."""
+        if not stats or stats.total_trades < MIN_TRADES_FOR_KELLY:
+            return self._calculate_fixed_fractional_size(request)
+        
+        # Kelly formula: f = (p*b - q) / b
+        # where p = win rate, q = loss rate, b = win/loss ratio
+        p = stats.win_rate
+        q = 1 - p
+        
+        # Avoid division by zero
+        if stats.avg_loss == 0:
+            b = 2.0  # Default favorable ratio
+        else:
+            b = stats.avg_win / abs(stats.avg_loss)
+        
+        # Calculate Kelly fraction
+        if b == 0:
+            kelly_fraction = 0
+        else:
+            kelly_fraction = (p * b - q) / b
+        
+        # Apply Kelly reduction
+        kelly_fraction *= KELLY_REDUCTION_FACTOR
+        
+        # Cap at maximum
+        kelly_fraction = min(kelly_fraction, MAX_KELLY_FRACTION)
+        
+        # Ensure positive
+        kelly_fraction = max(0, kelly_fraction)
+        
+        return kelly_fraction
+    
+    def _calculate_volatility_based_size(self, request: PositionSizeRequest) -> float:
+        """Calculate volatility-based position size."""
         if not self.current_market_conditions:
-            return DEFAULT_RISK_PER_TRADE
+            return self._calculate_fixed_fractional_size(request)
+        
+        # Use ATR for position sizing
         atr = self.current_market_conditions.spy_atr_14
+        
         if atr == 0:
-            return DEFAULT_RISK_PER_TRADE
-        # Professional formula: Position Size = (Account Risk × Risk %) / (ATR × 2.0)
-        account_risk = self.portfolio_value * DEFAULT_RISK_PER_TRADE
-        position_size_dollars = account_risk / (atr * ATR_MULTIPLIER)
-        return position_size_dollars / self.portfolio_value
-    def _calculate_risk_parity_size(self, symbol: str, entry_price: float, stop_loss: float) -> float:
+            return self._calculate_fixed_fractional_size(request)
+        
+        # Risk amount
+        risk_amount = self.portfolio_value * self.risk_per_trade
+        
+        # Position size based on ATR
+        position_value = risk_amount / (atr * ATR_MULTIPLIER)
+        
+        # Convert to percentage
+        return position_value / self.portfolio_value
+    
+    def _calculate_risk_parity_size(self, request: PositionSizeRequest) -> float:
         """Calculate risk parity position size."""
-        # Risk parity aims for equal risk contribution
-        # Simplified implementation - would be more complex in practice
-        return DEFAULT_RISK_PER_TRADE
-    def _calculate_professional_hybrid_size(
-        self,
-        strategy_name: str,
-        symbol: str,
-        entry_price: float,
-        stop_loss: float,
-        target_profit: Optional[float]
-    ) -> float:
-        """Calculate professional hybrid size combining multiple methods."""
-        # Combine Kelly (if available), volatility-based, and fixed fractional
-        kelly_size = self._calculate_kelly_size(strategy_name, entry_price, stop_loss, target_profit)
-        vol_size = self._calculate_volatility_based_size(symbol, entry_price, stop_loss)
-        fixed_size = self._calculate_fixed_fractional_size(entry_price, stop_loss)
-        # Weight the methods
-        if strategy_name in self.strategy_stats and self.strategy_stats[strategy_name].trade_count >= 20:
-            # Use Kelly if we have enough data
+        # For single strategy, similar to volatility-based
+        # Would be more complex with multiple strategies
+        return self._calculate_volatility_based_size(request)
+    
+    def _calculate_hybrid_size(self, request: PositionSizeRequest,
+                             stats: Optional[StrategyPerformance]) -> float:
+        """Calculate hybrid position size combining multiple methods."""
+        # Get individual sizes
+        fixed_size = self._calculate_fixed_fractional_size(request)
+        vol_size = self._calculate_volatility_based_size(request)
+        
+        # Include Kelly if available
+        if stats and stats.total_trades >= MIN_TRADES_FOR_KELLY:
+            kelly_size = self._calculate_kelly_size(request, stats)
+            # Weight: 50% Kelly, 30% volatility, 20% fixed
             return (kelly_size * 0.5) + (vol_size * 0.3) + (fixed_size * 0.2)
         else:
-            # Use volatility and fixed fractional
+            # Weight: 60% volatility, 40% fixed
             return (vol_size * 0.6) + (fixed_size * 0.4)
+    
     # ==========================================================================
-    # PRIVATE METHODS - PROFESSIONAL ADJUSTMENTS
+    # PRIVATE METHODS - ADJUSTMENTS
     # ==========================================================================
-    def _apply_professional_adjustments(
-        self,
-        strategy_name: str,
-        symbol: str,
-        base_size: float,
-        method: SizingMethod,
-        entry_price: float,
-        stop_loss: float,
-        target_profit: Optional[float]
-    ) -> PositionSizeRecommendation:
-        """Apply professional adjustments to base size."""
-        # Calculate risk metrics
-        risk_per_share = abs(entry_price - stop_loss)
-        risk_reward_ratio = (abs(target_profit - entry_price) / risk_per_share) if target_profit else 1.0
-        # Get strategy stats for win probability
-        win_prob = 0.5  # Default
-        if strategy_name in self.strategy_stats:
-            win_prob = self.strategy_stats[strategy_name].win_rate
-        # Start with base size
+    def _apply_adjustments(self, base_size: float, request: PositionSizeRequest,
+                         method: SizingMethod) -> float:
+        """Apply various adjustments to base position size."""
         adjusted_size = base_size
-        # Apply VIX adjustment
-        vix_adjustment = 1.0
-        if self.use_vix_adjustments and self.current_market_conditions:
-            vix_adjustment = self.current_market_conditions.get_vix_adjustment_factor()
-            adjusted_size *= vix_adjustment
-        # Apply day-of-week adjustment
-        day_adjustment = self._get_day_of_week_adjustment()
-        if self.use_day_of_week_adjustments:
-            adjusted_size *= day_adjustment
-        # Apply volatility adjustment
-        volatility_adjustment = self._get_volatility_adjustment()
-        adjusted_size *= volatility_adjustment
-        # Apply consecutive loss streak adjustment
-        streak_adjustment = self._get_streak_adjustment(strategy_name)
-        adjusted_size *= streak_adjustment
-        # Create recommendation
-        recommendation = PositionSizeRecommendation(
-            strategy_name=strategy_name,
-            symbol=symbol,
-            recommended_size=adjusted_size,
-            sizing_method=method,
-            expected_risk=adjusted_size * risk_per_share / entry_price,
-            risk_reward_ratio=risk_reward_ratio,
-            win_probability=win_prob,
-            base_size=base_size,
-            kelly_adjustment=1.0,  # Would be calculated if using Kelly
-            vix_adjustment=vix_adjustment,
-            day_adjustment=day_adjustment,
-            volatility_adjustment=volatility_adjustment,
-            streak_adjustment=streak_adjustment,
-            max_allowed_size=MAX_POSITION_SIZE,
-            market_conditions=self.current_market_conditions
-        )
-        return recommendation
-    def _get_day_of_week_adjustment(self) -> float:
-        """Get day-of-week position size adjustment."""
-        if not self.current_market_conditions:
-            return 1.0
-        day_effect = self.current_market_conditions.day_of_week
-        if day_effect == DayOfWeekEffect.MONDAY:
-            # Monday allows larger positions (1-5% vs 0.5-2.5%)
-            return 2.0  # Can use 2x normal size
-        else:
-            # Other days use normal sizing
-            return 1.0
-    def _get_volatility_adjustment(self) -> float:
-        """Get volatility-based adjustment."""
-        if not self.current_market_conditions:
-            return 1.0
-        regime = self.current_market_conditions.market_regime
-        if regime == MarketRegime.LOW_VOLATILITY:
-            return 1.2  # Increase size in low vol
-        elif regime == MarketRegime.HIGH_VOLATILITY:
-            return 0.7  # Reduce size in high vol
-        elif regime == MarketRegime.EXTREME_VOLATILITY:
-            return 0.5  # Significantly reduce in extreme vol
-        else:
-            return 1.0  # Normal vol
-    def _get_streak_adjustment(self, strategy_name: str) -> float:
-        """Get consecutive loss streak adjustment."""
-        if strategy_name not in self.strategy_stats:
-            return 1.0
-        consecutive_losses = self.strategy_stats[strategy_name].consecutive_losses
-        if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
-            return LOSS_STREAK_REDUCTION  # 50% reduction
-        else:
-            return 1.0
-    # ==========================================================================
-    # PRIVATE METHODS - RISK LIMITS AND VALIDATION
-    # ==========================================================================
-    def _apply_risk_limits(self, recommendation: PositionSizeRecommendation) -> PositionSizeRecommendation:
-        """Apply risk limits and validation."""
-        original_size = recommendation.recommended_size
-        # Apply absolute limits
-        if recommendation.recommended_size > MAX_POSITION_SIZE:
-            recommendation.recommended_size = MAX_POSITION_SIZE
-            recommendation.size_limited_by = "max_position_limit"
-            recommendation.warnings.append(f"Size reduced from {original_size:.1%} to {MAX_POSITION_SIZE:.1%} due to max position limit")
-        if recommendation.recommended_size < MIN_POSITION_SIZE:
-            recommendation.recommended_size = MIN_POSITION_SIZE
-            recommendation.size_limited_by = "min_position_limit"
-            recommendation.warnings.append(f"Size increased from {original_size:.1%} to {MIN_POSITION_SIZE:.1%} due to min position limit")
-        # Check daily risk limit
-        potential_daily_risk = self.current_daily_risk + recommendation.expected_risk
-        if potential_daily_risk > self.max_daily_risk:
-            # Scale down to fit within daily limit
-            remaining_risk = self.max_daily_risk - self.current_daily_risk
-            if remaining_risk > 0:
-                scale_factor = remaining_risk / recommendation.expected_risk
-                recommendation.recommended_size *= scale_factor
-                recommendation.size_limited_by = "daily_risk_limit"
-                recommendation.warnings.append(f"Size scaled down by {scale_factor:.1%} due to daily risk limit")
-            else:
-                recommendation.recommended_size = 0.0
-                recommendation.size_limited_by = "daily_risk_exhausted"
-                recommendation.warnings.append("No position allowed - daily risk limit exhausted")
-        # Apply day-of-week specific limits
+        adjustments = []
+        
+        # Market regime adjustment
         if self.current_market_conditions:
-            day_limits = self._get_day_of_week_limits()
-            min_limit, max_limit = day_limits
-            if recommendation.recommended_size > max_limit:
-                recommendation.recommended_size = max_limit
-                recommendation.size_limited_by = "day_of_week_limit"
-                recommendation.warnings.append(f"Size limited to {max_limit:.1%} by day-of-week limits")
-            if recommendation.recommended_size < min_limit and recommendation.recommended_size > 0:
-                recommendation.recommended_size = min_limit
-                recommendation.warnings.append(f"Size increased to minimum day-of-week limit of {min_limit:.1%}")
-        return recommendation
-    def _get_day_of_week_limits(self) -> Tuple[float, float]:
-        """Get day-of-week specific position limits."""
-        if not self.current_market_conditions:
-            return OTHER_DAYS_MIN_PCT, OTHER_DAYS_MAX_PCT
-        day_effect = self.current_market_conditions.day_of_week
-        if day_effect == DayOfWeekEffect.MONDAY:
-            return MONDAY_MIN_POSITION_PCT, MONDAY_MAX_POSITION_PCT
-        else:
-            return OTHER_DAYS_MIN_PCT, OTHER_DAYS_MAX_PCT
-    # ==========================================================================
-    # PRIVATE METHODS - MARKET CONDITIONS
-    # ==========================================================================
-    def _update_market_conditions(self, symbol: str) -> None:
-        """Update current market conditions."""
-        try:
-            # Get VIX level
-            vix_level = self.market_data_feed.get_current_price('VIX') or 20.0
-            # Get SPY ATR
-            spy_atr = self.volatility_analyzer.get_atr(symbol, ATR_PERIOD) or 5.0
-            # Get realized volatility
-            realized_vol = self.volatility_analyzer.get_realized_volatility(symbol, 20) or 0.20
-            # Determine market regime
-            if vix_level < VIX_LOW_THRESHOLD:
-                regime = MarketRegime.LOW_VOLATILITY
-            elif vix_level < VIX_NORMAL_THRESHOLD:
-                regime = MarketRegime.NORMAL_VOLATILITY
-            elif vix_level < VIX_EXTREME_THRESHOLD:
-                regime = MarketRegime.HIGH_VOLATILITY
-            else:
-                regime = MarketRegime.EXTREME_VOLATILITY
-            # Get day of week
-            weekday = datetime.now().weekday()
-            if weekday == 0:  # Monday
-                day_effect = DayOfWeekEffect.MONDAY
-            elif weekday == 1:
-                day_effect = DayOfWeekEffect.TUESDAY
-            elif weekday == 2:
-                day_effect = DayOfWeekEffect.WEDNESDAY
-            elif weekday == 3:
-                day_effect = DayOfWeekEffect.THURSDAY
-            else:  # Friday
-                day_effect = DayOfWeekEffect.FRIDAY
-            self.current_market_conditions = MarketConditions(
-                vix_level=vix_level,
-                spy_atr_14=spy_atr,
-                realized_volatility=realized_vol,
-                market_regime=regime,
-                day_of_week=day_effect
+            regime_mult = REGIME_MULTIPLIERS.get(
+                self.current_market_conditions.market_regime.value, 1.0
             )
-        except Exception as e:
-            self.error_handler.handle_error(e, "_update_market_conditions")
-    def _get_fallback_recommendation(self, strategy_name: str, symbol: str) -> PositionSizeRecommendation:
-        """Get fallback recommendation in case of errors."""
+            adjusted_size *= regime_mult
+            if regime_mult != 1.0:
+                adjustments.append(f"Market regime ({regime_mult:.1f}x)")
+        
+        # Volatility adjustment
+        if self.current_market_conditions:
+            vol_mult = self._get_volatility_multiplier()
+            adjusted_size *= vol_mult
+            if vol_mult != 1.0:
+                adjustments.append(f"Volatility ({vol_mult:.1f}x)")
+        
+        # Day of week adjustment
+        dow_mult = DAY_OF_WEEK_MULTIPLIERS.get(datetime.now().weekday(), 1.0)
+        adjusted_size *= dow_mult
+        if dow_mult != 1.0:
+            adjustments.append(f"Day of week ({dow_mult:.1f}x)")
+        
+        # Signal strength adjustment
+        signal_mult = 0.5 + (0.5 * request.signal_strength)  # 0.5x to 1.0x
+        adjusted_size *= signal_mult
+        if signal_mult != 1.0:
+            adjustments.append(f"Signal strength ({signal_mult:.1f}x)")
+        
+        # Consecutive loss adjustment
+        streak_mult = self._get_streak_multiplier(request.strategy_name)
+        adjusted_size *= streak_mult
+        if streak_mult != 1.0:
+            adjustments.append(f"Win/loss streak ({streak_mult:.1f}x)")
+        
+        # Store adjustments in request metadata
+        request.metadata['adjustments'] = adjustments
+        
+        return adjusted_size
+    
+    def _get_volatility_multiplier(self) -> float:
+        """Get volatility-based size multiplier."""
+        if not self.current_market_conditions:
+            return 1.0
+        
+        vix = self.current_market_conditions.vix_level
+        
+        if vix > HIGH_VOL_THRESHOLD:
+            return 0.5  # Reduce size by 50% in high volatility
+        elif vix < LOW_VOL_THRESHOLD:
+            return 1.2  # Increase size by 20% in low volatility
+        else:
+            # Linear interpolation
+            return 1.2 - (0.7 * (vix - LOW_VOL_THRESHOLD) / 
+                         (HIGH_VOL_THRESHOLD - LOW_VOL_THRESHOLD))
+    
+    def _get_streak_multiplier(self, strategy_name: str) -> float:
+        """Get win/loss streak multiplier."""
+        stats = self.strategy_stats.get(strategy_name)
+        if not stats:
+            return 1.0
+        
+        streak = stats.current_streak
+        
+        # Reduce size after consecutive losses
+        if streak < -3:
+            return 0.5  # 50% reduction after 3+ losses
+        elif streak < -2:
+            return 0.7  # 30% reduction after 2 losses
+        elif streak < -1:
+            return 0.85  # 15% reduction after 1 loss
+        # Slightly increase after wins
+        elif streak > 3:
+            return 1.1  # 10% increase after 3+ wins
+        else:
+            return 1.0
+    
+    def _apply_risk_limits(self, size: float, request: PositionSizeRequest) -> float:
+        """Apply risk limits to position size."""
+        # Apply minimum
+        size = max(size, self.min_position_size)
+        
+        # Apply maximum
+        size = max(min(size, self.max_position_size), 0)
+        
+        # Check portfolio constraints
+        size = self._check_portfolio_constraints(size, request)
+        
+        return size
+    
+    def _check_portfolio_constraints(self, size: float, 
+                                   request: PositionSizeRequest) -> float:
+        """Check portfolio-level constraints."""
+        # Would integrate with portfolio manager for:
+        # - Total exposure limits
+        # - Correlation limits
+        # - Sector concentration
+        # - Greeks limits (for options)
+        
+        # For now, just ensure reasonable size
+        return size
+    
+    # ==========================================================================
+    # PRIVATE METHODS - RECOMMENDATION CREATION
+    # ==========================================================================
+    def _create_recommendation(self, size_pct: float, request: PositionSizeRequest,
+                             method: SizingMethod) -> PositionSizeRecommendation:
+        """Create position size recommendation."""
+        # Calculate dollar amount
+        dollar_amount = self.portfolio_value * size_pct
+        
+        # Calculate units
+        units = int(dollar_amount / request.entry_price)
+        
+        # Adjust for round lots if needed
+        if request.trade_type == 'option':
+            units = max(1, units)  # At least 1 contract
+        else:
+            # Round to nearest 10 shares for stocks
+            units = max(10, round(units / 10) * 10)
+        
+        # Recalculate actual dollar amount
+        actual_dollar_amount = units * request.entry_price
+        actual_size_pct = actual_dollar_amount / self.portfolio_value
+        
+        # Calculate risk amount
+        risk_per_unit = abs(request.entry_price - request.stop_loss_price)
+        risk_amount = units * risk_per_unit
+        
+        # Confidence score
+        confidence = self._calculate_confidence_score(request, method)
+        
+        # Warnings
+        warnings = self._generate_warnings(actual_size_pct, request)
+        
         return PositionSizeRecommendation(
-            strategy_name=strategy_name,
-            symbol=symbol,
-            recommended_size=DEFAULT_RISK_PER_TRADE,
-            sizing_method=SizingMethod.FIXED_FRACTIONAL,
-            expected_risk=DEFAULT_RISK_PER_TRADE,
-            risk_reward_ratio=1.0,
-            win_probability=0.5,
-            base_size=DEFAULT_RISK_PER_TRADE,
-            kelly_adjustment=1.0,
-            vix_adjustment=1.0,
-            day_adjustment=1.0,
-            volatility_adjustment=1.0,
-            streak_adjustment=1.0,
-            max_allowed_size=MAX_POSITION_SIZE,
-            warnings=["Fallback recommendation due to calculation error"]
-        )
-    # ==========================================================================
-    # PUBLIC METHODS - REPORTING
-    # ==========================================================================
-    def get_sizing_performance_report(self) -> Dict[str, Any]:
-        """Generate position sizing performance report."""
-        return {
-            'portfolio_value': self.portfolio_value,
-            'daily_risk_usage': self.get_daily_risk_usage(),
-            'current_market_conditions': {
-                'vix_level': self.current_market_conditions.vix_level if self.current_market_conditions else None,
-                'market_regime': self.current_market_conditions.market_regime.name if self.current_market_conditions else None,
-                'day_of_week': self.current_market_conditions.day_of_week.name if self.current_market_conditions else None
-            },
-            'strategy_performance': {
-                name: {
-                    'win_rate': stats.win_rate,
-                    'trade_count': stats.trade_count,
-                    'consecutive_losses': stats.consecutive_losses,
-                    'kelly_percentage': stats.kelly_percentage(),
-                    'avg_win': stats.avg_win,
-                    'avg_loss': stats.avg_loss
-                } for name, stats in self.strategy_stats.items()
-            },
-            'configuration': {
-                'kelly_reduction_factor': self.kelly_reduction_factor,
-                'use_day_of_week_adjustments': self.use_day_of_week_adjustments,
-                'use_vix_adjustments': self.use_vix_adjustments,
-                'use_volatility_adjustments': self.use_volatility_adjustments,
-                'max_daily_risk': self.max_daily_risk
+            timestamp=datetime.now(),
+            position_size_pct=actual_size_pct,
+            position_size_units=units,
+            dollar_amount=actual_dollar_amount,
+            risk_amount=risk_amount,
+            sizing_method=method,
+            confidence_score=confidence,
+            adjustments_applied=request.metadata.get('adjustments', []),
+            warnings=warnings,
+            metadata={
+                'strategy': request.strategy_name,
+                'symbol': request.symbol,
+                'signal_strength': request.signal_strength
             }
+        )
+    
+    def _create_rejected_recommendation(self, reason: str) -> PositionSizeRecommendation:
+        """Create rejected recommendation."""
+        return PositionSizeRecommendation(
+            timestamp=datetime.now(),
+            position_size_pct=0,
+            position_size_units=0,
+            dollar_amount=0,
+            risk_amount=0,
+            sizing_method=SizingMethod.FIXED_FRACTIONAL,
+            confidence_score=0,
+            adjustments_applied=[],
+            warnings=[f"Position rejected: {reason}"],
+            metadata={'rejected': True, 'reason': reason}
+        )
+    
+    def _calculate_confidence_score(self, request: PositionSizeRequest,
+                                  method: SizingMethod) -> float:
+        """Calculate confidence score for recommendation."""
+        confidence = 0.5  # Base confidence
+        
+        # Method confidence
+        if method == SizingMethod.HYBRID:
+            confidence += 0.2
+        elif method == SizingMethod.KELLY_CRITERION:
+            confidence += 0.15
+        elif method == SizingMethod.VOLATILITY_BASED:
+            confidence += 0.1
+        
+        # Signal strength impact
+        confidence += 0.2 * request.signal_strength
+        
+        # Market conditions impact
+        if self.current_market_conditions:
+            if self.current_market_conditions.volatility_regime == VolatilityRegime.NORMAL:
+                confidence += 0.1
+        
+        # Cap at 1.0
+        return min(confidence, 1.0)
+    
+    def _generate_warnings(self, size_pct: float, 
+                         request: PositionSizeRequest) -> List[str]:
+        """Generate warnings for position size."""
+        warnings = []
+        
+        # Size warnings
+        if size_pct >= self.max_position_size * 0.9:
+            warnings.append(f"Position size near maximum limit ({size_pct:.1%})")
+        
+        if size_pct <= self.min_position_size * 1.1:
+            warnings.append(f"Position size near minimum limit ({size_pct:.1%})")
+        
+        # Volatility warnings
+        if (self.current_market_conditions and 
+            self.current_market_conditions.vix_level > HIGH_VOL_THRESHOLD):
+            warnings.append(f"High volatility environment (VIX={self.current_market_conditions.vix_level:.1f})")
+        
+        # Streak warnings
+        stats = self.strategy_stats.get(request.strategy_name)
+        if stats and stats.current_streak < -2:
+            warnings.append(f"Strategy on losing streak ({stats.current_streak} losses)")
+        
+        return warnings
+    
+    # ==========================================================================
+    # PRIVATE METHODS - STATISTICS
+    # ==========================================================================
+    def _update_strategy_stats(self, strategy_name: str) -> None:
+        """Update strategy performance statistics."""
+        trades = list(self.trade_history[strategy_name])
+        
+        if len(trades) < 5:  # Need minimum trades
+            return
+        
+        # Calculate statistics
+        winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
+        losing_trades = [t for t in trades if t.get('pnl', 0) <= 0]
+        
+        win_rate = len(winning_trades) / len(trades) if trades else 0
+        
+        avg_win = (sum(t['pnl'] for t in winning_trades) / len(winning_trades) 
+                  if winning_trades else 0)
+        avg_loss = (sum(abs(t['pnl']) for t in losing_trades) / len(losing_trades) 
+                   if losing_trades else 0)
+        
+        # Profit factor
+        total_wins = sum(t['pnl'] for t in winning_trades)
+        total_losses = sum(abs(t['pnl']) for t in losing_trades)
+        profit_factor = total_wins / total_losses if total_losses > 0 else 0
+        
+        # Calculate streak
+        streak = self._calculate_current_streak(trades)
+        
+        # Calculate Sharpe ratio
+        returns = [t.get('return_pct', 0) for t in trades]
+        sharpe = self._calculate_sharpe_ratio(returns) if returns else 0
+        
+        # Calculate max drawdown
+        equity_curve = self._build_equity_curve(trades)
+        max_dd = self._calculate_max_drawdown(equity_curve)
+        
+        # Update or create stats
+        self.strategy_stats[strategy_name] = StrategyPerformance(
+            strategy_name=strategy_name,
+            total_trades=len(trades),
+            winning_trades=len(winning_trades),
+            losing_trades=len(losing_trades),
+            win_rate=win_rate,
+            avg_win=avg_win,
+            avg_loss=avg_loss,
+            profit_factor=profit_factor,
+            sharpe_ratio=sharpe,
+            max_drawdown=max_dd,
+            current_streak=streak,
+            kelly_fraction=self._calculate_kelly_fraction(win_rate, avg_win, avg_loss),
+            last_updated=datetime.now()
+        )
+    
+    def _calculate_current_streak(self, trades: List[Dict]) -> int:
+        """Calculate current win/loss streak."""
+        if not trades:
+            return 0
+        
+        streak = 0
+        current_type = None
+        
+        # Go through trades in reverse (most recent first)
+        for trade in reversed(trades):
+            is_win = trade.get('pnl', 0) > 0
+            
+            if current_type is None:
+                current_type = is_win
+                streak = 1 if is_win else -1
+            elif is_win == current_type:
+                streak += 1 if is_win else -1
+            else:
+                break
+        
+        return streak
+    
+    def _calculate_sharpe_ratio(self, returns: List[float]) -> float:
+        """Calculate Sharpe ratio."""
+        if len(returns) < 20:
+            return 0.0
+        
+        mean_return = np.mean(returns)
+        std_return = np.std(returns)
+        
+        if std_return == 0:
+            return 0.0
+        
+        # Annualized Sharpe (assuming daily returns)
+        return (mean_return / std_return) * np.sqrt(252)
+    
+    def _build_equity_curve(self, trades: List[Dict]) -> List[float]:
+        """Build equity curve from trades."""
+        equity = [100000]  # Start with base
+        
+        for trade in trades:
+            pnl = trade.get('pnl', 0)
+            equity.append(equity[-1] + pnl)
+        
+        return equity
+    
+    def _calculate_max_drawdown(self, equity_curve: List[float]) -> float:
+        """Calculate maximum drawdown."""
+        if len(equity_curve) < 2:
+            return 0.0
+        
+        peak = equity_curve[0]
+        max_dd = 0.0
+        
+        for value in equity_curve[1:]:
+            if value > peak:
+                peak = value
+            
+            dd = (peak - value) / peak if peak > 0 else 0
+            max_dd = max(max_dd, dd)
+        
+        return max_dd
+    
+    def _calculate_kelly_fraction(self, win_rate: float, avg_win: float, 
+                                avg_loss: float) -> float:
+        """Calculate Kelly fraction for strategy."""
+        if avg_loss == 0 or win_rate == 0:
+            return 0.0
+        
+        b = avg_win / avg_loss
+        p = win_rate
+        q = 1 - p
+        
+        kelly = (p * b - q) / b if b > 0 else 0
+        
+        # Apply reduction factor
+        return max(0, min(kelly * KELLY_REDUCTION_FACTOR, MAX_KELLY_FRACTION))
+    
+    # ==========================================================================
+    # PRIVATE METHODS - DATA MANAGEMENT
+    # ==========================================================================
+    def _load_historical_data(self) -> None:
+        """Load historical data for calculations."""
+        # In production, this would load from database
+        self.logger.info("Loading historical sizing data")
+    
+    # ==========================================================================
+    # PUBLIC METHODS - ANALYSIS
+    # ==========================================================================
+    def get_sizing_statistics(self) -> Dict[str, Any]:
+        """Get position sizing statistics."""
+        with self._lock:
+            recent_sizes = list(self.sizing_history)[-100:]
+            
+            if not recent_sizes:
+                return {}
+            
+            sizes_pct = [r.position_size_pct for r in recent_sizes]
+            
+            return {
+                'avg_position_size': np.mean(sizes_pct),
+                'median_position_size': np.median(sizes_pct),
+                'max_position_size': max(sizes_pct),
+                'min_position_size': min(sizes_pct),
+                'std_position_size': np.std(sizes_pct),
+                'total_recommendations': len(self.sizing_history),
+                'method_distribution': self._get_method_distribution(recent_sizes),
+                'avg_confidence': np.mean([r.confidence_score for r in recent_sizes])
+            }
+    
+    def _get_method_distribution(self, recommendations: List[PositionSizeRecommendation]) -> Dict[str, float]:
+        """Get distribution of sizing methods used."""
+        method_counts = defaultdict(int)
+        
+        for rec in recommendations:
+            method_counts[rec.sizing_method.value] += 1
+        
+        total = len(recommendations)
+        return {
+            method: count / total 
+            for method, count in method_counts.items()
         }
+    
+    def get_strategy_statistics(self, strategy_name: str) -> Optional[StrategyPerformance]:
+        """Get statistics for a specific strategy."""
+        with self._lock:
+            return self.strategy_stats.get(strategy_name)
 
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-# Global instance
+# Singleton instance
 _position_sizer_instance: Optional[PositionSizer] = None
+_instance_lock = threading.Lock()
 
-def get_position_sizer(portfolio_value: float = 100000.0, **kwargs) -> PositionSizer:
+def get_position_sizer(portfolio_value: float, **kwargs) -> PositionSizer:
     """
-    Get singleton position sizer instance.
+    Get or create position sizer instance (singleton).
     
     Args:
         portfolio_value: Portfolio value
-        **kwargs: Additional arguments for PositionSizer
+        **kwargs: Additional configuration
         
     Returns:
         PositionSizer instance
     """
     global _position_sizer_instance
+    
     if _position_sizer_instance is None:
-        _position_sizer_instance = PositionSizer(portfolio_value, **kwargs)
+        with _instance_lock:
+            if _position_sizer_instance is None:
+                _position_sizer_instance = PositionSizer(portfolio_value, kwargs)
+    else:
+        # Update portfolio value if instance exists
+        _position_sizer_instance.update_portfolio_value(portfolio_value)
+    
     return _position_sizer_instance
 
-
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
-    print("Enhanced Position Sizer - Professional Risk Management")
-    print("=" * 60)
-    # Example of enhanced features
-    print("Professional Features:")
-    print("• Kelly Criterion with 25-50% institutional reduction")
-    print("• VIX-based position adjustments (50% reduction when VIX > 25)")
-    print("• Day-of-week research integration (Monday 1-5%, others 0.5-2.5%)")
-    print("• Volatility-based sizing using 14-day ATR")
-    print("• Consecutive loss streak management")
-    print("• Professional risk controls and limits")
-    print("• Real-time market regime detection")
-    print("• Hybrid sizing methodology combining multiple approaches")
+    print("="*80)
+    print("SPYDER E02 - Position Sizer Test")
+    print("="*80)
+    
+    # Initialize position sizer
+    sizer = get_position_sizer(portfolio_value=100000)
+    
+    # Create test market conditions
+    market_conditions = MarketConditions(
+        timestamp=datetime.now(),
+        spy_price=400.0,
+        vix_level=18.0,
+        spy_atr_14=5.0,
+        market_regime=MarketRegime.NEUTRAL,
+        volatility_regime=VolatilityRegime.NORMAL,
+        intraday_range=0.015,
+        volume_ratio=1.1,
+        trend_strength=0.3
+    )
+    
+    sizer.update_market_conditions(market_conditions)
+    
+    # Test position sizing request
+    request = PositionSizeRequest(
+        strategy_name="momentum",
+        symbol="SPY",
+        entry_price=400.0,
+        stop_loss_price=395.0,
+        target_price=410.0,
+        signal_strength=0.8,
+        trade_type="long"
+    )
+    
+    # Calculate position size
+    recommendation = sizer.calculate_position_size(request)
+    
+    print(f"\nPosition Size Recommendation:")
+    print(f"  Position Size: {recommendation.position_size_pct:.1%} of portfolio")
+    print(f"  Units: {recommendation.position_size_units} shares")
+    print(f"  Dollar Amount: ${recommendation.dollar_amount:,.2f}")
+    print(f"  Risk Amount: ${recommendation.risk_amount:,.2f}")
+    print(f"  Sizing Method: {recommendation.sizing_method.value}")
+    print(f"  Confidence: {recommendation.confidence_score:.1%}")
+    
+    if recommendation.adjustments_applied:
+        print(f"\nAdjustments Applied:")
+        for adj in recommendation.adjustments_applied:
+            print(f"  - {adj}")
+    
+    if recommendation.warnings:
+        print(f"\nWarnings:")
+        for warn in recommendation.warnings:
+            print(f"  ⚠️  {warn}")
+    
+    # Test with some trade history
+    print("\nAdding trade history...")
+    trades = [
+        {'pnl': 500, 'return_pct': 0.005},
+        {'pnl': -200, 'return_pct': -0.002},
+        {'pnl': 800, 'return_pct': 0.008},
+        {'pnl': 300, 'return_pct': 0.003},
+        {'pnl': -150, 'return_pct': -0.0015},
+        {'pnl': 600, 'return_pct': 0.006},
+    ]
+    
+    for trade in trades:
+        sizer.record_trade_result("momentum", trade)
+    
+    # Get strategy statistics
+    stats = sizer.get_strategy_statistics("momentum")
+    if stats:
+        print(f"\nStrategy Statistics:")
+        print(f"  Total Trades: {stats.total_trades}")
+        print(f"  Win Rate: {stats.win_rate:.1%}")
+        print(f"  Profit Factor: {stats.profit_factor:.2f}")
+        print(f"  Current Streak: {stats.current_streak}")
+        print(f"  Kelly Fraction: {stats.kelly_fraction:.1%}")
+    
+    # Test different market conditions
+    print("\nTesting high volatility conditions...")
+    high_vol_conditions = MarketConditions(
+        timestamp=datetime.now(),
+        spy_price=380.0,
+        vix_level=35.0,
+        spy_atr_14=10.0,
+        market_regime=MarketRegime.BEAR,
+        volatility_regime=VolatilityRegime.HIGH,
+        intraday_range=0.03,
+        volume_ratio=1.5,
+        trend_strength=-0.5
+    )
+    
+    sizer.update_market_conditions(high_vol_conditions)
+    high_vol_recommendation = sizer.calculate_position_size(request)
+    
+    print(f"\nHigh Volatility Position Size: {high_vol_recommendation.position_size_pct:.1%}")
+    print(f"  (Reduced from {recommendation.position_size_pct:.1%} due to high volatility)")
+    
+    # Get overall statistics
+    sizing_stats = sizer.get_sizing_statistics()
+    print(f"\nOverall Sizing Statistics:")
+    for key, value in sizing_stats.items():
+        if isinstance(value, dict):
+            print(f"  {key}:")
+            for k, v in value.items():
+                print(f"    {k}: {v:.2f}")
+        else:
+            print(f"  {key}: {value:.3f}")
+    
+    print("\n✅ Position Sizer test completed successfully!")

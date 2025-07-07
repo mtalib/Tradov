@@ -28,13 +28,18 @@ Each alphabetic letter represents a functional group of Python modules. Some let
 
 # Letter T shall be reserved for the Test modules 
 # Letter U shall be reserved for the Utility module
-# Letter X shall be reserved for the AI Agents modules. 
+# Letter X shall be reserved for the AI Agent modules. 
 
-# Directory Structure as of 2025-07-01
+# Directory Structure as of 2025-07-04
 `# Spyder Directory Structure
 As of 2025-07-01 v2 
 151 Python Modules Across 20 Functional Groups
 
+config/
+  config_template.py
+  config.py
+# Directory Structure
+```
 config/
   config_template.py
   config.py
@@ -54,7 +59,6 @@ SpyderB_Broker/
   SpyderB05_ConnectionManager.py
   SpyderB06_ContractBuilder.py
   SpyderB07_IBConnectionManager.py
-  SpyderB08_IBGatewayConnection.py
   SpyderB09_IBClientPortal.py
   SpyderB10_IBDataTypes.py
   SpyderB11_AsyncIOBridge.py
@@ -163,7 +167,7 @@ SpyderM_Monitoring/
   __init__.py
   SpyderM01_SystemMonitor.py
   SpyderM03_AIAgentMonitor.py
-  SpyderM03_MigrationMonitor.py
+  SpyderM02_MigrationMonitor.py
   SpyderM04_TradingMetrics.py
 SpyderN_OptionsAnalytics/
   __init__.py
@@ -179,12 +183,16 @@ SpyderO_RiskControl/
 SpyderP_PortfolioMgmt/
   SpyderP01_PortfolioManager.py
   SpyderP02_AllocationOptimizer.py
+  SpyderP03_CorrelationAnalyzer.py
 SpyderR_Runtime/
   __init__.py
   SpyderR01_BacktestEngine.py
   SpyderR02_PaperEngine.py
   SpyderR03_PaperMonitor.py
   SpyderR04_LiveEngine.py
+SpyderT_Testing/
+  SpyderT01_UnitTestFramework.py
+  SpyderT02_BrokerTestSuite.py
 SpyderU_Utilities/
   __init__.py
   SpyderU01_Logger.py
@@ -225,5 +233,5 @@ SpyderZ_Communication/
   SpyderZ03_TradingCoordinator.py
   SpyderZ04_VolatilityEngine.py
   SpyderZ06_AutoHedger.py
-  SpyderZ07_MultiProcessManager.py``
+  SpyderZ07_MultiProcessManager.py
 

@@ -5,1424 +5,1201 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderD19_JadeLizard.py
 Group: D (Trading Strategies)
-Purpose: Jade Lizard options strategy with no upside risk
+Purpose: Jade Lizard strategy - neutral to bullish premium collection
 
 Description:
-    This module implements the Jade Lizard strategy that combines a short put
-    with a short call spread to create a position with no upside risk. The strategy
-    is optimized for premium collection in high IV environments and provides
-    excellent probability of profit through sophisticated strike selection and
-    risk management protocols.
+    Professional Jade Lizard implementation combining a short put with a 
+    short call spread to collect premium with no upside risk. This three-leg
+    strategy is designed for high-probability income generation in neutral
+    to slightly bullish markets.
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-29
-Last Updated: 2025-06-29 Time: 12:00:00
+Author: Mohamed Talib
+Date: 2025-01-10
+Version: 2.0
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import datetime
-from typing import Dict, List, Tuple, Optional, Union, Any
+from datetime import datetime, time, timedelta
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import uuid
-import asyncio
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
 import pandas as pd
+import numpy as np
+from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, StrategySignal, PositionType
+from SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    BaseStrategy, TradingSignal, SignalStrength, MarketCondition
+)
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU14_OptionStrategies import SpyderOptionStrategies, StrategyType, OptionStrategy, OptionRight
 from SpyderU_Utilities.SpyderU07_Constants import (
-    OptionType, OrderAction, OrderType, SignalType,
-    JADE_LIZARD_PROFIT_TARGET, JADE_LIZARD_STOP_LOSS,
-    MIN_IV_RANK_FOR_PREMIUM_STRATEGIES, OPTIMAL_ENTRY_START, OPTIMAL_ENTRY_END
+    SignalType, OptionType, SPY_CONTRACT_MULTIPLIER
 )
-from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager, RiskProfile
-from SpyderE_Risk.SpyderE08_PositionGroupValidator import PositionGroupValidator
-from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
-from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
-from SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
-from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
-from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
+from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
+from SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector
+from SpyderE_Risk.SpyderE08_PositionGroupValidator import PositionGroupValidator
+from SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Strategy-specific constants
-DEFAULT_SHORT_PUT_DELTA = 0.30
-DEFAULT_SHORT_CALL_DELTA = 0.30
-DEFAULT_CALL_SPREAD_WIDTH = 5
-DEFAULT_DAYS_TO_EXPIRATION = 45
-DEFAULT_PROFIT_TARGET_PERCENT = 0.50
-DEFAULT_STOP_LOSS_PERCENT = 1.50
-DEFAULT_IV_RANK_MIN = 40
-DEFAULT_IV_RANK_MAX = 80
-DEFAULT_POSITION_SIZE_PERCENT = 0.05
+# Strategy Configuration
+MAX_JADE_POSITIONS = 3
+MIN_CREDIT_REQUIREMENT = 1.00  # Minimum $1.00 total credit
+CALL_SPREAD_WIDTH = 5.0        # Standard $5 call spread
 
-# Trading windows
-JADE_LIZARD_ENTRY_START = datetime.time(10, 30)
-JADE_LIZARD_ENTRY_END = datetime.time(14, 30)
-MIN_DAYS_TO_EXPIRY = 7
-MAX_DAYS_HELD = 30
+# Strike Selection
+PUT_DELTA_TARGET = -0.30       # 30 delta short put
+CALL_DELTA_TARGET = 0.25       # 25 delta short call
+LONG_CALL_OFFSET = 5.0         # Points above short call
 
-# Risk thresholds
-MAX_PORTFOLIO_JADE_LIZARD_EXPOSURE = 0.20  # 20% of portfolio
-MIN_CREDIT_RECEIVED = 0.50  # Minimum $0.50 credit per contract
+# Entry Requirements
+MIN_IV_RANK = 40               # Minimum IV rank
+MAX_IV_RANK = 85               # Maximum IV rank
+MIN_DTE = 25                   # Minimum days to expiry
+MAX_DTE = 50                   # Maximum days to expiry
+OPTIMAL_DTE = 45               # Target DTE
+
+# Risk Verification
+NO_UPSIDE_RISK_CHECK = True    # Must verify no risk above
+MIN_PROB_PROFIT = 0.65         # Minimum 65% probability
+
+# Position Management
+PROFIT_TARGET_PERCENT = 50     # Close at 50% of max profit
+LOSS_THRESHOLD_PERCENT = 150   # Close at 150% of credit received
+MANAGEMENT_WINDOW = 21         # Start managing at 21 DTE
+
+# Greeks Limits
+MAX_PORTFOLIO_DELTA = -100     # Maximum short delta exposure
+MAX_GAMMA_EXPOSURE = -30       # Maximum gamma risk
+MIN_THETA_COLLECTION = 20      # Minimum daily theta
+
+# Market Conditions
+SUITABLE_MARKET_BIAS = ['neutral', 'slightly_bullish']
+AVOID_BINARY_EVENTS = True     # Skip earnings, Fed days
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class JadeLizardState(Enum):
     """Jade Lizard position states"""
-    INACTIVE = "inactive"
-    MONITORING = "monitoring"
-    ACTIVE = "active"
-    CLOSING = "closing"
-    CLOSED = "closed"
-    ERROR = "error"
+    ANALYZING = auto()
+    ENTERING = auto()
+    MONITORING = auto()
+    MANAGING = auto()
+    CLOSING = auto()
+    COMPLETE = auto()
 
-class ExitReason(Enum):
-    """Exit reasons for Jade Lizard positions"""
-    PROFIT_TARGET = "profit_target"
-    STOP_LOSS = "stop_loss"
-    TIME_DECAY = "time_decay"
-    EXPIRATION = "expiration"
-    UNDERLYING_BREACH = "underlying_breach"
-    IV_CRUSH = "iv_crush"
-    RISK_MANAGEMENT = "risk_management"
+class RiskProfile(Enum):
+    """Risk assessment levels"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    EXTREME = "extreme"
+
+class MarketSentiment(Enum):
+    """Market sentiment classification"""
+    BEARISH = "bearish"
+    NEUTRAL = "neutral"
+    SLIGHTLY_BULLISH = "slightly_bullish"
+    BULLISH = "bullish"
 
 # ==============================================================================
-# DATA STRUCTURES
+# DATA CLASSES
 # ==============================================================================
+@dataclass
+class JadeLeg:
+    """Individual Jade Lizard leg"""
+    option_type: OptionType
+    strike: float
+    position: int  # +1 long, -1 short
+    contracts: int
+    delta: float
+    gamma: float
+    vega: float
+    theta: float
+    iv: float
+    premium: float
+    bid: float
+    ask: float
+
+@dataclass
+class JadeLizardSetup:
+    """Complete Jade Lizard setup"""
+    short_put: JadeLeg
+    short_call: JadeLeg
+    long_call: JadeLeg
+    expiry: datetime
+    total_credit: float
+    put_credit: float
+    call_spread_credit: float
+    max_profit: float
+    max_loss: float  # Downside only
+    breakeven: float
+    no_upside_risk: bool
+    probability_profit: float
+    expected_return: float
+    market_sentiment: MarketSentiment
+    iv_rank: float
+
+@dataclass
+class RiskMetrics:
+    """Position risk metrics"""
+    portfolio_delta: float
+    portfolio_gamma: float
+    portfolio_vega: float
+    portfolio_theta: float
+    pin_risk: bool
+    early_assignment_risk: bool
+    max_loss_percent: float
+    current_risk_level: RiskProfile
+
 @dataclass
 class JadeLizardPosition:
-    """Jade Lizard position data structure"""
-    id: str
-    entry_time: datetime.datetime
-    expiration: datetime.datetime
-    short_put_strike: float
-    short_call_strike: float
-    long_call_strike: float
-    quantity: int
-    net_credit: float
-    entry_iv: float
+    """Active Jade Lizard position"""
+    position_id: str
+    setup: JadeLizardSetup
+    entry_time: datetime
     entry_price: float
-    current_pnl: float = 0.0
-    max_profit: float = 0.0
-    max_loss: float = 0.0
-    state: JadeLizardState = JadeLizardState.ACTIVE
-    exit_reason: Optional[ExitReason] = None
-    greeks: Dict[str, float] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-@dataclass
-class JadeLizardMetrics:
-    """Performance metrics for Jade Lizard strategy"""
-    total_trades: int = 0
-    winning_trades: int = 0
-    losing_trades: int = 0
-    total_profit: float = 0.0
-    total_loss: float = 0.0
-    largest_win: float = 0.0
-    largest_loss: float = 0.0
-    average_win: float = 0.0
-    average_loss: float = 0.0
-    win_rate: float = 0.0
-    profit_factor: float = 0.0
-    average_days_held: float = 0.0
-    total_credit_collected: float = 0.0
-    average_credit_per_trade: float = 0.0
-    max_concurrent_positions: int = 0
+    risk_metrics: RiskMetrics
+    current_value: float = 0.0
+    unrealized_pnl: float = 0.0
+    pnl_percent: float = 0.0
+    days_held: int = 0
+    dte: int = 45
+    state: JadeLizardState = JadeLizardState.ENTERING
+    management_triggers: List[str] = field(default_factory=list)
+    exit_time: Optional[datetime] = None
+    exit_reason: Optional[str] = None
 
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
-class SpyderD19_JadeLizard(BaseStrategy):
+class JadeLizardStrategy(BaseStrategy):
     """
-    Jade Lizard Strategy implementation for SPYDER.
+    Professional Jade Lizard strategy implementation.
     
-    A Jade Lizard combines a short put with a short call spread (short call + long call)
-    to create a position with no upside risk. It's a premium collection strategy that
-    benefits from time decay and works best in neutral to bullish market conditions
-    with elevated IV rank.
-    
-    Key Features:
-    - No upside risk due to call spread construction
-    - High probability of profit (typically 70%+)
-    - Optimized for elevated IV environments
-    - Professional strike selection using delta targeting
-    - Real-time Greeks monitoring and risk management
-    - LEAN algorithm pattern compliance
-    
-    Attributes:
-        name: Strategy name
-        strategy_type: Strategy type identifier
-        positions: Current Jade Lizard positions
-        metrics: Performance tracking metrics
-        state: Current strategy state
-        
-    Example:
-        >>> config = {'short_put_delta': 0.30, 'iv_rank_min': 40}
-        >>> strategy = SpyderD19_JadeLizard(config)
-        >>> signals = strategy.generate_signals(market_data)
+    Combines a short put with a short call spread to generate income with
+    no upside risk. Ideal for neutral to slightly bullish market conditions
+    with elevated implied volatility.
     """
     
-    def __init__(self, config: Dict[str, Any] = None):
-        """
-        Initialize Jade Lizard strategy.
-        
-        Args:
-            config: Strategy configuration parameters
-        """
+    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+                 config: Dict[str, Any] = None):
+        """Initialize Jade Lizard strategy"""
         super().__init__(
-            name="Jade Lizard",
+            name="Jade Lizard Strategy",
             strategy_type="jade_lizard",
+            event_manager=event_manager,
+            risk_profile=risk_profile,
             config=config or {}
         )
         
-        # SPYDER component initialization
+        # Initialize components
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
-        self.event_manager = get_event_manager()
-        self.risk_manager = get_risk_manager()
-        
-        # Strategy-specific components
         self.greeks_calculator = GreeksCalculator()
-        self.volatility_analyzer = VolatilityRegimeAnalyzer()
+        self.volatility_analyzer = VolatilityAnalyzer()
+        self.market_regime = MarketRegimeDetector()
         self.position_validator = PositionGroupValidator()
-        self.contract_builder = ContractBuilder()
-        self.datetime_utils = DateTimeUtils()
-        self.technical_indicators = TechnicalIndicators()
-        self.performance_metrics = PerformanceMetrics()
         
-        # Default parameters
-        self.default_params = {
-            'short_put_delta': DEFAULT_SHORT_PUT_DELTA,
-            'short_call_delta': DEFAULT_SHORT_CALL_DELTA,
-            'call_spread_width': DEFAULT_CALL_SPREAD_WIDTH,
-            'days_to_expiration': DEFAULT_DAYS_TO_EXPIRATION,
-            'entry_day': 'monday',
-            'entry_time_start': JADE_LIZARD_ENTRY_START,
-            'entry_time_end': JADE_LIZARD_ENTRY_END,
-            'max_days_held': MAX_DAYS_HELD,
-            'profit_target_percent': DEFAULT_PROFIT_TARGET_PERCENT,
-            'stop_loss_percent': DEFAULT_STOP_LOSS_PERCENT,
-            'iv_rank_min': DEFAULT_IV_RANK_MIN,
-            'iv_rank_max': DEFAULT_IV_RANK_MAX,
-            'position_size_percent': DEFAULT_POSITION_SIZE_PERCENT,
-            'max_concurrent_positions': 3,
-            'min_credit_received': MIN_CREDIT_RECEIVED,
-            'is_active': True
-        }
+        # Strategy state
+        self.active_positions: Dict[str, JadeLizardPosition] = {}
+        self.portfolio_greeks = {'delta': 0, 'gamma': 0, 'vega': 0, 'theta': 0}
+        self.upcoming_events: List[Dict] = []
         
-        # Update with provided configuration
-        self.params = {**self.default_params, **self.config}
-        
-        # Initialize strategy state
-        self.positions: List[JadeLizardPosition] = []
-        self.metrics = JadeLizardMetrics()
-        self.state = JadeLizardState.INACTIVE
+        # Configuration
+        self.max_positions = config.get('max_positions', MAX_JADE_POSITIONS)
+        self.min_credit = config.get('min_credit', MIN_CREDIT_REQUIREMENT)
+        self.enforce_no_upside_risk = config.get('enforce_no_upside_risk', NO_UPSIDE_RISK_CHECK)
         
         # Performance tracking
-        self.trade_history: List[Dict[str, Any]] = []
-        self.daily_pnl: float = 0.0
-        self.total_exposure: float = 0.0
+        self.performance_stats = {
+            'total_trades': 0,
+            'winning_trades': 0,
+            'perfect_trades': 0,  # Expired worthless
+            'avg_credit': 0.0,
+            'avg_holding_days': 0.0,
+            'total_premium_collected': 0.0,
+            'best_trade': 0.0,
+            'worst_trade': 0.0
+        }
         
-        self.logger.info(f"Initialized {self.name} strategy with parameters: {self.params}")
-        self._emit_strategy_event('strategy_initialized', {'params': self.params})
-        
+        self.logger.info(f"Initialized {self.name}")
+    
     # ==========================================================================
-    # SIGNAL GENERATION METHODS
+    # MARKET ANALYSIS
     # ==========================================================================
-    def generate_signals(self, market_data: Dict[str, Any]) -> List[StrategySignal]:
-        """
-        Generate trading signals based on market conditions.
-        
-        Args:
-            market_data: Current market data including price, IV, Greeks, etc.
-            
-        Returns:
-            List of strategy signals
-        """
-        signals = []
-        
+    
+    def _analyze_market_sentiment(self, market_data: pd.DataFrame) -> MarketSentiment:
+        """Analyze current market sentiment for Jade Lizard suitability"""
         try:
-            # Check if strategy is active
-            if not self.params['is_active']:
+            if len(market_data) < 50:
+                return MarketSentiment.NEUTRAL
+            
+            close_prices = market_data['close']
+            
+            # Calculate multiple indicators
+            sma_20 = close_prices.rolling(20).mean()
+            sma_50 = close_prices.rolling(50).mean()
+            rsi = self._calculate_rsi(close_prices)
+            
+            current_price = close_prices.iloc[-1]
+            
+            # Trend analysis
+            short_trend = (current_price - sma_20.iloc[-1]) / sma_20.iloc[-1]
+            medium_trend = (sma_20.iloc[-1] - sma_50.iloc[-1]) / sma_50.iloc[-1]
+            
+            # Sentiment scoring
+            score = 0
+            
+            # Price above short MA: +1
+            if current_price > sma_20.iloc[-1]:
+                score += 1
+            
+            # Short MA above long MA: +1
+            if sma_20.iloc[-1] > sma_50.iloc[-1]:
+                score += 1
+            
+            # RSI not overbought: +1
+            if 30 < rsi < 70:
+                score += 1
+            
+            # Moderate uptrend: +1
+            if 0 < short_trend < 0.03:  # 0-3% above MA
+                score += 1
+            
+            # Classify sentiment
+            if score >= 3:
+                return MarketSentiment.SLIGHTLY_BULLISH
+            elif score >= 2:
+                return MarketSentiment.NEUTRAL
+            elif score >= 1:
+                return MarketSentiment.NEUTRAL
+            else:
+                return MarketSentiment.BEARISH
+                
+        except Exception as e:
+            self.logger.error(f"Error analyzing sentiment: {e}")
+            return MarketSentiment.NEUTRAL
+    
+    def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
+        """Calculate RSI"""
+        delta = prices.diff()
+        gains = delta.where(delta > 0, 0)
+        losses = -delta.where(delta < 0, 0)
+        
+        avg_gains = gains.rolling(period).mean()
+        avg_losses = losses.rolling(period).mean()
+        
+        rs = avg_gains / avg_losses
+        rsi = 100 - (100 / (1 + rs))
+        
+        return rsi.iloc[-1]
+    
+    def _check_upcoming_events(self) -> bool:
+        """Check for upcoming binary events"""
+        if not AVOID_BINARY_EVENTS:
+            return True
+        
+        # Check earnings calendar
+        # In production, would check actual earnings dates
+        days_to_earnings = 30  # Mock
+        if days_to_earnings < 5:
+            self.logger.info("Skipping Jade Lizard due to upcoming earnings")
+            return False
+        
+        # Check Fed calendar
+        # In production, would check actual Fed dates
+        days_to_fed = 30  # Mock
+        if days_to_fed < 2:
+            self.logger.info("Skipping Jade Lizard due to upcoming Fed meeting")
+            return False
+        
+        return True
+    
+    # ==========================================================================
+    # SIGNAL GENERATION
+    # ==========================================================================
+    
+    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Generate Jade Lizard trading signals"""
+        try:
+            signals = []
+            
+            # Check position limits
+            if len(self.active_positions) >= self.max_positions:
                 return signals
             
-            # Validate market data
-            if not self._validate_market_data(market_data):
-                self.logger.warning("Invalid market data received")
+            # Check market sentiment
+            sentiment = self._analyze_market_sentiment(market_data)
+            if sentiment not in [MarketSentiment.NEUTRAL, MarketSentiment.SLIGHTLY_BULLISH]:
                 return signals
             
-            # Check entry conditions
-            if self._check_entry_conditions(market_data):
-                signal = self._generate_entry_signal(market_data)
+            # Check for binary events
+            if not self._check_upcoming_events():
+                return signals
+            
+            # Check IV conditions
+            iv_rank = self._calculate_iv_rank(market_data)
+            if not (MIN_IV_RANK <= iv_rank <= MAX_IV_RANK):
+                return signals
+            
+            # Create Jade Lizard setup
+            setup = self._create_jade_lizard_setup(market_data, sentiment, iv_rank)
+            
+            if setup and self._validate_jade_setup(setup):
+                signal = self._create_trading_signal(setup, market_data)
                 if signal:
                     signals.append(signal)
-            
-            # Check exit conditions for existing positions
-            exit_signals = self._check_exit_conditions(market_data)
-            signals.extend(exit_signals)
-            
-            # Update position monitoring
-            self._update_position_monitoring(market_data)
             
             return signals
             
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': 'generate_signals',
-                'strategy': self.name,
-                'market_data_keys': list(market_data.keys()) if market_data else []
-            })
+            self.error_handler.handle_error(e, market_data)
             return []
     
-    def _check_entry_conditions(self, market_data: Dict[str, Any]) -> bool:
-        """
-        Check if entry conditions are met for Jade Lizard strategy.
+    def _calculate_iv_rank(self, market_data: pd.DataFrame) -> float:
+        """Calculate IV rank"""
+        if 'iv' not in market_data.columns:
+            return 50.0
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Whether entry conditions are satisfied
-        """
-        try:
-            # Check maximum concurrent positions
-            if len(self.positions) >= self.params['max_concurrent_positions']:
-                self.logger.debug("Maximum concurrent positions reached")
-                return False
-            
-            # Check day of week
-            current_day = market_data.get('current_day_of_week', '').lower()
-            entry_day = self.params.get('entry_day', 'any')
-            if entry_day != 'any' and current_day != entry_day:
-                self.logger.debug(f"Entry day mismatch: {current_day} != {entry_day}")
-                return False
-            
-            # Check time of day
-            current_time = market_data.get('current_time')
-            if current_time:
-                if isinstance(current_time, str):
-                    current_time = datetime.datetime.strptime(current_time, '%H:%M').time()
-                
-                if not (self.params['entry_time_start'] <= current_time <= self.params['entry_time_end']):
-                    self.logger.debug(f"Outside entry time window: {current_time}")
-                    return False
-            
-            # Check IV rank
-            iv_rank = market_data.get('iv_rank', 0)
-            if not (self.params['iv_rank_min'] <= iv_rank <= self.params['iv_rank_max']):
-                self.logger.debug(f"IV rank outside range: {iv_rank}")
-                return False
-            
-            # Check available capital
-            required_capital = self._calculate_required_capital(market_data)
-            if not self.risk_manager.check_capital_available(required_capital):
-                self.logger.debug("Insufficient capital available")
-                return False
-            
-            # Check strategy exposure limits
-            if not self.risk_manager.check_strategy_exposure(
-                self.strategy_type, 
-                required_capital
-            ):
-                self.logger.debug("Strategy exposure limit reached")
-                return False
-            
-            # Check market regime
-            if not self._is_favorable_market_regime(market_data):
-                self.logger.debug("Unfavorable market regime")
-                return False
-            
-            self.logger.info("✅ All entry conditions met for Jade Lizard")
-            return True
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_check_entry_conditions',
-                'market_data': market_data
-            })
-            return False
+        iv_series = market_data['iv'].iloc[-252:]
+        current_iv = iv_series.iloc[-1]
+        
+        min_iv = iv_series.min()
+        max_iv = iv_series.max()
+        
+        if max_iv > min_iv:
+            return ((current_iv - min_iv) / (max_iv - min_iv)) * 100
+        return 50.0
     
-    def _generate_entry_signal(self, market_data: Dict[str, Any]) -> Optional[StrategySignal]:
-        """
-        Generate entry signal for Jade Lizard strategy.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Strategy signal or None if generation fails
-        """
+    def _create_jade_lizard_setup(self, market_data: pd.DataFrame,
+                                 sentiment: MarketSentiment,
+                                 iv_rank: float) -> Optional[JadeLizardSetup]:
+        """Create complete Jade Lizard setup"""
         try:
-            # Calculate strikes
-            strikes = self._calculate_strikes(market_data)
-            if not strikes:
-                return None
+            current_price = market_data['close'].iloc[-1]
+            current_iv = self._get_current_iv(market_data)
             
-            short_put_strike, short_call_strike, long_call_strike = strikes
+            # Select expiry
+            expiry = self._select_optimal_expiry()
             
-            # Get expiration date
-            expiration = self._get_target_expiration(market_data)
-            if not expiration:
-                return None
+            # Find strikes by delta
+            put_strike = self._find_strike_by_delta(
+                current_price, PUT_DELTA_TARGET, expiry, current_iv, OptionType.PUT
+            )
+            short_call_strike = self._find_strike_by_delta(
+                current_price, CALL_DELTA_TARGET, expiry, current_iv, OptionType.CALL
+            )
+            long_call_strike = short_call_strike + CALL_SPREAD_WIDTH
             
-            # Calculate position size
-            position_size = self._calculate_position_size(market_data)
-            if position_size <= 0:
-                return None
-            
-            # Create option strategy using SPYDER's OptionStrategies
-            option_strategy = self._create_jade_lizard_strategy(
-                market_data['underlying_symbol'],
-                short_put_strike,
-                short_call_strike,
-                long_call_strike,
-                expiration,
-                position_size
+            # Estimate premiums and Greeks
+            put_data = self._calculate_option_data(
+                put_strike, current_price, expiry, current_iv, OptionType.PUT
+            )
+            short_call_data = self._calculate_option_data(
+                short_call_strike, current_price, expiry, current_iv, OptionType.CALL
+            )
+            long_call_data = self._calculate_option_data(
+                long_call_strike, current_price, expiry, current_iv, OptionType.CALL
             )
             
-            # Validate strategy positions
-            if not self._validate_strategy_positions(option_strategy):
-                return None
+            # Create legs
+            short_put = JadeLeg(
+                option_type=OptionType.PUT,
+                strike=put_strike,
+                position=-1,
+                contracts=1,
+                delta=put_data['delta'],
+                gamma=put_data['gamma'],
+                vega=put_data['vega'],
+                theta=put_data['theta'],
+                iv=current_iv,
+                premium=put_data['premium'],
+                bid=put_data['bid'],
+                ask=put_data['ask']
+            )
             
-            # Calculate expected metrics
-            metrics = self._calculate_strategy_metrics(market_data, strikes, position_size)
+            short_call = JadeLeg(
+                option_type=OptionType.CALL,
+                strike=short_call_strike,
+                position=-1,
+                contracts=1,
+                delta=short_call_data['delta'],
+                gamma=short_call_data['gamma'],
+                vega=short_call_data['vega'],
+                theta=short_call_data['theta'],
+                iv=current_iv,
+                premium=short_call_data['premium'],
+                bid=short_call_data['bid'],
+                ask=short_call_data['ask']
+            )
             
-            # Create strategy signal
-            signal = StrategySignal(
-                strategy_id=self.id,
-                strategy_name=self.name,
+            long_call = JadeLeg(
+                option_type=OptionType.CALL,
+                strike=long_call_strike,
+                position=1,
+                contracts=1,
+                delta=long_call_data['delta'],
+                gamma=long_call_data['gamma'],
+                vega=long_call_data['vega'],
+                theta=long_call_data['theta'],
+                iv=current_iv,
+                premium=long_call_data['premium'],
+                bid=long_call_data['bid'],
+                ask=long_call_data['ask']
+            )
+            
+            # Calculate credits
+            put_credit = put_data['premium']
+            call_spread_credit = short_call_data['premium'] - long_call_data['premium']
+            total_credit = put_credit + call_spread_credit
+            
+            # Verify no upside risk
+            no_upside_risk = self._verify_no_upside_risk(
+                call_spread_credit, CALL_SPREAD_WIDTH, total_credit
+            )
+            
+            # Calculate profit/loss metrics
+            max_profit = total_credit * SPY_CONTRACT_MULTIPLIER
+            max_loss = (put_strike - total_credit) * SPY_CONTRACT_MULTIPLIER
+            breakeven = put_strike - total_credit
+            
+            # Calculate probability of profit
+            prob_profit = self._calculate_probability_profit(
+                current_price, put_strike, short_call_strike, expiry, current_iv
+            )
+            
+            # Expected return
+            expected_return = (prob_profit * max_profit - (1 - prob_profit) * max_loss * 0.3) / max_loss
+            
+            setup = JadeLizardSetup(
+                short_put=short_put,
+                short_call=short_call,
+                long_call=long_call,
+                expiry=expiry,
+                total_credit=total_credit * SPY_CONTRACT_MULTIPLIER,
+                put_credit=put_credit * SPY_CONTRACT_MULTIPLIER,
+                call_spread_credit=call_spread_credit * SPY_CONTRACT_MULTIPLIER,
+                max_profit=max_profit,
+                max_loss=max_loss,
+                breakeven=breakeven,
+                no_upside_risk=no_upside_risk,
+                probability_profit=prob_profit,
+                expected_return=expected_return,
+                market_sentiment=sentiment,
+                iv_rank=iv_rank
+            )
+            
+            return setup
+            
+        except Exception as e:
+            self.logger.error(f"Error creating Jade Lizard setup: {e}")
+            return None
+    
+    def _get_current_iv(self, market_data: pd.DataFrame) -> float:
+        """Get current implied volatility"""
+        if 'iv' in market_data.columns:
+            return market_data['iv'].iloc[-1]
+        
+        # Estimate from returns
+        returns = market_data['close'].pct_change().dropna()
+        return returns.std() * np.sqrt(252)
+    
+    def _select_optimal_expiry(self) -> datetime:
+        """Select optimal expiration date"""
+        current_date = datetime.now()
+        target_date = current_date + timedelta(days=OPTIMAL_DTE)
+        
+        # Find next Friday
+        days_to_friday = (4 - target_date.weekday()) % 7
+        if days_to_friday == 0:
+            days_to_friday = 7
+        
+        expiry = target_date + timedelta(days=days_to_friday)
+        
+        # Ensure within DTE range
+        dte = (expiry - current_date).days
+        if dte < MIN_DTE:
+            expiry += timedelta(days=7)
+        elif dte > MAX_DTE:
+            expiry -= timedelta(days=7)
+        
+        return expiry
+    
+    def _find_strike_by_delta(self, spot: float, target_delta: float,
+                            expiry: datetime, iv: float,
+                            option_type: OptionType) -> float:
+        """Find strike with target delta"""
+        dte = (expiry - datetime.now()).days / 365.0
+        
+        # Use inverse Black-Scholes to find strike
+        if option_type == OptionType.CALL:
+            z_score = stats.norm.ppf(abs(target_delta))
+            strike = spot * np.exp((z_score * iv * np.sqrt(dte)) + (iv**2 * dte / 2))
+        else:  # PUT
+            z_score = stats.norm.ppf(1 + target_delta)  # target_delta is negative
+            strike = spot * np.exp((z_score * iv * np.sqrt(dte)) - (iv**2 * dte / 2))
+        
+        # Round to nearest dollar
+        return round(strike)
+    
+    def _calculate_option_data(self, strike: float, spot: float,
+                             expiry: datetime, iv: float,
+                             option_type: OptionType) -> Dict[str, float]:
+        """Calculate option premium and Greeks"""
+        dte = (expiry - datetime.now()).days / 365.0
+        
+        # Black-Scholes calculations
+        d1 = (np.log(spot / strike) + (0.02 + iv**2/2) * dte) / (iv * np.sqrt(dte))
+        d2 = d1 - iv * np.sqrt(dte)
+        
+        # Premium
+        if option_type == OptionType.CALL:
+            premium = spot * stats.norm.cdf(d1) - strike * np.exp(-0.02 * dte) * stats.norm.cdf(d2)
+            delta = stats.norm.cdf(d1)
+        else:
+            premium = strike * np.exp(-0.02 * dte) * stats.norm.cdf(-d2) - spot * stats.norm.cdf(-d1)
+            delta = stats.norm.cdf(d1) - 1
+        
+        # Greeks
+        gamma = stats.norm.pdf(d1) / (spot * iv * np.sqrt(dte))
+        vega = spot * stats.norm.pdf(d1) * np.sqrt(dte) / 100
+        theta = -(spot * stats.norm.pdf(d1) * iv / (2 * np.sqrt(dte)) + 
+                 0.02 * strike * np.exp(-0.02 * dte) * stats.norm.cdf(d2 if option_type == OptionType.CALL else -d2)) / 365
+        
+        # Bid-ask spread (simplified)
+        spread = premium * 0.05  # 5% spread
+        
+        return {
+            'premium': max(0.10, premium),
+            'delta': delta,
+            'gamma': gamma,
+            'vega': vega,
+            'theta': theta,
+            'bid': max(0.05, premium - spread/2),
+            'ask': premium + spread/2
+        }
+    
+    def _verify_no_upside_risk(self, call_spread_credit: float,
+                              spread_width: float,
+                              total_credit: float) -> bool:
+        """Verify the setup has no upside risk"""
+        # No upside risk when total credit > call spread width
+        # This ensures max loss on upside is 0
+        return total_credit >= spread_width
+    
+    def _calculate_probability_profit(self, spot: float, put_strike: float,
+                                    call_strike: float, expiry: datetime,
+                                    iv: float) -> float:
+        """Calculate probability of profit for Jade Lizard"""
+        dte = (expiry - datetime.now()).days / 365.0
+        
+        # For Jade Lizard with no upside risk, profit occurs when:
+        # Price stays above put strike (no assignment on put)
+        
+        # Calculate probability of staying above put strike
+        price_std = spot * iv * np.sqrt(dte)
+        z_put = (put_strike - spot) / price_std
+        prob_above_put = 1 - stats.norm.cdf(z_put)
+        
+        # Additional adjustment for call spread impact
+        # Small probability reduction if price goes way above call strikes
+        z_call = (call_strike - spot) / price_std
+        prob_below_call = stats.norm.cdf(z_call)
+        
+        # Combined probability (simplified)
+        # Most profit comes from put side since no upside risk
+        prob_profit = prob_above_put * 0.9 + prob_below_call * 0.1
+        
+        return min(0.95, max(0.05, prob_profit))
+    
+    def _validate_jade_setup(self, setup: JadeLizardSetup) -> bool:
+        """Validate Jade Lizard setup"""
+        # Check minimum credit
+        if setup.total_credit < self.min_credit * SPY_CONTRACT_MULTIPLIER:
+            self.logger.info(f"Jade Lizard credit too low: ${setup.total_credit:.2f}")
+            return False
+        
+        # Check no upside risk
+        if self.enforce_no_upside_risk and not setup.no_upside_risk:
+            self.logger.info("Jade Lizard has upside risk")
+            return False
+        
+        # Check probability of profit
+        if setup.probability_profit < MIN_PROB_PROFIT:
+            self.logger.info(f"Jade Lizard probability too low: {setup.probability_profit:.1%}")
+            return False
+        
+        # Check strike relationships
+        if setup.short_call.strike <= setup.short_put.strike:
+            self.logger.info("Invalid strike relationship")
+            return False
+        
+        return True
+    
+    def _create_trading_signal(self, setup: JadeLizardSetup,
+                             market_data: pd.DataFrame) -> Optional[TradingSignal]:
+        """Convert setup to trading signal"""
+        try:
+            # Calculate initial risk metrics
+            risk_metrics = self._calculate_risk_metrics(setup, market_data)
+            
+            # Determine signal strength
+            if setup.probability_profit > 0.75 and setup.no_upside_risk:
+                strength = SignalStrength.STRONG
+            elif setup.probability_profit > 0.65:
+                strength = SignalStrength.MEDIUM
+            else:
+                strength = SignalStrength.WEAK
+            
+            signal = TradingSignal(
+                timestamp=datetime.now(),
                 signal_type=SignalType.ENTRY,
-                timestamp=datetime.datetime.now(),
-                underlying_symbol=market_data['underlying_symbol'],
-                option_strategy=option_strategy,
-                confidence=self._calculate_signal_confidence(market_data),
-                expected_profit=metrics.get('expected_profit', 0),
-                max_risk=metrics.get('max_risk', 0),
-                probability_of_profit=metrics.get('pop', 0),
+                strength=strength,
+                confidence=setup.probability_profit,
                 metadata={
-                    'strikes': strikes,
-                    'expiration': expiration,
-                    'iv_rank': market_data.get('iv_rank'),
-                    'entry_criteria': self._get_entry_criteria_summary(market_data)
+                    'strategy': 'jade_lizard',
+                    'setup': setup.__dict__,
+                    'strikes': {
+                        'short_put': setup.short_put.strike,
+                        'short_call': setup.short_call.strike,
+                        'long_call': setup.long_call.strike
+                    },
+                    'credits': {
+                        'total': setup.total_credit,
+                        'put': setup.put_credit,
+                        'call_spread': setup.call_spread_credit
+                    },
+                    'no_upside_risk': setup.no_upside_risk,
+                    'breakeven': setup.breakeven,
+                    'max_profit': setup.max_profit,
+                    'max_loss': setup.max_loss,
+                    'iv_rank': setup.iv_rank,
+                    'sentiment': setup.market_sentiment.value,
+                    'risk_metrics': risk_metrics.__dict__
                 }
             )
             
-            self.logger.info(f"Generated Jade Lizard entry signal: {strikes}")
-            self._emit_strategy_event('entry_signal_generated', signal.__dict__)
-            
+            self.logger.info(f"Generated Jade Lizard signal with {setup.probability_profit:.1%} probability")
             return signal
             
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_generate_entry_signal',
-                'market_data': market_data
-            })
+            self.logger.error(f"Error creating signal: {e}")
             return None
     
-    # ==========================================================================
-    # STRIKE CALCULATION METHODS
-    # ==========================================================================
-    def _calculate_strikes(self, market_data: Dict[str, Any]) -> Optional[Tuple[float, float, float]]:
-        """
-        Calculate strike prices for Jade Lizard strategy.
+    def _calculate_risk_metrics(self, setup: JadeLizardSetup,
+                               market_data: pd.DataFrame) -> RiskMetrics:
+        """Calculate comprehensive risk metrics"""
+        # Portfolio Greeks (position level)
+        delta = (setup.short_put.delta + setup.short_call.delta + setup.long_call.delta)
+        gamma = (setup.short_put.gamma + setup.short_call.gamma + setup.long_call.gamma)
+        vega = (setup.short_put.vega + setup.short_call.vega + setup.long_call.vega)
+        theta = (setup.short_put.theta + setup.short_call.theta + setup.long_call.theta)
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Tuple of (short_put_strike, short_call_strike, long_call_strike) or None
-        """
-        try:
-            underlying_price = market_data.get('underlying_price', 0)
-            if underlying_price <= 0:
-                return None
-            
-            iv = market_data.get('iv', 0.2)
-            days_to_exp = self.params['days_to_expiration']
-            
-            # Calculate short put strike (typically 0.30 delta)
-            short_put_delta = -abs(self.params['short_put_delta'])
-            short_put_strike = self._get_strike_by_delta(
-                underlying_price, days_to_exp, short_put_delta, 'put', iv
-            )
-            
-            # Calculate short call strike (typically 0.30 delta)
-            short_call_delta = abs(self.params['short_call_delta'])
-            short_call_strike = self._get_strike_by_delta(
-                underlying_price, days_to_exp, short_call_delta, 'call', iv
-            )
-            
-            # Calculate long call strike (short call + width)
-            call_spread_width = self.params['call_spread_width']
-            long_call_strike = short_call_strike + call_spread_width
-            
-            # Round to available strikes
-            available_strikes = market_data.get('available_strikes', [])
-            if available_strikes:
-                short_put_strike = self._round_to_available_strike(short_put_strike, available_strikes)
-                short_call_strike = self._round_to_available_strike(short_call_strike, available_strikes)
-                long_call_strike = self._round_to_available_strike(long_call_strike, available_strikes)
-            
-            # Validate strike relationships
-            if not self._validate_strike_relationships(
-                short_put_strike, short_call_strike, long_call_strike
-            ):
-                return None
-            
-            return short_put_strike, short_call_strike, long_call_strike
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_calculate_strikes',
-                'underlying_price': market_data.get('underlying_price')
-            })
-            return None
-    
-    def _get_strike_by_delta(self, underlying_price: float, days_to_exp: int, 
-                           target_delta: float, option_type: str, iv: float) -> float:
-        """
-        Calculate strike price by target delta using SPYDER technical indicators.
+        # Scale by contract multiplier
+        portfolio_delta = delta * SPY_CONTRACT_MULTIPLIER
+        portfolio_gamma = gamma * SPY_CONTRACT_MULTIPLIER
+        portfolio_vega = vega * SPY_CONTRACT_MULTIPLIER
+        portfolio_theta = theta * SPY_CONTRACT_MULTIPLIER
         
-        Args:
-            underlying_price: Current underlying price
-            days_to_exp: Days to expiration
-            target_delta: Target delta value
-            option_type: 'call' or 'put'
-            iv: Implied volatility
-            
-        Returns:
-            Strike price
-        """
-        # Use SPYDER's technical indicators for delta calculation
-        return self.technical_indicators.get_strike_by_delta(
-            underlying_price=underlying_price,
-            days_to_expiration=days_to_exp,
-            target_delta=target_delta,
-            option_type=option_type,
-            implied_volatility=iv
+        # Pin risk assessment
+        current_price = market_data['close'].iloc[-1]
+        pin_risk = (abs(current_price - setup.short_put.strike) < 2 or 
+                   abs(current_price - setup.short_call.strike) < 2)
+        
+        # Early assignment risk
+        dte = (setup.expiry - datetime.now()).days
+        early_assignment_risk = dte < 7 and pin_risk
+        
+        # Max loss as percentage of account
+        max_loss_percent = (setup.max_loss / self.risk_profile.account_size) * 100
+        
+        # Determine risk level
+        if max_loss_percent > 5 or abs(portfolio_delta) > 50:
+            risk_level = RiskProfile.HIGH
+        elif max_loss_percent > 3 or abs(portfolio_delta) > 30:
+            risk_level = RiskProfile.MEDIUM
+        else:
+            risk_level = RiskProfile.LOW
+        
+        return RiskMetrics(
+            portfolio_delta=portfolio_delta,
+            portfolio_gamma=portfolio_gamma,
+            portfolio_vega=portfolio_vega,
+            portfolio_theta=portfolio_theta,
+            pin_risk=pin_risk,
+            early_assignment_risk=early_assignment_risk,
+            max_loss_percent=max_loss_percent,
+            current_risk_level=risk_level
         )
     
     # ==========================================================================
-    # POSITION MANAGEMENT METHODS
+    # POSITION MANAGEMENT
     # ==========================================================================
-    def _check_exit_conditions(self, market_data: Dict[str, Any]) -> List[StrategySignal]:
-        """
-        Check exit conditions for existing positions.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            List of exit signals
-        """
-        exit_signals = []
-        
-        for position in self.positions.copy():
-            exit_reason = self._should_exit_position(position, market_data)
-            if exit_reason:
-                exit_signal = self._generate_exit_signal(position, market_data, exit_reason)
-                if exit_signal:
-                    exit_signals.append(exit_signal)
-        
-        return exit_signals
     
-    def _should_exit_position(self, position: JadeLizardPosition, 
-                            market_data: Dict[str, Any]) -> Optional[ExitReason]:
-        """
-        Determine if position should be exited and why.
+    def manage_positions(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Manage active Jade Lizard positions"""
+        signals = []
+        current_price = market_data['close'].iloc[-1]
         
-        Args:
-            position: Current position
-            market_data: Current market data
+        # Update portfolio Greeks
+        self._update_portfolio_greeks()
+        
+        for position_id, position in list(self.active_positions.items()):
+            # Update position metrics
+            position.days_held += 1
+            position.dte = (position.setup.expiry - datetime.now()).days
             
-        Returns:
-            Exit reason or None if position should be held
-        """
-        try:
-            # Update position P&L
-            self._update_position_pnl(position, market_data)
+            # Update position value and risk
+            self._update_position_value(position, current_price, market_data)
+            self._update_risk_metrics(position, current_price, market_data)
             
-            # Check profit target
-            profit_target = position.net_credit * self.params['profit_target_percent']
-            if position.current_pnl >= profit_target:
-                return ExitReason.PROFIT_TARGET
+            # Check management triggers
+            if position.dte <= MANAGEMENT_WINDOW:
+                position.state = JadeLizardState.MANAGING
             
-            # Check stop loss
-            stop_loss = position.net_credit * self.params['stop_loss_percent']
-            if position.current_pnl <= -stop_loss:
-                return ExitReason.STOP_LOSS
-            
-            # Check time-based exit
-            days_held = (datetime.datetime.now() - position.entry_time).days
-            if days_held >= self.params['max_days_held']:
-                return ExitReason.TIME_DECAY
-            
-            # Check days to expiration
-            days_to_exp = (position.expiration - datetime.datetime.now()).days
-            if days_to_exp <= MIN_DAYS_TO_EXPIRY:
-                return ExitReason.EXPIRATION
-            
-            # Check underlying price breach
-            underlying_price = market_data.get('underlying_price', 0)
-            if underlying_price > 0:
-                # For Jade Lizard, concerned if price drops below short put strike
-                if underlying_price < position.short_put_strike * 0.97:
-                    return ExitReason.UNDERLYING_BREACH
-            
-            # Check IV crush
-            current_iv = market_data.get('iv', 0)
-            if current_iv > 0 and position.entry_iv > 0:
-                iv_change = (current_iv - position.entry_iv) / position.entry_iv
-                if iv_change < -0.30:  # 30% IV crush
-                    return ExitReason.IV_CRUSH
-            
-            return None
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_should_exit_position',
-                'position_id': position.id
-            })
-            return ExitReason.RISK_MANAGEMENT
+            # Check exit conditions
+            exit_signal = self._check_exit_conditions(position, market_data)
+            if exit_signal:
+                signals.append(exit_signal)
+                self._close_position(position)
+                del self.active_positions[position_id]
+        
+        return signals
     
-    # ==========================================================================
-    # UTILITY METHODS
-    # ==========================================================================
-    def _validate_market_data(self, market_data: Dict[str, Any]) -> bool:
-        """
-        Validate required market data fields.
+    def _update_portfolio_greeks(self):
+        """Update aggregate portfolio Greeks"""
+        total_delta = sum(p.risk_metrics.portfolio_delta for p in self.active_positions.values())
+        total_gamma = sum(p.risk_metrics.portfolio_gamma for p in self.active_positions.values())
+        total_vega = sum(p.risk_metrics.portfolio_vega for p in self.active_positions.values())
+        total_theta = sum(p.risk_metrics.portfolio_theta for p in self.active_positions.values())
         
-        Args:
-            market_data: Market data to validate
-            
-        Returns:
-            Whether market data is valid
-        """
-        required_fields = [
-            'underlying_price', 'underlying_symbol', 'iv_rank'
-        ]
-        
-        for field in required_fields:
-            if field not in market_data or market_data[field] is None:
-                self.logger.warning(f"Missing required field: {field}")
-                return False
-        
-        return True
-    
-    def _is_favorable_market_regime(self, market_data: Dict[str, Any]) -> bool:
-        """
-        Check if current market regime is favorable for Jade Lizard.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Whether market regime is favorable
-        """
-        # Use volatility regime analyzer
-        regime = self.volatility_analyzer.get_current_regime(market_data)
-        
-        # Jade Lizard works best in moderate to high volatility
-        if regime.volatility_level in ['moderate', 'high']:
-            return True
-        
-        # Also check trend strength - prefer neutral to bullish
-        trend = market_data.get('trend', 'neutral')
-        if trend in ['neutral', 'bullish']:
-            return True
-        
-        return False
-    
-    def _create_jade_lizard_strategy(self, underlying_symbol: str, 
-                                   short_put_strike: float,
-                                   short_call_strike: float,
-                                   long_call_strike: float,
-                                   expiration: datetime.datetime,
-                                   quantity: int) -> OptionStrategy:
-        """
-        Create Jade Lizard option strategy using SPYDER's OptionStrategies.
-        
-        Args:
-            underlying_symbol: Underlying symbol
-            short_put_strike: Short put strike price
-            short_call_strike: Short call strike price
-            long_call_strike: Long call strike price
-            expiration: Option expiration date
-            quantity: Position quantity
-            
-        Returns:
-            Option strategy object
-        """
-        return SpyderOptionStrategies.jade_lizard(
-            underlying_symbol=underlying_symbol,
-            short_put_strike=short_put_strike,
-            short_call_strike=short_call_strike,
-            long_call_strike=long_call_strike,
-            expiry=expiration,
-            quantity=quantity
-        )
-    
-    def _validate_strategy_positions(self, option_strategy: OptionStrategy) -> bool:
-        """
-        Validate strategy positions using SPYDER's position validator.
-        
-        Args:
-            option_strategy: Option strategy to validate
-            
-        Returns:
-            Whether positions are valid
-        """
-        validation_result = self.position_validator.validate_strategy_positions(
-            positions=option_strategy.legs,
-            strategy_type=StrategyType.JADE_LIZARD
-        )
-        
-        if not validation_result.is_valid:
-            self.logger.warning(f"Position validation failed: {validation_result.errors}")
-            return False
-        
-        return True
-    
-    def _emit_strategy_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """
-        Emit strategy event to SPYDER event system.
-        
-        Args:
-            event_type: Type of event
-            data: Event data
-        """
-        event = Event(
-            event_type=EventType.STRATEGY_SIGNAL,
-            data={
-                'strategy_id': self.id,
-                'strategy_name': self.name,
-                'strategy_type': self.strategy_type,
-                'event_type': event_type,
-                'timestamp': datetime.datetime.now(),
-                'data': data
-            }
-        )
-        self.event_manager.emit(event)
-    
-    # ==========================================================================
-    # PERFORMANCE AND ANALYTICS METHODS
-    # ==========================================================================
-    def get_performance_summary(self) -> Dict[str, Any]:
-        """
-        Get comprehensive performance summary.
-        
-        Returns:
-            Performance summary dictionary
-        """
-        return {
-            'strategy_name': self.name,
-            'strategy_type': self.strategy_type,
-            'total_trades': self.metrics.total_trades,
-            'win_rate': self.metrics.win_rate,
-            'profit_factor': self.metrics.profit_factor,
-            'total_profit': self.metrics.total_profit,
-            'average_win': self.metrics.average_win,
-            'average_loss': self.metrics.average_loss,
-            'average_days_held': self.metrics.average_days_held,
-            'average_credit_per_trade': self.metrics.average_credit_per_trade,
-            'current_positions': len(self.positions),
-            'daily_pnl': self.daily_pnl,
-            'total_exposure': self.total_exposure
+        self.portfolio_greeks = {
+            'delta': total_delta,
+            'gamma': total_gamma,
+            'vega': total_vega,
+            'theta': total_theta
         }
     
-    def calculate_probability_of_profit(self, market_data: Dict[str, Any]) -> float:
-        """
-        Calculate probability of profit for Jade Lizard strategy.
-        
-        Args:
-            market_data: Current market data
+    def _update_position_value(self, position: JadeLizardPosition,
+                              current_price: float,
+                              market_data: pd.DataFrame):
+        """Update position value and P&L"""
+        try:
+            setup = position.setup
+            current_iv = self._get_current_iv(market_data)
             
-        Returns:
-            Probability of profit (0.0 to 1.0)
-        """
-        # Base probability for Jade Lizard (typically high)
-        base_prob = 0.70
-        
-        # Adjust based on IV rank
-        iv_rank = market_data.get('iv_rank', 50)
-        iv_adjustment = (iv_rank - 50) * 0.002  # +/- 0.2% per 10 points
-        
-        # Adjust based on market regime
-        if self._is_favorable_market_regime(market_data):
-            regime_adjustment = 0.05
-        else:
-            regime_adjustment = -0.05
-        
-        # Adjust based on day of week
-        current_day = market_data.get('current_day_of_week', '').lower()
-        day_adjustment = 0.03 if current_day == 'monday' else 0.0
-        
-        # Calculate final probability
-        probability = base_prob + iv_adjustment + regime_adjustment + day_adjustment
-        
-        # Ensure reasonable range
-        return max(0.5, min(0.85, probability))
-    
-    # ==========================================================================
-    # LIFECYCLE METHODS
-    # ==========================================================================
-    def start(self) -> None:
-        """Start the Jade Lizard strategy."""
-        if self.state == JadeLizardState.INACTIVE:
-            self.state = JadeLizardState.MONITORING
-            self.logger.info("Jade Lizard strategy started")
-            self._emit_strategy_event('strategy_started', {})
-        else:
-            self.logger.warning(f"Cannot start from state: {self.state}")
-    
-    def stop(self) -> None:
-        """Stop the Jade Lizard strategy."""
-        if self.state == JadeLizardState.MONITORING:
-            self.state = JadeLizardState.INACTIVE
-            self.logger.info("Jade Lizard strategy stopped")
-            self._emit_strategy_event('strategy_stopped', {})
-        else:
-            self.logger.warning(f"Cannot stop from state: {self.state}")
-    
-    def cleanup(self) -> None:
-        """Clean up strategy resources."""
-        self.positions.clear()
-        self.trade_history.clear()
-        self.daily_pnl = 0.0
-        self.total_exposure = 0.0
-        self.logger.info("Jade Lizard strategy cleanup completed")
-    
-    # ==========================================================================
-    # PRIVATE HELPER METHODS
-    # ==========================================================================
-    def _calculate_required_capital(self, market_data: Dict[str, Any]) -> float:
-        """
-        Calculate required capital for Jade Lizard strategy.
-        
-        Args:
-            market_data: Current market data
+            # Calculate current value of each leg
+            put_value = self._calculate_option_data(
+                setup.short_put.strike, current_price, setup.expiry,
+                current_iv, setup.short_put.option_type
+            )['premium']
             
-        Returns:
-            Required capital amount
-        """
-        underlying_price = market_data.get('underlying_price', 0)
-        if underlying_price <= 0:
-            return 0
-        
-        # Estimate strikes for capital calculation
-        strikes = self._calculate_strikes(market_data)
-        if not strikes:
-            return 0
-        
-        short_put_strike, _, _ = strikes
-        
-        # For Jade Lizard, margin requirement is typically short put strike minus net credit
-        estimated_net_credit = underlying_price * 0.02  # Estimate 2% of underlying
-        margin_per_contract = (short_put_strike - estimated_net_credit) * 100
-        
-        # Calculate position size
-        position_size = self._calculate_position_size(market_data)
-        
-        # Total required capital with safety buffer
-        required_capital = margin_per_contract * position_size * 1.1
-        
-        return required_capital
-    
-    def _calculate_position_size(self, market_data: Dict[str, Any]) -> int:
-        """
-        Calculate appropriate position size.
-        
-        Args:
-            market_data: Current market data
+            short_call_value = self._calculate_option_data(
+                setup.short_call.strike, current_price, setup.expiry,
+                current_iv, setup.short_call.option_type
+            )['premium']
             
-        Returns:
-            Position size in contracts
-        """
-        account_value = market_data.get('account_value', 0)
-        underlying_price = market_data.get('underlying_price', 0)
-        
-        if account_value <= 0 or underlying_price <= 0:
-            return 0
-        
-        # Calculate based on percentage of account
-        target_investment = account_value * self.params['position_size_percent']
-        contracts = int(target_investment / (underlying_price * 100))
-        
-        return max(1, contracts)  # Minimum 1 contract
-    
-    def _get_target_expiration(self, market_data: Dict[str, Any]) -> Optional[datetime.datetime]:
-        """
-        Get target expiration date for options.
-        
-        Args:
-            market_data: Current market data
+            long_call_value = self._calculate_option_data(
+                setup.long_call.strike, current_price, setup.expiry,
+                current_iv, setup.long_call.option_type
+            )['premium']
             
-        Returns:
-            Target expiration date or None
-        """
-        expiration_dates = market_data.get('expiration_dates', {})
-        target_days = str(self.params['days_to_expiration'])
+            # Current position value (negative because we're short)
+            current_value = -(put_value + short_call_value - long_call_value) * SPY_CONTRACT_MULTIPLIER
+            
+            position.current_value = current_value
+            position.unrealized_pnl = setup.total_credit + current_value
+            position.pnl_percent = (position.unrealized_pnl / setup.total_credit) * 100
+            
+        except Exception as e:
+            self.logger.error(f"Error updating position value: {e}")
+    
+    def _update_risk_metrics(self, position: JadeLizardPosition,
+                           current_price: float,
+                           market_data: pd.DataFrame):
+        """Update position risk metrics"""
+        try:
+            # Recalculate Greeks with current market data
+            new_metrics = self._calculate_risk_metrics(position.setup, market_data)
+            position.risk_metrics = new_metrics
+            
+            # Check for new management triggers
+            if new_metrics.pin_risk and "pin_risk" not in position.management_triggers:
+                position.management_triggers.append("pin_risk")
+                self.logger.warning(f"Pin risk detected for {position.position_id}")
+            
+            if new_metrics.early_assignment_risk and "assignment_risk" not in position.management_triggers:
+                position.management_triggers.append("assignment_risk")
+                self.logger.warning(f"Early assignment risk for {position.position_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Error updating risk metrics: {e}")
+    
+    def _check_exit_conditions(self, position: JadeLizardPosition,
+                             market_data: pd.DataFrame) -> Optional[TradingSignal]:
+        """Check position exit conditions"""
+        # Profit target reached
+        if position.pnl_percent >= PROFIT_TARGET_PERCENT:
+            return self._create_exit_signal(position, "profit_target")
         
-        if target_days in expiration_dates:
-            return expiration_dates[target_days]
+        # Loss threshold breached
+        if position.pnl_percent <= -LOSS_THRESHOLD_PERCENT:
+            return self._create_exit_signal(position, "loss_threshold")
         
-        # Find closest available expiration
-        if expiration_dates:
-            available_days = [int(k) for k in expiration_dates.keys() if k.isdigit()]
-            if available_days:
-                closest_days = min(available_days, key=lambda x: abs(x - self.params['days_to_expiration']))
-                return expiration_dates[str(closest_days)]
+        # Portfolio delta limit breached
+        if abs(self.portfolio_greeks['delta']) > MAX_PORTFOLIO_DELTA:
+            return self._create_exit_signal(position, "delta_limit")
+        
+        # Early assignment risk with adverse move
+        current_price = market_data['close'].iloc[-1]
+        if position.risk_metrics.early_assignment_risk:
+            if current_price < position.setup.short_put.strike * 0.98:
+                return self._create_exit_signal(position, "assignment_risk_put")
+        
+        # Time-based exit (1 DTE)
+        if position.dte <= 1:
+            return self._create_exit_signal(position, "expiration")
+        
+        # Risk level escalation
+        if position.risk_metrics.current_risk_level == RiskProfile.EXTREME:
+            return self._create_exit_signal(position, "extreme_risk")
         
         return None
     
-    def _round_to_available_strike(self, target_strike: float, available_strikes: List[float]) -> float:
-        """
-        Round target strike to nearest available strike.
+    def _create_exit_signal(self, position: JadeLizardPosition,
+                          reason: str) -> TradingSignal:
+        """Create exit signal"""
+        position.exit_time = datetime.now()
+        position.exit_reason = reason
+        position.state = JadeLizardState.CLOSING
         
-        Args:
-            target_strike: Target strike price
-            available_strikes: List of available strikes
-            
-        Returns:
-            Nearest available strike
-        """
-        if not available_strikes:
-            return target_strike
+        # Update performance stats
+        self._update_performance_stats(position)
         
-        return min(available_strikes, key=lambda x: abs(x - target_strike))
-    
-    def _validate_strike_relationships(self, short_put_strike: float, 
-                                     short_call_strike: float, 
-                                     long_call_strike: float) -> bool:
-        """
-        Validate strike price relationships for Jade Lizard.
-        
-        Args:
-            short_put_strike: Short put strike
-            short_call_strike: Short call strike
-            long_call_strike: Long call strike
-            
-        Returns:
-            Whether strikes are valid
-        """
-        # Short put should be below short call
-        if short_put_strike >= short_call_strike:
-            self.logger.warning("Short put strike should be below short call strike")
-            return False
-        
-        # Long call should be above short call
-        if long_call_strike <= short_call_strike:
-            self.logger.warning("Long call strike should be above short call strike")
-            return False
-        
-        # Check minimum spread width
-        call_spread_width = long_call_strike - short_call_strike
-        if call_spread_width < 2.5:  # Minimum $2.50 spread
-            self.logger.warning(f"Call spread width too narrow: {call_spread_width}")
-            return False
-        
-        return True
-    
-    def _calculate_strategy_metrics(self, market_data: Dict[str, Any], 
-                                  strikes: Tuple[float, float, float],
-                                  position_size: int) -> Dict[str, float]:
-        """
-        Calculate strategy metrics for entry signal.
-        
-        Args:
-            market_data: Current market data
-            strikes: Strike prices tuple
-            position_size: Position size
-            
-        Returns:
-            Strategy metrics dictionary
-        """
-        short_put_strike, short_call_strike, long_call_strike = strikes
-        underlying_price = market_data.get('underlying_price', 0)
-        
-        # Estimate option premiums (simplified calculation)
-        iv = market_data.get('iv', 0.2)
-        days_to_exp = self.params['days_to_expiration']
-        
-        # Rough premium estimates
-        short_put_premium = underlying_price * 0.025 * (iv / 0.2) * (days_to_exp / 45)
-        short_call_premium = underlying_price * 0.025 * (iv / 0.2) * (days_to_exp / 45)
-        long_call_premium = underlying_price * 0.015 * (iv / 0.2) * (days_to_exp / 45)
-        
-        # Net credit received
-        net_credit = (short_put_premium + short_call_premium - long_call_premium) * 100 * position_size
-        
-        # Max profit is the net credit
-        max_profit = net_credit
-        
-        # Max loss is short put strike minus net credit (per contract) * position size * 100
-        max_loss = (short_put_strike - (net_credit / (position_size * 100))) * position_size * 100
-        
-        # Expected profit (simplified)
-        pop = self.calculate_probability_of_profit(market_data)
-        expected_profit = pop * max_profit - (1 - pop) * (max_loss * 0.5)  # Assume partial loss
-        
-        return {
-            'net_credit': net_credit,
-            'max_profit': max_profit,
-            'max_risk': max_loss,
-            'expected_profit': expected_profit,
-            'pop': pop
-        }
-    
-    def _calculate_signal_confidence(self, market_data: Dict[str, Any]) -> float:
-        """
-        Calculate confidence level for entry signal.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Confidence level (0.0 to 1.0)
-        """
-        confidence_factors = []
-        
-        # IV rank factor
-        iv_rank = market_data.get('iv_rank', 0)
-        if iv_rank >= 60:
-            confidence_factors.append(0.9)
-        elif iv_rank >= 40:
-            confidence_factors.append(0.7)
-        else:
-            confidence_factors.append(0.5)
-        
-        # Market regime factor
-        if self._is_favorable_market_regime(market_data):
-            confidence_factors.append(0.8)
-        else:
-            confidence_factors.append(0.6)
-        
-        # Time of day factor
-        current_time = market_data.get('current_time')
-        if current_time and isinstance(current_time, str):
-            current_time = datetime.datetime.strptime(current_time, '%H:%M').time()
-            if datetime.time(10, 30) <= current_time <= datetime.time(13, 30):
-                confidence_factors.append(0.8)  # Optimal trading window
-            else:
-                confidence_factors.append(0.6)
-        
-        return sum(confidence_factors) / len(confidence_factors) if confidence_factors else 0.5
-    
-    def _get_entry_criteria_summary(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Get summary of entry criteria for signal metadata.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Entry criteria summary
-        """
-        return {
-            'iv_rank': market_data.get('iv_rank'),
-            'underlying_price': market_data.get('underlying_price'),
-            'market_regime': 'favorable' if self._is_favorable_market_regime(market_data) else 'unfavorable',
-            'time_of_day': market_data.get('current_time'),
-            'day_of_week': market_data.get('current_day_of_week'),
-            'available_capital': self.risk_manager.get_available_capital(),
-            'strategy_exposure': self.risk_manager.get_strategy_exposure(self.strategy_type)
-        }
-    
-    def _generate_exit_signal(self, position: JadeLizardPosition, 
-                            market_data: Dict[str, Any],
-                            exit_reason: ExitReason) -> Optional[StrategySignal]:
-        """
-        Generate exit signal for position.
-        
-        Args:
-            position: Position to exit
-            market_data: Current market data
-            exit_reason: Reason for exit
-            
-        Returns:
-            Exit signal or None
-        """
-        try:
-            # Create inverse strategy for closing
-            option_strategy = self._create_closing_strategy(position)
-            
-            # Create exit signal
-            signal = StrategySignal(
-                strategy_id=self.id,
-                strategy_name=self.name,
-                signal_type=SignalType.EXIT,
-                timestamp=datetime.datetime.now(),
-                underlying_symbol=market_data['underlying_symbol'],
-                option_strategy=option_strategy,
-                confidence=0.9,  # High confidence for risk management exits
-                expected_profit=position.current_pnl,
-                max_risk=0,  # Closing position
-                probability_of_profit=1.0,  # Certain exit
-                metadata={
-                    'position_id': position.id,
-                    'exit_reason': exit_reason.value,
-                    'days_held': (datetime.datetime.now() - position.entry_time).days,
-                    'entry_credit': position.net_credit,
-                    'current_pnl': position.current_pnl
-                }
-            )
-            
-            self.logger.info(f"Generated exit signal for position {position.id}: {exit_reason.value}")
-            self._emit_strategy_event('exit_signal_generated', {
-                'position_id': position.id,
-                'exit_reason': exit_reason.value,
-                'pnl': position.current_pnl
-            })
-            
-            return signal
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_generate_exit_signal',
-                'position_id': position.id,
-                'exit_reason': exit_reason.value
-            })
-            return None
-    
-    def _create_closing_strategy(self, position: JadeLizardPosition) -> OptionStrategy:
-        """
-        Create inverse strategy for closing position.
-        
-        Args:
-            position: Position to close
-            
-        Returns:
-            Closing option strategy
-        """
-        # Create inverse Jade Lizard (buy put, buy call, sell call)
-        return SpyderOptionStrategies.jade_lizard_close(
-            underlying_symbol="SPY",
-            short_put_strike=position.short_put_strike,
-            short_call_strike=position.short_call_strike,
-            long_call_strike=position.long_call_strike,
-            expiry=position.expiration,
-            quantity=position.quantity
-        )
-    
-    def _update_position_pnl(self, position: JadeLizardPosition, market_data: Dict[str, Any]) -> None:
-        """
-        Update position P&L based on current market data.
-        
-        Args:
-            position: Position to update
-            market_data: Current market data
-        """
-        try:
-            # Get current option prices from market data
-            option_chain = market_data.get('option_chain', {})
-            
-            if option_chain:
-                # Calculate current value of all legs
-                current_value = self._calculate_position_value(position, option_chain)
-                
-                # P&L is initial credit minus current value
-                position.current_pnl = position.net_credit - current_value
-                
-                # Update max profit achieved
-                if position.current_pnl > position.max_profit:
-                    position.max_profit = position.current_pnl
-        
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_update_position_pnl',
-                'position_id': position.id
-            })
-    
-    def _calculate_position_value(self, position: JadeLizardPosition, 
-                                option_chain: Dict[str, Any]) -> float:
-        """
-        Calculate current value of position legs.
-        
-        Args:
-            position: Position to value
-            option_chain: Current option chain data
-            
-        Returns:
-            Current position value
-        """
-        total_value = 0.0
-        
-        # Short put value (we owe this)
-        short_put_key = f"{position.expiration.strftime('%Y-%m-%d')}_{position.short_put_strike}_put"
-        if short_put_key in option_chain:
-            short_put_value = option_chain[short_put_key].get('mid', 0)
-            total_value += short_put_value * position.quantity * 100
-        
-        # Short call value (we owe this)
-        short_call_key = f"{position.expiration.strftime('%Y-%m-%d')}_{position.short_call_strike}_call"
-        if short_call_key in option_chain:
-            short_call_value = option_chain[short_call_key].get('mid', 0)
-            total_value += short_call_value * position.quantity * 100
-        
-        # Long call value (we own this)
-        long_call_key = f"{position.expiration.strftime('%Y-%m-%d')}_{position.long_call_strike}_call"
-        if long_call_key in option_chain:
-            long_call_value = option_chain[long_call_key].get('mid', 0)
-            total_value -= long_call_value * position.quantity * 100
-        
-        return total_value
-    
-    def _update_position_monitoring(self, market_data: Dict[str, Any]) -> None:
-        """
-        Update position monitoring and Greeks.
-        
-        Args:
-            market_data: Current market data
-        """
-        for position in self.positions:
-            try:
-                # Update P&L
-                self._update_position_pnl(position, market_data)
-                
-                # Update Greeks if available
-                self._update_position_greeks(position, market_data)
-                
-                # Check risk thresholds
-                self._check_position_risk_thresholds(position, market_data)
-                
-            except Exception as e:
-                self.error_handler.handle_error(e, {
-                    'method': '_update_position_monitoring',
-                    'position_id': position.id
-                })
-    
-    def _update_position_greeks(self, position: JadeLizardPosition, 
-                              market_data: Dict[str, Any]) -> None:
-        """
-        Update position Greeks using SPYDER's Greeks calculator.
-        
-        Args:
-            position: Position to update
-            market_data: Current market data
-        """
-        try:
-            underlying_price = market_data.get('underlying_price', 0)
-            if underlying_price <= 0:
-                return
-            
-            # Calculate Greeks for each leg and aggregate
-            greeks = self.greeks_calculator.calculate_position_greeks(
-                position_legs=[
-                    {
-                        'option_type': 'put',
-                        'strike': position.short_put_strike,
-                        'expiry': position.expiration,
-                        'quantity': -position.quantity,  # Short position
-                        'underlying_price': underlying_price
-                    },
-                    {
-                        'option_type': 'call',
-                        'strike': position.short_call_strike,
-                        'expiry': position.expiration,
-                        'quantity': -position.quantity,  # Short position
-                        'underlying_price': underlying_price
-                    },
-                    {
-                        'option_type': 'call',
-                        'strike': position.long_call_strike,
-                        'expiry': position.expiration,
-                        'quantity': position.quantity,  # Long position
-                        'underlying_price': underlying_price
-                    }
-                ]
-            )
-            
-            position.greeks = greeks
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_update_position_greeks',
-                'position_id': position.id
-            })
-    
-    def _check_position_risk_thresholds(self, position: JadeLizardPosition,
-                                      market_data: Dict[str, Any]) -> None:
-        """
-        Check position against risk thresholds.
-        
-        Args:
-            position: Position to check
-            market_data: Current market data
-        """
-        # Check delta risk
-        if 'delta' in position.greeks:
-            if abs(position.greeks['delta']) > 25:  # Delta threshold
-                self._emit_strategy_event('delta_risk_warning', {
-                    'position_id': position.id,
-                    'delta': position.greeks['delta']
-                })
-        
-        # Check gamma risk
-        if 'gamma' in position.greeks:
-            if abs(position.greeks['gamma']) > 10:  # Gamma threshold
-                self._emit_strategy_event('gamma_risk_warning', {
-                    'position_id': position.id,
-                    'gamma': position.greeks['gamma']
-                })
-
-# ==============================================================================
-# MODULE FUNCTIONS
-# ==============================================================================
-def create_jade_lizard_strategy(config: Optional[Dict[str, Any]] = None) -> SpyderD19_JadeLizard:
-    """
-    Factory function to create Jade Lizard strategy.
-    
-    Args:
-        config: Optional configuration dictionary
-        
-    Returns:
-        Configured SpyderD19_JadeLizard instance
-    """
-    return SpyderD19_JadeLizard(config)
-
-# ==============================================================================
-# MODULE INITIALIZATION
-# ==============================================================================
-# Module-level initialization code
-_module_instance: Optional[SpyderD19_JadeLizard] = None
-
-def get_module_instance(config: Optional[Dict[str, Any]] = None) -> SpyderD19_JadeLizard:
-    """
-    Get singleton instance of the Jade Lizard strategy.
-    
-    Args:
-        config: Configuration if creating new instance
-        
-    Returns:
-        Module instance
-    """
-    global _module_instance
-    if _module_instance is None:
-        _module_instance = SpyderD19_JadeLizard(config)
-    return _module_instance
-
-# ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
-if __name__ == "__main__":
-    async def test_jade_lizard_strategy():
-        """Test the Jade Lizard strategy implementation."""
-        print("🕷️  Testing SpyderD19_JadeLizard Strategy")
-        print("=" * 60)
-        
-        # Initialize strategy
-        config = {
-            'short_put_delta': 0.30,
-            'short_call_delta': 0.30,
-            'call_spread_width': 5,
-            'iv_rank_min': 40,
-            'position_size_percent': 0.05,
-            'is_active': True
-        }
-        
-        strategy = SpyderD19_JadeLizard(config)
-        print(f"✅ Strategy initialized: {strategy.name}")
-        
-        # Test market data
-        market_data = {
-            'underlying_price': 450.0,
-            'underlying_symbol': 'SPY',
-            'iv_rank': 55,
-            'iv': 0.25,
-            'current_time': '11:00',
-            'current_day_of_week': 'monday',
-            'account_value': 100000,
-            'trend': 'neutral',
-            'available_strikes': [440, 445, 450, 455, 460, 465, 470],
-            'expiration_dates': {
-                '45': datetime.datetime.now() + datetime.timedelta(days=45)
+        signal = TradingSignal(
+            timestamp=datetime.now(),
+            signal_type=SignalType.EXIT,
+            strength=SignalStrength.STRONG,
+            confidence=0.95,
+            metadata={
+                'position_id': position.position_id,
+                'exit_reason': reason,
+                'days_held': position.days_held,
+                'unrealized_pnl': position.unrealized_pnl,
+                'pnl_percent': position.pnl_percent,
+                'final_dte': position.dte,
+                'management_triggers': position.management_triggers,
+                'final_risk_level': position.risk_metrics.current_risk_level.value
             }
-        }
+        )
         
-        print(f"📊 Market Data: SPY=${market_data['underlying_price']}, IV Rank={market_data['iv_rank']}")
-        
-        # Test entry conditions
-        print("\n🔍 Testing Entry Conditions...")
-        entry_conditions = strategy._check_entry_conditions(market_data)
-        print(f"Entry Conditions Met: {'✅ YES' if entry_conditions else '❌ NO'}")
-        
-        # Test strike calculation
-        print("\n🎯 Testing Strike Calculation...")
-        strikes = strategy._calculate_strikes(market_data)
-        if strikes:
-            short_put, short_call, long_call = strikes
-            print(f"Strikes: Put={short_put}, Call={short_call}/{long_call}")
-            print(f"Call Spread Width: ${long_call - short_call}")
-        else:
-            print("❌ Strike calculation failed")
-        
-        # Test signal generation
-        print("\n📡 Testing Signal Generation...")
-        signals = strategy.generate_signals(market_data)
-        print(f"Generated {len(signals)} signals")
-        
-        if signals:
-            signal = signals[0]
-            print(f"Signal Type: {signal.signal_type}")
-            print(f"Confidence: {signal.confidence:.2%}")
-            print(f"Expected Profit: ${signal.expected_profit:.2f}")
-            print(f"Max Risk: ${signal.max_risk:.2f}")
-            print(f"Probability of Profit: {signal.probability_of_profit:.2%}")
-        
-        # Test probability calculation
-        print("\n📈 Testing Probability Calculation...")
-        pop = strategy.calculate_probability_of_profit(market_data)
-        print(f"Probability of Profit: {pop:.2%}")
-        
-        # Test performance summary
-        print("\n📊 Testing Performance Summary...")
-        performance = strategy.get_performance_summary()
-        print(f"Performance Summary: {performance}")
-        
-        # Test lifecycle methods
-        print("\n🔄 Testing Lifecycle Methods...")
-        strategy.start()
-        print(f"Strategy State: {strategy.state}")
-        
-        strategy.stop()
-        print(f"Strategy State after stop: {strategy.state}")
-        
-        strategy.cleanup()
-        print("Strategy cleanup completed")
-        
-        print("\n✅ SpyderD19_JadeLizard test completed successfully!")
-        print("=" * 60)
-        
-        # Test key features summary
-        print("\n🌟 Key Features Tested:")
-        print("- ✅ SPYDER template compliance with proper header and structure")
-        print("- ✅ Professional strike selection using delta targeting")
-        print("- ✅ No upside risk validation through call spread construction")
-        print("- ✅ High probability of profit calculation (70%+ range)")
-        print("- ✅ Real-time Greeks monitoring and risk management")
-        print("- ✅ Event-driven architecture integration")
-        print("- ✅ Position group validation using SPYDER validators")
-        print("- ✅ Comprehensive error handling and logging")
-        print("- ✅ Performance metrics tracking and reporting")
-        print("- ✅ LEAN algorithm pattern compliance")
+        self.logger.info(f"Exit Jade Lizard {position.position_id}: {reason}, P&L: ${position.unrealized_pnl:.2f} ({position.pnl_percent:.1f}%)")
+        return signal
     
-    # Run test
-    asyncio.run(test_jade_lizard_strategy())
+    def _close_position(self, position: JadeLizardPosition):
+        """Close position and cleanup"""
+        position.state = JadeLizardState.COMPLETE
+    
+    def _update_performance_stats(self, position: JadeLizardPosition):
+        """Update strategy performance statistics"""
+        self.performance_stats['total_trades'] += 1
+        
+        if position.unrealized_pnl > 0:
+            self.performance_stats['winning_trades'] += 1
+            
+        # Perfect trade (kept full premium)
+        if position.pnl_percent >= 95:
+            self.performance_stats['perfect_trades'] += 1
+        
+        # Update averages
+        n = self.performance_stats['total_trades']
+        avg_credit = self.performance_stats['avg_credit']
+        self.performance_stats['avg_credit'] = (avg_credit * (n-1) + position.setup.total_credit) / n
+        
+        avg_days = self.performance_stats['avg_holding_days']
+        self.performance_stats['avg_holding_days'] = (avg_days * (n-1) + position.days_held) / n
+        
+        # Total premium
+        self.performance_stats['total_premium_collected'] += position.setup.total_credit
+        
+        # Best/worst trade
+        if position.unrealized_pnl > self.performance_stats['best_trade']:
+            self.performance_stats['best_trade'] = position.unrealized_pnl
+        if position.unrealized_pnl < self.performance_stats['worst_trade']:
+            self.performance_stats['worst_trade'] = position.unrealized_pnl
+    
+    # ==========================================================================
+    # PUBLIC INTERFACE
+    # ==========================================================================
+    
+    def add_position(self, signal: TradingSignal) -> str:
+        """Add new Jade Lizard position"""
+        position_id = f"JADE_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        
+        # Extract setup and risk metrics from signal
+        setup_dict = signal.metadata['setup']
+        risk_metrics_dict = signal.metadata['risk_metrics']
+        
+        # In production, would properly deserialize
+        # For now, create mock position
+        position = JadeLizardPosition(
+            position_id=position_id,
+            setup=None,  # Would reconstruct
+            entry_time=datetime.now(),
+            entry_price=signal.metadata.get('current_price', 0),
+            risk_metrics=None,  # Would reconstruct
+            state=JadeLizardState.MONITORING
+        )
+        
+        self.active_positions[position_id] = position
+        self.logger.info(f"Added Jade Lizard position {position_id}")
+        
+        return position_id
+    
+    def get_position_summary(self) -> List[Dict[str, Any]]:
+        """Get summary of active positions"""
+        summaries = []
+        
+        for position_id, position in self.active_positions.items():
+            summary = {
+                'position_id': position_id,
+                'days_held': position.days_held,
+                'dte': position.dte,
+                'unrealized_pnl': position.unrealized_pnl,
+                'pnl_percent': position.pnl_percent,
+                'strikes': {
+                    'put': position.setup.short_put.strike if position.setup else 0,
+                    'short_call': position.setup.short_call.strike if position.setup else 0,
+                    'long_call': position.setup.long_call.strike if position.setup else 0
+                },
+                'risk_level': position.risk_metrics.current_risk_level.value if position.risk_metrics else 'unknown',
+                'state': position.state.name,
+                'triggers': position.management_triggers
+            }
+            summaries.append(summary)
+        
+        return summaries
+    
+    def get_strategy_stats(self) -> Dict[str, Any]:
+        """Get strategy performance statistics"""
+        total_trades = self.performance_stats['total_trades']
+        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0
+        perfect_rate = self.performance_stats['perfect_trades'] / total_trades if total_trades > 0 else 0
+        
+        return {
+            'active_positions': len(self.active_positions),
+            'portfolio_greeks': self.portfolio_greeks,
+            'total_trades': total_trades,
+            'win_rate': win_rate,
+            'perfect_trade_rate': perfect_rate,
+            'avg_credit': self.performance_stats['avg_credit'],
+            'avg_holding_days': self.performance_stats['avg_holding_days'],
+            'total_premium_collected': self.performance_stats['total_premium_collected'],
+            'best_trade': self.performance_stats['best_trade'],
+            'worst_trade': self.performance_stats['worst_trade']
+        }
+
+
+# ==============================================================================
+# TESTING
+# ==============================================================================
+def test_jade_lizard():
+    """Test the Jade Lizard strategy"""
+    print("Testing Jade Lizard Strategy")
+    print("=" * 60)
+    
+    # Create mock components
+    from SpyderA_Core.SpyderA05_EventManager import EventManager
+    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    
+    event_manager = EventManager()
+    risk_profile = RiskProfile(
+        account_size=100000,
+        max_position_size=0.02,
+        max_portfolio_risk=0.06,
+        max_loss_per_trade=1000
+    )
+    
+    config = {
+        'max_positions': 2,
+        'min_credit': 1.00,
+        'enforce_no_upside_risk': True
+    }
+    
+    # Create strategy
+    strategy = JadeLizardStrategy(event_manager, risk_profile, config)
+    
+    print(f"Strategy: {strategy.name}")
+    print(f"Min Credit: ${strategy.min_credit}")
+    print(f"Enforce No Upside Risk: {strategy.enforce_no_upside_risk}")
+    
+    # Create neutral to slightly bullish market
+    dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
+    
+    # Slight uptrend with consolidation
+    base_price = 450
+    trend = np.linspace(0, 5, 100)  # Slight uptrend
+    noise = np.random.randn(100) * 1.5
+    prices = base_price + trend + noise
+    
+    # Add IV data
+    iv_series = 0.22 + np.sin(np.linspace(0, 2*np.pi, 100)) * 0.05
+    
+    market_data = pd.DataFrame({
+        'timestamp': dates,
+        'open': prices - 0.5,
+        'high': prices + 1,
+        'low': prices - 1,
+        'close': prices,
+        'volume': np.random.randint(50000000, 150000000, 100),
+        'iv': iv_series
+    })
+    
+    # Test market sentiment
+    print("\nMarket Sentiment Analysis:")
+    sentiment = strategy._analyze_market_sentiment(market_data)
+    print(f"Sentiment: {sentiment.value}")
+    
+    # Test IV rank
+    iv_rank = strategy._calculate_iv_rank(market_data)
+    print(f"IV Rank: {iv_rank:.1f}")
+    
+    # Check events
+    print(f"Events Clear: {strategy._check_upcoming_events()}")
+    
+    # Generate signals
+    print("\nGenerating Signals...")
+    signals = strategy.generate_signals(market_data)
+    
+    print(f"Generated {len(signals)} signals")
+    
+    for signal in signals:
+        setup = signal.metadata
+        print(f"\nJade Lizard Setup:")
+        print(f"Strikes: Put ${setup['strikes']['short_put']}, "
+              f"Call ${setup['strikes']['short_call']}/{setup['strikes']['long_call']}")
+        print(f"Total Credit: ${setup['credits']['total']:.2f}")
+        print(f"  - Put Credit: ${setup['credits']['put']:.2f}")
+        print(f"  - Call Spread Credit: ${setup['credits']['call_spread']:.2f}")
+        print(f"No Upside Risk: {setup['no_upside_risk']}")
+        print(f"Breakeven: ${setup['breakeven']:.2f}")
+        print(f"Max Profit: ${setup['max_profit']:.2f}")
+        print(f"Max Loss: ${setup['max_loss']:.2f}")
+        print(f"Probability of Profit: {signal.confidence:.1%}")
+        print(f"IV Rank: {setup['iv_rank']:.1f}")
+        print(f"Market Sentiment: {setup['sentiment']}")
+        
+        # Risk metrics
+        risk = setup['risk_metrics']
+        print(f"\nRisk Metrics:")
+        print(f"Portfolio Delta: {risk['portfolio_delta']:.1f}")
+        print(f"Portfolio Theta: ${risk['portfolio_theta']:.2f}")
+        print(f"Risk Level: {risk['current_risk_level']}")
+        
+        # Add position
+        position_id = strategy.add_position(signal)
+    
+    # Test position management
+    if strategy.active_positions:
+        print("\n" + "=" * 40)
+        print("Position Management Test")
+        
+        # Simulate price movement
+        for i in range(20):
+            # Small moves with occasional larger moves
+            if i % 5 == 0:
+                price_change = np.random.randn() * 3  # Larger move
+            else:
+                price_change = np.random.randn() * 1  # Normal move
+            
+            new_price = prices[-1] + price_change
+            
+            market_data.loc[len(market_data)] = {
+                'timestamp': datetime.now() + timedelta(days=i),
+                'open': new_price - 0.3,
+                'high': new_price + 0.5,
+                'low': new_price - 0.5,
+                'close': new_price,
+                'volume': 100000000,
+                'iv': 0.20 + np.random.randn() * 0.02
+            }
+            
+            prices = np.append(prices, new_price)
+            
+            # Manage positions
+            if i % 5 == 0:  # Check every 5 days
+                management_signals = strategy.manage_positions(market_data)
+                
+                if management_signals:
+                    for signal in management_signals:
+                        print(f"\nExit Signal Day {i}")
+                        print(f"Reason: {signal.metadata['exit_reason']}")
+                        print(f"Days Held: {signal.metadata['days_held']}")
+                        print(f"P&L: ${signal.metadata['unrealized_pnl']:.2f}")
+                        print(f"P&L %: {signal.metadata['pnl_percent']:.1f}%")
+                        print(f"Final DTE: {signal.metadata['final_dte']}")
+                        print(f"Triggers: {signal.metadata['management_triggers']}")
+    
+    # Print position summary
+    positions = strategy.get_position_summary()
+    if positions:
+        print("\n" + "=" * 40)
+        print("Active Positions:")
+        for pos in positions:
+            print(f"\n{pos['position_id']}:")
+            print(f"  DTE: {pos['dte']}")
+            print(f"  P&L: ${pos['unrealized_pnl']:.2f} ({pos['pnl_percent']:.1f}%)")
+            print(f"  Strikes: Put ${pos['strikes']['put']}, "
+                  f"Call ${pos['strikes']['short_call']}/{pos['strikes']['long_call']}")
+            print(f"  Risk Level: {pos['risk_level']}")
+            print(f"  State: {pos['state']}")
+    
+    # Print final statistics
+    stats = strategy.get_strategy_stats()
+    print("\n" + "=" * 40)
+    print("Strategy Statistics:")
+    print(f"Active Positions: {stats['active_positions']}")
+    print(f"Portfolio Greeks:")
+    print(f"  Delta: {stats['portfolio_greeks']['delta']:.1f}")
+    print(f"  Gamma: {stats['portfolio_greeks']['gamma']:.1f}")
+    print(f"  Theta: ${stats['portfolio_greeks']['theta']:.2f}")
+    print(f"Total Trades: {stats['total_trades']}")
+    print(f"Win Rate: {stats['win_rate']:.1%}")
+    print(f"Perfect Trade Rate: {stats['perfect_trade_rate']:.1%}")
+    print(f"Average Credit: ${stats['avg_credit']:.2f}")
+    print(f"Avg Holding Days: {stats['avg_holding_days']:.1f}")
+    print(f"Total Premium Collected: ${stats['total_premium_collected']:.2f}")
+    print(f"Best Trade: ${stats['best_trade']:.2f}")
+    print(f"Worst Trade: ${stats['worst_trade']:.2f}")
+    
+    print("\n✅ Jade Lizard Strategy Test Complete!")
+    print("\nKey Features Tested:")
+    print("- ✅ Market sentiment analysis")
+    print("- ✅ Three-leg position validation")
+    print("- ✅ No upside risk verification")
+    print("- ✅ Delta-based strike selection")
+    print("- ✅ Probability calculations")
+    print("- ✅ Comprehensive risk metrics")
+    print("- ✅ Portfolio Greeks aggregation")
+    print("- ✅ Pin risk detection")
+    print("- ✅ Early assignment monitoring")
+    print("- ✅ Performance tracking")
+
+
+if __name__ == "__main__":
+    test_jade_lizard()

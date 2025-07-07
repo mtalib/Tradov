@@ -22,8 +22,8 @@ Key LEAN Enhancements:
 
 Based on: QuantConnect LEAN IndexOptionShortPutOTMExpiryRegressionAlgorithm.py
 Author: Mohamed Talib
-Created: 2025-06-23
-Version: 3.0 (Enhanced with LEAN patterns)
+Created: 2025-01-10
+Version: 2.0 (Production-Ready)
 """
 
 # ==============================================================================
@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 import uuid
 import math
+from collections import defaultdict
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -47,788 +48,1058 @@ import pytz
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, StrategySignal, PositionType
-from SpyderU_Utilities.SpyderU14_OptionStrategies import SpyderOptionStrategies, StrategyType, OptionStrategy, OptionRight
-from SpyderB_Broker.SpyderB01_SpyderClient import get_ib_client
-from SpyderA_Core.SpyderA04_Scheduler import get_scheduler
-from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
-from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
-from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
+from SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    BaseStrategy, TradingSignal, SignalType, SignalStrength,
+    StrategyPosition, PositionType, PositionState,
+    EventManager, RiskProfile, Event, EventType
+)
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU07_Constants import (
     ZERO_DTE_PROFIT_TARGET,
     ZERO_DTE_MAX_TRADES,
-    ZERO_DTE_TIME_DECAY_MULTIPLIER
+    MIN_IV_RANK_THRESHOLD,
+    MAX_OVERNIGHT_GAP,
+    SPY_CONTRACT_MULTIPLIER
 )
-from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 
 # ==============================================================================
-# CONSTANTS (Enhanced with LEAN patterns)
+# ENHANCED CONSTANTS (LEAN-based)
 # ==============================================================================
-# LEAN-inspired 0DTE parameters
-LEAN_ENTRY_DELAY_MINUTES = 1  # From LEAN: "after_market_open(self.spx, 1)"
-OPTIMAL_ENTRY_TIME = time(9, 31)  # 9:31 AM ET (1 min after market open)
-LEAN_LIQUIDATION_TIME = time(15, 45)  # 15 minutes before close
-EXPIRY_CHECK_TIME = time(16, 0)  # Market close for expiry validation
+# Entry timing (LEAN pattern: 1 minute after open)
+ENTRY_DELAY_MINUTES = 1
+MARKET_OPEN_TIME = time(9, 30)
+MARKET_CLOSE_TIME = time(16, 0)
+ENTRY_TIME = time(9, 31)  # 1 minute after open
+EXIT_TIME = time(15, 50)  # 10 minutes before close
 
-# LEAN OTM thresholds (from IndexOptionShortPutOTMExpiryRegressionAlgorithm)
-OTM_PUT_THRESHOLD = 0.95  # Puts: strike <= 95% of underlying
-OTM_CALL_THRESHOLD = 1.05  # Calls: strike >= 105% of underlying
+# Strike selection
+OTM_STRIKE_OFFSET = 2  # $2 OTM for 0DTE
+DELTA_TARGET_PUT = -0.20  # Target delta for short puts
+DELTA_TARGET_CALL = 0.20  # Target delta for short calls
 
-# Strategy parameters
-MAX_0DTE_POSITIONS = 2
-MIN_TIME_TO_EXPIRY_HOURS = 1.0  # Minimum 1 hour to expiry
-PROFIT_TARGET_FAST = 0.25  # 25% quick profit target
-STOP_LOSS_TIGHT = 0.50  # 50% stop loss for 0DTE
+# Position management
+MAX_CONCURRENT_POSITIONS = 2  # Max 0DTE positions
+MIN_PREMIUM = 0.50  # Minimum premium to collect
+PROFIT_TARGET_PERCENT = 0.25  # Close at 25% profit
+STOP_LOSS_PERCENT = 2.00  # Stop at 200% loss
+TIME_STOP_HOUR = 15  # Close all by 3 PM
 
-# Volume and liquidity requirements
-MIN_0DTE_VOLUME = 1000
-MIN_0DTE_OPEN_INTEREST = 5000
-MIN_BID_ASK_SPREAD = 0.05
+# Market filters
+MIN_VOLUME = 50000000  # Minimum SPY volume
+MAX_VIX = 30  # Maximum VIX level
+MIN_IVR = 30  # Minimum IV rank
 
 # ==============================================================================
-# ENHANCED ENUMERATIONS
+# ENUMS
 # ==============================================================================
-class ZeroDTEState(Enum):
-    """0DTE position states (LEAN-inspired)"""
-    SCANNING = "scanning"
-    WAITING_FOR_ENTRY = "waiting_for_entry"  # LEAN: scheduled entry
-    VALIDATING_EXPIRY = "validating_expiry"  # LEAN: expiry validation
-    ACTIVE = "active"
-    MONITORING_EXPIRY = "monitoring_expiry"  # LEAN: delisting monitoring
-    EXPIRED_OTM = "expired_otm"  # LEAN: OTM expiry handling
-    LIQUIDATED = "liquidated"
-    ERROR = "error"
-
 class ZeroDTEStrategy(Enum):
-    """0DTE strategy types (from LEAN examples)"""
-    SHORT_OTM_PUT = "short_otm_put"  # From IndexOptionShortPutOTMExpiryRegressionAlgorithm
-    SHORT_OTM_CALL = "short_otm_call"  # From IndexOptionShortCallOTMExpiryRegressionAlgorithm
-    IRON_BUTTERFLY = "iron_butterfly_0dte"
-    SHORT_STRADDLE = "short_straddle_0dte"
-    SCALP_LONG = "scalp_long_0dte"
+    """0DTE strategy types"""
+    SHORT_PUT = auto()
+    SHORT_CALL = auto()
+    IRON_CONDOR = auto()
+    IRON_BUTTERFLY = auto()
+    CREDIT_SPREAD = auto()
 
-class LEANExpiryStatus(Enum):
-    """Expiry status tracking (LEAN-inspired)"""
-    VALID = "valid"
-    EXPIRING_TODAY = "expiring_today"
-    EXPIRED_ITM = "expired_itm"
-    EXPIRED_OTM = "expired_otm"
-    DELISTING_WARNING = "delisting_warning"
+class ZeroDTEState(Enum):
+    """0DTE position states"""
+    PENDING = auto()
+    ACTIVE = auto()
+    PROFIT_TARGET = auto()
+    STOP_LOSS = auto()
+    TIME_STOP = auto()
+    EXPIRED = auto()
+    CLOSED = auto()
+
+class MarketPhase(Enum):
+    """Intraday market phases"""
+    PRE_OPEN = auto()
+    OPENING = auto()
+    MORNING = auto()
+    MIDDAY = auto()
+    AFTERNOON = auto()
+    CLOSING = auto()
+    AFTER_HOURS = auto()
 
 # ==============================================================================
-# ENHANCED DATA STRUCTURES
+# DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class LEANZeroDTESetup:
-    """Enhanced 0DTE setup with LEAN patterns"""
-    strategy_type: ZeroDTEStrategy
-    underlying_symbol: str
-    underlying_price: float
-    
-    # Contract details (LEAN-style)
-    selected_strike: float
-    option_right: OptionRight
-    expiry: datetime
-    
-    # Entry timing (LEAN pattern)
-    scheduled_entry_time: datetime
-    market_open_time: datetime
-    
-    # Risk parameters
-    entry_price_estimate: float
-    profit_target: float
-    stop_loss: float
-    max_loss: float
-    
-    # LEAN validation fields
-    is_otm: bool = False
-    otm_percentage: float = 0.0
-    time_to_expiry_hours: float = 0.0
-    expected_contract_symbol: str = ""
-    
-    # Liquidity validation
-    volume: int = 0
-    open_interest: int = 0
-    bid_ask_spread: float = 0.0
-    
-    # Quality assessment
-    setup_quality: float = 0.0
-    validation_errors: List[str] = field(default_factory=list)
-    
-    def __post_init__(self):
-        """Calculate derived fields (LEAN-style)"""
-        self._calculate_otm_status()
-        self._calculate_time_to_expiry()
-        self._generate_expected_symbol()
-        self._validate_lean_requirements()
-    
-    def _calculate_otm_status(self):
-        """Calculate OTM status (from LEAN algorithms)"""
-        if self.option_right == OptionRight.PUT:
-            self.is_otm = self.selected_strike <= (self.underlying_price * OTM_PUT_THRESHOLD)
-            self.otm_percentage = (self.underlying_price - self.selected_strike) / self.underlying_price
-        else:  # CALL
-            self.is_otm = self.selected_strike >= (self.underlying_price * OTM_CALL_THRESHOLD)
-            self.otm_percentage = (self.selected_strike - self.underlying_price) / self.underlying_price
-    
-    def _calculate_time_to_expiry(self):
-        """Calculate time to expiry in hours"""
-        now = datetime.now()
-        if self.expiry > now:
-            delta = self.expiry - now
-            self.time_to_expiry_hours = delta.total_seconds() / 3600
-        else:
-            self.time_to_expiry_hours = 0.0
-    
-    def _generate_expected_symbol(self):
-        """Generate expected contract symbol (LEAN pattern)"""
-        # Format: SPY_YYMMDD_C/P_STRIKE
-        expiry_str = self.expiry.strftime("%y%m%d")
-        right_str = "C" if self.option_right == OptionRight.CALL else "P"
-        self.expected_contract_symbol = f"{self.underlying_symbol}_{expiry_str}_{right_str}_{self.selected_strike:08.0f}"
-    
-    def _validate_lean_requirements(self):
-        """Validate LEAN-specific requirements"""
-        # Must be same-day expiry
-        if self.expiry.date() != datetime.now().date():
-            self.validation_errors.append("Not a same-day expiry (0DTE)")
-        
-        # Must be OTM
-        if not self.is_otm:
-            self.validation_errors.append("Option is not Out-of-The-Money")
-        
-        # Minimum time to expiry
-        if self.time_to_expiry_hours < MIN_TIME_TO_EXPIRY_HOURS:
-            self.validation_errors.append(f"Insufficient time to expiry: {self.time_to_expiry_hours:.1f}h < {MIN_TIME_TO_EXPIRY_HOURS}h")
-        
-        # Liquidity requirements
-        if self.volume < MIN_0DTE_VOLUME:
-            self.validation_errors.append(f"Insufficient volume: {self.volume} < {MIN_0DTE_VOLUME}")
-        
-        if self.open_interest < MIN_0DTE_OPEN_INTEREST:
-            self.validation_errors.append(f"Insufficient open interest: {self.open_interest} < {MIN_0DTE_OPEN_INTEREST}")
-
-@dataclass
-class LEANZeroDTEPosition:
-    """LEAN-style 0DTE position tracking"""
+class ZeroDTEPosition:
+    """0DTE position tracking"""
     position_id: str
-    setup: LEANZeroDTESetup
-    strategy: OptionStrategy
-    
-    # Execution details
+    strategy_type: ZeroDTEStrategy
     entry_time: datetime
-    entry_price: float
-    quantity: int
+    expiry_date: date
+    strikes: Dict[str, float]  # e.g., {'short_put': 445, 'long_put': 440}
+    contracts: int
+    entry_premium: float
+    current_value: float = 0.0
+    state: ZeroDTEState = ZeroDTEState.PENDING
     
-    # Current status
-    state: ZeroDTEState
-    current_price: float = 0.0
+    # P&L tracking
     unrealized_pnl: float = 0.0
-    
-    # Expiry tracking (LEAN pattern)
-    expiry_status: LEANExpiryStatus = LEANExpiryStatus.VALID
-    delisting_warned: bool = False
-    
-    # Performance metrics
+    realized_pnl: float = 0.0
     max_profit: float = 0.0
     max_loss: float = 0.0
-    time_in_position: float = 0.0
     
-    def update_metrics(self):
-        """Update position metrics"""
-        if self.entry_price > 0:
-            self.unrealized_pnl = (self.current_price - self.entry_price) * self.quantity * 100
-            self.max_profit = max(self.max_profit, self.unrealized_pnl)
-            self.max_loss = min(self.max_loss, self.unrealized_pnl)
-        
-        # Update time in position
-        self.time_in_position = (datetime.now() - self.entry_time).total_seconds() / 3600
+    # Risk metrics
+    delta: float = 0.0
+    gamma: float = 0.0
+    theta: float = 0.0
+    
+    # Exit tracking
+    exit_time: Optional[datetime] = None
+    exit_reason: Optional[str] = None
+    
+    # Metadata
+    entry_conditions: Dict[str, Any] = field(default_factory=dict)
+    
+    @property
+    def time_to_expiry(self) -> float:
+        """Hours to expiry"""
+        if self.expiry_date == date.today():
+            close_time = datetime.combine(date.today(), MARKET_CLOSE_TIME)
+            return max(0, (close_time - datetime.now()).total_seconds() / 3600)
+        return 0
+    
+    @property
+    def profit_percentage(self) -> float:
+        """Current profit as percentage of max profit"""
+        return self.unrealized_pnl / self.max_profit if self.max_profit > 0 else 0
+
+@dataclass
+class MarketConditions:
+    """Intraday market conditions for 0DTE"""
+    timestamp: datetime
+    spot_price: float
+    opening_price: float
+    high_of_day: float
+    low_of_day: float
+    volume: int
+    vix: float
+    iv_rank: float
+    market_phase: MarketPhase
+    trend_direction: str  # 'up', 'down', 'sideways'
+    momentum: float
+    overnight_gap: float
+    
+    @property
+    def gap_percentage(self) -> float:
+        """Overnight gap as percentage"""
+        return self.overnight_gap / self.opening_price if self.opening_price > 0 else 0
+    
+    @property
+    def intraday_range(self) -> float:
+        """Intraday price range"""
+        return self.high_of_day - self.low_of_day
+
+@dataclass
+class ZeroDTESetup:
+    """0DTE trade setup configuration"""
+    strategy_type: ZeroDTEStrategy
+    strikes: Dict[str, float]
+    expiry: datetime
+    contracts: int
+    estimated_credit: float
+    max_profit: float
+    max_loss: float
+    probability_profit: float
+    entry_conditions: MarketConditions
+    score: float  # Setup quality score
 
 # ==============================================================================
-# ENHANCED ZERO DTE STRATEGY CLASS
+# ZERO DTE STRATEGY CLASS
 # ==============================================================================
-class EnhancedZeroDTEStrategy(BaseStrategy):
+class ZeroDTEStrategy(BaseStrategy):
     """
-    Enhanced 0DTE strategy with LEAN algorithm patterns.
+    Enhanced 0DTE strategy with LEAN patterns.
     
-    Key LEAN Enhancements:
-    - Precise same-day expiry filtering
-    - Scheduled entry timing (1 minute after market open)
-    - OTM strike selection from LEAN algorithms
-    - Automated expiry and delisting monitoring
-    - Professional validation and error handling
+    Implements professional 0DTE trading with precise timing, risk management,
+    and position lifecycle handling based on LEAN algorithm patterns.
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize Enhanced 0DTE strategy"""
-        super().__init__("Enhanced0DTE", config)
+    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+                 config: Dict[str, Any]):
+        """Initialize 0DTE strategy"""
+        super().__init__("ZeroDTE", event_manager, risk_profile, config)
         
-        # Initialize components
-        self.logger = SpyderLogger.get_logger(__name__)
-        self.error_handler = SpyderErrorHandler()
-        self.ib_client = get_ib_client()
-        self.scheduler = get_scheduler()
-        self.trading_calendar = TradingCalendar()
-        self.risk_manager = get_risk_manager()
-        self.greeks_calculator = GreeksCalculator()
-        self.event_manager = get_event_manager()
+        # Configuration
+        self.max_positions = config.get('max_positions', MAX_CONCURRENT_POSITIONS)
+        self.profit_target = config.get('profit_target', PROFIT_TARGET_PERCENT)
+        self.stop_loss = config.get('stop_loss', STOP_LOSS_PERCENT)
+        self.entry_delay_minutes = config.get('entry_delay_minutes', ENTRY_DELAY_MINUTES)
         
-        # LEAN-inspired configuration
-        self.max_positions = config.get("max_positions", MAX_0DTE_POSITIONS)
-        self.profit_target = config.get("profit_target", PROFIT_TARGET_FAST)
-        self.stop_loss = config.get("stop_loss", STOP_LOSS_TIGHT)
-        self.entry_delay_minutes = config.get("entry_delay_minutes", LEAN_ENTRY_DELAY_MINUTES)
+        # Timezone handling
+        self.eastern_tz = pytz.timezone('US/Eastern')
         
-        # Enhanced position tracking
-        self.active_positions: Dict[str, LEANZeroDTEPosition] = {}
-        self.scheduled_entries: Dict[str, LEANZeroDTESetup] = {}
-        self.today_trades: int = 0
+        # Position tracking
+        self.active_positions: Dict[str, ZeroDTEPosition] = {}
+        self.today_trades = 0
+        self.last_trade_date: Optional[date] = None
         
-        # Market timing (LEAN pattern)
-        self.market_open_time: Optional[datetime] = None
-        self.entry_scheduled: bool = False
+        # Market monitoring
+        self.current_conditions: Optional[MarketConditions] = None
+        self.option_chain_cache: Dict[str, pd.DataFrame] = {}
         
         # Performance tracking
         self.daily_stats = {
-            'trades_attempted': 0,
             'trades_executed': 0,
-            'expired_otm': 0,
-            'expired_itm': 0,
-            'total_pnl': 0.0
+            'trades_won': 0,
+            'trades_lost': 0,
+            'total_pnl': 0.0,
+            'time_stops': 0,
+            'profit_targets': 0,
+            'stop_losses': 0,
+            'expired_otm': 0
         }
         
-        self.logger.info("Enhanced 0DTE strategy initialized with LEAN patterns")
+        # Schedule entry check
+        self._schedule_entry_check()
         
-        # Schedule market open actions (LEAN pattern)
-        self._schedule_market_open_actions()
+        self.logger.info("ZeroDTEStrategy initialized with LEAN enhancements")
     
     # ==========================================================================
-    # LEAN ALGORITHM PATTERNS - Market Timing and Scheduling
+    # REQUIRED ABSTRACT METHOD IMPLEMENTATIONS
     # ==========================================================================
-    def _schedule_market_open_actions(self):
-        """
-        Schedule market open actions (from LEAN's scheduling pattern).
+    
+    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Generate 0DTE trading signals"""
+        signals = []
         
-        From LEAN: "self.schedule.on(self.date_rules.tomorrow, 
-                   self.time_rules.after_market_open(self.spx, 1), 
-                   lambda: self.market_order(self.spx_option, -1))"
-        """
         try:
-            # Get today's market open time
-            today = datetime.now().date()
-            if self.trading_calendar.is_trading_day(today):
-                self.market_open_time = self.trading_calendar.get_market_open(today)
-                
-                # Schedule entry 1 minute after market open (LEAN pattern)
-                entry_time = self.market_open_time + timedelta(minutes=self.entry_delay_minutes)
-                
-                self.scheduler.schedule_action(
-                    scheduled_time=entry_time,
-                    action=self._execute_scheduled_0dte_entry,
-                    description="0DTE Entry (LEAN-style)"
-                )
-                
-                # Schedule liquidation before market close (LEAN pattern)
-                liquidation_time = self.trading_calendar.get_market_close(today) - timedelta(minutes=15)
-                self.scheduler.schedule_action(
-                    scheduled_time=liquidation_time,
-                    action=self._liquidate_0dte_positions,
-                    description="0DTE Liquidation (LEAN-style)"
-                )
-                
-                self.entry_scheduled = True
-                self.logger.info(f"0DTE entry scheduled for {entry_time.strftime('%H:%M:%S')}")
+            # Update market conditions
+            self._update_market_conditions(market_data)
+            
+            # Check if we can trade 0DTE today
+            if not self._can_trade_0dte():
+                return signals
+            
+            # Check entry time window
+            if not self._is_entry_time():
+                return signals
+            
+            # Get 0DTE option chain
+            option_chain = self._get_0dte_options(market_data)
+            if option_chain.empty:
+                return signals
+            
+            # Find best 0DTE setup
+            setup = self._find_optimal_0dte_setup(option_chain)
+            if setup and self._validate_setup(setup):
+                signal = self._create_signal_from_setup(setup)
+                if signal:
+                    signals.append(signal)
+                    self.logger.info(f"Generated 0DTE signal: {signal.signal_id}")
             
         except Exception as e:
-            self.logger.error(f"Failed to schedule market open actions: {e}")
-    
-    def analyze_market(self, market_data: Dict[str, Any]) -> StrategySignal:
-        """
-        Analyze market for 0DTE opportunities using LEAN patterns.
+            self.error_handler.handle_error(e, {
+                'method': 'generate_signals',
+                'market_data_shape': market_data.shape
+            })
         
-        From LEAN: Filter options expiring today, validate OTM status
-        """
+        return signals
+    
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate 0DTE signal"""
         try:
-            # Check if we should scan for opportunities
-            if not self._should_scan_for_0dte():
-                return StrategySignal.NO_SIGNAL
+            # Check signal validity
+            if not signal.is_valid():
+                return False
             
-            # Get option chain
-            option_chain = market_data.get('option_chain', [])
-            underlying_price = market_data.get('underlying_price', 0.0)
+            # Check 0DTE specific metadata
+            setup_data = signal.metadata.get('setup_data')
+            if not setup_data:
+                return False
             
-            if not option_chain or underlying_price <= 0:
-                return StrategySignal.NO_SIGNAL
+            # Validate expiry is today
+            expiry = datetime.fromisoformat(setup_data['expiry'])
+            if expiry.date() != date.today():
+                return False
             
-            # LEAN Pattern: Filter for same-day expiry only
-            today_options = self._filter_same_day_expiry(option_chain)
-            if not today_options:
-                self.logger.debug("No same-day expiry options found")
-                return StrategySignal.NO_SIGNAL
+            # Validate premium
+            if setup_data['estimated_credit'] < MIN_PREMIUM:
+                return False
             
-            # LEAN Pattern: Select OTM options based on threshold
-            otm_opportunities = self._select_otm_opportunities(today_options, underlying_price)
+            # Validate probability
+            if setup_data['probability_profit'] < 0.60:
+                return False
             
-            if otm_opportunities:
-                # Select best opportunity
-                best_setup = self._select_best_0dte_setup(otm_opportunities, market_data)
-                
-                if best_setup and self._validate_0dte_setup(best_setup):
-                    return self._create_0dte_signal(best_setup)
+            # Check market conditions haven't changed significantly
+            if self.current_conditions:
+                if abs(self.current_conditions.spot_price - signal.entry_price) > 2:
+                    return False
             
-            return StrategySignal.NO_SIGNAL
+            return True
             
         except Exception as e:
-            self.logger.error(f"0DTE market analysis failed: {e}")
-            return StrategySignal.NO_SIGNAL
-    
-    def _filter_same_day_expiry(self, option_chain: List[Any]) -> List[Any]:
-        """
-        Filter for same-day expiry options (LEAN pattern).
-        
-        From LEAN: "i.id.date.year == 2021 and i.id.date.month == 1"
-        """
-        today = datetime.now().date()
-        same_day_options = []
-        
-        for contract in option_chain:
-            try:
-                # Check if expiry is today
-                if hasattr(contract, 'expiry') and contract.expiry.date() == today:
-                    same_day_options.append(contract)
-            except Exception as e:
-                self.logger.debug(f"Error filtering contract: {e}")
-                continue
-        
-        self.logger.debug(f"Found {len(same_day_options)} same-day expiry options")
-        return same_day_options
-    
-    def _select_otm_opportunities(self, options: List[Any], underlying_price: float) -> List[LEANZeroDTESetup]:
-        """
-        Select OTM opportunities (from LEAN's OTM filtering).
-        
-        From LEAN: "i.id.strike_price <= 3200 and i.id.option_right == OptionRight.PUT"
-        """
-        opportunities = []
-        
-        for contract in options:
-            try:
-                # Determine if OTM based on LEAN thresholds
-                is_otm_put = (contract.option_right == "PUT" and 
-                             contract.strike <= underlying_price * OTM_PUT_THRESHOLD)
-                is_otm_call = (contract.option_right == "CALL" and 
-                              contract.strike >= underlying_price * OTM_CALL_THRESHOLD)
-                
-                if is_otm_put or is_otm_call:
-                    # Create setup
-                    setup = LEANZeroDTESetup(
-                        strategy_type=ZeroDTEStrategy.SHORT_OTM_PUT if is_otm_put else ZeroDTEStrategy.SHORT_OTM_CALL,
-                        underlying_symbol="SPY",
-                        underlying_price=underlying_price,
-                        selected_strike=contract.strike,
-                        option_right=OptionRight.PUT if contract.option_right == "PUT" else OptionRight.CALL,
-                        expiry=contract.expiry,
-                        scheduled_entry_time=self.market_open_time + timedelta(minutes=self.entry_delay_minutes),
-                        market_open_time=self.market_open_time,
-                        entry_price_estimate=getattr(contract, 'mid_price', 1.0),
-                        profit_target=getattr(contract, 'mid_price', 1.0) * self.profit_target,
-                        stop_loss=getattr(contract, 'mid_price', 1.0) * (1 + self.stop_loss),
-                        max_loss=getattr(contract, 'mid_price', 1.0) * self.stop_loss,
-                        volume=getattr(contract, 'volume', 0),
-                        open_interest=getattr(contract, 'open_interest', 0),
-                        bid_ask_spread=getattr(contract, 'ask', 1.0) - getattr(contract, 'bid', 0.0)
-                    )
-                    
-                    opportunities.append(setup)
-                    
-            except Exception as e:
-                self.logger.debug(f"Error processing contract: {e}")
-                continue
-        
-        self.logger.debug(f"Found {len(opportunities)} OTM opportunities")
-        return opportunities
-    
-    def _select_best_0dte_setup(self, opportunities: List[LEANZeroDTESetup], 
-                               market_data: Dict[str, Any]) -> Optional[LEANZeroDTESetup]:
-        """Select best 0DTE setup based on quality metrics"""
-        if not opportunities:
-            return None
-        
-        # Score each opportunity
-        for setup in opportunities:
-            score = 0.0
-            
-            # OTM percentage (prefer more OTM)
-            score += setup.otm_percentage * 10
-            
-            # Time to expiry (prefer more time)
-            score += setup.time_to_expiry_hours * 2
-            
-            # Volume and open interest
-            score += min(setup.volume / MIN_0DTE_VOLUME, 2.0) * 3
-            score += min(setup.open_interest / MIN_0DTE_OPEN_INTEREST, 2.0) * 2
-            
-            # Bid-ask spread (prefer tighter spreads)
-            if setup.bid_ask_spread > 0:
-                score -= (setup.bid_ask_spread / setup.entry_price_estimate) * 5
-            
-            setup.setup_quality = score
-        
-        # Return best scoring setup
-        best_setup = max(opportunities, key=lambda x: x.setup_quality)
-        self.logger.info(f"Selected best 0DTE setup: {best_setup.strategy_type.value} "
-                        f"strike {best_setup.selected_strike} quality {best_setup.setup_quality:.2f}")
-        
-        return best_setup
-    
-    def _validate_0dte_setup(self, setup: LEANZeroDTESetup) -> bool:
-        """Validate 0DTE setup (LEAN-style validation)"""
-        if setup.validation_errors:
-            self.logger.warning(f"Setup validation failed: {setup.validation_errors}")
+            self.error_handler.handle_error(e, {
+                'method': 'validate_signal',
+                'signal_id': signal.signal_id
+            })
             return False
+    
+    def calculate_position_size(self, signal: TradingSignal) -> int:
+        """Calculate position size for 0DTE"""
+        try:
+            # Get setup data
+            setup_data = signal.metadata.get('setup_data', {})
+            max_loss = setup_data.get('max_loss', 1000)
+            
+            # Risk-based sizing
+            account_value = self.risk_profile.account_size
+            max_risk = account_value * 0.005  # 0.5% risk for 0DTE
+            
+            contracts = int(max_risk / (max_loss * SPY_CONTRACT_MULTIPLIER))
+            
+            # Apply limits
+            contracts = max(1, min(contracts, 5))  # 1-5 contracts for 0DTE
+            
+            # Reduce size based on market conditions
+            if self.current_conditions:
+                if self.current_conditions.vix > 25:
+                    contracts = max(1, contracts // 2)
+                if abs(self.current_conditions.gap_percentage) > 0.01:
+                    contracts = max(1, contracts - 1)
+            
+            return contracts
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'calculate_position_size',
+                'signal_id': signal.signal_id
+            })
+            return 1
+    
+    def should_exit_position(self, position: StrategyPosition,
+                           market_data: pd.DataFrame) -> Tuple[bool, str]:
+        """Determine if 0DTE position should be exited"""
+        try:
+            # Get 0DTE position
+            dte_position = self.active_positions.get(position.position_id)
+            if not dte_position:
+                return False, ""
+            
+            # Update position value
+            self._update_position_value(dte_position, market_data)
+            
+            # Check profit target
+            if dte_position.profit_percentage >= self.profit_target:
+                return True, f"Profit target reached: {dte_position.profit_percentage:.1%}"
+            
+            # Check stop loss
+            loss_pct = abs(dte_position.unrealized_pnl) / dte_position.max_loss
+            if loss_pct >= self.stop_loss:
+                return True, f"Stop loss triggered: {loss_pct:.1%}"
+            
+            # Check time stop
+            current_time = datetime.now(self.eastern_tz).time()
+            if current_time >= time(TIME_STOP_HOUR, 0):
+                return True, f"Time stop at {TIME_STOP_HOUR}:00"
+            
+            # Check if position is threatened
+            spot_price = market_data['close'].iloc[-1]
+            if self._is_position_threatened(dte_position, spot_price):
+                return True, "Position threatened by price movement"
+            
+            return False, ""
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'should_exit_position',
+                'position_id': position.position_id
+            })
+            return False, ""
+    
+    # ==========================================================================
+    # 0DTE SPECIFIC METHODS
+    # ==========================================================================
+    
+    def _can_trade_0dte(self) -> bool:
+        """Check if we can trade 0DTE today"""
+        today = date.today()
         
-        # Check position limits
-        if len(self.active_positions) >= self.max_positions:
-            self.logger.warning("Maximum 0DTE positions reached")
-            return False
+        # Reset daily counter
+        if self.last_trade_date != today:
+            self.today_trades = 0
+            self.last_trade_date = today
+            self._reset_daily_stats()
         
         # Check daily trade limit
         if self.today_trades >= ZERO_DTE_MAX_TRADES:
-            self.logger.warning("Daily 0DTE trade limit reached")
             return False
         
-        # Quality threshold
-        if setup.setup_quality < 5.0:
-            self.logger.warning(f"Setup quality too low: {setup.setup_quality}")
-            return False
-        
-        return True
-    
-    # ==========================================================================
-    # LEAN ALGORITHM PATTERNS - Strategy Execution
-    # ==========================================================================
-    def _execute_scheduled_0dte_entry(self):
-        """
-        Execute scheduled 0DTE entry (LEAN's scheduled execution pattern).
-        
-        From LEAN: Scheduled execution after market open
-        """
-        try:
-            self.logger.info("Executing scheduled 0DTE entry (LEAN pattern)")
-            
-            # Get current market data
-            market_data = self._get_current_market_data()
-            
-            # Analyze for opportunities
-            signal = self.analyze_market(market_data)
-            
-            if signal != StrategySignal.NO_SIGNAL:
-                success = self.execute_signal(signal)
-                if success:
-                    self.daily_stats['trades_executed'] += 1
-                else:
-                    self.logger.warning("Scheduled 0DTE entry failed")
-            else:
-                self.logger.info("No 0DTE opportunities found at scheduled time")
-                
-        except Exception as e:
-            self.logger.error(f"Scheduled 0DTE entry failed: {e}")
-    
-    def execute_signal(self, signal: StrategySignal) -> bool:
-        """
-        Execute 0DTE signal using LEAN patterns.
-        
-        From LEAN: market_order execution with validation
-        """
-        try:
-            setup = signal.metadata.get('0dte_setup')
-            if not setup:
-                self.logger.error("No 0DTE setup in signal")
-                return False
-            
-            # Create option strategy (short single option for 0DTE)
-            if setup.strategy_type == ZeroDTEStrategy.SHORT_OTM_PUT:
-                # Create short put position
-                strategy = self._create_short_option_strategy(setup, OptionRight.PUT)
-            elif setup.strategy_type == ZeroDTEStrategy.SHORT_OTM_CALL:
-                # Create short call position
-                strategy = self._create_short_option_strategy(setup, OptionRight.CALL)
-            else:
-                self.logger.error(f"Unsupported 0DTE strategy: {setup.strategy_type}")
-                return False
-            
-            # Execute strategy
-            execution_result = self._execute_0dte_strategy(strategy, setup)
-            
-            if execution_result['success']:
-                # Create position tracking
-                position = LEANZeroDTEPosition(
-                    position_id=f"0DTE_{uuid.uuid4().hex[:8]}",
-                    setup=setup,
-                    strategy=strategy,
-                    entry_time=datetime.now(),
-                    entry_price=execution_result['entry_price'],
-                    quantity=execution_result['quantity'],
-                    state=ZeroDTEState.ACTIVE
-                )
-                
-                # Store position
-                self.active_positions[position.position_id] = position
-                self.today_trades += 1
-                self.daily_stats['trades_attempted'] += 1
-                
-                self.logger.info(f"0DTE position opened: {position.position_id}")
-                return True
-            else:
-                self.logger.error(f"0DTE execution failed: {execution_result['error']}")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"0DTE signal execution failed: {e}")
-            return False
-    
-    def _create_short_option_strategy(self, setup: LEANZeroDTESetup, option_right: OptionRight) -> OptionStrategy:
-        """Create short option strategy for 0DTE"""
-        # For 0DTE, we typically sell single options
-        legs = [{
-            'symbol': setup.expected_contract_symbol,
-            'option_right': option_right,
-            'strike': setup.selected_strike,
-            'expiry': setup.expiry,
-            'quantity': -1  # Short position
-        }]
-        
-        # Create strategy (simplified - would use OptionStrategies helper)
-        return type('Strategy', (), {
-            'strategy_type': setup.strategy_type,
-            'underlying_symbol': setup.underlying_symbol,
-            'legs': legs
-        })()
-    
-    def _execute_0dte_strategy(self, strategy, setup: LEANZeroDTESetup) -> Dict[str, Any]:
-        """Execute 0DTE strategy (mock implementation)"""
-        try:
-            # Mock execution (would integrate with real broker)
-            return {
-                'success': True,
-                'entry_price': setup.entry_price_estimate,
-                'quantity': 1,
-                'order_id': f"0DTE_{uuid.uuid4().hex[:8]}"
-            }
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-    
-    # ==========================================================================
-    # LEAN ALGORITHM PATTERNS - Position Management and Expiry Handling
-    # ==========================================================================
-    def manage_positions(self) -> List[Dict[str, Any]]:
-        """
-        Manage 0DTE positions with LEAN expiry patterns.
-        
-        From LEAN: Monitor for delisting warnings and expiry events
-        """
-        management_actions = []
-        
-        for position_id, position in self.active_positions.items():
-            try:
-                # Update position metrics
-                position.update_metrics()
-                
-                # Check expiry status (LEAN pattern)
-                self._check_expiry_status(position)
-                
-                # Check for management actions
-                action = self._check_0dte_management(position)
-                if action:
-                    management_actions.append(action)
-                    
-            except Exception as e:
-                self.logger.error(f"Position management failed for {position_id}: {e}")
-        
-        return management_actions
-    
-    def _check_expiry_status(self, position: LEANZeroDTEPosition):
-        """
-        Check expiry status (from LEAN's delisting assertion).
-        
-        From LEAN: "Assert delistings, so that we can make sure that we receive 
-        the delisting warnings at the expected time."
-        """
-        now = datetime.now()
-        time_to_expiry = (position.setup.expiry - now).total_seconds() / 3600
-        
-        # Update expiry status
-        if time_to_expiry <= 0:
-            # Determine if expired ITM or OTM
-            if self._is_expired_itm(position):
-                position.expiry_status = LEANExpiryStatus.EXPIRED_ITM
-                position.state = ZeroDTEState.EXPIRED_OTM
-                self.daily_stats['expired_itm'] += 1
-            else:
-                position.expiry_status = LEANExpiryStatus.EXPIRED_OTM
-                position.state = ZeroDTEState.EXPIRED_OTM
-                self.daily_stats['expired_otm'] += 1
-        elif time_to_expiry <= 0.5:  # 30 minutes to expiry
-            position.expiry_status = LEANExpiryStatus.DELISTING_WARNING
-            position.state = ZeroDTEState.MONITORING_EXPIRY
-            if not position.delisting_warned:
-                self.logger.info(f"Delisting warning for position {position.position_id}")
-                position.delisting_warned = True
-    
-    def _is_expired_itm(self, position: LEANZeroDTEPosition) -> bool:
-        """Check if option expired in-the-money"""
-        current_price = position.setup.underlying_price  # Would get real-time price
-        
-        if position.setup.option_right == OptionRight.PUT:
-            return current_price < position.setup.selected_strike
-        else:  # CALL
-            return current_price > position.setup.selected_strike
-    
-    def _check_0dte_management(self, position: LEANZeroDTEPosition) -> Optional[Dict[str, Any]]:
-        """Check if 0DTE position needs management"""
-        # Quick profit target (0DTE moves fast)
-        profit_pct = position.unrealized_pnl / (position.entry_price * position.quantity * 100)
-        
-        if profit_pct >= self.profit_target:
-            return {
-                'action': 'CLOSE_PROFITABLE',
-                'position_id': position.position_id,
-                'pnl': position.unrealized_pnl,
-                'reason': 'Profit target reached'
-            }
-        
-        # Stop loss
-        if profit_pct <= -self.stop_loss:
-            return {
-                'action': 'CLOSE_LOSS',
-                'position_id': position.position_id,
-                'pnl': position.unrealized_pnl,
-                'reason': 'Stop loss triggered'
-            }
-        
-        # Time-based close (30 minutes before expiry)
-        if position.setup.time_to_expiry_hours <= 0.5:
-            return {
-                'action': 'CLOSE_TIME',
-                'position_id': position.position_id,
-                'pnl': position.unrealized_pnl,
-                'reason': 'Approaching expiry'
-            }
-        
-        return None
-    
-    def _liquidate_0dte_positions(self):
-        """
-        Liquidate all 0DTE positions (LEAN's liquidation pattern).
-        
-        From LEAN: Scheduled liquidation before close
-        """
-        self.logger.info("Liquidating all 0DTE positions (LEAN pattern)")
-        
-        for position_id, position in list(self.active_positions.items()):
-            try:
-                # Execute liquidation
-                success = self._liquidate_position(position)
-                if success:
-                    position.state = ZeroDTEState.LIQUIDATED
-                    self.daily_stats['total_pnl'] += position.unrealized_pnl
-                else:
-                    self.logger.error(f"Failed to liquidate position {position_id}")
-                    
-            except Exception as e:
-                self.logger.error(f"Liquidation failed for {position_id}: {e}")
-    
-    def _liquidate_position(self, position: LEANZeroDTEPosition) -> bool:
-        """Liquidate individual position (mock implementation)"""
-        # Would execute actual closing order
-        self.logger.info(f"Liquidating position {position.position_id}")
-        return True
-    
-    # ==========================================================================
-    # UTILITY METHODS
-    # ==========================================================================
-    def _should_scan_for_0dte(self) -> bool:
-        """Check if we should scan for 0DTE opportunities"""
-        now = datetime.now()
-        
-        # Only during market hours
-        if not self.trading_calendar.is_market_open(now):
-            return False
-        
-        # Only if we have capacity
+        # Check active positions
         if len(self.active_positions) >= self.max_positions:
             return False
         
-        # Only if we haven't hit daily limit
-        if self.today_trades >= ZERO_DTE_MAX_TRADES:
+        # Check market conditions
+        if not self.current_conditions:
+            return False
+        
+        # Validate market filters
+        if self.current_conditions.vix > MAX_VIX:
+            self.logger.debug(f"VIX too high: {self.current_conditions.vix}")
+            return False
+        
+        if self.current_conditions.iv_rank < MIN_IVR:
+            self.logger.debug(f"IV rank too low: {self.current_conditions.iv_rank}")
+            return False
+        
+        if abs(self.current_conditions.gap_percentage) > MAX_OVERNIGHT_GAP:
+            self.logger.debug(f"Overnight gap too large: {self.current_conditions.gap_percentage:.2%}")
             return False
         
         return True
     
-    def _get_current_market_data(self) -> Dict[str, Any]:
-        """Get current market data (mock implementation)"""
-        # Would get real market data
-        return {
-            'option_chain': [],
-            'underlying_price': 600.0,
-            'timestamp': datetime.now()
-        }
-    
-    def _create_0dte_signal(self, setup: LEANZeroDTESetup) -> StrategySignal:
-        """Create 0DTE signal from validated setup"""
-        return StrategySignal(
-            signal_type="ENTRY",
-            strategy_name="Enhanced0DTE",
-            confidence=setup.setup_quality / 10.0,  # Normalize to 0-1
-            timestamp=datetime.now(),
-            metadata={
-                '0dte_setup': setup,
-                'expiry_same_day': True,
-                'otm_validated': setup.is_otm
-            }
+    def _is_entry_time(self) -> bool:
+        """Check if current time is valid for 0DTE entry"""
+        current_time = datetime.now(self.eastern_tz).time()
+        
+        # Must be after entry delay
+        entry_time = time(
+            MARKET_OPEN_TIME.hour,
+            MARKET_OPEN_TIME.minute + self.entry_delay_minutes
         )
+        
+        # Must be before midday
+        if not (entry_time <= current_time <= time(12, 0)):
+            return False
+        
+        return True
     
-    def get_daily_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive daily statistics"""
-        active_count = len(self.active_positions)
-        total_unrealized = sum(pos.unrealized_pnl for pos in self.active_positions.values())
+    def _update_market_conditions(self, market_data: pd.DataFrame) -> None:
+        """Update intraday market conditions"""
+        try:
+            current_time = datetime.now(self.eastern_tz)
+            current_price = market_data['close'].iloc[-1]
+            
+            # Get opening price (first bar of the day)
+            today_data = market_data[market_data.index.date == date.today()]
+            if today_data.empty:
+                return
+            
+            opening_price = today_data['open'].iloc[0]
+            high_of_day = today_data['high'].max()
+            low_of_day = today_data['low'].min()
+            total_volume = today_data['volume'].sum()
+            
+            # Calculate overnight gap
+            yesterday_close = market_data[market_data.index.date < date.today()]['close'].iloc[-1]
+            overnight_gap = opening_price - yesterday_close
+            
+            # Determine market phase
+            market_phase = self._get_market_phase(current_time.time())
+            
+            # Simple trend detection
+            sma_5 = market_data['close'].rolling(5).mean().iloc[-1]
+            sma_20 = market_data['close'].rolling(20).mean().iloc[-1]
+            
+            if current_price > sma_5 > sma_20:
+                trend_direction = 'up'
+                momentum = (current_price - sma_20) / sma_20
+            elif current_price < sma_5 < sma_20:
+                trend_direction = 'down'
+                momentum = (sma_20 - current_price) / sma_20
+            else:
+                trend_direction = 'sideways'
+                momentum = 0.0
+            
+            # Create conditions object
+            self.current_conditions = MarketConditions(
+                timestamp=current_time,
+                spot_price=current_price,
+                opening_price=opening_price,
+                high_of_day=high_of_day,
+                low_of_day=low_of_day,
+                volume=total_volume,
+                vix=20.0,  # Placeholder - would get from VIX data
+                iv_rank=45.0,  # Placeholder - would calculate
+                market_phase=market_phase,
+                trend_direction=trend_direction,
+                momentum=momentum,
+                overnight_gap=overnight_gap
+            )
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_update_market_conditions'})
+    
+    def _get_market_phase(self, current_time: time) -> MarketPhase:
+        """Determine current market phase"""
+        if current_time < MARKET_OPEN_TIME:
+            return MarketPhase.PRE_OPEN
+        elif current_time < time(10, 0):
+            return MarketPhase.OPENING
+        elif current_time < time(12, 0):
+            return MarketPhase.MORNING
+        elif current_time < time(14, 0):
+            return MarketPhase.MIDDAY
+        elif current_time < time(15, 30):
+            return MarketPhase.AFTERNOON
+        elif current_time < MARKET_CLOSE_TIME:
+            return MarketPhase.CLOSING
+        else:
+            return MarketPhase.AFTER_HOURS
+    
+    def _get_0dte_options(self, market_data: pd.DataFrame) -> pd.DataFrame:
+        """Get options expiring today"""
+        # In production, this would fetch real 0DTE option chain
+        # For now, return empty DataFrame
+        return pd.DataFrame()
+    
+    def _find_optimal_0dte_setup(self, option_chain: pd.DataFrame) -> Optional[ZeroDTESetup]:
+        """Find optimal 0DTE setup based on market conditions"""
+        try:
+            if option_chain.empty or not self.current_conditions:
+                return None
+            
+            spot_price = self.current_conditions.spot_price
+            
+            # Determine strategy based on market conditions
+            if self.current_conditions.trend_direction == 'up':
+                # Bullish: Short put spread or short put
+                strategy_type = ZeroDTEStrategy.SHORT_PUT
+                strikes = self._find_put_spread_strikes(option_chain, spot_price)
+            elif self.current_conditions.trend_direction == 'down':
+                # Bearish: Short call spread or short call
+                strategy_type = ZeroDTEStrategy.SHORT_CALL
+                strikes = self._find_call_spread_strikes(option_chain, spot_price)
+            else:
+                # Neutral: Iron condor or iron butterfly
+                strategy_type = ZeroDTEStrategy.IRON_CONDOR
+                strikes = self._find_iron_condor_strikes(option_chain, spot_price)
+            
+            if not strikes:
+                return None
+            
+            # Calculate setup metrics
+            setup_metrics = self._calculate_setup_metrics(
+                strategy_type, strikes, option_chain
+            )
+            
+            if not setup_metrics:
+                return None
+            
+            # Create setup
+            setup = ZeroDTESetup(
+                strategy_type=strategy_type,
+                strikes=strikes,
+                expiry=datetime.combine(date.today(), MARKET_CLOSE_TIME),
+                contracts=1,  # Will be sized later
+                estimated_credit=setup_metrics['credit'],
+                max_profit=setup_metrics['max_profit'],
+                max_loss=setup_metrics['max_loss'],
+                probability_profit=setup_metrics['probability'],
+                entry_conditions=self.current_conditions,
+                score=self._score_setup(setup_metrics)
+            )
+            
+            return setup
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_find_optimal_0dte_setup'})
+            return None
+    
+    def _find_put_spread_strikes(self, option_chain: pd.DataFrame, 
+                                spot_price: float) -> Optional[Dict[str, float]]:
+        """Find strikes for put spread"""
+        # Simplified - would use actual option chain
+        short_put = round(spot_price - OTM_STRIKE_OFFSET)
+        long_put = short_put - 5  # $5 wide spread
         
         return {
-            **self.daily_stats,
-            'active_positions': active_count,
+            'short_put': short_put,
+            'long_put': long_put
+        }
+    
+    def _find_call_spread_strikes(self, option_chain: pd.DataFrame,
+                                 spot_price: float) -> Optional[Dict[str, float]]:
+        """Find strikes for call spread"""
+        # Simplified - would use actual option chain
+        short_call = round(spot_price + OTM_STRIKE_OFFSET)
+        long_call = short_call + 5  # $5 wide spread
+        
+        return {
+            'short_call': short_call,
+            'long_call': long_call
+        }
+    
+    def _find_iron_condor_strikes(self, option_chain: pd.DataFrame,
+                                 spot_price: float) -> Optional[Dict[str, float]]:
+        """Find strikes for iron condor"""
+        # Simplified - would use actual option chain
+        return {
+            'long_put': round(spot_price - 7),
+            'short_put': round(spot_price - 2),
+            'short_call': round(spot_price + 2),
+            'long_call': round(spot_price + 7)
+        }
+    
+    def _calculate_setup_metrics(self, strategy_type: ZeroDTEStrategy,
+                               strikes: Dict[str, float],
+                               option_chain: pd.DataFrame) -> Optional[Dict[str, Any]]:
+        """Calculate metrics for 0DTE setup"""
+        # Simplified calculation - would use actual option prices
+        
+        if strategy_type == ZeroDTEStrategy.SHORT_PUT:
+            spread_width = strikes['short_put'] - strikes['long_put']
+            credit = spread_width * 0.20  # 20% of width for 0DTE
+            max_profit = credit
+            max_loss = spread_width - credit
+            probability = 0.75  # Simplified
+            
+        elif strategy_type == ZeroDTEStrategy.SHORT_CALL:
+            spread_width = strikes['long_call'] - strikes['short_call']
+            credit = spread_width * 0.20  # 20% of width for 0DTE
+            max_profit = credit
+            max_loss = spread_width - credit
+            probability = 0.75  # Simplified
+            
+        elif strategy_type == ZeroDTEStrategy.IRON_CONDOR:
+            put_width = strikes['short_put'] - strikes['long_put']
+            call_width = strikes['long_call'] - strikes['short_call']
+            credit = (put_width + call_width) * 0.15  # Lower for IC
+            max_profit = credit
+            max_loss = max(put_width, call_width) - credit
+            probability = 0.70  # Simplified
+            
+        else:
+            return None
+        
+        return {
+            'credit': credit,
+            'max_profit': max_profit,
+            'max_loss': max_loss,
+            'probability': probability,
+            'risk_reward': max_profit / max_loss if max_loss > 0 else 0
+        }
+    
+    def _score_setup(self, metrics: Dict[str, Any]) -> float:
+        """Score 0DTE setup quality"""
+        score = 0.0
+        
+        # Credit quality
+        if metrics['credit'] >= 1.0:
+            score += 30
+        elif metrics['credit'] >= 0.75:
+            score += 20
+        elif metrics['credit'] >= 0.50:
+            score += 10
+        
+        # Risk/reward ratio
+        if metrics['risk_reward'] >= 0.33:
+            score += 30
+        elif metrics['risk_reward'] >= 0.25:
+            score += 20
+        elif metrics['risk_reward'] >= 0.20:
+            score += 10
+        
+        # Probability of profit
+        if metrics['probability'] >= 0.80:
+            score += 30
+        elif metrics['probability'] >= 0.70:
+            score += 20
+        elif metrics['probability'] >= 0.60:
+            score += 10
+        
+        # Market conditions bonus
+        if self.current_conditions:
+            if self.current_conditions.market_phase == MarketPhase.MORNING:
+                score += 10  # Prefer morning entries
+            if abs(self.current_conditions.momentum) < 0.5:
+                score += 5  # Prefer less volatile conditions
+        
+        return score
+    
+    def _validate_setup(self, setup: ZeroDTESetup) -> bool:
+        """Validate 0DTE setup meets criteria"""
+        # Minimum credit
+        if setup.estimated_credit < MIN_PREMIUM:
+            return False
+        
+        # Minimum probability
+        if setup.probability_profit < 0.60:
+            return False
+        
+        # Minimum score
+        if setup.score < 40:
+            return False
+        
+        # Risk/reward check
+        if setup.max_profit / setup.max_loss < 0.20:
+            return False
+        
+        return True
+    
+    def _create_signal_from_setup(self, setup: ZeroDTESetup) -> Optional[TradingSignal]:
+        """Create trading signal from 0DTE setup"""
+        try:
+            # Calculate signal strength
+            if setup.score >= 80:
+                strength = SignalStrength.VERY_STRONG
+            elif setup.score >= 60:
+                strength = SignalStrength.STRONG
+            elif setup.score >= 40:
+                strength = SignalStrength.MODERATE
+            else:
+                strength = SignalStrength.WEAK
+            
+            # Create signal
+            signal = TradingSignal(
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.BUY,
+                symbol='SPY',
+                strength=strength,
+                confidence=setup.probability_profit,
+                entry_price=self.current_conditions.spot_price,
+                stop_loss=0,  # Managed differently
+                take_profit=0,  # Managed differently
+                position_size=1,  # Will be calculated
+                timestamp=datetime.now(),
+                expires_at=datetime.now() + timedelta(minutes=5),
+                metadata={
+                    'strategy': '0dte',
+                    'setup_data': {
+                        'strategy_type': setup.strategy_type.name,
+                        'strikes': setup.strikes,
+                        'expiry': setup.expiry.isoformat(),
+                        'estimated_credit': setup.estimated_credit,
+                        'max_profit': setup.max_profit,
+                        'max_loss': setup.max_loss,
+                        'probability_profit': setup.probability_profit,
+                        'score': setup.score
+                    }
+                }
+            )
+            
+            return signal
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_create_signal_from_setup'})
+            return None
+    
+    # ==========================================================================
+    # POSITION MANAGEMENT
+    # ==========================================================================
+    
+    def open_0dte_position(self, signal: TradingSignal) -> Optional[ZeroDTEPosition]:
+        """Open a new 0DTE position"""
+        try:
+            setup_data = signal.metadata['setup_data']
+            
+            # Create position
+            position = ZeroDTEPosition(
+                position_id=str(uuid.uuid4()),
+                strategy_type=ZeroDTEStrategy[setup_data['strategy_type']],
+                entry_time=datetime.now(),
+                expiry_date=date.today(),
+                strikes=setup_data['strikes'],
+                contracts=signal.position_size,
+                entry_premium=setup_data['estimated_credit'],
+                max_profit=setup_data['max_profit'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
+                max_loss=setup_data['max_loss'] * signal.position_size * SPY_CONTRACT_MULTIPLIER,
+                state=ZeroDTEState.ACTIVE,
+                entry_conditions={
+                    'spot_price': signal.entry_price,
+                    'vix': self.current_conditions.vix if self.current_conditions else 0,
+                    'iv_rank': self.current_conditions.iv_rank if self.current_conditions else 0,
+                    'gap': self.current_conditions.gap_percentage if self.current_conditions else 0
+                }
+            )
+            
+            # Add to tracking
+            self.active_positions[position.position_id] = position
+            self.today_trades += 1
+            self.daily_stats['trades_executed'] += 1
+            
+            # Publish event
+            self.event_manager.publish(Event.create(
+                EventType.POSITION_OPENED,
+                self.name,
+                {
+                    'position_id': position.position_id,
+                    'strategy': '0dte',
+                    'type': position.strategy_type.name,
+                    'premium': position.entry_premium,
+                    'max_profit': position.max_profit
+                }
+            ))
+            
+            self.logger.info(f"Opened 0DTE position: {position.position_id}")
+            return position
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'open_0dte_position',
+                'signal_id': signal.signal_id
+            })
+            return None
+    
+    def _update_position_value(self, position: ZeroDTEPosition, 
+                             market_data: pd.DataFrame) -> None:
+        """Update 0DTE position value"""
+        try:
+            current_price = market_data['close'].iloc[-1]
+            
+            # Simplified P&L calculation
+            # In production, would use actual option prices
+            
+            if position.strategy_type == ZeroDTEStrategy.SHORT_PUT:
+                short_strike = position.strikes.get('short_put', 0)
+                if current_price < short_strike:
+                    # ITM - losing money
+                    intrinsic = short_strike - current_price
+                    position.unrealized_pnl = -intrinsic * position.contracts * SPY_CONTRACT_MULTIPLIER
+                else:
+                    # OTM - keeping premium
+                    time_decay = position.time_to_expiry / 6.5  # Trading hours
+                    position.unrealized_pnl = position.entry_premium * (1 - time_decay) * position.contracts * SPY_CONTRACT_MULTIPLIER
+            
+            elif position.strategy_type == ZeroDTEStrategy.SHORT_CALL:
+                short_strike = position.strikes.get('short_call', 0)
+                if current_price > short_strike:
+                    # ITM - losing money
+                    intrinsic = current_price - short_strike
+                    position.unrealized_pnl = -intrinsic * position.contracts * SPY_CONTRACT_MULTIPLIER
+                else:
+                    # OTM - keeping premium
+                    time_decay = position.time_to_expiry / 6.5  # Trading hours
+                    position.unrealized_pnl = position.entry_premium * (1 - time_decay) * position.contracts * SPY_CONTRACT_MULTIPLIER
+            
+            # Cap P&L at max profit/loss
+            position.unrealized_pnl = max(-position.max_loss, 
+                                        min(position.max_profit, position.unrealized_pnl))
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_update_position_value',
+                'position_id': position.position_id
+            })
+    
+    def _is_position_threatened(self, position: ZeroDTEPosition, spot_price: float) -> bool:
+        """Check if position is threatened by price movement"""
+        threat_buffer = 1.0  # $1 buffer
+        
+        if position.strategy_type == ZeroDTEStrategy.SHORT_PUT:
+            short_strike = position.strikes.get('short_put', 0)
+            return spot_price <= short_strike + threat_buffer
+        
+        elif position.strategy_type == ZeroDTEStrategy.SHORT_CALL:
+            short_strike = position.strikes.get('short_call', 0)
+            return spot_price >= short_strike - threat_buffer
+        
+        elif position.strategy_type == ZeroDTEStrategy.IRON_CONDOR:
+            short_put = position.strikes.get('short_put', 0)
+            short_call = position.strikes.get('short_call', 0)
+            return (spot_price <= short_put + threat_buffer or 
+                   spot_price >= short_call - threat_buffer)
+        
+        return False
+    
+    def close_0dte_position(self, position_id: str, reason: str) -> bool:
+        """Close 0DTE position"""
+        try:
+            position = self.active_positions.get(position_id)
+            if not position:
+                return False
+            
+            # Update final P&L
+            position.realized_pnl = position.unrealized_pnl
+            position.exit_time = datetime.now()
+            position.exit_reason = reason
+            
+            # Update state based on reason
+            if "profit target" in reason.lower():
+                position.state = ZeroDTEState.PROFIT_TARGET
+                self.daily_stats['profit_targets'] += 1
+            elif "stop loss" in reason.lower():
+                position.state = ZeroDTEState.STOP_LOSS
+                self.daily_stats['stop_losses'] += 1
+            elif "time stop" in reason.lower():
+                position.state = ZeroDTEState.TIME_STOP
+                self.daily_stats['time_stops'] += 1
+            else:
+                position.state = ZeroDTEState.CLOSED
+            
+            # Update daily stats
+            if position.realized_pnl > 0:
+                self.daily_stats['trades_won'] += 1
+            else:
+                self.daily_stats['trades_lost'] += 1
+            
+            self.daily_stats['total_pnl'] += position.realized_pnl
+            
+            # Remove from active
+            del self.active_positions[position_id]
+            
+            # Publish event
+            self.event_manager.publish(Event.create(
+                EventType.POSITION_CLOSED,
+                self.name,
+                {
+                    'position_id': position_id,
+                    'realized_pnl': position.realized_pnl,
+                    'exit_reason': reason
+                }
+            ))
+            
+            self.logger.info(f"Closed 0DTE position {position_id}: PnL ${position.realized_pnl:.2f}")
+            return True
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'close_0dte_position',
+                'position_id': position_id
+            })
+            return False
+    
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+    
+    def _schedule_entry_check(self) -> None:
+        """Schedule daily entry check at specified time"""
+        # In production, would use proper scheduler
+        # This is a placeholder
+        self.logger.info(f"Scheduled 0DTE entry check at {ENTRY_TIME}")
+    
+    def _reset_daily_stats(self) -> None:
+        """Reset daily statistics"""
+        self.daily_stats = {
+            'trades_executed': 0,
+            'trades_won': 0,
+            'trades_lost': 0,
+            'total_pnl': 0.0,
+            'time_stops': 0,
+            'profit_targets': 0,
+            'stop_losses': 0,
+            'expired_otm': 0
+        }
+    
+    def expire_positions(self) -> None:
+        """Handle end-of-day expiration"""
+        positions_to_expire = list(self.active_positions.keys())
+        
+        for position_id in positions_to_expire:
+            position = self.active_positions[position_id]
+            
+            # Check if expired OTM
+            if position.unrealized_pnl > 0:
+                position.state = ZeroDTEState.EXPIRED
+                self.daily_stats['expired_otm'] += 1
+                reason = "Expired OTM"
+            else:
+                reason = "Expired ITM"
+            
+            self.close_0dte_position(position_id, reason)
+    
+    def get_strategy_summary(self) -> Dict[str, Any]:
+        """Get comprehensive strategy summary"""
+        active_by_type = defaultdict(int)
+        total_exposure = 0.0
+        
+        for position in self.active_positions.values():
+            active_by_type[position.strategy_type.name] += 1
+            total_exposure += position.max_loss
+        
+        win_rate = (self.daily_stats['trades_won'] / 
+                   self.daily_stats['trades_executed'] 
+                   if self.daily_stats['trades_executed'] > 0 else 0)
+        
+        return {
+            'strategy': 'ZeroDTE',
+            'state': self.state,
+            'active_positions': len(self.active_positions),
             'today_trades': self.today_trades,
-            'total_unrealized_pnl': total_unrealized,
-            'success_rate': self.daily_stats['expired_otm'] / max(1, self.daily_stats['trades_executed']),
-            'avg_pnl_per_trade': self.daily_stats['total_pnl'] / max(1, self.daily_stats['trades_executed'])
+            'positions_by_type': dict(active_by_type),
+            'total_exposure': total_exposure,
+            'daily_stats': self.daily_stats.copy(),
+            'win_rate': win_rate,
+            'market_conditions': {
+                'spot_price': self.current_conditions.spot_price if self.current_conditions else 0,
+                'vix': self.current_conditions.vix if self.current_conditions else 0,
+                'market_phase': self.current_conditions.market_phase.name if self.current_conditions else 'UNKNOWN'
+            }
         }
 
 # ==============================================================================
-# MAIN EXECUTION
+# MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    # Test Enhanced 0DTE with LEAN patterns
+    print("Testing Enhanced ZeroDTEStrategy...")
+    
+    # Create components
+    event_manager = EventManager()
+    risk_profile = RiskProfile(
+        account_size=100000,
+        max_position_size=0.01,
+        max_portfolio_risk=0.05,
+        max_loss_per_trade=0.005
+    )
+    
     config = {
         'max_positions': 2,
         'profit_target': 0.25,
-        'stop_loss': 0.50,
+        'stop_loss': 2.0,
         'entry_delay_minutes': 1
     }
     
-    strategy = EnhancedZeroDTEStrategy(config)
+    # Create strategy
+    strategy = ZeroDTEStrategy(event_manager, risk_profile, config)
     
-    print("Testing Enhanced 0DTE with LEAN Patterns:")
-    print("=" * 50)
+    # Start strategy
+    strategy.start()
     
-    # Test daily statistics
-    stats = strategy.get_daily_statistics()
-    print(f"Daily statistics: {stats}")
+    # Create intraday market data
+    current_time = datetime.now()
+    market_open = current_time.replace(hour=9, minute=30, second=0)
     
-    print("\n✅ Enhanced 0DTE with LEAN patterns ready!")
-    print("Key LEAN enhancements:")
-    print("- Precise same-day expiry filtering")
-    print("- Scheduled entry timing (1 min after market open)")
-    print("- OTM strike selection logic")
-    print("- Automated expiry and delisting monitoring")
-    print("- Professional validation and error handling")
+    # Generate 5-minute bars from market open
+    time_index = pd.date_range(
+        start=market_open,
+        end=current_time,
+        freq='5min'
+    )
+    
+    # Simulate intraday price movement
+    base_price = 450
+    prices = base_price + np.cumsum(np.random.randn(len(time_index)) * 0.2)
+    
+    market_data = pd.DataFrame({
+        'open': prices + np.random.randn(len(time_index)) * 0.1,
+        'high': prices + abs(np.random.randn(len(time_index)) * 0.2),
+        'low': prices - abs(np.random.randn(len(time_index)) * 0.2),
+        'close': prices,
+        'volume': np.random.randint(1000000, 3000000, len(time_index))
+    }, index=time_index)
+    
+    # Process market data
+    signals = strategy.generate_signals(market_data)
+    
+    # Display results
+    print(f"\nGenerated {len(signals)} signals")
+    
+    if signals:
+        signal = signals[0]
+        setup = signal.metadata.get('setup_data', {})
+        print(f"\n0DTE Signal:")
+        print(f"  Strategy Type: {setup.get('strategy_type')}")
+        print(f"  Strikes: {setup.get('strikes')}")
+        print(f"  Credit: ${setup.get('estimated_credit', 0):.2f}")
+        print(f"  Max Profit: ${setup.get('max_profit', 0):.2f}")
+        print(f"  Max Loss: ${setup.get('max_loss', 0):.2f}")
+        print(f"  Probability: {setup.get('probability_profit', 0):.1%}")
+        print(f"  Score: {setup.get('score', 0):.0f}")
+    
+    # Get strategy summary
+    summary = strategy.get_strategy_summary()
+    print(f"\nStrategy Summary:")
+    print(f"  Active Positions: {summary['active_positions']}")
+    print(f"  Today's Trades: {summary['today_trades']}")
+    print(f"  Win Rate: {summary['win_rate']:.1%}")
+    print(f"  Daily P&L: ${summary['daily_stats']['total_pnl']:.2f}")
+    
+    # Stop strategy
+    strategy.stop()
+    
+    print("\nZeroDTEStrategy test completed!")

@@ -5,7 +5,7 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderE01_RiskManager.py
 Group: E (Risk Management)
-Purpose: Enhanced comprehensive risk management with real-time monitoring
+Purpose: Comprehensive risk management with real-time monitoring
 
 Description:
     This module provides institutional-grade risk management capabilities including
@@ -17,7 +17,7 @@ Description:
 Spyder Version: 1.0
 Architect: Mohamed Talib
 Date Created: 2025-07-03
-Last Updated: 2025-07-03 Time: 18:00:00
+Last Updated: 2025-07-06 Time: 14:00:00
 """
 
 # ==============================================================================
@@ -27,18 +27,18 @@ import os
 import sys
 import time
 import threading
-import asyncio
 import json
 import uuid
-import warnings
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Any, Set, Callable, Union, Tuple, NamedTuple
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Set, Callable, Union, Tuple
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
 from enum import Enum, auto
 from pathlib import Path
 import copy
 import math
+from concurrent.futures import ThreadPoolExecutor
+import queue
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -47,2070 +47,1173 @@ import numpy as np
 import pandas as pd
 from threading import Lock, Event as ThreadEvent, RLock
 
-# Statistical imports
-try:
-    from scipy import stats
-    from scipy.stats import norm
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-    print("WARNING: scipy not found. Advanced risk calculations will be limited.")
-
 # ==============================================================================
-# LOCAL IMPORTS
+# LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import OrderAction, OptionType
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-
-# Conditional imports
 try:
-    from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
-    HAS_PERFORMANCE_METRICS = True
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:
-    HAS_PERFORMANCE_METRICS = False
+    # Fallback logger
+    import logging
+    SpyderLogger = type('SpyderLogger', (), {
+        'get_logger': lambda name: logging.getLogger(name)
+    })()
+
+try:
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+except ImportError:
+    # Fallback error handler
+    SpyderErrorHandler = type('SpyderErrorHandler', (), {
+        'handle_error': lambda self, e, context: print(f"Error in {context}: {e}")
+    })
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Risk Limits Configuration
-DEFAULT_MAX_DAILY_LOSS = 5000.0           # USD
-DEFAULT_MAX_PORTFOLIO_DELTA = 1000.0      # Delta exposure
-DEFAULT_MAX_PORTFOLIO_GAMMA = 100.0       # Gamma exposure  
-DEFAULT_MAX_PORTFOLIO_VEGA = 500.0        # Vega exposure
-DEFAULT_MAX_SINGLE_POSITION = 50000.0     # USD per position
-DEFAULT_MAX_CONCENTRATION = 0.25           # 25% max in single position
+# Risk Limits (per $100k portfolio)
+DEFAULT_MAX_POSITION_SIZE = 0.05  # 5% max per position
+DEFAULT_MAX_PORTFOLIO_RISK = 0.02  # 2% max portfolio risk
+DEFAULT_MAX_DAILY_LOSS = 0.03  # 3% max daily loss
+DEFAULT_MAX_POSITIONS = 10  # Maximum concurrent positions
+DEFAULT_MAX_CORRELATION = 0.7  # Maximum position correlation
 
-# Greeks Limits
-DEFAULT_DELTA_LIMIT = 1000
-DEFAULT_GAMMA_LIMIT = 100
-DEFAULT_THETA_LIMIT = 500
-DEFAULT_VEGA_LIMIT = 1000
-DEFAULT_RHO_LIMIT = 500
+# Greeks Limits (per $100k)
+DEFAULT_MAX_DELTA = 100  # Maximum portfolio delta
+DEFAULT_MAX_GAMMA = 50  # Maximum portfolio gamma
+DEFAULT_MAX_VEGA = 200  # Maximum portfolio vega
+DEFAULT_MAX_THETA = -100  # Maximum portfolio theta (negative for income)
 
-# Risk Monitoring
-RISK_CHECK_INTERVAL = 1.0    # seconds
-STRESS_TEST_INTERVAL = 300   # 5 minutes
-VaR_CALCULATION_INTERVAL = 60 # 1 minute
+# VaR Parameters
+VAR_CONFIDENCE_LEVEL = 0.95  # 95% confidence
+VAR_LOOKBACK_DAYS = 252  # 1 year of trading days
+STRESS_TEST_SCENARIOS = 20  # Number of Monte Carlo scenarios
 
-# Volatility Parameters
-DEFAULT_VOLATILITY_WINDOW = 30  # days
-VIX_SPIKE_THRESHOLD = 30        # VIX level
-VOLATILITY_SHOCK_THRESHOLD = 0.05  # 5% daily move
-
-# Circuit Breaker Thresholds
-CIRCUIT_BREAKER_LOSS_PCT = 0.05    # 5% portfolio loss
-CIRCUIT_BREAKER_VIX_LEVEL = 40     # VIX level
-CIRCUIT_BREAKER_VOLUME_SPIKE = 2.0  # 2x normal volume
+# Monitoring
+RISK_CHECK_INTERVAL = 5  # seconds
+PORTFOLIO_UPDATE_INTERVAL = 30  # seconds
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
-class RiskProfile(Enum):
-    """Risk profile enumeration"""
-    CONSERVATIVE = "conservative"
-    MODERATE = "moderate"
-    AGGRESSIVE = "aggressive"
-    SPECULATIVE = "speculative"
-
 class RiskLevel(Enum):
-    """Risk level enumeration"""
+    """Risk level classifications"""
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
-class RiskType(Enum):
-    """Risk type enumeration"""
-    MARKET_RISK = "market_risk"
-    CREDIT_RISK = "credit_risk"
-    LIQUIDITY_RISK = "liquidity_risk"
-    OPERATIONAL_RISK = "operational_risk"
-    MODEL_RISK = "model_risk"
-    CONCENTRATION_RISK = "concentration_risk"
+class RiskCheckResult(Enum):
+    """Risk check outcomes"""
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    NEEDS_REVIEW = "needs_review"
 
-class RiskAction(Enum):
-    """Risk action enumeration"""
-    APPROVE = "approve"
-    REJECT = "reject"
-    WARN = "warn"
-    REDUCE_SIZE = "reduce_size"
-    HEDGE = "hedge"
-    LIQUIDATE = "liquidate"
-
-class CircuitBreakerState(Enum):
-    """Circuit breaker state"""
-    NORMAL = "normal"
-    WARNING = "warning"
-    TRIGGERED = "triggered"
-    HALTED = "halted"
+class MitigationAction(Enum):
+    """Risk mitigation actions"""
+    REDUCE_POSITION = "reduce_position"
+    CLOSE_POSITION = "close_position"
+    HEDGE_POSITION = "hedge_position"
+    STOP_TRADING = "stop_trading"
+    ALERT_ONLY = "alert_only"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
 class RiskLimits:
-    """Risk limits configuration"""
+    """Risk limit configuration"""
+    max_position_size: float = DEFAULT_MAX_POSITION_SIZE
+    max_portfolio_risk: float = DEFAULT_MAX_PORTFOLIO_RISK
     max_daily_loss: float = DEFAULT_MAX_DAILY_LOSS
-    max_portfolio_delta: float = DEFAULT_MAX_PORTFOLIO_DELTA
-    max_portfolio_gamma: float = DEFAULT_MAX_PORTFOLIO_GAMMA
-    max_portfolio_vega: float = DEFAULT_MAX_PORTFOLIO_VEGA
-    max_single_position: float = DEFAULT_MAX_SINGLE_POSITION
-    max_concentration: float = DEFAULT_MAX_CONCENTRATION
-    max_leverage: float = 2.0
-    max_correlation_exposure: float = 0.5
-    
-    # Greeks limits
-    delta_limit: float = DEFAULT_DELTA_LIMIT
-    gamma_limit: float = DEFAULT_GAMMA_LIMIT
-    theta_limit: float = DEFAULT_THETA_LIMIT
-    vega_limit: float = DEFAULT_VEGA_LIMIT
-    rho_limit: float = DEFAULT_RHO_LIMIT
+    max_positions: int = DEFAULT_MAX_POSITIONS
+    max_correlation: float = DEFAULT_MAX_CORRELATION
+    max_delta: float = DEFAULT_MAX_DELTA
+    max_gamma: float = DEFAULT_MAX_GAMMA
+    max_vega: float = DEFAULT_MAX_VEGA
+    max_theta: float = DEFAULT_MAX_THETA
+    custom_limits: Dict[str, float] = field(default_factory=dict)
 
 @dataclass
-class RiskCheckResult:
-    """Risk check result"""
-    approved: bool
-    action: RiskAction
-    risk_level: RiskLevel
-    risk_score: float
-    reason: str
-    recommendations: List[str] = field(default_factory=list)
-    metrics: Dict[str, float] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
+class PositionRisk:
+    """Risk metrics for a single position"""
+    position_id: str
+    symbol: str
+    quantity: int
+    market_value: float
+    unrealized_pnl: float
+    realized_pnl: float
+    var_95: float
+    max_loss_potential: float
+    delta: float = 0.0
+    gamma: float = 0.0
+    vega: float = 0.0
+    theta: float = 0.0
+    risk_level: RiskLevel = RiskLevel.LOW
+    concentration_risk: float = 0.0
+    correlation_risk: float = 0.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class PortfolioRisk:
-    """Portfolio risk metrics"""
-    total_exposure: float = 0.0
-    delta_exposure: float = 0.0
-    gamma_exposure: float = 0.0
-    vega_exposure: float = 0.0
-    theta_exposure: float = 0.0
-    var_1d: float = 0.0          # 1-day Value at Risk
-    var_10d: float = 0.0         # 10-day Value at Risk
-    expected_shortfall: float = 0.0
-    concentration_risk: float = 0.0
-    correlation_risk: float = 0.0
-    liquidity_risk: float = 0.0
-    stress_test_loss: float = 0.0
-    sharpe_ratio: float = 0.0
-    max_drawdown: float = 0.0
-    beta: float = 1.0
-    last_update: datetime = field(default_factory=datetime.now)
-
-@dataclass
-class StressTestScenario:
-    """Stress test scenario"""
-    name: str
-    description: str
-    market_move: float           # % move in underlying
-    volatility_change: float     # % change in volatility
-    time_decay_days: int = 0     # Days of time decay
-    expected_loss: float = 0.0   # Expected loss from scenario
-
-@dataclass
-class CircuitBreakerConfig:
-    """Circuit breaker configuration"""
-    enabled: bool = True
-    daily_loss_threshold: float = CIRCUIT_BREAKER_LOSS_PCT
-    vix_threshold: float = CIRCUIT_BREAKER_VIX_LEVEL
-    volume_spike_threshold: float = CIRCUIT_BREAKER_VOLUME_SPIKE
-    position_limit_breach_count: int = 3
-    consecutive_losses_limit: int = 5
+    """Portfolio-wide risk metrics"""
+    timestamp: datetime
+    portfolio_value: float
+    at_risk_capital: float
+    total_var_95: float
+    total_cvar_95: float
+    max_drawdown: float
+    current_drawdown: float
+    daily_pnl: float
+    total_delta: float
+    total_gamma: float
+    total_vega: float
+    total_theta: float
+    correlation_matrix: Optional[np.ndarray] = None
+    concentration_score: float = 0.0
+    risk_level: RiskLevel = RiskLevel.LOW
+    active_positions: int = 0
+    risk_utilization: Dict[str, float] = field(default_factory=dict)
 
 @dataclass
 class RiskAlert:
-    """Risk alert data structure"""
+    """Risk alert information"""
     alert_id: str
-    alert_type: str
+    timestamp: datetime
     severity: RiskLevel
+    category: str
     message: str
-    affected_positions: List[str] = field(default_factory=list)
-    recommended_actions: List[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
-    acknowledged: bool = False
+    position_id: Optional[str] = None
+    recommended_action: Optional[MitigationAction] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class RiskProfile:
+    """Complete risk profile"""
+    timestamp: datetime
+    portfolio_risk: PortfolioRisk
+    position_risks: Dict[str, PositionRisk]
+    active_alerts: List[RiskAlert]
+    risk_limits: RiskLimits
+    compliance_status: Dict[str, bool]
+    recommendations: List[str]
 
 # ==============================================================================
-# MAIN CLASS
+# RISK MANAGER CLASS
 # ==============================================================================
 class RiskManager:
     """
-    Enhanced Risk Management System.
+    Comprehensive risk management system.
     
-    This class provides comprehensive risk management capabilities including
-    pre-trade risk checks, real-time portfolio monitoring, stress testing,
-    and automated risk mitigation for professional trading operations.
-    
-    Key Features:
-    - Real-time risk monitoring and alerting
-    - Pre-trade risk validation with dynamic limits
-    - Portfolio VaR and stress testing
-    - Greeks exposure monitoring and limits
-    - Circuit breaker protection mechanisms
-    - Concentration and correlation risk analysis
-    - Automated risk mitigation recommendations
+    Provides real-time risk monitoring, pre-trade checks, portfolio risk
+    assessment, and automated risk mitigation with thread-safe operations.
     
     Attributes:
         logger: Module logger instance
-        config: Risk manager configuration
-        risk_limits: Current risk limit settings
+        error_handler: Error handling instance
+        risk_limits: Current risk limits
         portfolio_risk: Current portfolio risk metrics
-        circuit_breaker_state: Circuit breaker status
-        
-    Example:
-        >>> risk_manager = get_risk_manager()
-        >>> result = risk_manager.check_pre_trade_risk(signal)
-        >>> if result.approved:
-        >>>     # Proceed with trade
     """
     
-    def __init__(self, config: Dict[str, Any] = None):
-        """
-        Initialize the Risk Manager.
-        
-        Args:
-            config: Risk manager configuration dictionary
-        """
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """Initialize risk manager with configuration."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
+        
+        # Configuration
         self.config = config or {}
+        self.risk_limits = self._load_risk_limits()
         
-        # Risk configuration
-        self.risk_limits = self._initialize_risk_limits()
-        self.risk_profile = RiskProfile(self.config.get('risk_profile', 'moderate'))
+        # State management with thread safety
+        self._state_lock = RLock()
+        self._position_risks: Dict[str, PositionRisk] = {}
+        self._portfolio_risk = self._create_empty_portfolio_risk()
+        self._risk_alerts: deque = deque(maxlen=1000)
+        self._risk_history: deque = deque(maxlen=10000)
         
-        # Portfolio risk tracking
-        self.portfolio_risk = PortfolioRisk()
-        self.risk_history: deque = deque(maxlen=10000)
-        self._risk_lock = RLock()
+        # Historical data for calculations
+        self._returns_buffer: deque = deque(maxlen=VAR_LOOKBACK_DAYS)
+        self._price_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
         
-        # Circuit breaker system
-        self.circuit_breaker_config = CircuitBreakerConfig()
-        self.circuit_breaker_state = CircuitBreakerState.NORMAL
-        self._circuit_breaker_lock = RLock()
+        # Monitoring
+        self._monitoring_active = False
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._executor = ThreadPoolExecutor(max_workers=4)
+        self._event_queue = queue.Queue()
         
-        # Risk alerts
-        self.active_alerts: Dict[str, RiskAlert] = {}
-        self.alert_history: deque = deque(maxlen=1000)
-        self._alert_lock = RLock()
+        # Callbacks
+        self._alert_callbacks: List[Callable] = []
+        self._mitigation_callbacks: List[Callable] = []
         
-        # Performance metrics
-        if HAS_PERFORMANCE_METRICS:
-            self.performance_metrics = PerformanceMetrics()
-        else:
-            self.performance_metrics = None
+        # Initialize
+        self._initialized = False
+        self._initialize()
         
-        # Threading infrastructure
-        self.worker_threads: Dict[str, threading.Thread] = {}
-        self._shutdown_event = ThreadEvent()
-        
-        # Market data cache
-        self.market_data: Dict[str, Any] = {}
-        self.vix_level: float = 20.0
-        self.market_volatility: float = 0.15
-        self._market_data_lock = RLock()
-        
-        # Stress test scenarios
-        self.stress_scenarios = self._initialize_stress_scenarios()
-        
-        # Event manager integration
-        try:
-            from SpyderA_Core.SpyderA05_EventManager import get_event_manager
-            self.event_manager = get_event_manager()
-            self.has_event_manager = True
-        except Exception as e:
-            self.logger.warning(f"Event manager not available: {e}")
-            self.event_manager = None
-            self.has_event_manager = False
-        
-        # Monitoring state
-        self.monitoring_active = False
-        self.last_risk_check = datetime.now()
-        self.last_stress_test = datetime.now()
-        self.last_var_calculation = datetime.now()
-        
-        # Statistics
-        self.risk_checks_performed = 0
-        self.trades_approved = 0
-        self.trades_rejected = 0
-        self.alerts_generated = 0
-        
-        self.logger.info(f"RiskManager initialized with {self.risk_profile.value} profile")
-    
     # ==========================================================================
-    # LIFECYCLE METHODS
+    # INITIALIZATION
     # ==========================================================================
-    
-    def initialize(self) -> bool:
-        """
-        Initialize the risk manager.
-        
-        Returns:
-            bool: True if initialization successful
-        """
+    def _initialize(self) -> None:
+        """Initialize risk management components."""
         try:
-            self.logger.info("Initializing RiskManager...")
+            # Load historical data if available
+            self._load_historical_data()
             
-            # Validate risk limits
-            if not self._validate_risk_limits():
-                self.logger.error("Risk limits validation failed")
-                return False
+            # Start monitoring
+            self.start_monitoring()
             
-            # Initialize market data subscriptions
-            self._initialize_market_data()
-            
-            # Perform initial risk assessment
-            self._perform_initial_risk_assessment()
-            
-            self.logger.info("RiskManager initialization completed")
-            return True
+            self._initialized = True
+            self.logger.info("RiskManager initialized successfully")
             
         except Exception as e:
             self.logger.error(f"RiskManager initialization failed: {e}")
-            self.error_handler.handle_risk_error(e, "RiskManager", "initialize")
-            return False
+            self.error_handler.handle_error(e, {"method": "_initialize"})
     
-    def start_monitoring(self) -> bool:
-        """
-        Start risk monitoring.
-        
-        Returns:
-            bool: True if monitoring started successfully
-        """
-        try:
-            self.logger.info("Starting risk monitoring...")
-            
-            # Start worker threads
-            self._start_monitoring_threads()
-            
-            self.monitoring_active = True
-            
-            # Emit monitoring started event
-            if self.has_event_manager:
-                self.event_manager.emit_event(
-                    EventType.RISK_MONITORING_STARTED,
-                    {
-                        'timestamp': datetime.now(),
-                        'risk_profile': self.risk_profile.value,
-                        'circuit_breaker_enabled': self.circuit_breaker_config.enabled
-                    }
-                )
-            
-            self.logger.info("Risk monitoring started successfully")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Risk monitoring start failed: {e}")
-            return False
+    def _load_risk_limits(self) -> RiskLimits:
+        """Load risk limits from configuration."""
+        limits_config = self.config.get('risk_limits', {})
+        return RiskLimits(
+            max_position_size=limits_config.get('max_position_size', DEFAULT_MAX_POSITION_SIZE),
+            max_portfolio_risk=limits_config.get('max_portfolio_risk', DEFAULT_MAX_PORTFOLIO_RISK),
+            max_daily_loss=limits_config.get('max_daily_loss', DEFAULT_MAX_DAILY_LOSS),
+            max_positions=limits_config.get('max_positions', DEFAULT_MAX_POSITIONS),
+            max_correlation=limits_config.get('max_correlation', DEFAULT_MAX_CORRELATION),
+            max_delta=limits_config.get('max_delta', DEFAULT_MAX_DELTA),
+            max_gamma=limits_config.get('max_gamma', DEFAULT_MAX_GAMMA),
+            max_vega=limits_config.get('max_vega', DEFAULT_MAX_VEGA),
+            max_theta=limits_config.get('max_theta', DEFAULT_MAX_THETA),
+            custom_limits=limits_config.get('custom_limits', {})
+        )
     
-    def stop_monitoring(self) -> bool:
-        """
-        Stop risk monitoring.
-        
-        Returns:
-            bool: True if monitoring stopped successfully
-        """
-        try:
-            self.logger.info("Stopping risk monitoring...")
-            
-            # Signal shutdown
-            self._shutdown_event.set()
-            self.monitoring_active = False
-            
-            # Stop worker threads
-            self._stop_monitoring_threads()
-            
-            self.logger.info("Risk monitoring stopped successfully")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Risk monitoring stop failed: {e}")
-            return False
+    def _create_empty_portfolio_risk(self) -> PortfolioRisk:
+        """Create empty portfolio risk object."""
+        return PortfolioRisk(
+            timestamp=datetime.now(),
+            portfolio_value=0.0,
+            at_risk_capital=0.0,
+            total_var_95=0.0,
+            total_cvar_95=0.0,
+            max_drawdown=0.0,
+            current_drawdown=0.0,
+            daily_pnl=0.0,
+            total_delta=0.0,
+            total_gamma=0.0,
+            total_vega=0.0,
+            total_theta=0.0,
+            active_positions=0
+        )
     
     # ==========================================================================
-    # PRE-TRADE RISK CHECKS
+    # PUBLIC METHODS - RISK CHECKS
     # ==========================================================================
-    
-    def check_pre_trade_risk(self, signal) -> RiskCheckResult:
+    def check_pre_trade_risk(self, trade_params: Dict[str, Any]) -> Tuple[RiskCheckResult, Optional[str]]:
         """
-        Perform comprehensive pre-trade risk check.
+        Perform pre-trade risk checks.
         
         Args:
-            signal: Trading signal to validate
+            trade_params: Trade parameters including symbol, quantity, type
             
         Returns:
-            RiskCheckResult with approval status and recommendations
+            Tuple of (result, rejection_reason)
         """
         try:
-            self.risk_checks_performed += 1
-            check_start = time.time()
-            
-            # Initialize result
-            result = RiskCheckResult(
-                approved=False,
-                action=RiskAction.REJECT,
-                risk_level=RiskLevel.HIGH,
-                risk_score=100.0,
-                reason="Risk check failed"
-            )
-            
-            # Check if risk monitoring is active
-            if not self.monitoring_active:
-                result.reason = "Risk monitoring not active"
-                return result
-            
-            # Check circuit breaker state
-            if self.circuit_breaker_state == CircuitBreakerState.HALTED:
-                result.reason = "Circuit breaker halted - no new trades allowed"
-                result.action = RiskAction.REJECT
-                return result
-            
-            # Perform individual risk checks
-            checks = [
-                self._check_position_size_risk(signal),
-                self._check_portfolio_concentration_risk(signal),
-                self._check_greeks_exposure_risk(signal),
-                self._check_correlation_risk(signal),
-                self._check_liquidity_risk(signal),
-                self._check_market_conditions_risk(signal),
-                self._check_daily_loss_limit(signal)
-            ]
-            
-            # Analyze check results
-            approved_checks = sum(1 for check in checks if check.approved)
-            total_checks = len(checks)
-            approval_rate = approved_checks / total_checks
-            
-            # Calculate composite risk score
-            risk_scores = [check.risk_score for check in checks]
-            composite_risk_score = np.mean(risk_scores) if risk_scores else 100.0
-            
-            # Determine overall approval
-            if approval_rate >= 0.8 and composite_risk_score <= 70.0:
-                result.approved = True
-                result.action = RiskAction.APPROVE
-                result.risk_level = self._determine_risk_level(composite_risk_score)
-                result.reason = "All risk checks passed"
-                self.trades_approved += 1
-            elif approval_rate >= 0.6 and composite_risk_score <= 85.0:
-                result.approved = True
-                result.action = RiskAction.WARN
-                result.risk_level = RiskLevel.MEDIUM
-                result.reason = "Trade approved with warnings"
-                result.recommendations.append("Monitor position closely")
-                self.trades_approved += 1
-            else:
-                result.approved = False
-                result.action = RiskAction.REJECT
-                result.risk_level = RiskLevel.HIGH
-                result.reason = "Risk checks failed - trade rejected"
-                self.trades_rejected += 1
-            
-            # Compile failed checks reasons
-            failed_checks = [check for check in checks if not check.approved]
-            if failed_checks:
-                failed_reasons = [check.reason for check in failed_checks]
-                result.reason += f" - Failed: {', '.join(failed_reasons)}"
-            
-            # Add recommendations from all checks
-            for check in checks:
-                result.recommendations.extend(check.recommendations)
-            
-            # Set final metrics
-            result.risk_score = composite_risk_score
-            result.metrics = {
-                'approval_rate': approval_rate,
-                'checks_passed': approved_checks,
-                'total_checks': total_checks,
-                'check_time_ms': (time.time() - check_start) * 1000
-            }
-            
-            # Log result
-            self.logger.info(f"Pre-trade risk check: {result.action.value} "
-                           f"(Score: {result.risk_score:.1f}, Checks: {approved_checks}/{total_checks})")
-            
-            # Emit risk check event
-            if self.has_event_manager:
-                self.event_manager.emit_event(
-                    EventType.RISK_CHECK_COMPLETED,
-                    {
-                        'signal_id': getattr(signal, 'signal_id', 'unknown'),
-                        'approved': result.approved,
-                        'action': result.action.value,
-                        'risk_score': result.risk_score,
-                        'risk_level': result.risk_level.value,
-                        'timestamp': datetime.now()
-                    }
-                )
-            
-            return result
-            
+            with self._state_lock:
+                # Extract trade details
+                symbol = trade_params.get('symbol', '')
+                quantity = trade_params.get('quantity', 0)
+                trade_value = trade_params.get('value', 0)
+                trade_type = trade_params.get('type', 'unknown')
+                
+                # Check position limit
+                if len(self._position_risks) >= self.risk_limits.max_positions:
+                    return RiskCheckResult.REJECTED, "Maximum position count exceeded"
+                
+                # Check position size
+                portfolio_value = self._portfolio_risk.portfolio_value
+                if portfolio_value > 0:
+                    position_size_pct = trade_value / portfolio_value
+                    if position_size_pct > self.risk_limits.max_position_size:
+                        return RiskCheckResult.REJECTED, f"Position size {position_size_pct:.1%} exceeds limit"
+                
+                # Check daily loss limit
+                if self._check_daily_loss_limit():
+                    return RiskCheckResult.REJECTED, "Daily loss limit reached"
+                
+                # Check correlation risk
+                correlation_risk = self._calculate_correlation_impact(symbol, quantity)
+                if correlation_risk > self.risk_limits.max_correlation:
+                    return RiskCheckResult.NEEDS_REVIEW, f"High correlation risk: {correlation_risk:.2f}"
+                
+                # Check Greeks impact (for options)
+                if trade_type == 'option':
+                    greeks_check = self._check_greeks_impact(trade_params)
+                    if greeks_check[0] == RiskCheckResult.REJECTED:
+                        return greeks_check
+                
+                return RiskCheckResult.APPROVED, None
+                
         except Exception as e:
             self.logger.error(f"Pre-trade risk check failed: {e}")
-            self.error_handler.handle_risk_error(e, "RiskManager", "check_pre_trade_risk")
+            return RiskCheckResult.REJECTED, "Risk check error"
+    
+    def calculate_position_risk(self, position: Dict[str, Any]) -> PositionRisk:
+        """
+        Calculate risk metrics for a position.
+        
+        Args:
+            position: Position details dictionary
             
-            return RiskCheckResult(
-                approved=False,
-                action=RiskAction.REJECT,
-                risk_level=RiskLevel.CRITICAL,
-                risk_score=100.0,
-                reason=f"Risk check error: {str(e)}"
+        Returns:
+            PositionRisk object with calculated metrics
+        """
+        try:
+            # Extract position details
+            position_id = position.get('id', str(uuid.uuid4()))
+            symbol = position.get('symbol', 'UNKNOWN')
+            quantity = position.get('quantity', 0)
+            entry_price = position.get('entry_price', 0)
+            current_price = position.get('current_price', entry_price)
+            position_type = position.get('type', 'stock')
+            
+            # Calculate market value and P&L
+            if position_type == 'option':
+                multiplier = 100
+                market_value = quantity * current_price * multiplier
+                cost_basis = quantity * entry_price * multiplier
+            else:
+                market_value = quantity * current_price
+                cost_basis = quantity * entry_price
+            
+            unrealized_pnl = market_value - cost_basis
+            realized_pnl = position.get('realized_pnl', 0)
+            
+            # Calculate VaR
+            var_95 = self._calculate_position_var(symbol, market_value)
+            
+            # Calculate max loss potential
+            max_loss = self._calculate_max_loss_potential(position, market_value)
+            
+            # Extract Greeks (for options)
+            delta = position.get('delta', 0) * quantity
+            gamma = position.get('gamma', 0) * quantity
+            vega = position.get('vega', 0) * quantity
+            theta = position.get('theta', 0) * quantity
+            
+            # Calculate concentration risk
+            portfolio_value = self._portfolio_risk.portfolio_value
+            concentration = abs(market_value) / portfolio_value if portfolio_value > 0 else 0
+            
+            # Determine risk level
+            risk_level = self._assess_position_risk_level(
+                var_95, max_loss, concentration, market_value
+            )
+            
+            # Create position risk object
+            position_risk = PositionRisk(
+                position_id=position_id,
+                symbol=symbol,
+                quantity=quantity,
+                market_value=market_value,
+                unrealized_pnl=unrealized_pnl,
+                realized_pnl=realized_pnl,
+                var_95=var_95,
+                max_loss_potential=max_loss,
+                delta=delta,
+                gamma=gamma,
+                vega=vega,
+                theta=theta,
+                risk_level=risk_level,
+                concentration_risk=concentration,
+                correlation_risk=0.0,  # Calculated separately
+                metadata={
+                    'entry_price': entry_price,
+                    'current_price': current_price,
+                    'position_type': position_type,
+                    'last_updated': datetime.now().isoformat()
+                }
+            )
+            
+            # Update internal state
+            with self._state_lock:
+                self._position_risks[position_id] = position_risk
+            
+            return position_risk
+            
+        except Exception as e:
+            self.logger.error(f"Position risk calculation failed: {e}")
+            self.error_handler.handle_error(e, {"method": "calculate_position_risk"})
+            # Return safe default
+            return PositionRisk(
+                position_id=position.get('id', 'ERROR'),
+                symbol=position.get('symbol', 'UNKNOWN'),
+                quantity=0,
+                market_value=0,
+                unrealized_pnl=0,
+                realized_pnl=0,
+                var_95=0,
+                max_loss_potential=0,
+                risk_level=RiskLevel.HIGH
+            )
+    
+    def calculate_portfolio_risk(self, positions: List[Dict[str, Any]], 
+                               portfolio_value: float) -> PortfolioRisk:
+        """
+        Calculate portfolio-wide risk metrics.
+        
+        Args:
+            positions: List of position dictionaries
+            portfolio_value: Total portfolio value
+            
+        Returns:
+            PortfolioRisk object with calculated metrics
+        """
+        try:
+            with self._state_lock:
+                # Calculate position risks
+                position_risks = []
+                for pos in positions:
+                    pos_risk = self.calculate_position_risk(pos)
+                    position_risks.append(pos_risk)
+                
+                # Aggregate metrics
+                at_risk_capital = sum(abs(pr.market_value) for pr in position_risks)
+                total_unrealized_pnl = sum(pr.unrealized_pnl for pr in position_risks)
+                total_realized_pnl = sum(pr.realized_pnl for pr in position_risks)
+                
+                # Greeks aggregation
+                total_delta = sum(pr.delta for pr in position_risks)
+                total_gamma = sum(pr.gamma for pr in position_risks)
+                total_vega = sum(pr.vega for pr in position_risks)
+                total_theta = sum(pr.theta for pr in position_risks)
+                
+                # Portfolio VaR and CVaR
+                portfolio_var = self._calculate_portfolio_var(position_risks)
+                portfolio_cvar = self._calculate_portfolio_cvar(position_risks, portfolio_var)
+                
+                # Drawdown calculations
+                max_dd, current_dd = self._calculate_drawdowns(portfolio_value)
+                
+                # Daily P&L
+                daily_pnl = self._calculate_daily_pnl(total_unrealized_pnl, total_realized_pnl)
+                
+                # Correlation matrix
+                correlation_matrix = self._calculate_correlation_matrix(positions)
+                
+                # Concentration score
+                concentration_score = self._calculate_concentration_score(position_risks, portfolio_value)
+                
+                # Risk utilization
+                risk_utilization = self._calculate_risk_utilization(
+                    total_delta, total_gamma, total_vega, total_theta,
+                    at_risk_capital, portfolio_value, len(positions)
+                )
+                
+                # Overall risk level
+                risk_level = self._assess_portfolio_risk_level(
+                    portfolio_var, current_dd, concentration_score, risk_utilization
+                )
+                
+                # Create portfolio risk object
+                portfolio_risk = PortfolioRisk(
+                    timestamp=datetime.now(),
+                    portfolio_value=portfolio_value,
+                    at_risk_capital=at_risk_capital,
+                    total_var_95=portfolio_var,
+                    total_cvar_95=portfolio_cvar,
+                    max_drawdown=max_dd,
+                    current_drawdown=current_dd,
+                    daily_pnl=daily_pnl,
+                    total_delta=total_delta,
+                    total_gamma=total_gamma,
+                    total_vega=total_vega,
+                    total_theta=total_theta,
+                    correlation_matrix=correlation_matrix,
+                    concentration_score=concentration_score,
+                    risk_level=risk_level,
+                    active_positions=len(positions),
+                    risk_utilization=risk_utilization
+                )
+                
+                # Update internal state
+                self._portfolio_risk = portfolio_risk
+                self._risk_history.append(portfolio_risk)
+                
+                # Check for alerts
+                self._check_risk_alerts(portfolio_risk, position_risks)
+                
+                return portfolio_risk
+                
+        except Exception as e:
+            self.logger.error(f"Portfolio risk calculation failed: {e}")
+            self.error_handler.handle_error(e, {"method": "calculate_portfolio_risk"})
+            return self._create_empty_portfolio_risk()
+    
+    def get_risk_profile(self) -> RiskProfile:
+        """
+        Get comprehensive risk profile.
+        
+        Returns:
+            Current risk profile with all metrics
+        """
+        with self._state_lock:
+            # Compliance check
+            compliance_status = self._check_compliance()
+            
+            # Generate recommendations
+            recommendations = self._generate_risk_recommendations()
+            
+            return RiskProfile(
+                timestamp=datetime.now(),
+                portfolio_risk=copy.deepcopy(self._portfolio_risk),
+                position_risks=copy.deepcopy(self._position_risks),
+                active_alerts=list(self._risk_alerts)[-10:],  # Last 10 alerts
+                risk_limits=copy.deepcopy(self.risk_limits),
+                compliance_status=compliance_status,
+                recommendations=recommendations
             )
     
     # ==========================================================================
-    # INDIVIDUAL RISK CHECKS
+    # PRIVATE METHODS - CALCULATIONS
     # ==========================================================================
-    
-    def _check_position_size_risk(self, signal) -> RiskCheckResult:
-        """Check position size risk."""
+    def _calculate_position_var(self, symbol: str, market_value: float) -> float:
+        """Calculate Value at Risk for a position."""
         try:
-            # Estimate position value
-            estimated_value = self._estimate_position_value(signal)
-            max_position = self.risk_limits.max_single_position
+            # Get historical returns
+            returns = self._get_symbol_returns(symbol)
+            if not returns or len(returns) < 20:
+                # Use portfolio returns as proxy
+                returns = list(self._returns_buffer)
             
-            if estimated_value <= max_position:
-                return RiskCheckResult(
-                    approved=True,
-                    action=RiskAction.APPROVE,
-                    risk_level=RiskLevel.LOW,
-                    risk_score=min(50.0, (estimated_value / max_position) * 50),
-                    reason="Position size within limits"
-                )
-            else:
-                return RiskCheckResult(
-                    approved=False,
-                    action=RiskAction.REJECT,
-                    risk_level=RiskLevel.HIGH,
-                    risk_score=min(100.0, (estimated_value / max_position) * 100),
-                    reason=f"Position size ${estimated_value:,.0f} exceeds limit ${max_position:,.0f}",
-                    recommendations=[f"Reduce position size to ${max_position:,.0f} or less"]
-                )
-                
+            if not returns:
+                # Default to 2% of market value
+                return abs(market_value) * 0.02
+            
+            # Calculate VaR
+            returns_array = np.array(returns)
+            var_pct = np.percentile(returns_array, (1 - VAR_CONFIDENCE_LEVEL) * 100)
+            
+            return abs(market_value * var_pct)
+            
         except Exception as e:
-            self.logger.error(f"Position size risk check failed: {e}")
-            return RiskCheckResult(
-                approved=False,
-                action=RiskAction.REJECT,
-                risk_level=RiskLevel.HIGH,
-                risk_score=100.0,
-                reason="Position size check error"
-            )
+            self.logger.error(f"VaR calculation failed: {e}")
+            return abs(market_value) * 0.02  # Default 2%
     
-    def _check_portfolio_concentration_risk(self, signal) -> RiskCheckResult:
-        """Check portfolio concentration risk."""
-        try:
-            # This would integrate with position tracker to get current portfolio
-            # For now, simulate concentration check
-            symbol = getattr(signal, 'symbol', 'UNKNOWN')
-            estimated_value = self._estimate_position_value(signal)
+    def _calculate_max_loss_potential(self, position: Dict[str, Any], 
+                                    market_value: float) -> float:
+        """Calculate maximum potential loss for a position."""
+        position_type = position.get('type', 'stock')
+        quantity = position.get('quantity', 0)
+        
+        if position_type == 'stock':
+            # Max loss is full position value for long, unlimited for short
+            return abs(market_value) if quantity > 0 else abs(market_value) * 2
             
-            # Simulate current portfolio value
-            current_portfolio_value = 100000.0  # Would get from position tracker
+        elif position_type == 'option':
+            option_type = position.get('option_type', 'call')
+            strike = position.get('strike', 0)
             
-            concentration = estimated_value / current_portfolio_value if current_portfolio_value > 0 else 0
-            max_concentration = self.risk_limits.max_concentration
-            
-            if concentration <= max_concentration:
-                risk_score = (concentration / max_concentration) * 50
-                return RiskCheckResult(
-                    approved=True,
-                    action=RiskAction.APPROVE,
-                    risk_level=RiskLevel.LOW if concentration < 0.15 else RiskLevel.MEDIUM,
-                    risk_score=risk_score,
-                    reason="Concentration within limits"
-                )
-            else:
-                return RiskCheckResult(
-                    approved=False,
-                    action=RiskAction.REJECT,
-                    risk_level=RiskLevel.HIGH,
-                    risk_score=min(100.0, (concentration / max_concentration) * 100),
-                    reason=f"Concentration {concentration:.1%} exceeds limit {max_concentration:.1%}",
-                    recommendations=["Diversify holdings", "Reduce position size"]
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Concentration risk check failed: {e}")
-            return RiskCheckResult(
-                approved=False,
-                action=RiskAction.REJECT,
-                risk_level=RiskLevel.HIGH,
-                risk_score=100.0,
-                reason="Concentration check error"
-            )
+            if quantity > 0:  # Long options
+                # Max loss is premium paid
+                return abs(market_value)
+            else:  # Short options
+                if option_type == 'call':
+                    # Unlimited risk (capped at 2x strike)
+                    return abs(quantity * 100 * strike * 2)
+                else:  # put
+                    # Max loss is strike price
+                    return abs(quantity * 100 * strike)
+        
+        return abs(market_value)  # Default
     
-    def _check_greeks_exposure_risk(self, signal) -> RiskCheckResult:
-        """Check Greeks exposure risk."""
-        try:
-            # Estimate Greeks impact of new position
-            estimated_delta = self._estimate_delta_impact(signal)
-            estimated_gamma = self._estimate_gamma_impact(signal)
-            estimated_vega = self._estimate_vega_impact(signal)
-            
-            # Get current portfolio Greeks (would integrate with position tracker)
-            current_delta = self.portfolio_risk.delta_exposure
-            current_gamma = self.portfolio_risk.gamma_exposure
-            current_vega = self.portfolio_risk.vega_exposure
-            
-            # Calculate new exposures
-            new_delta = current_delta + estimated_delta
-            new_gamma = current_gamma + estimated_gamma
-            new_vega = current_vega + estimated_vega
-            
-            # Check limits
-            violations = []
-            risk_score = 0.0
-            
-            if abs(new_delta) > self.risk_limits.delta_limit:
-                violations.append(f"Delta: {new_delta:.0f} > {self.risk_limits.delta_limit:.0f}")
-                risk_score = max(risk_score, abs(new_delta) / self.risk_limits.delta_limit * 100)
-            
-            if abs(new_gamma) > self.risk_limits.gamma_limit:
-                violations.append(f"Gamma: {new_gamma:.0f} > {self.risk_limits.gamma_limit:.0f}")
-                risk_score = max(risk_score, abs(new_gamma) / self.risk_limits.gamma_limit * 100)
-            
-            if abs(new_vega) > self.risk_limits.vega_limit:
-                violations.append(f"Vega: {new_vega:.0f} > {self.risk_limits.vega_limit:.0f}")
-                risk_score = max(risk_score, abs(new_vega) / self.risk_limits.vega_limit * 100)
-            
-            if violations:
-                return RiskCheckResult(
-                    approved=False,
-                    action=RiskAction.REJECT,
-                    risk_level=RiskLevel.HIGH,
-                    risk_score=min(100.0, risk_score),
-                    reason=f"Greeks limits exceeded: {', '.join(violations)}",
-                    recommendations=["Hedge existing positions", "Reduce trade size"]
-                )
-            else:
-                # Calculate risk score based on utilization
-                delta_util = abs(new_delta) / self.risk_limits.delta_limit
-                gamma_util = abs(new_gamma) / self.risk_limits.gamma_limit
-                vega_util = abs(new_vega) / self.risk_limits.vega_limit
-                
-                max_utilization = max(delta_util, gamma_util, vega_util)
-                risk_score = max_utilization * 70  # Max 70 if at limit
-                
-                return RiskCheckResult(
-                    approved=True,
-                    action=RiskAction.APPROVE,
-                    risk_level=self._determine_risk_level(risk_score),
-                    risk_score=risk_score,
-                    reason="Greeks exposure within limits"
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Greeks exposure risk check failed: {e}")
-            return RiskCheckResult(
-                approved=False,
-                action=RiskAction.REJECT,
-                risk_level=RiskLevel.HIGH,
-                risk_score=100.0,
-                reason="Greeks exposure check error"
-            )
+    def _calculate_portfolio_var(self, position_risks: List[PositionRisk]) -> float:
+        """Calculate portfolio VaR considering correlations."""
+        if not position_risks:
+            return 0.0
+        
+        # Simple sum for now (conservative)
+        # TODO: Implement correlation-adjusted VaR
+        return sum(pr.var_95 for pr in position_risks)
     
-    def _check_correlation_risk(self, signal) -> RiskCheckResult:
-        """Check correlation risk."""
-        try:
-            # Simplified correlation check
-            symbol = getattr(signal, 'symbol', 'UNKNOWN')
-            
-            # For SPY options, correlation risk is lower
-            if 'SPY' in symbol.upper():
-                return RiskCheckResult(
-                    approved=True,
-                    action=RiskAction.APPROVE,
-                    risk_level=RiskLevel.LOW,
-                    risk_score=20.0,
-                    reason="SPY correlation risk acceptable"
-                )
-            else:
-                return RiskCheckResult(
-                    approved=True,
-                    action=RiskAction.APPROVE,
-                    risk_level=RiskLevel.MEDIUM,
-                    risk_score=40.0,
-                    reason="Correlation risk within acceptable range"
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Correlation risk check failed: {e}")
-            return RiskCheckResult(
-                approved=True,
-                action=RiskAction.APPROVE,
-                risk_level=RiskLevel.MEDIUM,
-                risk_score=50.0,
-                reason="Correlation check completed with warnings"
-            )
+    def _calculate_portfolio_cvar(self, position_risks: List[PositionRisk], 
+                                portfolio_var: float) -> float:
+        """Calculate Conditional VaR (Expected Shortfall)."""
+        # Simplified: CVaR is typically 1.2-1.5x VaR
+        return portfolio_var * 1.3
     
-    def _check_liquidity_risk(self, signal) -> RiskCheckResult:
-        """Check liquidity risk."""
-        try:
-            symbol = getattr(signal, 'symbol', 'UNKNOWN')
-            quantity = getattr(signal, 'quantity', 0)
-            
-            # SPY options typically have good liquidity
-            if 'SPY' in symbol.upper():
-                if quantity <= 100:  # Standard size
-                    return RiskCheckResult(
-                        approved=True,
-                        action=RiskAction.APPROVE,
-                        risk_level=RiskLevel.LOW,
-                        risk_score=10.0,
-                        reason="SPY liquidity excellent"
-                    )
+    def _calculate_drawdowns(self, current_value: float) -> Tuple[float, float]:
+        """Calculate maximum and current drawdown."""
+        if not self._risk_history:
+            return 0.0, 0.0
+        
+        # Get historical peak
+        values = [rh.portfolio_value for rh in self._risk_history]
+        peak = max(values) if values else current_value
+        
+        # Current drawdown
+        current_dd = (peak - current_value) / peak if peak > 0 else 0.0
+        
+        # Max drawdown
+        max_dd = 0.0
+        running_peak = values[0] if values else current_value
+        
+        for value in values:
+            if value > running_peak:
+                running_peak = value
+            dd = (running_peak - value) / running_peak if running_peak > 0 else 0.0
+            max_dd = max(max_dd, dd)
+        
+        return max_dd, current_dd
+    
+    def _calculate_daily_pnl(self, unrealized: float, realized: float) -> float:
+        """Calculate daily P&L."""
+        # Get today's starting values
+        today_start = datetime.now().replace(hour=0, minute=0, second=0)
+        
+        # Find last risk history entry from yesterday
+        yesterday_pnl = 0.0
+        for rh in reversed(self._risk_history):
+            if rh.timestamp < today_start:
+                yesterday_total = sum(pr.unrealized_pnl + pr.realized_pnl 
+                                    for pr in self._position_risks.values())
+                break
+        
+        current_total = unrealized + realized
+        return current_total - yesterday_pnl
+    
+    def _calculate_correlation_matrix(self, positions: List[Dict[str, Any]]) -> Optional[np.ndarray]:
+        """Calculate correlation matrix for positions."""
+        # Simplified - would use actual price correlations
+        n = len(positions)
+        if n < 2:
+            return None
+        
+        # Create identity matrix with some correlation
+        corr_matrix = np.eye(n)
+        
+        # Add some correlation between positions (simplified)
+        for i in range(n):
+            for j in range(i + 1, n):
+                # Same symbol = high correlation
+                if positions[i].get('symbol') == positions[j].get('symbol'):
+                    corr_matrix[i, j] = corr_matrix[j, i] = 0.95
                 else:
-                    return RiskCheckResult(
-                        approved=True,
-                        action=RiskAction.WARN,
-                        risk_level=RiskLevel.MEDIUM,
-                        risk_score=30.0,
-                        reason="Large SPY position - monitor execution",
-                        recommendations=["Consider splitting large orders"]
-                    )
-            else:
-                return RiskCheckResult(
-                    approved=True,
-                    action=RiskAction.WARN,
-                    risk_level=RiskLevel.MEDIUM,
-                    risk_score=50.0,
-                    reason="Non-SPY symbol - verify liquidity",
-                    recommendations=["Check bid-ask spreads", "Verify daily volume"]
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Liquidity risk check failed: {e}")
-            return RiskCheckResult(
-                approved=True,
-                action=RiskAction.WARN,
-                risk_level=RiskLevel.MEDIUM,
-                risk_score=60.0,
-                reason="Liquidity check completed with warnings"
-            )
-    
-    def _check_market_conditions_risk(self, signal) -> RiskCheckResult:
-        """Check market conditions risk."""
-        try:
-            # Check VIX level
-            if self.vix_level > VIX_SPIKE_THRESHOLD:
-                return RiskCheckResult(
-                    approved=False,
-                    action=RiskAction.REJECT,
-                    risk_level=RiskLevel.HIGH,
-                    risk_score=90.0,
-                    reason=f"High volatility environment (VIX: {self.vix_level:.1f})",
-                    recommendations=["Wait for volatility to decrease", "Consider defensive strategies"]
-                )
-            
-            # Check market hours
-            if not self._is_market_hours():
-                return RiskCheckResult(
-                    approved=False,
-                    action=RiskAction.REJECT,
-                    risk_level=RiskLevel.MEDIUM,
-                    risk_score=70.0,
-                    reason="Outside market hours",
-                    recommendations=["Wait for market open", "Use extended hours if necessary"]
-                )
-            
-            return RiskCheckResult(
-                approved=True,
-                action=RiskAction.APPROVE,
-                risk_level=RiskLevel.LOW,
-                risk_score=20.0,
-                reason="Market conditions favorable"
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Market conditions risk check failed: {e}")
-            return RiskCheckResult(
-                approved=True,
-                action=RiskAction.WARN,
-                risk_level=RiskLevel.MEDIUM,
-                risk_score=50.0,
-                reason="Market conditions check completed with warnings"
-            )
-    
-    def _check_daily_loss_limit(self, signal) -> RiskCheckResult:
-        """Check daily loss limit."""
-        try:
-            # Get current daily P&L (would integrate with performance tracker)
-            current_daily_pnl = self.portfolio_risk.var_1d  # Simplified
-            
-            if current_daily_pnl < -self.risk_limits.max_daily_loss:
-                return RiskCheckResult(
-                    approved=False,
-                    action=RiskAction.REJECT,
-                    risk_level=RiskLevel.CRITICAL,
-                    risk_score=100.0,
-                    reason=f"Daily loss limit exceeded: ${current_daily_pnl:,.0f}",
-                    recommendations=["Stop trading for today", "Review risk management"]
-                )
-            
-            # Check if close to limit
-            loss_utilization = abs(current_daily_pnl) / self.risk_limits.max_daily_loss
-            if loss_utilization > 0.8:
-                return RiskCheckResult(
-                    approved=True,
-                    action=RiskAction.WARN,
-                    risk_level=RiskLevel.HIGH,
-                    risk_score=80.0,
-                    reason=f"Approaching daily loss limit: {loss_utilization:.1%}",
-                    recommendations=["Consider reducing position sizes", "Avoid high-risk trades"]
-                )
-            
-            return RiskCheckResult(
-                approved=True,
-                action=RiskAction.APPROVE,
-                risk_level=RiskLevel.LOW,
-                risk_score=loss_utilization * 50,
-                reason="Daily loss within acceptable range"
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Daily loss limit check failed: {e}")
-            return RiskCheckResult(
-                approved=True,
-                action=RiskAction.APPROVE,
-                risk_level=RiskLevel.MEDIUM,
-                risk_score=50.0,
-                reason="Daily loss check completed"
-            )
-    
-    # ==========================================================================
-    # PORTFOLIO RISK MONITORING
-    # ==========================================================================
-    
-    def update_portfolio_risk(self, portfolio_data: Dict[str, Any]) -> bool:
-        """
-        Update portfolio risk metrics.
+                    # Different symbols = moderate correlation
+                    corr_matrix[i, j] = corr_matrix[j, i] = 0.3
         
-        Args:
-            portfolio_data: Current portfolio data
-            
-        Returns:
-            bool: True if update successful
-        """
-        try:
-            with self._risk_lock:
-                # Update portfolio exposure
-                self.portfolio_risk.total_exposure = portfolio_data.get('total_market_value', 0.0)
-                self.portfolio_risk.delta_exposure = portfolio_data.get('total_delta', 0.0)
-                self.portfolio_risk.gamma_exposure = portfolio_data.get('total_gamma', 0.0)
-                self.portfolio_risk.vega_exposure = portfolio_data.get('total_vega', 0.0)
-                self.portfolio_risk.theta_exposure = portfolio_data.get('total_theta', 0.0)
-                
-                # Calculate concentration risk
-                max_position = portfolio_data.get('max_position_size', 0.0)
-                total_value = self.portfolio_risk.total_exposure
-                if total_value > 0:
-                    self.portfolio_risk.concentration_risk = max_position / total_value
-                
-                # Update timestamp
-                self.portfolio_risk.last_update = datetime.now()
-                
-                # Add to history
-                self.risk_history.append(copy.deepcopy(self.portfolio_risk))
-                
-                # Check for risk limit violations
-                self._check_portfolio_risk_limits()
-                
-                return True
-                
-        except Exception as e:
-            self.logger.error(f"Portfolio risk update failed: {e}")
-            return False
+        return corr_matrix
     
-    def check_greek_limits(self, greeks: Dict[str, float]) -> bool:
-        """
-        Check if portfolio Greeks are within limits.
+    def _calculate_concentration_score(self, position_risks: List[PositionRisk], 
+                                     portfolio_value: float) -> float:
+        """Calculate portfolio concentration score (0-1)."""
+        if not position_risks or portfolio_value <= 0:
+            return 0.0
         
-        Args:
-            greeks: Portfolio Greeks dictionary
-            
-        Returns:
-            bool: True if within limits
-        """
-        try:
-            violations = []
-            
-            delta = greeks.get('delta', 0.0)
-            gamma = greeks.get('gamma', 0.0)
-            vega = greeks.get('vega', 0.0)
-            theta = greeks.get('theta', 0.0)
-            
-            if abs(delta) > self.risk_limits.delta_limit:
-                violations.append(f"Delta limit exceeded: {delta:.0f}")
-            
-            if abs(gamma) > self.risk_limits.gamma_limit:
-                violations.append(f"Gamma limit exceeded: {gamma:.0f}")
-            
-            if abs(vega) > self.risk_limits.vega_limit:
-                violations.append(f"Vega limit exceeded: {vega:.0f}")
-            
-            if violations:
-                self._generate_risk_alert(
-                    "GREEKS_LIMIT_VIOLATION",
-                    RiskLevel.HIGH,
-                    f"Greeks limits violated: {', '.join(violations)}",
-                    recommended_actions=["Hedge positions", "Reduce exposure"]
-                )
-                return False
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Greeks limit check failed: {e}")
-            return False
+        # Calculate position weights
+        weights = [abs(pr.market_value) / portfolio_value for pr in position_risks]
+        
+        # Herfindahl index
+        herfindahl = sum(w * w for w in weights)
+        
+        # Normalize (1/n = perfectly diversified)
+        n = len(weights)
+        min_herfindahl = 1 / n if n > 0 else 1
+        
+        return (herfindahl - min_herfindahl) / (1 - min_herfindahl) if min_herfindahl < 1 else 0
     
-    # ==========================================================================
-    # HELPER METHODS
-    # ==========================================================================
+    def _calculate_risk_utilization(self, delta: float, gamma: float, vega: float, 
+                                  theta: float, at_risk_capital: float, 
+                                  portfolio_value: float, position_count: int) -> Dict[str, float]:
+        """Calculate risk limit utilization percentages."""
+        utilization = {}
+        
+        # Greeks utilization
+        utilization['delta'] = abs(delta) / self.risk_limits.max_delta if self.risk_limits.max_delta > 0 else 0
+        utilization['gamma'] = abs(gamma) / self.risk_limits.max_gamma if self.risk_limits.max_gamma > 0 else 0
+        utilization['vega'] = abs(vega) / self.risk_limits.max_vega if self.risk_limits.max_vega > 0 else 0
+        utilization['theta'] = abs(theta) / abs(self.risk_limits.max_theta) if self.risk_limits.max_theta != 0 else 0
+        
+        # Capital utilization
+        utilization['capital'] = at_risk_capital / portfolio_value if portfolio_value > 0 else 0
+        
+        # Position count utilization
+        utilization['positions'] = position_count / self.risk_limits.max_positions
+        
+        return utilization
     
-    def _initialize_risk_limits(self) -> RiskLimits:
-        """Initialize risk limits based on configuration."""
-        try:
-            limits = RiskLimits()
-            
-            # Apply configuration overrides
-            if 'risk_limits' in self.config:
-                limit_config = self.config['risk_limits']
-                for key, value in limit_config.items():
-                    if hasattr(limits, key):
-                        setattr(limits, key, value)
-            
-            # Apply risk profile adjustments
-            if self.config.get('risk_profile') == 'conservative':
-                limits.max_daily_loss *= 0.5
-                limits.max_single_position *= 0.7
-                limits.max_portfolio_delta *= 0.6
-            elif self.config.get('risk_profile') == 'aggressive':
-                limits.max_daily_loss *= 1.5
-                limits.max_single_position *= 1.3
-                limits.max_portfolio_delta *= 1.4
-            
-            return limits
-            
-        except Exception as e:
-            self.logger.error(f"Risk limits initialization failed: {e}")
-            return RiskLimits()
-    
-    def _initialize_stress_scenarios(self) -> List[StressTestScenario]:
-        """Initialize stress test scenarios."""
-        return [
-            StressTestScenario(
-                name="Market Crash",
-                description="5% market decline with volatility spike",
-                market_move=-0.05,
-                volatility_change=0.5
-            ),
-            StressTestScenario(
-                name="Flash Crash",
-                description="10% market decline in single day",
-                market_move=-0.10,
-                volatility_change=1.0
-            ),
-            StressTestScenario(
-                name="Volatility Spike",
-                description="50% increase in volatility",
-                market_move=0.0,
-                volatility_change=0.5
-            ),
-            StressTestScenario(
-                name="Time Decay",
-                description="5 days of time decay",
-                market_move=0.0,
-                volatility_change=0.0,
-                time_decay_days=5
-            )
-        ]
-    
-    def _estimate_position_value(self, signal) -> float:
-        """Estimate position value from signal."""
-        try:
-            quantity = getattr(signal, 'quantity', 0)
-            symbol = getattr(signal, 'symbol', '')
-            
-            # Simplified estimation
-            if 'SPY' in symbol.upper():
-                if any(c in symbol for c in ['C', 'P']):  # Option
-                    return quantity * 500.0  # Assume $5 option price
-                else:  # Stock
-                    return quantity * 450.0  # SPY price
-            else:
-                return quantity * 100.0  # Default estimation
-                
-        except Exception as e:
-            self.logger.error(f"Position value estimation failed: {e}")
-            return 0.0
-    
-    def _estimate_delta_impact(self, signal) -> float:
-        """Estimate delta impact of signal."""
-        try:
-            quantity = getattr(signal, 'quantity', 0)
-            symbol = getattr(signal, 'symbol', '')
-            
-            # Simplified delta estimation
-            if 'SPY' in symbol.upper():
-                if 'C' in symbol:  # Call option
-                    return quantity * 50  # Assume 0.5 delta
-                elif 'P' in symbol:  # Put option
-                    return quantity * -50  # Assume -0.5 delta
-                else:  # Stock
-                    return quantity * 100  # Stock delta = 100
-            
-            return 0.0
-            
-        except Exception as e:
-            self.logger.error(f"Delta impact estimation failed: {e}")
-            return 0.0
-    
-    def _estimate_gamma_impact(self, signal) -> float:
-        """Estimate gamma impact of signal."""
-        try:
-            quantity = getattr(signal, 'quantity', 0)
-            symbol = getattr(signal, 'symbol', '')
-            
-            # Simplified gamma estimation for options
-            if any(c in symbol for c in ['C', 'P']):
-                return quantity * 5  # Assume 0.05 gamma
-            
-            return 0.0
-            
-        except Exception as e:
-            self.logger.error(f"Gamma impact estimation failed: {e}")
-            return 0.0
-    
-    def _estimate_vega_impact(self, signal) -> float:
-        """Estimate vega impact of signal."""
-        try:
-            quantity = getattr(signal, 'quantity', 0)
-            symbol = getattr(signal, 'symbol', '')
-            
-            # Simplified vega estimation for options
-            if any(c in symbol for c in ['C', 'P']):
-                return quantity * 20  # Assume 0.2 vega
-            
-            return 0.0
-            
-        except Exception as e:
-            self.logger.error(f"Vega impact estimation failed: {e}")
-            return 0.0
-    
-    def _determine_risk_level(self, risk_score: float) -> RiskLevel:
-        """Determine risk level from risk score."""
-        if risk_score <= 30:
-            return RiskLevel.LOW
-        elif risk_score <= 60:
-            return RiskLevel.MEDIUM
-        elif risk_score <= 85:
-            return RiskLevel.HIGH
+    def _calculate_correlation_impact(self, symbol: str, quantity: float) -> float:
+        """Calculate correlation impact of new position."""
+        # Simplified - would calculate actual correlation impact
+        existing_symbols = {pr.symbol for pr in self._position_risks.values()}
+        
+        if symbol in existing_symbols:
+            return 0.8  # High correlation if same symbol
         else:
+            return 0.3  # Moderate correlation otherwise
+    
+    # ==========================================================================
+    # PRIVATE METHODS - RISK ASSESSMENT
+    # ==========================================================================
+    def _assess_position_risk_level(self, var: float, max_loss: float, 
+                                  concentration: float, market_value: float) -> RiskLevel:
+        """Assess risk level for a position."""
+        # Risk scoring
+        risk_score = 0
+        
+        # VaR as percentage of position
+        var_pct = var / abs(market_value) if market_value != 0 else 0
+        if var_pct > 0.10:  # >10% VaR
+            risk_score += 3
+        elif var_pct > 0.05:  # >5% VaR
+            risk_score += 2
+        elif var_pct > 0.02:  # >2% VaR
+            risk_score += 1
+        
+        # Concentration risk
+        if concentration > 0.20:  # >20% of portfolio
+            risk_score += 3
+        elif concentration > 0.10:  # >10%
+            risk_score += 2
+        elif concentration > 0.05:  # >5%
+            risk_score += 1
+        
+        # Map score to risk level
+        if risk_score >= 5:
             return RiskLevel.CRITICAL
+        elif risk_score >= 3:
+            return RiskLevel.HIGH
+        elif risk_score >= 1:
+            return RiskLevel.MEDIUM
+        else:
+            return RiskLevel.LOW
     
-    def _is_market_hours(self) -> bool:
-        """Check if currently in market hours."""
-        try:
-            # Simplified market hours check
-            from datetime import time
-            import pytz
-            
-            et = pytz.timezone('US/Eastern')
-            now_et = datetime.now(et)
-            
-            # Check if weekday
-            if now_et.weekday() >= 5:  # Weekend
-                return False
-            
-            # Check time (9:30 AM - 4:00 PM ET)
-            market_open = time(9, 30)
-            market_close = time(16, 0)
-            current_time = now_et.time()
-            
-            return market_open <= current_time <= market_close
-            
-        except Exception as e:
-            self.logger.warning(f"Market hours check failed: {e}")
-            return True  # Default to open
+    def _assess_portfolio_risk_level(self, var: float, drawdown: float, 
+                                   concentration: float, utilization: Dict[str, float]) -> RiskLevel:
+        """Assess overall portfolio risk level."""
+        risk_score = 0
+        
+        # Drawdown risk
+        if drawdown > 0.20:  # >20% drawdown
+            risk_score += 3
+        elif drawdown > 0.10:  # >10%
+            risk_score += 2
+        elif drawdown > 0.05:  # >5%
+            risk_score += 1
+        
+        # Concentration risk
+        if concentration > 0.50:  # >50% concentration
+            risk_score += 3
+        elif concentration > 0.30:  # >30%
+            risk_score += 2
+        elif concentration > 0.20:  # >20%
+            risk_score += 1
+        
+        # Greeks utilization
+        for greek, util in utilization.items():
+            if greek in ['delta', 'gamma', 'vega']:
+                if util > 0.90:  # >90% utilized
+                    risk_score += 2
+                elif util > 0.70:  # >70%
+                    risk_score += 1
+        
+        # Map score to risk level
+        if risk_score >= 8:
+            return RiskLevel.CRITICAL
+        elif risk_score >= 5:
+            return RiskLevel.HIGH
+        elif risk_score >= 2:
+            return RiskLevel.MEDIUM
+        else:
+            return RiskLevel.LOW
     
-    def _validate_risk_limits(self) -> bool:
-        """Validate risk limits configuration."""
-        try:
-            # Check that limits are reasonable
-    def _validate_risk_limits(self) -> bool:
-        """Validate risk limits configuration."""
-        try:
-            # Check that limits are reasonable
-            if self.risk_limits.max_daily_loss <= 0:
-                self.logger.error("Invalid max_daily_loss limit")
-                return False
-            
-            if self.risk_limits.max_single_position <= 0:
-                self.logger.error("Invalid max_single_position limit")
-                return False
-            
-            if not (0 < self.risk_limits.max_concentration <= 1):
-                self.logger.error("Invalid max_concentration limit")
-                return False
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Risk limits validation failed: {e}")
+    def _check_daily_loss_limit(self) -> bool:
+        """Check if daily loss limit has been reached."""
+        if not self._portfolio_risk.portfolio_value:
             return False
+        
+        daily_loss_pct = abs(self._portfolio_risk.daily_pnl) / self._portfolio_risk.portfolio_value
+        return daily_loss_pct >= self.risk_limits.max_daily_loss
     
-    def _initialize_market_data(self):
-        """Initialize market data subscriptions."""
-        try:
-            # This would integrate with market data feed
-            # For now, set default values
-            self.vix_level = 20.0
-            self.market_volatility = 0.15
-            
-        except Exception as e:
-            self.logger.error(f"Market data initialization failed: {e}")
+    def _check_greeks_impact(self, trade_params: Dict[str, Any]) -> Tuple[RiskCheckResult, Optional[str]]:
+        """Check Greeks impact of new trade."""
+        # Extract Greeks from trade
+        delta = trade_params.get('delta', 0) * trade_params.get('quantity', 0)
+        gamma = trade_params.get('gamma', 0) * trade_params.get('quantity', 0)
+        vega = trade_params.get('vega', 0) * trade_params.get('quantity', 0)
+        theta = trade_params.get('theta', 0) * trade_params.get('quantity', 0)
+        
+        # Calculate new totals
+        new_delta = self._portfolio_risk.total_delta + delta
+        new_gamma = self._portfolio_risk.total_gamma + gamma
+        new_vega = self._portfolio_risk.total_vega + vega
+        new_theta = self._portfolio_risk.total_theta + theta
+        
+        # Check limits
+        if abs(new_delta) > self.risk_limits.max_delta:
+            return RiskCheckResult.REJECTED, f"Delta limit exceeded: {new_delta:.1f}"
+        
+        if abs(new_gamma) > self.risk_limits.max_gamma:
+            return RiskCheckResult.REJECTED, f"Gamma limit exceeded: {new_gamma:.1f}"
+        
+        if abs(new_vega) > self.risk_limits.max_vega:
+            return RiskCheckResult.REJECTED, f"Vega limit exceeded: {new_vega:.1f}"
+        
+        if new_theta < self.risk_limits.max_theta:  # Theta is negative
+            return RiskCheckResult.REJECTED, f"Theta limit exceeded: {new_theta:.1f}"
+        
+        return RiskCheckResult.APPROVED, None
     
-    def _perform_initial_risk_assessment(self):
-        """Perform initial risk assessment."""
-        try:
-            # Initial portfolio risk calculation
-            self.portfolio_risk = PortfolioRisk()
-            
-            # Check circuit breaker status
-            self.circuit_breaker_state = CircuitBreakerState.NORMAL
-            
-            self.logger.info("Initial risk assessment completed")
-            
-        except Exception as e:
-            self.logger.error(f"Initial risk assessment failed: {e}")
+    # ==========================================================================
+    # PRIVATE METHODS - MONITORING
+    # ==========================================================================
+    def _monitoring_loop(self) -> None:
+        """Main monitoring loop."""
+        self.logger.info("Risk monitoring started")
+        
+        while self._monitoring_active:
+            try:
+                # Quick risk check
+                self._perform_risk_check()
+                
+                # Sleep
+                time.sleep(RISK_CHECK_INTERVAL)
+                
+            except Exception as e:
+                self.logger.error(f"Monitoring error: {e}")
+                self.error_handler.handle_error(e, {"method": "_monitoring_loop"})
+        
+        self.logger.info("Risk monitoring stopped")
     
-    def _start_monitoring_threads(self):
-        """Start risk monitoring threads."""
-        try:
-            # Risk monitoring thread
-            risk_thread = threading.Thread(
-                target=self._risk_monitoring_worker,
+    def _perform_risk_check(self) -> None:
+        """Perform periodic risk check."""
+        with self._state_lock:
+            # Check position risks
+            for pos_id, pos_risk in self._position_risks.items():
+                self._check_position_risk(pos_risk)
+            
+            # Check portfolio risk
+            self._check_portfolio_risk()
+    
+    def _check_position_risk(self, position_risk: PositionRisk) -> None:
+        """Check individual position risk."""
+        # Check risk level change
+        if position_risk.risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL]:
+            alert = RiskAlert(
+                alert_id=str(uuid.uuid4()),
+                timestamp=datetime.now(),
+                severity=position_risk.risk_level,
+                category="position_risk",
+                message=f"High risk detected for {position_risk.symbol}",
+                position_id=position_risk.position_id,
+                recommended_action=self._determine_mitigation_action(position_risk)
+            )
+            self._raise_alert(alert)
+    
+    def _check_portfolio_risk(self) -> None:
+        """Check portfolio-wide risk."""
+        portfolio_risk = self._portfolio_risk
+        
+        # Check risk level
+        if portfolio_risk.risk_level in [RiskLevel.HIGH, RiskLevel.CRITICAL]:
+            alert = RiskAlert(
+                alert_id=str(uuid.uuid4()),
+                timestamp=datetime.now(),
+                severity=portfolio_risk.risk_level,
+                category="portfolio_risk",
+                message="High portfolio risk detected",
+                recommended_action=MitigationAction.REDUCE_POSITION
+            )
+            self._raise_alert(alert)
+        
+        # Check specific metrics
+        if portfolio_risk.current_drawdown > self.risk_limits.max_daily_loss:
+            alert = RiskAlert(
+                alert_id=str(uuid.uuid4()),
+                timestamp=datetime.now(),
+                severity=RiskLevel.CRITICAL,
+                category="drawdown",
+                message=f"Drawdown {portfolio_risk.current_drawdown:.1%} exceeds limit",
+                recommended_action=MitigationAction.STOP_TRADING
+            )
+            self._raise_alert(alert)
+    
+    def _check_risk_alerts(self, portfolio_risk: PortfolioRisk, 
+                         position_risks: List[PositionRisk]) -> None:
+        """Check for risk alerts."""
+        # Portfolio alerts
+        self._check_portfolio_risk()
+        
+        # Position alerts
+        for pos_risk in position_risks:
+            self._check_position_risk(pos_risk)
+    
+    def _raise_alert(self, alert: RiskAlert) -> None:
+        """Raise a risk alert."""
+        # Store alert
+        self._risk_alerts.append(alert)
+        
+        # Log alert
+        self.logger.warning(f"Risk Alert: {alert.message}")
+        
+        # Execute callbacks
+        for callback in self._alert_callbacks:
+            try:
+                self._executor.submit(callback, alert)
+            except Exception as e:
+                self.logger.error(f"Alert callback failed: {e}")
+        
+        # Execute mitigation if critical
+        if alert.severity == RiskLevel.CRITICAL and alert.recommended_action:
+            self._execute_mitigation(alert)
+    
+    def _execute_mitigation(self, alert: RiskAlert) -> None:
+        """Execute risk mitigation action."""
+        for callback in self._mitigation_callbacks:
+            try:
+                self._executor.submit(callback, alert)
+            except Exception as e:
+                self.logger.error(f"Mitigation callback failed: {e}")
+    
+    def _determine_mitigation_action(self, position_risk: PositionRisk) -> MitigationAction:
+        """Determine appropriate mitigation action."""
+        if position_risk.risk_level == RiskLevel.CRITICAL:
+            return MitigationAction.CLOSE_POSITION
+        elif position_risk.risk_level == RiskLevel.HIGH:
+            return MitigationAction.REDUCE_POSITION
+        else:
+            return MitigationAction.ALERT_ONLY
+    
+    # ==========================================================================
+    # PRIVATE METHODS - COMPLIANCE
+    # ==========================================================================
+    def _check_compliance(self) -> Dict[str, bool]:
+        """Check compliance with all risk limits."""
+        compliance = {}
+        
+        # Position limits
+        compliance['position_count'] = len(self._position_risks) <= self.risk_limits.max_positions
+        compliance['position_sizes'] = all(
+            pr.concentration_risk <= self.risk_limits.max_position_size
+            for pr in self._position_risks.values()
+        )
+        
+        # Greeks limits
+        pr = self._portfolio_risk
+        compliance['delta'] = abs(pr.total_delta) <= self.risk_limits.max_delta
+        compliance['gamma'] = abs(pr.total_gamma) <= self.risk_limits.max_gamma
+        compliance['vega'] = abs(pr.total_vega) <= self.risk_limits.max_vega
+        compliance['theta'] = pr.total_theta >= self.risk_limits.max_theta
+        
+        # Loss limits
+        compliance['daily_loss'] = not self._check_daily_loss_limit()
+        
+        # Overall compliance
+        compliance['overall'] = all(compliance.values())
+        
+        return compliance
+    
+    def _generate_risk_recommendations(self) -> List[str]:
+        """Generate risk management recommendations."""
+        recommendations = []
+        
+        # Check concentration
+        if self._portfolio_risk.concentration_score > 0.3:
+            recommendations.append("Consider diversifying positions to reduce concentration risk")
+        
+        # Check Greeks
+        utilization = self._portfolio_risk.risk_utilization
+        
+        if utilization.get('delta', 0) > 0.7:
+            recommendations.append(f"Delta exposure high ({utilization['delta']:.0%}), consider hedging")
+        
+        if utilization.get('gamma', 0) > 0.7:
+            recommendations.append(f"Gamma exposure high ({utilization['gamma']:.0%}), monitor closely")
+        
+        if utilization.get('vega', 0) > 0.7:
+            recommendations.append(f"Vega exposure high ({utilization['vega']:.0%}), reduce in high IV")
+        
+        # Check drawdown
+        if self._portfolio_risk.current_drawdown > 0.05:
+            recommendations.append(f"In drawdown ({self._portfolio_risk.current_drawdown:.1%}), consider reducing risk")
+        
+        return recommendations
+    
+    # ==========================================================================
+    # PRIVATE METHODS - UTILITIES
+    # ==========================================================================
+    def _get_symbol_returns(self, symbol: str) -> List[float]:
+        """Get historical returns for a symbol."""
+        if symbol not in self._price_history:
+            return []
+        
+        prices = list(self._price_history[symbol])
+        if len(prices) < 2:
+            return []
+        
+        returns = []
+        for i in range(1, len(prices)):
+            ret = (prices[i] - prices[i-1]) / prices[i-1] if prices[i-1] != 0 else 0
+            returns.append(ret)
+        
+        return returns
+    
+    def _load_historical_data(self) -> None:
+        """Load historical data for risk calculations."""
+        # This would load from database in production
+        self.logger.info("Loading historical risk data")
+    
+    # ==========================================================================
+    # PUBLIC METHODS - LIFECYCLE
+    # ==========================================================================
+    def start_monitoring(self) -> None:
+        """Start risk monitoring."""
+        if not self._monitoring_active:
+            self._monitoring_active = True
+            self._monitor_thread = threading.Thread(
+                target=self._monitoring_loop,
                 name="RiskMonitor",
                 daemon=True
             )
-            risk_thread.start()
-            self.worker_threads['risk_monitor'] = risk_thread
-            
-            # Circuit breaker monitoring thread
-            circuit_thread = threading.Thread(
-                target=self._circuit_breaker_worker,
-                name="CircuitBreakerMonitor",
-                daemon=True
-            )
-            circuit_thread.start()
-            self.worker_threads['circuit_breaker'] = circuit_thread
-            
-            # VaR calculation thread
-            var_thread = threading.Thread(
-                target=self._var_calculation_worker,
-                name="VaRCalculator",
-                daemon=True
-            )
-            var_thread.start()
-            self.worker_threads['var_calculator'] = var_thread
-            
-            self.logger.info("Risk monitoring threads started")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to start monitoring threads: {e}")
+            self._monitor_thread.start()
+            self.logger.info("Risk monitoring started")
     
-    def _stop_monitoring_threads(self):
-        """Stop monitoring threads."""
-        try:
-            # Wait for threads to finish
-            for name, thread in self.worker_threads.items():
-                if thread.is_alive():
-                    thread.join(timeout=5.0)
-                    if thread.is_alive():
-                        self.logger.warning(f"Thread {name} did not stop gracefully")
-            
-            self.worker_threads.clear()
-            self.logger.info("Risk monitoring threads stopped")
-            
-        except Exception as e:
-            self.logger.error(f"Error stopping monitoring threads: {e}")
+    def stop_monitoring(self) -> None:
+        """Stop risk monitoring."""
+        if self._monitoring_active:
+            self._monitoring_active = False
+            if self._monitor_thread:
+                self._monitor_thread.join(timeout=5)
+            self.logger.info("Risk monitoring stopped")
     
-    def _risk_monitoring_worker(self):
-        """Risk monitoring worker thread."""
-        while not self._shutdown_event.is_set():
-            try:
-                # Check portfolio risk limits
-                self._check_portfolio_risk_limits()
-                
-                # Update market data
-                self._update_market_data()
-                
-                # Check for risk alerts
-                self._process_risk_alerts()
-                
-                self.last_risk_check = datetime.now()
-                self._shutdown_event.wait(RISK_CHECK_INTERVAL)
-                
-            except Exception as e:
-                self.logger.error(f"Risk monitoring worker error: {e}")
-                self._shutdown_event.wait(5.0)
-    
-    def _circuit_breaker_worker(self):
-        """Circuit breaker monitoring worker thread."""
-        while not self._shutdown_event.is_set():
-            try:
-                # Check circuit breaker conditions
-                self._check_circuit_breaker_conditions()
-                
-                self._shutdown_event.wait(5.0)  # Check every 5 seconds
-                
-            except Exception as e:
-                self.logger.error(f"Circuit breaker worker error: {e}")
-                self._shutdown_event.wait(10.0)
-    
-    def _var_calculation_worker(self):
-        """VaR calculation worker thread."""
-        while not self._shutdown_event.is_set():
-            try:
-                # Calculate portfolio VaR
-                self._calculate_portfolio_var()
-                
-                # Perform stress tests
-                self._perform_stress_tests()
-                
-                self.last_var_calculation = datetime.now()
-                self._shutdown_event.wait(VaR_CALCULATION_INTERVAL)
-                
-            except Exception as e:
-                self.logger.error(f"VaR calculation worker error: {e}")
-                self._shutdown_event.wait(60.0)
-    
-    def _check_portfolio_risk_limits(self):
-        """Check portfolio-level risk limits."""
-        try:
-            with self._risk_lock:
-                violations = []
-                
-                # Check delta exposure
-                if abs(self.portfolio_risk.delta_exposure) > self.risk_limits.max_portfolio_delta:
-                    violations.append(f"Portfolio delta: {self.portfolio_risk.delta_exposure:.0f}")
-                
-                # Check concentration
-                if self.portfolio_risk.concentration_risk > self.risk_limits.max_concentration:
-                    violations.append(f"Concentration: {self.portfolio_risk.concentration_risk:.1%}")
-                
-                # Check VaR
-                if abs(self.portfolio_risk.var_1d) > self.risk_limits.max_daily_loss:
-                    violations.append(f"Daily VaR: ${self.portfolio_risk.var_1d:,.0f}")
-                
-                if violations:
-                    self._generate_risk_alert(
-                        "PORTFOLIO_RISK_LIMIT",
-                        RiskLevel.HIGH,
-                        f"Portfolio risk limits violated: {', '.join(violations)}",
-                        recommended_actions=["Reduce positions", "Implement hedges"]
-                    )
-                    
-        except Exception as e:
-            self.logger.error(f"Portfolio risk limit check failed: {e}")
-    
-    def _check_circuit_breaker_conditions(self):
-        """Check circuit breaker trigger conditions."""
-        try:
-            if not self.circuit_breaker_config.enabled:
-                return
-            
-            with self._circuit_breaker_lock:
-                should_trigger = False
-                trigger_reason = ""
-                
-                # Check daily loss threshold
-                daily_loss_pct = abs(self.portfolio_risk.var_1d) / max(self.portfolio_risk.total_exposure, 1)
-                if daily_loss_pct > self.circuit_breaker_config.daily_loss_threshold:
-                    should_trigger = True
-                    trigger_reason = f"Daily loss {daily_loss_pct:.1%} exceeds threshold"
-                
-                # Check VIX level
-                if self.vix_level > self.circuit_breaker_config.vix_threshold:
-                    should_trigger = True
-                    trigger_reason = f"VIX {self.vix_level:.1f} exceeds threshold"
-                
-                # Trigger circuit breaker if conditions met
-                if should_trigger and self.circuit_breaker_state == CircuitBreakerState.NORMAL:
-                    self._trigger_circuit_breaker(trigger_reason)
-                elif not should_trigger and self.circuit_breaker_state == CircuitBreakerState.TRIGGERED:
-                    self._reset_circuit_breaker("Conditions normalized")
-                    
-        except Exception as e:
-            self.logger.error(f"Circuit breaker check failed: {e}")
-    
-    def _trigger_circuit_breaker(self, reason: str):
-        """Trigger circuit breaker."""
-        try:
-            self.circuit_breaker_state = CircuitBreakerState.TRIGGERED
-            
-            self.logger.critical(f"CIRCUIT BREAKER TRIGGERED: {reason}")
-            
-            # Generate critical alert
-            self._generate_risk_alert(
-                "CIRCUIT_BREAKER_TRIGGERED",
-                RiskLevel.CRITICAL,
-                f"Circuit breaker triggered: {reason}",
-                recommended_actions=[
-                    "Stop all new trading",
-                    "Review positions",
-                    "Consider emergency liquidation"
-                ]
-            )
-            
-            # Emit circuit breaker event
-            if self.has_event_manager:
-                self.event_manager.emit_event(
-                    EventType.CIRCUIT_BREAKER_TRIGGERED,
-                    {
-                        'reason': reason,
-                        'timestamp': datetime.now(),
-                        'portfolio_value': self.portfolio_risk.total_exposure,
-                        'daily_pnl': self.portfolio_risk.var_1d
-                    }
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Circuit breaker trigger failed: {e}")
-    
-    def _reset_circuit_breaker(self, reason: str):
-        """Reset circuit breaker."""
-        try:
-            self.circuit_breaker_state = CircuitBreakerState.NORMAL
-            
-            self.logger.info(f"Circuit breaker reset: {reason}")
-            
-            # Emit reset event
-            if self.has_event_manager:
-                self.event_manager.emit_event(
-                    EventType.CIRCUIT_BREAKER_RESET,
-                    {
-                        'reason': reason,
-                        'timestamp': datetime.now()
-                    }
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Circuit breaker reset failed: {e}")
-    
-    def _calculate_portfolio_var(self):
-        """Calculate portfolio Value at Risk."""
-        try:
-            if not HAS_SCIPY:
-                # Simplified VaR calculation
-                portfolio_value = self.portfolio_risk.total_exposure
-                daily_volatility = self.market_volatility / math.sqrt(252)  # Annualized to daily
-                
-                # 95% confidence level VaR
-                var_95 = portfolio_value * daily_volatility * 1.645
-                var_99 = portfolio_value * daily_volatility * 2.33
-                
-                with self._risk_lock:
-                    self.portfolio_risk.var_1d = -var_95  # Negative for loss
-                    self.portfolio_risk.var_10d = -var_95 * math.sqrt(10)
-                    self.portfolio_risk.expected_shortfall = -var_99
-            else:
-                # More sophisticated VaR calculation with scipy
-                # Would use historical returns and Monte Carlo simulation
-                self._calculate_sophisticated_var()
-                
-        except Exception as e:
-            self.logger.error(f"VaR calculation failed: {e}")
-    
-    def _calculate_sophisticated_var(self):
-        """Calculate sophisticated VaR using statistical methods."""
-        try:
-            # This would implement Monte Carlo or historical VaR
-            # For now, use simplified calculation
-            portfolio_value = self.portfolio_risk.total_exposure
-            
-            # Simulate returns using normal distribution
-            daily_vol = self.market_volatility / math.sqrt(252)
-            returns = np.random.normal(0, daily_vol, 10000)
-            portfolio_returns = returns * portfolio_value
-            
-            # Calculate VaR at different confidence levels
-            var_95 = np.percentile(portfolio_returns, 5)  # 5th percentile
-            var_99 = np.percentile(portfolio_returns, 1)  # 1st percentile
-            
-            # Expected Shortfall (CVaR)
-            es_95 = np.mean(portfolio_returns[portfolio_returns <= var_95])
-            
-            with self._risk_lock:
-                self.portfolio_risk.var_1d = var_95
-                self.portfolio_risk.var_10d = var_95 * math.sqrt(10)
-                self.portfolio_risk.expected_shortfall = es_95
-                
-        except Exception as e:
-            self.logger.error(f"Sophisticated VaR calculation failed: {e}")
-    
-    def _perform_stress_tests(self):
-        """Perform portfolio stress tests."""
-        try:
-            worst_case_loss = 0.0
-            
-            for scenario in self.stress_scenarios:
-                # Simulate scenario impact
-                scenario_loss = self._simulate_stress_scenario(scenario)
-                scenario.expected_loss = scenario_loss
-                
-                if scenario_loss < worst_case_loss:
-                    worst_case_loss = scenario_loss
-            
-            with self._risk_lock:
-                self.portfolio_risk.stress_test_loss = worst_case_loss
-            
-            # Check if stress test results require action
-            if abs(worst_case_loss) > self.risk_limits.max_daily_loss * 2:
-                self._generate_risk_alert(
-                    "STRESS_TEST_FAILURE",
-                    RiskLevel.HIGH,
-                    f"Stress test shows potential loss of ${worst_case_loss:,.0f}",
-                    recommended_actions=["Review portfolio construction", "Add hedges"]
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Stress testing failed: {e}")
-    
-    def _simulate_stress_scenario(self, scenario: StressTestScenario) -> float:
-        """Simulate impact of stress scenario on portfolio."""
-        try:
-            # Simplified stress test calculation
-            portfolio_value = self.portfolio_risk.total_exposure
-            delta_exposure = self.portfolio_risk.delta_exposure
-            vega_exposure = self.portfolio_risk.vega_exposure
-            theta_exposure = self.portfolio_risk.theta_exposure
-            
-            # Calculate scenario impact
-            delta_pnl = delta_exposure * scenario.market_move * 100  # Delta per $1 move
-            vega_pnl = vega_exposure * scenario.volatility_change * 100  # Vega per 1% vol change
-            theta_pnl = theta_exposure * scenario.time_decay_days  # Theta per day
-            
-            total_pnl = delta_pnl + vega_pnl + theta_pnl
-            
-            return total_pnl
-            
-        except Exception as e:
-            self.logger.error(f"Stress scenario simulation failed: {e}")
-            return 0.0
-    
-    def _update_market_data(self):
-        """Update market data for risk calculations."""
-        try:
-            # This would integrate with market data feed
-            # For now, simulate updates
-            import random
-            
-            # Simulate VIX updates
-            vix_change = random.uniform(-0.5, 0.5)
-            self.vix_level = max(10.0, min(50.0, self.vix_level + vix_change))
-            
-            # Simulate volatility updates
-            vol_change = random.uniform(-0.001, 0.001)
-            self.market_volatility = max(0.05, min(0.50, self.market_volatility + vol_change))
-            
-        except Exception as e:
-            self.logger.error(f"Market data update failed: {e}")
-    
-    def _generate_risk_alert(
-        self, 
-        alert_type: str, 
-        severity: RiskLevel, 
-        message: str,
-        affected_positions: List[str] = None,
-        recommended_actions: List[str] = None
-    ):
-        """Generate a risk alert."""
-        try:
-            alert = RiskAlert(
-                alert_id=str(uuid.uuid4()),
-                alert_type=alert_type,
-                severity=severity,
-                message=message,
-                affected_positions=affected_positions or [],
-                recommended_actions=recommended_actions or []
-            )
-            
-            with self._alert_lock:
-                self.active_alerts[alert.alert_id] = alert
-                self.alert_history.append(alert)
-                self.alerts_generated += 1
-            
-            self.logger.warning(f"Risk Alert [{severity.value.upper()}]: {message}")
-            
-            # Emit alert event
-            if self.has_event_manager:
-                self.event_manager.emit_event(
-                    EventType.RISK_ALERT_GENERATED,
-                    {
-                        'alert_id': alert.alert_id,
-                        'alert_type': alert_type,
-                        'severity': severity.value,
-                        'message': message,
-                        'timestamp': alert.timestamp
-                    }
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Risk alert generation failed: {e}")
-    
-    def _process_risk_alerts(self):
-        """Process and manage active risk alerts."""
-        try:
-            with self._alert_lock:
-                # Check for alerts that should be auto-acknowledged
-                current_time = datetime.now()
-                alerts_to_acknowledge = []
-                
-                for alert_id, alert in self.active_alerts.items():
-                    # Auto-acknowledge old alerts (older than 1 hour)
-                    if (current_time - alert.timestamp).total_seconds() > 3600:
-                        alerts_to_acknowledge.append(alert_id)
-                
-                # Acknowledge old alerts
-                for alert_id in alerts_to_acknowledge:
-                    if alert_id in self.active_alerts:
-                        self.active_alerts[alert_id].acknowledged = True
-                        self.logger.info(f"Auto-acknowledged alert: {alert_id}")
-                
-        except Exception as e:
-            self.logger.error(f"Risk alert processing failed: {e}")
+    def shutdown(self) -> None:
+        """Shutdown risk manager."""
+        self.stop_monitoring()
+        self._executor.shutdown(wait=True)
+        self.logger.info("RiskManager shutdown complete")
     
     # ==========================================================================
-    # PUBLIC QUERY METHODS
+    # PUBLIC METHODS - CALLBACKS
     # ==========================================================================
+    def register_alert_callback(self, callback: Callable) -> None:
+        """Register callback for risk alerts."""
+        self._alert_callbacks.append(callback)
     
-    def get_portfolio_risk_summary(self) -> Dict[str, Any]:
-        """
-        Get portfolio risk summary.
-        
-        Returns:
-            Portfolio risk summary dictionary
-        """
-        try:
-            with self._risk_lock:
-                return {
-                    'total_exposure': self.portfolio_risk.total_exposure,
-                    'delta_exposure': self.portfolio_risk.delta_exposure,
-                    'gamma_exposure': self.portfolio_risk.gamma_exposure,
-                    'vega_exposure': self.portfolio_risk.vega_exposure,
-                    'theta_exposure': self.portfolio_risk.theta_exposure,
-                    'var_1d': self.portfolio_risk.var_1d,
-                    'var_10d': self.portfolio_risk.var_10d,
-                    'expected_shortfall': self.portfolio_risk.expected_shortfall,
-                    'concentration_risk': self.portfolio_risk.concentration_risk,
-                    'stress_test_loss': self.portfolio_risk.stress_test_loss,
-                    'last_update': self.portfolio_risk.last_update.isoformat(),
-                    'circuit_breaker_state': self.circuit_breaker_state.value,
-                    'vix_level': self.vix_level,
-                    'market_volatility': self.market_volatility
-                }
-                
-        except Exception as e:
-            self.logger.error(f"Error getting portfolio risk summary: {e}")
-            return {}
+    def register_mitigation_callback(self, callback: Callable) -> None:
+        """Register callback for risk mitigation."""
+        self._mitigation_callbacks.append(callback)
     
-    def get_risk_limits(self) -> Dict[str, Any]:
-        """
-        Get current risk limits.
-        
-        Returns:
-            Risk limits dictionary
-        """
-        try:
-            return asdict(self.risk_limits)
-        except Exception as e:
-            self.logger.error(f"Error getting risk limits: {e}")
-            return {}
+    def update_risk_limits(self, new_limits: Dict[str, Any]) -> None:
+        """Update risk limits dynamically."""
+        with self._state_lock:
+            for key, value in new_limits.items():
+                if hasattr(self.risk_limits, key):
+                    setattr(self.risk_limits, key, value)
+            self.logger.info(f"Risk limits updated: {new_limits}")
     
-    def get_active_alerts(self, hours: int = 24) -> List[Dict[str, Any]]:
-        """
-        Get active risk alerts.
-        
-        Args:
-            hours: Hours to look back for alerts
-            
-        Returns:
-            List of active alert dictionaries
-        """
-        try:
-            cutoff_time = datetime.now() - timedelta(hours=hours)
-            alerts = []
-            
-            with self._alert_lock:
-                for alert in self.active_alerts.values():
-                    if alert.timestamp >= cutoff_time and not alert.acknowledged:
-                        alerts.append({
-                            'alert_id': alert.alert_id,
-                            'alert_type': alert.alert_type,
-                            'severity': alert.severity.value,
-                            'message': alert.message,
-                            'affected_positions': alert.affected_positions,
-                            'recommended_actions': alert.recommended_actions,
-                            'timestamp': alert.timestamp.isoformat(),
-                            'acknowledged': alert.acknowledged
-                        })
-            
-            # Sort by severity and timestamp
-            alerts.sort(key=lambda x: (x['severity'], x['timestamp']), reverse=True)
-            return alerts
-            
-        except Exception as e:
-            self.logger.error(f"Error getting active alerts: {e}")
-            return []
+    def add_price_update(self, symbol: str, price: float) -> None:
+        """Add price update for risk calculations."""
+        self._price_history[symbol].append(price)
     
-    def get_risk_statistics(self) -> Dict[str, Any]:
-        """
-        Get risk management statistics.
-        
-        Returns:
-            Risk statistics dictionary
-        """
-        try:
-            approval_rate = (self.trades_approved / max(self.risk_checks_performed, 1)) * 100
-            
-            return {
-                'risk_checks_performed': self.risk_checks_performed,
-                'trades_approved': self.trades_approved,
-                'trades_rejected': self.trades_rejected,
-                'approval_rate': approval_rate,
-                'alerts_generated': self.alerts_generated,
-                'active_alerts_count': len([a for a in self.active_alerts.values() if not a.acknowledged]),
-                'monitoring_active': self.monitoring_active,
-                'circuit_breaker_state': self.circuit_breaker_state.value,
-                'last_risk_check': self.last_risk_check.isoformat(),
-                'last_var_calculation': self.last_var_calculation.isoformat(),
-                'risk_profile': self.risk_profile.value
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error getting risk statistics: {e}")
-            return {}
+    def add_return_observation(self, daily_return: float) -> None:
+        """Add daily return observation."""
+        self._returns_buffer.append(daily_return)
 
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-def create_risk_manager(config: Dict[str, Any] = None) -> RiskManager:
-    """
-    Factory function to create a RiskManager instance.
-    
-    Args:
-        config: Risk manager configuration
-        
-    Returns:
-        RiskManager instance
-    """
-    return RiskManager(config)
-
-# ==============================================================================
-# MODULE INITIALIZATION
-# ==============================================================================
-# Module-level singleton instance
+# Singleton instance
 _risk_manager_instance: Optional[RiskManager] = None
-_risk_manager_lock = Lock()
+_instance_lock = Lock()
 
-def get_risk_manager(config: Dict[str, Any] = None) -> RiskManager:
+def get_risk_manager(config: Optional[Dict[str, Any]] = None) -> RiskManager:
     """
-    Get singleton RiskManager instance.
+    Get or create risk manager instance (singleton).
     
     Args:
-        config: Configuration (only used for first call)
+        config: Configuration dictionary
         
     Returns:
         RiskManager instance
     """
     global _risk_manager_instance
     
-    with _risk_manager_lock:
-        if _risk_manager_instance is None:
-            _risk_manager_instance = RiskManager(config)
-        
-        return _risk_manager_instance
-
-def reset_risk_manager():
-    """Reset the singleton risk manager instance (for testing)."""
-    global _risk_manager_instance
-    with _risk_manager_lock:
-        if _risk_manager_instance and _risk_manager_instance.monitoring_active:
-            _risk_manager_instance.stop_monitoring()
-        _risk_manager_instance = None
+    if _risk_manager_instance is None:
+        with _instance_lock:
+            if _risk_manager_instance is None:
+                _risk_manager_instance = RiskManager(config)
+    
+    return _risk_manager_instance
 
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Module testing code
-    print("Testing RiskManager...")
+    print("="*80)
+    print("SPYDER E01 - Risk Manager Test")
+    print("="*80)
     
-    # Mock configuration
-    test_config = {
-        'risk_profile': 'moderate',
+    # Initialize risk manager
+    risk_mgr = get_risk_manager({
         'risk_limits': {
-            'max_daily_loss': 1000.0,
-            'max_single_position': 10000.0
+            'max_position_size': 0.05,
+            'max_portfolio_risk': 0.02,
+            'max_daily_loss': 0.03,
+            'max_positions': 10
         }
+    })
+    
+    # Test position risk calculation
+    test_position = {
+        'id': 'TEST001',
+        'symbol': 'SPY',
+        'quantity': 100,
+        'entry_price': 400.00,
+        'current_price': 405.00,
+        'type': 'stock'
     }
     
-    # Create risk manager
-    risk_manager = RiskManager(test_config)
+    pos_risk = risk_mgr.calculate_position_risk(test_position)
+    print(f"\nPosition Risk Analysis:")
+    print(f"  Symbol: {pos_risk.symbol}")
+    print(f"  Market Value: ${pos_risk.market_value:,.2f}")
+    print(f"  Unrealized P&L: ${pos_risk.unrealized_pnl:,.2f}")
+    print(f"  VaR (95%): ${pos_risk.var_95:,.2f}")
+    print(f"  Risk Level: {pos_risk.risk_level.value}")
     
-    if risk_manager.initialize():
-        print("✅ RiskManager initialized successfully")
-        
-        if risk_manager.start_monitoring():
-            print("✅ Risk monitoring started successfully")
-            
-            # Test risk check with mock signal
-            class MockSignal:
-                def __init__(self):
-                    self.signal_id = "test_signal"
-                    self.symbol = "SPY"
-                    self.quantity = 100
-                    self.action = "BUY"
-            
-            mock_signal = MockSignal()
-            result = risk_manager.check_pre_trade_risk(mock_signal)
-            print(f"🔍 Risk check result: {result.action.value} (Score: {result.risk_score:.1f})")
-            
-            # Get risk summary
-            summary = risk_manager.get_portfolio_risk_summary()
-            print(f"📊 Portfolio risk summary: {len(summary)} metrics")
-            
-            # Get statistics
-            stats = risk_manager.get_risk_statistics()
-            print(f"📈 Risk statistics: {stats.get('risk_checks_performed', 0)} checks performed")
-            
-            # Brief operation
-            time.sleep(2)
-            
-            if risk_manager.stop_monitoring():
-                print("✅ Risk monitoring stopped successfully")
-            else:
-                print("❌ Risk monitoring stop failed")
-        else:
-            print("❌ Risk monitoring start failed")
-    else:
-        print("❌ RiskManager initialization failed")
+    # Test portfolio risk calculation
+    positions = [test_position]
+    portfolio_value = 100000
     
-    print("RiskManager testing completed.")#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-SPYDER - Automated SPY Options Trading System
-
-Module: SpyderE01_RiskManager.py
-Group: E (Risk Management)
-Purpose: Enhanced comprehensive risk management with real-time monitoring
-
-Description:
-    This module provides institutional-grade risk management capabilities including
-    pre-trade risk checks, real-time position monitoring, portfolio risk assessment,
-    and automated risk mitigation. It implements sophisticated risk models, stress
-    testing, and provides comprehensive risk reporting for professional trading
-    operations.
-
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-03
-Last Updated: 2025-07-03 Time: 18:00:00
-"""
-
-# ==============================================================================
-# STANDARD IMPORTS
-# ==============================================================================
-import os
-import sys
-import time
-import threading
-import asyncio
-import json
-import uuid
-import warnings
-from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Any, Set, Callable, Union, Tuple, NamedTuple
-from dataclasses import dataclass, field, asdict
-from collections import defaultdict, deque
-from enum import Enum, auto
-from pathlib import Path
-import copy
-import math
-
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-import numpy as np
-import pandas as pd
-from threading import Lock, Event as ThreadEvent, RLock
-
-# Statistical imports
-try:
-    from scipy import stats
-    from scipy.stats import norm
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-    print("WARNING: scipy not found. Advanced risk calculations will be limited.")
-
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import OrderAction, OptionType
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-
-# Conditional imports
-try:
-    from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
-    HAS_PERFORMANCE_METRICS = True
-except ImportError:
-    HAS_PERFORMANCE_METRICS = False
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Risk Limits Configuration
-DEFAULT_MAX_DAILY_LOSS = 5000.0           # USD
-DEFAULT_MAX_PORTFOLIO_DELTA = 1000.0      # Delta exposure
-DEFAULT_MAX_PORTFOLIO_GAMMA = 100.0       # Gamma exposure  
-DEFAULT_MAX_PORTFOLIO_VEGA = 500.0        # Vega exposure
-DEFAULT_MAX_SINGLE_POSITION = 50000.0     # USD per position
-DEFAULT_MAX_CONCENTRATION = 0.25           # 25% max in single position
-
-# Greeks Limits
-DEFAULT_DELTA_LIMIT = 1000
-DEFAULT_GAMMA_LIMIT = 100
-DEFAULT_THETA_LIMIT = 500
-DEFAULT_VEGA_LIMIT = 1000
-DEFAULT_RHO_LIMIT = 500
-
-# Risk Monitoring
-RISK_CHECK_INTERVAL = 1.0    # seconds
-STRESS_TEST_INTERVAL = 300   # 5 minutes
-VaR_CALCULATION_INTERVAL = 60 # 1 minute
-
-# Volatility Parameters
-DEFAULT_VOLATILITY_WINDOW = 30  # days
-VIX_SPIKE_THRESHOLD = 30        # VIX level
-VOLATILITY_SHOCK_THRESHOLD = 0.05  # 5% daily move
-
-# Circuit Breaker Thresholds
-CIRCUIT_BREAKER_LOSS_PCT = 0.05    # 5% portfolio loss
-CIRCUIT_BREAKER_VIX_LEVEL = 40     # VIX level
-CIRCUIT_BREAKER_VOLUME_SPIKE = 2.0  # 2x normal volume
-
-# ==============================================================================
-# ENUMS
-# ==============================================================================
-class RiskProfile(Enum):
-    """Risk profile enumeration"""
-    CONSERVATIVE = "conservative"
-    MODERATE = "moderate"
-    AGGRESSIVE = "aggressive"
-    SPECULATIVE = "speculative"
-
-class RiskLevel(Enum):
-    """Risk level enumeration"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-class RiskType(Enum):
-    """Risk type enumeration"""
-    MARKET_RISK = "market_risk"
-    CREDIT_RISK = "credit_risk"
-    LIQUIDITY_RISK = "liquidity_risk"
-    OPERATIONAL_RISK = "operational_risk"
-    MODEL_RISK = "model_risk"
-    CONCENTRATION_RISK = "concentration_risk"
-
-class RiskAction(Enum):
-    """Risk action enumeration"""
-    APPROVE = "approve"
-    REJECT = "reject"
-    WARN = "warn"
-    REDUCE_SIZE = "reduce_size"
-    HEDGE = "hedge"
-    LIQUIDATE = "liquidate"
-
-class CircuitBreakerState(Enum):
-    """Circuit breaker state"""
-    NORMAL = "normal"
-    WARNING = "warning"
-    TRIGGERED = "triggered"
-    HALTED = "halted"
-
-# ==============================================================================
-# DATA STRUCTURES
-# ==============================================================================
-@dataclass
-class RiskLimits:
-    """Risk limits configuration"""
-    max_daily_loss: float = DEFAULT_MAX_DAILY_LOSS
-    max_portfolio_delta: float = DEFAULT_MAX_PORTFOLIO_DELTA
-    max_portfolio_gamma: float = DEFAULT_MAX_PORTFOLIO_GAMMA
-    max_portfolio_vega: float = DEFAULT_MAX_PORTFOLIO_VEGA
-    max_single_position: float = DEFAULT_MAX_SINGLE_POSITION
-    max_concentration: float = DEFAULT_MAX_CONCENTRATION
-    max_leverage: float = 2.0
-    max_correlation_exposure: float = 0.5
+    portfolio_risk = risk_mgr.calculate_portfolio_risk(positions, portfolio_value)
+    print(f"\nPortfolio Risk Analysis:")
+    print(f"  Portfolio Value: ${portfolio_risk.portfolio_value:,.2f}")
+    print(f"  At Risk Capital: ${portfolio_risk.at_risk_capital:,.2f}")
+    print(f"  Portfolio VaR: ${portfolio_risk.total_var_95:,.2f}")
+    print(f"  Risk Level: {portfolio_risk.risk_level.value}")
     
-    # Greeks limits
-    delta_limit: float = DEFAULT_DELTA_LIMIT
-    gamma_limit: float = DEFAULT_GAMMA_LIMIT
-    theta_limit: float = DEFAULT_THETA_LIMIT
-    vega_limit: float = DEFAULT_VEGA_LIMIT
-    rho_limit: float = DEFAULT_RHO_LIMIT
-
-@dataclass
-class RiskCheckResult:
-    """Risk check result"""
-    approved: bool
-    action: RiskAction
-    risk_level: RiskLevel
-    risk_score: float
-    reason: str
-    recommendations: List[str] = field(default_factory=list)
-    metrics: Dict[str, float] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
-
-@dataclass
-class PortfolioRisk:
-    """Portfolio risk metrics"""
-    total_exposure: float = 0.0
-    delta_exposure: float = 0.0
-    gamma_exposure: float = 0.0
-    vega_exposure: float = 0.0
-    theta_exposure: float = 0.0
-    var_1d: float = 0.0          # 1-day Value at Risk
-    var_10d: float = 0.0         # 10-day Value at Risk
-    expected_shortfall: float = 0.0
-    concentration_risk: float = 0.0
-    correlation_risk: float = 0.0
-    liquidity_risk: float = 0.0
-    stress_test_loss: float = 0.0
-    sharpe_ratio: float = 0.0
-    max_drawdown: float = 0.0
-    beta: float = 1.0
-    last_update: datetime = field(default_factory=datetime.now)
-
-@dataclass
-class StressTestScenario:
-    """Stress test scenario"""
-    name: str
-    description: str
-    market_move: float           # % move in underlying
-    volatility_change: float     # % change in volatility
-    time_decay_days: int = 0     # Days of time decay
-    expected_loss: float = 0.0   # Expected loss from scenario
-
-@dataclass
-class CircuitBreakerConfig:
-    """Circuit breaker configuration"""
-    enabled: bool = True
-    daily_loss_threshold: float = CIRCUIT_BREAKER_LOSS_PCT
-    vix_threshold: float = CIRCUIT_BREAKER_VIX_LEVEL
-    volume_spike_threshold: float = CIRCUIT_BREAKER_VOLUME_SPIKE
-    position_limit_breach_count: int = 3
-    consecutive_losses_limit: int = 5
-
-@dataclass
-class RiskAlert:
-    """Risk alert data structure"""
-    alert_id: str
-    alert_type: str
-    severity: RiskLevel
-    message: str
-    affected_positions: List[str] = field(default_factory=list)
-    recommended_actions: List[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
-    acknowledged: bool = False
-
-# ==============================================================================
-# MAIN CLASS
-# ==============================================================================
-class RiskManager:
-    """
-    Enhanced Risk Management System.
+    # Test pre-trade risk check
+    trade_params = {
+        'symbol': 'SPY',
+        'quantity': 100,
+        'value': 40500,
+        'type': 'stock'
+    }
     
-    This class provides comprehensive risk management capabilities including
-    pre-trade risk checks, real-time portfolio monitoring, stress testing,
-    and automated risk mitigation for professional trading operations.
+    result, reason = risk_mgr.check_pre_trade_risk(trade_params)
+    print(f"\nPre-Trade Risk Check:")
+    print(f"  Result: {result.value}")
+    print(f"  Reason: {reason or 'Approved'}")
     
-    Key Features:
-    - Real-time risk monitoring and alerting
-    - Pre-trade risk validation with dynamic limits
-    - Portfolio VaR and stress testing
-    - Greeks exposure monitoring and limits
-    - Circuit breaker protection mechanisms
-    - Concentration and correlation risk analysis
-    - Automated risk mitigation recommendations
+    # Get risk profile
+    profile = risk_mgr.get_risk_profile()
+    print(f"\nRisk Profile Summary:")
+    print(f"  Compliance Status: {profile.compliance_status.get('overall', False)}")
+    print(f"  Active Alerts: {len(profile.active_alerts)}")
+    print(f"  Recommendations: {len(profile.recommendations)}")
     
-    Attributes:
-        logger: Module logger instance
-        config: Risk manager configuration
-        risk_limits: Current risk limit settings
-        portfolio_risk: Current portfolio risk metrics
-        circuit_breaker_state: Circuit breaker status
-        
-    Example:
-        >>> risk_manager = get_risk_manager()
-        >>> result = risk_manager.check_pre_trade_risk(signal)
-        >>> if result.approved:
-        >>>     # Proceed with trade
-    """
+    if profile.recommendations:
+        print("\nRecommendations:")
+        for rec in profile.recommendations:
+            print(f"  - {rec}")
     
-    def __init__(self, config: Dict[str, Any] = None):
-        """
-        Initialize the Risk Manager.
-        
-        Args:
-            config: Risk manager configuration dictionary
-        """
-        self.logger = SpyderLogger.get_logger(__name__)
-        self.error_handler = SpyderErrorHandler()
-        self.config = config or {}
-        
-        # Risk configuration
-        self.risk_limits = self._initialize_risk_limits()
-        self.risk_profile = RiskProfile(self.config.get('risk_profile', 'moderate'))
-        
-        # Portfolio risk tracking
-        self.portfolio_risk = PortfolioRisk()
-        self.risk_history: deque = deque(maxlen=10000)
-        self._risk_lock = RLock()
-        
-        # Circuit breaker system
-        self.circuit_breaker_config = CircuitBreakerConfig()
-        self.circuit_breaker_state = CircuitBreakerState.NORMAL
-        self._circuit_breaker_lock = RLock()
-        
-        # Risk alerts
-        self.active_alerts: Dict[str, RiskAlert] = {}
-        self.alert_history: deque = deque(maxlen=1000)
-        self._alert_lock = RLock()
-        
-        # Performance metrics
-        if HAS_PERFORMANCE_METRICS:
-            self.performance_metrics = PerformanceMetrics()
-        else:
-            self.performance_metrics = None
-        
-        # Threading infrastructure
-        self.worker_threads: Dict[str, threading.Thread] = {}
-        self._shutdown_event = ThreadEvent()
-        
-        # Market data cache
-        self.market_data: Dict[str, Any] = {}
-        self.vix_level: float = 20.0
-        self.market_volatility: float = 0.15
-        self._market_data_lock = RLock()
-        
-        # Stress test scenarios
+    print("\n✅ Risk Manager test completed successfully!")
+    
+    # Cleanup
+    risk_mgr.shutdown()

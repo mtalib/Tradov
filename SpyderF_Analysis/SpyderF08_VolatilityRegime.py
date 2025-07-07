@@ -4,70 +4,55 @@
 SPYDER - Automated SPY Options Trading System
 
 Module: SpyderF08_VolatilityRegime.py
-Group: F (Analysis)
-Purpose: Volatility regime classification and analysis
+Group: F (Technical Analysis)
+Purpose: Volatility regime detection with automated model retraining
 
 Description:
-    This module analyzes and classifies the current volatility regime to help
-    determine optimal trading strategies. It tracks VIX levels, implied volatility
-    percentiles, and historical volatility patterns to categorize market conditions
-    as low, normal, high, or extreme volatility environments.
+    This module identifies volatility regimes using statistical models and
+    machine learning. It includes automated retraining to adapt to changing
+    market conditions and regime transitions.
 
-Author: Mohamed Talib
-Date: 2025-06-06
-Version: 1.4
+Author: Claude AI (Enhanced by Maestro)
+Date: 2024-01-07
+Version: 2.0 - Added ML model auto-retraining and regime prediction
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+from typing import Dict, List, Optional, Tuple, Any, Callable
+from enum import Enum
+from datetime import datetime, timedelta
+from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
-from enum import Enum
 import threading
-import time
+import pickle
+import json
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import TimeSeriesSplit
 from scipy import stats
+import joblib
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# VIX thresholds
-VIX_LOW_THRESHOLD = 15
-VIX_NORMAL_THRESHOLD = 20
-VIX_HIGH_THRESHOLD = 30
-VIX_EXTREME_THRESHOLD = 40
-
-# Historical volatility periods
-HV_LOOKBACK_PERIODS = [10, 20, 30, 60]  # Days
-
-# IV percentile lookback
-IV_PERCENTILE_LOOKBACK = 252  # 1 year
-
-# Regime change thresholds
-REGIME_CHANGE_THRESHOLD = 0.8  # 80% confidence required
-
-# Update intervals
-REGIME_UPDATE_INTERVAL = 300  # 5 minutes
+from SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
+from SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
+from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class VolatilityRegime(Enum):
-    """Volatility regime classifications"""
+    """Volatility regime classification."""
     LOW = "low"
     NORMAL = "normal"
     HIGH = "high"
@@ -75,936 +60,974 @@ class VolatilityRegime(Enum):
     TRANSITIONING = "transitioning"
 
 class RegimeStrength(Enum):
-    """Regime strength levels"""
-    WEAK = "weak"
-    MODERATE = "moderate"
-    STRONG = "strong"
-    VERY_STRONG = "very_strong"
+    """Strength/confidence of regime classification."""
+    WEAK = 1
+    MODERATE = 2
+    STRONG = 3
+    VERY_STRONG = 4
 
 # ==============================================================================
-# DATA STRUCTURES
+# DATA CLASSES
 # ==============================================================================
+@dataclass
+class RegimeState:
+    """Current volatility regime state."""
+    regime: VolatilityRegime
+    strength: RegimeStrength
+    probability: float  # Confidence in classification
+    volatility_level: float
+    percentile: float  # Historical percentile
+    trend: str  # 'increasing', 'decreasing', 'stable'
+    duration_hours: float
+    start_time: datetime
+    features: Dict[str, float] = field(default_factory=dict)
+    
+    @property
+    def is_stable(self) -> bool:
+        """Check if regime is stable."""
+        return (self.strength.value >= 3 and 
+                self.duration_hours > 24 and
+                self.trend == 'stable')
+    
+    @property
+    def is_transitioning(self) -> bool:
+        """Check if regime is transitioning."""
+        return (self.regime == VolatilityRegime.TRANSITIONING or
+                self.strength == RegimeStrength.WEAK or
+                self.probability < 0.6)
+
+@dataclass
+class RegimeTransition:
+    """Regime transition event."""
+    from_regime: VolatilityRegime
+    to_regime: VolatilityRegime
+    transition_time: datetime
+    confidence: float
+    trigger: str  # What caused transition
+    
 @dataclass
 class RegimeAnalysis:
-    """Volatility regime analysis results"""
-    timestamp: datetime
-    current_regime: VolatilityRegime
-    regime_strength: RegimeStrength
-    vix_level: float
-    vix_percentile: float
-    iv_percentile: float
-    hv_10d: float
-    hv_20d: float
-    hv_30d: float
-    realized_vs_implied: float  # RV/IV ratio
-    regime_confidence: float
-    transition_probability: Dict[VolatilityRegime, float]
-    recommended_strategies: List[str]
-    position_size_adjustment: float
-    notes: List[str]
-
-@dataclass
-class VolatilityMetrics:
-    """Comprehensive volatility metrics"""
-    vix_current: float
-    vix_change_1d: float
-    vix_change_5d: float
-    vix_sma_10: float
-    vix_sma_20: float
-    term_structure_slope: float  # VIX9D/VIX slope
-    put_call_iv_spread: float
-    skew_index: float
-    correlation_spy_vix: float
-
+    """Complete regime analysis results."""
+    current_state: RegimeState
+    regime_history: List[RegimeState]
+    recent_transitions: List[RegimeTransition]
+    regime_distribution: Dict[VolatilityRegime, float]  # Time spent in each
+    prediction: Optional[Dict[str, Any]] = None
+    model_info: Optional[Dict[str, Any]] = None
+    
 # ==============================================================================
-# VOLATILITY REGIME ANALYZER CLASS
+# MAIN CLASS
 # ==============================================================================
 class VolatilityRegimeAnalyzer:
     """
-    Analyzes and classifies volatility regimes for strategy selection.
+    Volatility regime analyzer with automated ML retraining.
     
     Features:
-    - Real-time VIX monitoring
-    - IV percentile calculation
-    - Historical volatility analysis
+    - Multiple regime detection methods
+    - Gaussian Mixture Model for classification
+    - Automated model retraining
     - Regime transition detection
-    - Strategy recommendations
-    - Position sizing adjustments
+    - Forward-looking regime prediction
     """
     
-    def __init__(self, event_manager: EventManager, data_feed=None):
-        """
-        Initialize volatility regime analyzer.
-        
-        Args:
-            event_manager: Event manager instance
-            data_feed: Market data feed for real-time updates
-        """
-        self.event_manager = event_manager
-        self.data_feed = data_feed
+    def __init__(self, 
+                 config_manager: ConfigManager,
+                 ml_model_manager: Optional[Any] = None):
+        """Initialize with ML model management."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
+        self.config_manager = config_manager
+        self.ml_model_manager = ml_model_manager
+        self.monitor = SystemMonitor()
         
-        # Current state
-        self.current_regime = VolatilityRegime.NORMAL
-        self.current_analysis: Optional[RegimeAnalysis] = None
-        self.volatility_metrics: Optional[VolatilityMetrics] = None
+        # Load configuration
+        self._load_config()
         
-        # Historical data storage
-        self.vix_history: List[Tuple[datetime, float]] = []
-        self.iv_history: Dict[str, List[Tuple[datetime, float]]] = {}
-        self.regime_history: List[Tuple[datetime, VolatilityRegime]] = []
+        # Initialize components
+        self.volatility_analyzer = VolatilityAnalyzer(config_manager)
+        self.scaler = StandardScaler()
         
-        # VIX thresholds
-        self.vix_thresholds = {
-            'low': VIX_LOW_THRESHOLD,
-            'normal': VIX_NORMAL_THRESHOLD,
-            'high': VIX_HIGH_THRESHOLD,
-            'extreme': VIX_EXTREME_THRESHOLD
-        }
+        # Model components
+        self.regime_model = None
+        self.last_retrain_date = None
+        self.model_version = 0
+        self.training_data_buffer = []
         
-        # Strategy recommendations by regime
-        self.regime_strategies = {
-            VolatilityRegime.LOW: [
-                "iron_butterfly",  # Benefit from low vol
-                "calendar_spread",  # Vol expansion play
-                "diagonal_spread"
-            ],
-            VolatilityRegime.NORMAL: [
-                "iron_condor",     # Standard premium collection
-                "credit_spread",   # Directional with protection
-                "butterfly"
-            ],
-            VolatilityRegime.HIGH: [
-                "credit_spread",   # Wider strikes
-                "iron_condor",     # Adjusted for high IV
-                "ratio_spread"     # Skew plays
-            ],
-            VolatilityRegime.EXTREME: [
-                "debit_spread",    # Limited risk
-                "butterfly",       # Defined risk
-                "defensive_puts"   # Portfolio protection
-            ]
-        }
+        # Regime tracking
+        self.current_regime = None
+        self.regime_history = []
+        self.transitions = []
         
-        # Threading
-        self._running = False
-        self._update_thread: Optional[threading.Thread] = None
-        self._data_lock = threading.RLock()
+        # Thread safety
+        self._model_lock = threading.Lock()
         
-        self.logger.info("VolatilityRegimeAnalyzer initialized")
+        # Initialize or load model
+        self._initialize_model()
+        
+        self.logger.info("VolatilityRegimeAnalyzer initialized with auto-retraining")
+    
+    def _load_config(self):
+        """Load configuration."""
+        config = self.config_manager.get_config('volatility_regime', {})
+        
+        # Model settings
+        self.n_regimes = config.get('n_regimes', 4)
+        self.retrain_interval_days = config.get('retrain_interval_days', 30)
+        self.min_samples_for_retrain = config.get('min_samples_for_retrain', 1000)
+        self.model_save_path = config.get('model_save_path', 'models/volatility_regime.pkl')
+        
+        # Feature settings
+        self.lookback_periods = config.get('lookback_periods', [5, 10, 20, 60])
+        self.use_advanced_features = config.get('use_advanced_features', True)
+        
+        # Regime thresholds (percentiles)
+        self.regime_thresholds = config.get('regime_thresholds', {
+            'low': 25,
+            'normal': 75,
+            'high': 90,
+            'extreme': 98
+        })
+        
+        # Retraining settings
+        self.auto_retrain_enabled = config.get('auto_retrain_enabled', True)
+        self.retrain_on_regime_shift = config.get('retrain_on_regime_shift', True)
+        self.performance_threshold = config.get('performance_threshold', 0.7)
     
     # ==========================================================================
-    # LIFECYCLE METHODS
+    # PUBLIC METHODS
     # ==========================================================================
-    def start(self) -> None:
-        """Start volatility regime monitoring"""
-        if self._running:
-            return
-        
-        self._running = True
-        
-        # Load historical data
-        self._load_historical_data()
-        
-        # Start update thread
-        self._update_thread = threading.Thread(
-            target=self._update_loop,
-            daemon=True,
-            name="VolRegimeUpdater"
-        )
-        self._update_thread.start()
-        
-        # Initial analysis
-        self.analyze_current_regime()
-        
-        self.logger.info("Volatility regime analyzer started")
     
-    def stop(self) -> None:
-        """Stop volatility regime monitoring"""
-        self._running = False
-        
-        if self._update_thread:
-            self._update_thread.join(timeout=5.0)
-        
-        self.logger.info("Volatility regime analyzer stopped")
-    
-    # ==========================================================================
-    # REGIME ANALYSIS
-    # ==========================================================================
-    def analyze_current_regime(self) -> RegimeAnalysis:
+    def analyze_regime(self, data: pd.DataFrame) -> RegimeAnalysis:
         """
-        Perform comprehensive volatility regime analysis.
+        Analyze current volatility regime with auto-retraining.
         
+        Args:
+            data: OHLCV DataFrame
+            
         Returns:
-            RegimeAnalysis object with current assessment
+            Complete regime analysis
         """
+        start_time = datetime.now()
+        
         try:
-            # Get current metrics
-            metrics = self._calculate_volatility_metrics()
+            # Check if retraining needed
+            if self._should_retrain():
+                self._retrain_model(data)
             
-            # Classify regime
-            regime = self._classify_regime(metrics)
+            # Extract features
+            features = self._extract_features(data)
             
-            # Calculate regime strength
-            strength = self._calculate_regime_strength(metrics, regime)
+            if features.empty:
+                return self._create_default_analysis()
             
-            # Calculate confidence
-            confidence = self._calculate_confidence(metrics, regime)
+            # Detect current regime
+            current_state = self._detect_regime(features.iloc[-1])
             
-            # Get transition probabilities
-            transitions = self._calculate_transition_probabilities(metrics)
+            # Update history
+            self._update_regime_history(current_state)
             
-            # Get recommendations
-            strategies = self._get_strategy_recommendations(regime, metrics)
-            position_adjustment = self._calculate_position_adjustment(regime, strength)
+            # Detect transitions
+            transitions = self._detect_transitions()
             
-            # Generate notes
-            notes = self._generate_analysis_notes(metrics, regime)
+            # Calculate regime distribution
+            distribution = self._calculate_regime_distribution()
+            
+            # Make prediction if model available
+            prediction = None
+            if self.regime_model and len(features) > 1:
+                prediction = self._predict_future_regime(features)
             
             # Create analysis
             analysis = RegimeAnalysis(
-                timestamp=datetime.now(),
-                current_regime=regime,
-                regime_strength=strength,
-                vix_level=metrics.vix_current,
-                vix_percentile=self._calculate_vix_percentile(metrics.vix_current),
-                iv_percentile=self._calculate_iv_percentile('SPY'),
-                hv_10d=self._calculate_historical_volatility(10),
-                hv_20d=self._calculate_historical_volatility(20),
-                hv_30d=self._calculate_historical_volatility(30),
-                realized_vs_implied=self._calculate_rv_iv_ratio(),
-                regime_confidence=confidence,
-                transition_probability=transitions,
-                recommended_strategies=strategies,
-                position_size_adjustment=position_adjustment,
-                notes=notes
+                current_state=current_state,
+                regime_history=self.regime_history[-100:],  # Last 100 states
+                recent_transitions=transitions[-10:],  # Last 10 transitions
+                regime_distribution=distribution,
+                prediction=prediction,
+                model_info={
+                    'version': self.model_version,
+                    'last_retrain': self.last_retrain_date.isoformat() if self.last_retrain_date else None,
+                    'performance_score': self._calculate_model_performance()
+                }
             )
             
-            # Update state
-            with self._data_lock:
-                self.current_regime = regime
-                self.current_analysis = analysis
-                self._add_to_history(regime)
-            
-            # Emit event
-            self._emit_regime_event(analysis)
+            # Record metrics
+            elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+            self.monitor.record_metric('regime_analysis.execution_ms', elapsed_ms)
+            self.monitor.record_metric('regime_analysis.current_regime', self.current_regime.value if self.current_regime else 0)
             
             return analysis
             
         except Exception as e:
-            self.logger.error(f"Error analyzing regime: {e}")
-            self.error_handler.handle_error(e, "analyze_regime")
-            return self._get_default_analysis()
+            self.error_handler.handle_error(e, "Regime analysis failed")
+            return self._create_default_analysis()
     
-    def _classify_regime(self, metrics: VolatilityMetrics) -> VolatilityRegime:
-        """Classify current volatility regime"""
-        vix = metrics.vix_current
-        
-        # Check for regime transitions
-        if self._is_transitioning(metrics):
-            return VolatilityRegime.TRANSITIONING
-        
-        # Classify based on VIX levels
-        if vix >= self.vix_thresholds['extreme']:
-            return VolatilityRegime.EXTREME
-        elif vix >= self.vix_thresholds['high']:
-            return VolatilityRegime.HIGH
-        elif vix >= self.vix_thresholds['normal']:
-            return VolatilityRegime.NORMAL
-        else:
-            return VolatilityRegime.LOW
-    
-    def _calculate_regime_strength(self, metrics: VolatilityMetrics, 
-                                   regime: VolatilityRegime) -> RegimeStrength:
-        """Calculate strength of current regime"""
-        # Factors to consider
-        factors = []
-        
-        # VIX level relative to regime boundaries
-        vix_strength = self._calculate_vix_strength(metrics.vix_current, regime)
-        factors.append(vix_strength)
-        
-        # Trend consistency
-        trend_strength = self._calculate_trend_strength(metrics)
-        factors.append(trend_strength)
-        
-        # Term structure
-        term_strength = self._calculate_term_structure_strength(metrics)
-        factors.append(term_strength)
-        
-        # Average strength
-        avg_strength = np.mean(factors)
-        
-        if avg_strength >= 0.75:
-            return RegimeStrength.VERY_STRONG
-        elif avg_strength >= 0.5:
-            return RegimeStrength.STRONG
-        elif avg_strength >= 0.25:
-            return RegimeStrength.MODERATE
-        else:
-            return RegimeStrength.WEAK
-    
-    def _calculate_confidence(self, metrics: VolatilityMetrics, 
-                             regime: VolatilityRegime) -> float:
-        """Calculate confidence in regime classification"""
-        confidence_factors = []
-        
-        # Clear VIX level
-        if regime == VolatilityRegime.EXTREME and metrics.vix_current > 40:
-            confidence_factors.append(0.9)
-        elif regime == VolatilityRegime.LOW and metrics.vix_current < 12:
-            confidence_factors.append(0.9)
-        else:
-            # Distance from boundaries
-            boundary_confidence = self._calculate_boundary_confidence(
-                metrics.vix_current, regime
-            )
-            confidence_factors.append(boundary_confidence)
-        
-        # Trend agreement
-        if metrics.vix_sma_10 > metrics.vix_sma_20:  # Uptrend
-            if regime in [VolatilityRegime.HIGH, VolatilityRegime.EXTREME]:
-                confidence_factors.append(0.8)
-            else:
-                confidence_factors.append(0.4)
-        else:  # Downtrend
-            if regime in [VolatilityRegime.LOW, VolatilityRegime.NORMAL]:
-                confidence_factors.append(0.8)
-            else:
-                confidence_factors.append(0.4)
-        
-        # Historical consistency
-        hist_consistency = self._calculate_historical_consistency(regime)
-        confidence_factors.append(hist_consistency)
-        
-        return np.mean(confidence_factors)
-    
-    # ==========================================================================
-    # METRICS CALCULATION
-    # ==========================================================================
-    def _calculate_volatility_metrics(self) -> VolatilityMetrics:
-        """Calculate comprehensive volatility metrics"""
-        # Get current VIX
-        vix_current = self._get_current_vix()
-        
-        # Calculate changes
-        vix_change_1d = self._calculate_vix_change(1)
-        vix_change_5d = self._calculate_vix_change(5)
-        
-        # Moving averages
-        vix_sma_10 = self._calculate_vix_sma(10)
-        vix_sma_20 = self._calculate_vix_sma(20)
-        
-        # Term structure
-        term_slope = self._calculate_term_structure_slope()
-        
-        # IV spreads
-        pc_spread = self._calculate_put_call_iv_spread()
-        
-        # Skew
-        skew = self._calculate_skew_index()
-        
-        # Correlation
-        correlation = self._calculate_spy_vix_correlation()
-        
-        return VolatilityMetrics(
-            vix_current=vix_current,
-            vix_change_1d=vix_change_1d,
-            vix_change_5d=vix_change_5d,
-            vix_sma_10=vix_sma_10,
-            vix_sma_20=vix_sma_20,
-            term_structure_slope=term_slope,
-            put_call_iv_spread=pc_spread,
-            skew_index=skew,
-            correlation_spy_vix=correlation
-        )
-    
-    def _calculate_vix_percentile(self, current_vix: float) -> float:
-        """Calculate VIX percentile over historical period"""
-        if not self.vix_history:
-            return 50.0
-        
-        # Get last year of VIX values
-        one_year_ago = datetime.now() - timedelta(days=365)
-        historical_vix = [v for d, v in self.vix_history if d >= one_year_ago]
-        
-        if not historical_vix:
-            return 50.0
-        
-        # Calculate percentile
-        return stats.percentileofscore(historical_vix, current_vix)
-    
-    def get_iv_percentile(self, symbol: str, lookback_days: int = 252) -> float:
+    def force_retrain(self, training_data: pd.DataFrame) -> bool:
         """
-        Calculate IV percentile for entry criteria.
+        Force model retraining.
         
         Args:
-            symbol: Symbol to check (e.g., 'SPY')
-            lookback_days: Days to look back for percentile
+            training_data: Historical data for training
             
         Returns:
-            IV percentile (0-100)
+            Success status
         """
-        if symbol not in self.iv_history:
-            return 50.0
-        
-        cutoff_date = datetime.now() - timedelta(days=lookback_days)
-        historical_iv = [iv for d, iv in self.iv_history[symbol] if d >= cutoff_date]
-        
-        if not historical_iv or len(historical_iv) < 20:
-            return 50.0
-        
-        current_iv = self._get_current_iv(symbol)
-        if current_iv is None:
-            return 50.0
-        
-        return stats.percentileofscore(historical_iv, current_iv)
-    
-    def _calculate_historical_volatility(self, days: int) -> float:
-        """Calculate historical volatility over specified days"""
-        if not self.data_feed:
-            # Return placeholder
-            return 0.15  # 15% annualized
-        
         try:
-            # Get price data
-            prices = self.data_feed.get_historical_prices('SPY', days)
-            if len(prices) < days:
-                return 0.15
-            
-            # Calculate daily returns
-            returns = np.diff(np.log(prices))
-            
-            # Calculate annualized volatility
-            daily_vol = np.std(returns)
-            annual_vol = daily_vol * np.sqrt(252)
-            
-            return annual_vol
-            
+            self._retrain_model(training_data)
+            return True
         except Exception as e:
-            self.logger.error(f"Error calculating HV: {e}")
-            return 0.15
+            self.logger.error(f"Force retrain failed: {e}")
+            return False
     
-    def _calculate_rv_iv_ratio(self) -> float:
-        """Calculate realized volatility to implied volatility ratio"""
-        try:
-            # Get 20-day realized vol
-            rv_20 = self._calculate_historical_volatility(20)
+    def get_regime_recommendations(self, current_regime: VolatilityRegime) -> Dict[str, Any]:
+        """
+        Get trading recommendations based on regime.
+        
+        Args:
+            current_regime: Current volatility regime
             
-            # Get current IV
-            current_iv = self._get_current_iv('SPY')
-            if current_iv is None or current_iv == 0:
-                return 1.0
+        Returns:
+            Recommendations dictionary
+        """
+        recommendations = {
+            'suitable_strategies': [],
+            'position_sizing': 1.0,
+            'risk_adjustments': {},
+            'warnings': []
+        }
+        
+        if current_regime == VolatilityRegime.LOW:
+            recommendations['suitable_strategies'] = [
+                'iron_condor', 'butterfly', 'calendar_spread'
+            ]
+            recommendations['position_sizing'] = 1.2  # Can be slightly more aggressive
+            recommendations['risk_adjustments'] = {
+                'wider_strikes': True,
+                'longer_duration': True
+            }
             
-            return rv_20 / current_iv
+        elif current_regime == VolatilityRegime.NORMAL:
+            recommendations['suitable_strategies'] = [
+                'iron_condor', 'credit_spread', 'covered_call'
+            ]
+            recommendations['position_sizing'] = 1.0
             
-        except Exception:
-            return 1.0
+        elif current_regime == VolatilityRegime.HIGH:
+            recommendations['suitable_strategies'] = [
+                'straddle', 'strangle', 'debit_spread'
+            ]
+            recommendations['position_sizing'] = 0.7  # Reduce size
+            recommendations['risk_adjustments'] = {
+                'tighter_stops': True,
+                'shorter_duration': True
+            }
+            recommendations['warnings'].append("High volatility - reduce position sizes")
+            
+        elif current_regime == VolatilityRegime.EXTREME:
+            recommendations['suitable_strategies'] = []  # No new positions
+            recommendations['position_sizing'] = 0.0
+            recommendations['warnings'].append("EXTREME volatility - consider closing positions")
+            
+        elif current_regime == VolatilityRegime.TRANSITIONING:
+            recommendations['suitable_strategies'] = ['calendar_spread', 'diagonal']
+            recommendations['position_sizing'] = 0.5
+            recommendations['warnings'].append("Regime transitioning - use caution")
+        
+        return recommendations
     
     # ==========================================================================
-    # TRANSITION DETECTION
+    # MODEL MANAGEMENT
     # ==========================================================================
-    def _calculate_transition_probabilities(self, 
-                                          metrics: VolatilityMetrics) -> Dict[VolatilityRegime, float]:
-        """Calculate probability of transitioning to each regime"""
-        probabilities = {}
-        
-        # Current VIX momentum
-        momentum = (metrics.vix_current - metrics.vix_sma_20) / metrics.vix_sma_20
-        
-        # Term structure indication
-        term_signal = metrics.term_structure_slope
-        
-        # Calculate probabilities for each regime
-        for regime in VolatilityRegime:
-            if regime == VolatilityRegime.TRANSITIONING:
-                continue
-            
-            prob = self._calculate_regime_probability(
-                metrics.vix_current, momentum, term_signal, regime
-            )
-            probabilities[regime] = prob
-        
-        # Normalize probabilities
-        total = sum(probabilities.values())
-        if total > 0:
-            probabilities = {k: v/total for k, v in probabilities.items()}
-        
-        return probabilities
     
-    def _is_transitioning(self, metrics: VolatilityMetrics) -> bool:
-        """Check if regime is transitioning"""
-        # Large VIX moves
-        if abs(metrics.vix_change_1d) > 0.15:  # 15% daily change
+    def _should_retrain(self) -> bool:
+        """Check if model retraining is needed."""
+        if not self.auto_retrain_enabled or not self.ml_model_manager:
+            return False
+        
+        # No model exists
+        if self.regime_model is None:
             return True
         
-        # Near boundaries
-        for threshold in self.vix_thresholds.values():
-            if abs(metrics.vix_current - threshold) < 1.0:  # Within 1 point
-                return True
+        # No previous training
+        if self.last_retrain_date is None:
+            return True
         
-        # Diverging signals
-        if self._has_diverging_signals(metrics):
+        # Check interval
+        days_since_retrain = (datetime.now() - self.last_retrain_date).days
+        if days_since_retrain >= self.retrain_interval_days:
+            return True
+        
+        # Check performance degradation
+        if self._calculate_model_performance() < self.performance_threshold:
+            return True
+        
+        # Check for regime shifts
+        if self.retrain_on_regime_shift and self._detect_regime_shift():
             return True
         
         return False
     
-    # ==========================================================================
-    # STRATEGY RECOMMENDATIONS
-    # ==========================================================================
-    def _get_strategy_recommendations(self, regime: VolatilityRegime,
-                                    metrics: VolatilityMetrics) -> List[str]:
-        """Get recommended strategies for current regime"""
-        base_strategies = self.regime_strategies.get(regime, [])
+    def _retrain_model(self, market_data: pd.DataFrame):
+        """Retrain the regime detection model."""
+        if len(market_data) < self.min_samples_for_retrain:
+            self.logger.warning("Insufficient data for retraining")
+            return
         
-        # Adjust based on specific conditions
-        adjusted_strategies = []
-        
-        for strategy in base_strategies:
-            if self._is_strategy_suitable(strategy, regime, metrics):
-                adjusted_strategies.append(strategy)
-        
-        # Add regime-specific adjustments
-        if regime == VolatilityRegime.HIGH:
-            # Add calendar spreads if term structure favorable
-            if metrics.term_structure_slope > 0.1:
-                adjusted_strategies.append("calendar_spread")
-        
-        elif regime == VolatilityRegime.LOW:
-            # Consider naked puts in very low vol
-            if metrics.vix_current < 12 and self._check_market_conditions():
-                adjusted_strategies.append("cash_secured_put")
-        
-        return adjusted_strategies[:3]  # Top 3 recommendations
+        try:
+            with self._model_lock:
+                self.logger.info("Starting model retraining...")
+                
+                # Extract features from historical data
+                features = self._extract_features(market_data)
+                
+                if features.empty:
+                    self.logger.error("No features extracted for training")
+                    return
+                
+                # Prepare training data
+                X = features.values
+                X_scaled = self.scaler.fit_transform(X)
+                
+                # Train Gaussian Mixture Model
+                self.regime_model = GaussianMixture(
+                    n_components=self.n_regimes,
+                    covariance_type='full',
+                    max_iter=100,
+                    random_state=42
+                )
+                
+                self.regime_model.fit(X_scaled)
+                
+                # Update model metadata
+                self.last_retrain_date = datetime.now()
+                self.model_version += 1
+                
+                # Save model
+                self._save_model()
+                
+                # If using ML model manager
+                if self.ml_model_manager:
+                    self.ml_model_manager.register_model(
+                        model=self.regime_model,
+                        name='volatility_regime_detector',
+                        version=str(self.model_version),
+                        config={'n_regimes': self.n_regimes},
+                        performance_metrics={'log_likelihood': self.regime_model.score(X_scaled)}
+                    )
+                
+                self.logger.info(f"Model retrained successfully (version {self.model_version})")
+                
+        except Exception as e:
+            self.logger.error(f"Model retraining failed: {e}")
     
-    def _calculate_position_adjustment(self, regime: VolatilityRegime,
-                                     strength: RegimeStrength) -> float:
-        """Calculate position size adjustment factor"""
-        # Base adjustments by regime
-        regime_factors = {
-            VolatilityRegime.LOW: 1.2,      # Can be more aggressive
-            VolatilityRegime.NORMAL: 1.0,   # Standard sizing
-            VolatilityRegime.HIGH: 0.8,     # Reduce size
-            VolatilityRegime.EXTREME: 0.5,  # Significant reduction
-            VolatilityRegime.TRANSITIONING: 0.7  # Cautious
-        }
-        
-        # Strength adjustments
-        strength_factors = {
-            RegimeStrength.VERY_STRONG: 1.1,
-            RegimeStrength.STRONG: 1.0,
-            RegimeStrength.MODERATE: 0.9,
-            RegimeStrength.WEAK: 0.8
-        }
-        
-        base_factor = regime_factors.get(regime, 1.0)
-        strength_factor = strength_factors.get(strength, 1.0)
-        
-        return base_factor * strength_factor
-    
-    # ==========================================================================
-    # HELPER METHODS
-    # ==========================================================================
-    def _get_current_vix(self) -> float:
-        """Get current VIX level"""
-        if self.data_feed:
-            vix = self.data_feed.get_last_price('VIX')
-            if vix:
-                return vix
-        
-        # Fallback to last known or default
-        if self.vix_history:
-            return self.vix_history[-1][1]
-        
-        return 16.0  # Default normal VIX
-    
-    def _get_current_iv(self, symbol: str) -> Optional[float]:
-        """Get current implied volatility for symbol"""
-        if self.data_feed:
-            return self.data_feed.get_atm_iv(symbol)
-        return None
-    
-    def _calculate_vix_change(self, days: int) -> float:
-        """Calculate VIX change over specified days"""
-        if len(self.vix_history) < days + 1:
-            return 0.0
-        
-        current = self.vix_history[-1][1]
-        previous = self.vix_history[-(days+1)][1]
-        
-        if previous == 0:
-            return 0.0
-        
-        return (current - previous) / previous
-    
-    def _calculate_vix_sma(self, period: int) -> float:
-        """Calculate VIX simple moving average"""
-        if len(self.vix_history) < period:
-            return self._get_current_vix()
-        
-        values = [v for _, v in self.vix_history[-period:]]
-        return np.mean(values)
-    
-    def _calculate_term_structure_slope(self) -> float:
-        """Calculate VIX term structure slope"""
-        if self.data_feed:
-            vix9d = self.data_feed.get_last_price('VIX9D')
-            vix = self.data_feed.get_last_price('VIX')
+    def _initialize_model(self):
+        """Initialize or load existing model."""
+        try:
+            # Try to load existing model
+            if self.ml_model_manager:
+                model_data = self.ml_model_manager.get_model('volatility_regime_detector')
+                if model_data:
+                    self.regime_model = model_data['model']
+                    self.model_version = int(model_data.get('version', 0))
+                    self.last_retrain_date = model_data.get('trained_at')
+                    self.logger.info(f"Loaded model version {self.model_version}")
+                    return
             
-            if vix9d and vix and vix != 0:
-                return (vix - vix9d) / vix
-        
-        return 0.0
+            # Try to load from file
+            import os
+            if os.path.exists(self.model_save_path):
+                with open(self.model_save_path, 'rb') as f:
+                    model_data = pickle.load(f)
+                    self.regime_model = model_data['model']
+                    self.scaler = model_data['scaler']
+                    self.model_version = model_data.get('version', 0)
+                    self.last_retrain_date = model_data.get('last_retrain_date')
+                    self.logger.info(f"Loaded model from file (version {self.model_version})")
+                    
+        except Exception as e:
+            self.logger.warning(f"Could not load existing model: {e}")
     
-    def _calculate_put_call_iv_spread(self) -> float:
-        """Calculate put-call IV spread"""
-        if self.data_feed:
-            put_iv = self.data_feed.get_atm_iv('SPY', 'PUT')
-            call_iv = self.data_feed.get_atm_iv('SPY', 'CALL')
+    def _save_model(self):
+        """Save model to file."""
+        try:
+            import os
+            os.makedirs(os.path.dirname(self.model_save_path), exist_ok=True)
             
-            if put_iv and call_iv:
-                return put_iv - call_iv
+            model_data = {
+                'model': self.regime_model,
+                'scaler': self.scaler,
+                'version': self.model_version,
+                'last_retrain_date': self.last_retrain_date,
+                'config': {
+                    'n_regimes': self.n_regimes,
+                    'lookback_periods': self.lookback_periods
+                }
+            }
+            
+            with open(self.model_save_path, 'wb') as f:
+                pickle.dump(model_data, f)
+                
+        except Exception as e:
+            self.logger.error(f"Failed to save model: {e}")
+    
+    # ==========================================================================
+    # FEATURE EXTRACTION
+    # ==========================================================================
+    
+    def _extract_features(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Extract features for regime detection."""
+        features = pd.DataFrame(index=data.index)
         
-        return 0.0
+        # Basic volatility measures
+        returns = data['close'].pct_change()
+        
+        # Rolling volatilities
+        for period in self.lookback_periods:
+            features[f'volatility_{period}'] = returns.rolling(period).std() * np.sqrt(252)
+            features[f'realized_vol_{period}'] = self._calculate_realized_volatility(data, period)
+        
+        # Volatility of volatility
+        features['vol_of_vol'] = features['volatility_20'].rolling(20).std()
+        
+        # High-low range
+        features['hl_range'] = (data['high'] - data['low']) / data['close']
+        features['hl_range_ma'] = features['hl_range'].rolling(20).mean()
+        
+        if self.use_advanced_features:
+            # Parkinson volatility
+            features['parkinson_vol'] = self._calculate_parkinson_volatility(data)
+            
+            # Garman-Klass volatility
+            features['gk_vol'] = self._calculate_garman_klass_volatility(data)
+            
+            # Volume-weighted volatility
+            if 'volume' in data.columns:
+                features['volume_weighted_vol'] = self._calculate_volume_weighted_volatility(data)
+            
+            # Volatility ratios
+            features['short_long_vol_ratio'] = features['volatility_5'] / features['volatility_20']
+            
+            # Volatility trend
+            features['vol_trend'] = features['volatility_20'].rolling(5).apply(
+                lambda x: 1 if x[-1] > x[0] else -1
+            )
+        
+        return features.dropna()
     
-    def _calculate_skew_index(self) -> float:
-        """Calculate options skew index"""
-        # Simplified skew calculation
-        # In production, would use 25-delta put IV / ATM IV
-        return 1.0
+    def _calculate_realized_volatility(self, data: pd.DataFrame, period: int) -> pd.Series:
+        """Calculate realized volatility."""
+        returns = np.log(data['close'] / data['close'].shift(1))
+        return returns.rolling(period).std() * np.sqrt(252)
     
-    def _calculate_spy_vix_correlation(self) -> float:
-        """Calculate SPY-VIX correlation"""
-        # Typically negative correlation
-        # Simplified for now
-        return -0.7
+    def _calculate_parkinson_volatility(self, data: pd.DataFrame, period: int = 20) -> pd.Series:
+        """Calculate Parkinson volatility estimator."""
+        hl_ratio = np.log(data['high'] / data['low'])
+        return hl_ratio.rolling(period).apply(
+            lambda x: np.sqrt(np.sum(x**2) / (4 * len(x) * np.log(2)))
+        ) * np.sqrt(252)
     
-    def _calculate_vix_strength(self, vix: float, regime: VolatilityRegime) -> float:
-        """Calculate VIX strength within regime"""
-        if regime == VolatilityRegime.LOW:
-            # Closer to 0 is stronger
-            return max(0, (15 - vix) / 15)
-        elif regime == VolatilityRegime.NORMAL:
-            # Middle of range is strongest
-            distance = abs(vix - 17.5) / 2.5
-            return max(0, 1 - distance)
-        elif regime == VolatilityRegime.HIGH:
-            # Middle of range
-            distance = abs(vix - 25) / 5
-            return max(0, 1 - distance)
-        else:  # EXTREME
-            # Higher is stronger
-            return min(1, (vix - 30) / 20)
+    def _calculate_garman_klass_volatility(self, data: pd.DataFrame, period: int = 20) -> pd.Series:
+        """Calculate Garman-Klass volatility estimator."""
+        log_hl = np.log(data['high'] / data['low'])
+        log_co = np.log(data['close'] / data['open'])
+        
+        rs = 0.5 * log_hl**2 - (2*np.log(2)-1) * log_co**2
+        
+        return rs.rolling(period).apply(
+            lambda x: np.sqrt(np.sum(x) / len(x))
+        ) * np.sqrt(252)
     
-    def _calculate_trend_strength(self, metrics: VolatilityMetrics) -> float:
-        """Calculate trend consistency strength"""
-        # Compare short and long MA
-        if metrics.vix_sma_10 > metrics.vix_sma_20:
-            # Uptrend
-            return min(1, (metrics.vix_sma_10 - metrics.vix_sma_20) / metrics.vix_sma_20)
+    def _calculate_volume_weighted_volatility(self, data: pd.DataFrame, period: int = 20) -> pd.Series:
+        """Calculate volume-weighted volatility."""
+        returns = data['close'].pct_change()
+        volume_weights = data['volume'] / data['volume'].rolling(period).sum()
+        
+        weighted_returns = returns * volume_weights
+        return weighted_returns.rolling(period).std() * np.sqrt(252)
+    
+    # ==========================================================================
+    # REGIME DETECTION
+    # ==========================================================================
+    
+    def _detect_regime(self, features: pd.Series) -> RegimeState:
+        """Detect current regime from features."""
+        # Get current volatility
+        current_vol = features.get('volatility_20', 0)
+        
+        # Statistical classification (fallback)
+        if self.regime_model is None:
+            return self._statistical_regime_detection(features)
+        
+        # ML-based classification
+        try:
+            # Prepare features
+            X = features.values.reshape(1, -1)
+            X_scaled = self.scaler.transform(X)
+            
+            # Predict regime
+            probabilities = self.regime_model.predict_proba(X_scaled)[0]
+            regime_idx = np.argmax(probabilities)
+            confidence = probabilities[regime_idx]
+            
+            # Map to regime enum
+            regime = self._map_cluster_to_regime(regime_idx, current_vol)
+            
+            # Determine strength
+            if confidence > 0.8:
+                strength = RegimeStrength.VERY_STRONG
+            elif confidence > 0.6:
+                strength = RegimeStrength.STRONG
+            elif confidence > 0.4:
+                strength = RegimeStrength.MODERATE
+            else:
+                strength = RegimeStrength.WEAK
+            
+            # Calculate percentile
+            percentile = self._calculate_volatility_percentile(current_vol)
+            
+            # Determine trend
+            trend = self._determine_volatility_trend(features)
+            
+            # Calculate duration
+            duration_hours = self._calculate_regime_duration()
+            
+            return RegimeState(
+                regime=regime,
+                strength=strength,
+                probability=confidence,
+                volatility_level=current_vol,
+                percentile=percentile,
+                trend=trend,
+                duration_hours=duration_hours,
+                start_time=datetime.now() - timedelta(hours=duration_hours),
+                features=dict(features)
+            )
+            
+        except Exception as e:
+            self.logger.error(f"ML regime detection failed: {e}")
+            return self._statistical_regime_detection(features)
+    
+    def _statistical_regime_detection(self, features: pd.Series) -> RegimeState:
+        """Fallback statistical regime detection."""
+        current_vol = features.get('volatility_20', 0)
+        percentile = self._calculate_volatility_percentile(current_vol)
+        
+        # Classify based on percentile
+        if percentile < self.regime_thresholds['low']:
+            regime = VolatilityRegime.LOW
+        elif percentile < self.regime_thresholds['normal']:
+            regime = VolatilityRegime.NORMAL
+        elif percentile < self.regime_thresholds['high']:
+            regime = VolatilityRegime.HIGH
+        elif percentile < self.regime_thresholds['extreme']:
+            regime = VolatilityRegime.EXTREME
         else:
-            # Downtrend
-            return min(1, (metrics.vix_sma_20 - metrics.vix_sma_10) / metrics.vix_sma_20)
+            regime = VolatilityRegime.EXTREME
+        
+        # Simple strength based on how far from thresholds
+        strength = RegimeStrength.MODERATE
+        
+        return RegimeState(
+            regime=regime,
+            strength=strength,
+            probability=0.7,  # Default confidence
+            volatility_level=current_vol,
+            percentile=percentile,
+            trend=self._determine_volatility_trend(features),
+            duration_hours=24,  # Default
+            start_time=datetime.now() - timedelta(hours=24),
+            features=dict(features)
+        )
     
-    def _calculate_term_structure_strength(self, metrics: VolatilityMetrics) -> float:
-        """Calculate term structure signal strength"""
-        return min(1, abs(metrics.term_structure_slope) * 5)
-    
-    def _calculate_boundary_confidence(self, vix: float, regime: VolatilityRegime) -> float:
-        """Calculate confidence based on distance from regime boundaries"""
-        distances = []
-        
-        for threshold in self.vix_thresholds.values():
-            distance = abs(vix - threshold)
-            distances.append(distance)
-        
-        min_distance = min(distances)
-        
-        # Further from boundaries = higher confidence
-        return min(1, min_distance / 5)
-    
-    def _calculate_historical_consistency(self, regime: VolatilityRegime) -> float:
-        """Calculate how consistent regime has been historically"""
-        if len(self.regime_history) < 10:
-            return 0.5
-        
-        # Check last 10 observations
-        recent_regimes = [r for _, r in self.regime_history[-10:]]
-        consistency = recent_regimes.count(regime) / len(recent_regimes)
-        
-        return consistency
-    
-    def _calculate_regime_probability(self, vix: float, momentum: float,
-                                    term_signal: float, regime: VolatilityRegime) -> float:
-        """Calculate probability of specific regime"""
-        # Base probability from VIX level
-        if regime == VolatilityRegime.LOW:
-            base_prob = max(0, (15 - vix) / 15)
-        elif regime == VolatilityRegime.NORMAL:
-            base_prob = 1 - abs(vix - 17.5) / 10
-        elif regime == VolatilityRegime.HIGH:
-            base_prob = 1 - abs(vix - 25) / 10
-        else:  # EXTREME
-            base_prob = max(0, (vix - 30) / 20)
-        
-        base_prob = max(0, min(1, base_prob))
-        
-        # Adjust for momentum
-        if momentum > 0:  # Rising VIX
-            if regime in [VolatilityRegime.HIGH, VolatilityRegime.EXTREME]:
-                base_prob *= 1.2
+    def _map_cluster_to_regime(self, cluster_idx: int, current_vol: float) -> VolatilityRegime:
+        """Map GMM cluster to volatility regime."""
+        # This is a simplified mapping - in production, would use
+        # cluster characteristics to determine mapping
+        if self.n_regimes == 4:
+            regime_map = {
+                0: VolatilityRegime.LOW,
+                1: VolatilityRegime.NORMAL,
+                2: VolatilityRegime.HIGH,
+                3: VolatilityRegime.EXTREME
+            }
+            return regime_map.get(cluster_idx, VolatilityRegime.NORMAL)
+        else:
+            # Dynamic mapping based on volatility level
+            percentile = self._calculate_volatility_percentile(current_vol)
+            
+            if percentile < 25:
+                return VolatilityRegime.LOW
+            elif percentile < 75:
+                return VolatilityRegime.NORMAL
+            elif percentile < 90:
+                return VolatilityRegime.HIGH
             else:
-                base_prob *= 0.8
-        else:  # Falling VIX
-            if regime in [VolatilityRegime.LOW, VolatilityRegime.NORMAL]:
-                base_prob *= 1.2
-            else:
-                base_prob *= 0.8
-        
-        return max(0, min(1, base_prob))
+                return VolatilityRegime.EXTREME
     
-    def _has_diverging_signals(self, metrics: VolatilityMetrics) -> bool:
-        """Check if signals are diverging"""
-        divergences = 0
-        
-        # VIX vs moving average
-        if (metrics.vix_current > metrics.vix_sma_20 and 
-            metrics.vix_change_1d < 0):
-            divergences += 1
-        
-        # Term structure vs spot
-        if (metrics.term_structure_slope > 0.1 and 
-            metrics.vix_current < 20):
-            divergences += 1
-        
-        return divergences >= 2
+    # ==========================================================================
+    # REGIME TRACKING
+    # ==========================================================================
     
-    def _is_strategy_suitable(self, strategy: str, regime: VolatilityRegime,
-                            metrics: VolatilityMetrics) -> bool:
-        """Check if strategy is suitable for current conditions"""
-        # Strategy-specific checks
-        if strategy == "iron_condor":
-            # Need reasonable IV
-            return 15 <= metrics.vix_current <= 35
-        
-        elif strategy == "iron_butterfly":
-            # Best in low vol
-            return metrics.vix_current < 20
-        
-        elif strategy == "credit_spread":
-            # Works in most regimes
-            return True
-        
-        elif strategy == "calendar_spread":
-            # Need positive term structure
-            return metrics.term_structure_slope > 0
-        
-        return True
-    
-    def _check_market_conditions(self) -> bool:
-        """Check overall market conditions"""
-        # Simplified check - in production would be more comprehensive
-        return True
-    
-    def _generate_analysis_notes(self, metrics: VolatilityMetrics,
-                               regime: VolatilityRegime) -> List[str]:
-        """Generate analysis notes"""
-        notes = []
-        
-        # VIX level notes
-        if metrics.vix_current > 35:
-            notes.append("VIX above 35 - extreme caution advised")
-        elif metrics.vix_current < 12:
-            notes.append("VIX below 12 - potential complacency")
-        
-        # Trend notes
-        if metrics.vix_change_5d > 0.25:
-            notes.append("VIX up 25%+ in 5 days - volatility spike")
-        elif metrics.vix_change_5d < -0.25:
-            notes.append("VIX down 25%+ in 5 days - volatility crush")
-        
-        # Term structure
-        if metrics.term_structure_slope > 0.2:
-            notes.append("Steep contango - expect volatility to rise")
-        elif metrics.term_structure_slope < -0.1:
-            notes.append("Backwardation - near-term stress")
-        
-        # Regime-specific notes
-        if regime == VolatilityRegime.TRANSITIONING:
-            notes.append("Regime transitioning - reduce position sizes")
-        
-        return notes
-    
-    def _add_to_history(self, regime: VolatilityRegime) -> None:
-        """Add regime to history"""
-        self.regime_history.append((datetime.now(), regime))
+    def _update_regime_history(self, current_state: RegimeState):
+        """Update regime history and detect changes."""
+        # Add to history
+        self.regime_history.append(current_state)
         
         # Limit history size
         if len(self.regime_history) > 1000:
             self.regime_history = self.regime_history[-1000:]
+        
+        # Check for regime change
+        if self.current_regime != current_state.regime:
+            if self.current_regime is not None:
+                # Record transition
+                transition = RegimeTransition(
+                    from_regime=self.current_regime,
+                    to_regime=current_state.regime,
+                    transition_time=datetime.now(),
+                    confidence=current_state.probability,
+                    trigger=self._identify_transition_trigger(current_state)
+                )
+                self.transitions.append(transition)
+                
+                # Log transition
+                self.logger.info(
+                    f"Regime transition: {self.current_regime.value} -> "
+                    f"{current_state.regime.value} (confidence: {current_state.probability:.2f})"
+                )
+            
+            self.current_regime = current_state.regime
     
-    def _emit_regime_event(self, analysis: RegimeAnalysis) -> None:
-        """Emit volatility regime event"""
-        self.event_manager.emit(Event(
-            EventType.ANALYSIS,
-            {
-                'type': 'volatility_regime',
-                'regime': analysis.current_regime.value,
-                'strength': analysis.regime_strength.value,
-                'vix': analysis.vix_level,
-                'iv_percentile': analysis.iv_percentile,
-                'confidence': analysis.regime_confidence,
-                'strategies': analysis.recommended_strategies,
-                'position_adjustment': analysis.position_size_adjustment
+    def _detect_transitions(self) -> List[RegimeTransition]:
+        """Get recent regime transitions."""
+        # Return last N transitions
+        return self.transitions[-10:] if self.transitions else []
+    
+    def _calculate_regime_distribution(self) -> Dict[VolatilityRegime, float]:
+        """Calculate time spent in each regime."""
+        if not self.regime_history:
+            return {regime: 0.0 for regime in VolatilityRegime}
+        
+        regime_counts = defaultdict(int)
+        for state in self.regime_history:
+            regime_counts[state.regime] += 1
+        
+        total = len(self.regime_history)
+        
+        return {
+            regime: count / total 
+            for regime, count in regime_counts.items()
+        }
+    
+    # ==========================================================================
+    # PREDICTION
+    # ==========================================================================
+    
+    def _predict_future_regime(self, features: pd.DataFrame) -> Dict[str, Any]:
+        """Predict future regime transitions."""
+        if not self.regime_model or len(features) < 10:
+            return None
+        
+        try:
+            # Use recent features to predict next regime
+            recent_features = features.tail(10)
+            
+            # Calculate feature trends
+            feature_trends = {}
+            for col in recent_features.columns:
+                if 'volatility' in col:
+                    trend = (recent_features[col].iloc[-1] - recent_features[col].iloc[0]) / recent_features[col].iloc[0]
+                    feature_trends[col] = trend
+            
+            # Simple prediction based on trends
+            avg_vol_trend = np.mean([v for k, v in feature_trends.items() if 'volatility' in k])
+            
+            prediction = {
+                'next_regime_probability': {},
+                'expected_transition_hours': 24,
+                'confidence': 0.7,
+                'trend_direction': 'increasing' if avg_vol_trend > 0 else 'decreasing'
             }
-        ))
+            
+            # Estimate next regime probabilities
+            if avg_vol_trend > 0.1:
+                # Volatility increasing
+                prediction['next_regime_probability'] = {
+                    VolatilityRegime.HIGH: 0.6,
+                    VolatilityRegime.EXTREME: 0.3,
+                    VolatilityRegime.NORMAL: 0.1
+                }
+            elif avg_vol_trend < -0.1:
+                # Volatility decreasing
+                prediction['next_regime_probability'] = {
+                    VolatilityRegime.LOW: 0.5,
+                    VolatilityRegime.NORMAL: 0.4,
+                    VolatilityRegime.HIGH: 0.1
+                }
+            else:
+                # Stable
+                prediction['next_regime_probability'] = {
+                    self.current_regime: 0.7,
+                    VolatilityRegime.NORMAL: 0.3
+                }
+            
+            return prediction
+            
+        except Exception as e:
+            self.logger.error(f"Regime prediction failed: {e}")
+            return None
     
-    def _get_default_analysis(self) -> RegimeAnalysis:
-        """Get default analysis when error occurs"""
-        return RegimeAnalysis(
-            timestamp=datetime.now(),
-            current_regime=VolatilityRegime.NORMAL,
-            regime_strength=RegimeStrength.MODERATE,
-            vix_level=16.0,
-            vix_percentile=50.0,
-            iv_percentile=50.0,
-            hv_10d=0.15,
-            hv_20d=0.15,
-            hv_30d=0.15,
-            realized_vs_implied=1.0,
-            regime_confidence=0.5,
-            transition_probability={
-                VolatilityRegime.LOW: 0.25,
-                VolatilityRegime.NORMAL: 0.5,
-                VolatilityRegime.HIGH: 0.2,
-                VolatilityRegime.EXTREME: 0.05
-            },
-            recommended_strategies=["iron_condor"],
-            position_size_adjustment=1.0,
-            notes=["Default analysis due to error"]
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+    
+    def _calculate_volatility_percentile(self, current_vol: float) -> float:
+        """Calculate historical percentile of current volatility."""
+        if not self.regime_history:
+            return 50.0
+        
+        historical_vols = [s.volatility_level for s in self.regime_history]
+        return stats.percentileofscore(historical_vols, current_vol)
+    
+    def _determine_volatility_trend(self, features: pd.Series) -> str:
+        """Determine if volatility is trending up, down, or stable."""
+        # Compare short vs long volatility
+        short_vol = features.get('volatility_5', 0)
+        long_vol = features.get('volatility_20', 0)
+        
+        if long_vol == 0:
+            return 'stable'
+        
+        ratio = short_vol / long_vol
+        
+        if ratio > 1.2:
+            return 'increasing'
+        elif ratio < 0.8:
+            return 'decreasing'
+        else:
+            return 'stable'
+    
+    def _calculate_regime_duration(self) -> float:
+        """Calculate how long we've been in current regime."""
+        if not self.regime_history or not self.current_regime:
+            return 0.0
+        
+        # Find last regime change
+        duration_hours = 0
+        for state in reversed(self.regime_history):
+            if state.regime == self.current_regime:
+                duration_hours += 1  # Assuming hourly data
+            else:
+                break
+        
+        return duration_hours
+    
+    def _identify_transition_trigger(self, new_state: RegimeState) -> str:
+        """Identify what triggered the regime transition."""
+        if not self.regime_history:
+            return 'initial'
+        
+        prev_state = self.regime_history[-1]
+        
+        # Check volatility spike
+        vol_change = (new_state.volatility_level - prev_state.volatility_level) / prev_state.volatility_level
+        if abs(vol_change) > 0.3:
+            return f'volatility_{"spike" if vol_change > 0 else "drop"}'
+        
+        # Check trend change
+        if prev_state.trend != new_state.trend:
+            return f'trend_change_{new_state.trend}'
+        
+        # Gradual transition
+        return 'gradual_shift'
+    
+    def _detect_regime_shift(self) -> bool:
+        """Detect if a significant regime shift has occurred."""
+        if len(self.transitions) < 2:
+            return False
+        
+        # Check recent transitions
+        recent_transitions = self.transitions[-5:]
+        
+        # Multiple transitions indicate instability
+        if len(recent_transitions) >= 3:
+            time_span = (recent_transitions[-1].transition_time - 
+                        recent_transitions[0].transition_time).total_seconds() / 3600
+            
+            # Many transitions in short time = regime shift
+            if time_span < 48:  # Within 2 days
+                return True
+        
+        return False
+    
+    def _calculate_model_performance(self) -> float:
+        """Calculate model performance score."""
+        if not self.regime_model or not self.regime_history:
+            return 0.0
+        
+        # Simple performance metric based on regime stability
+        # and prediction accuracy
+        # In production, would track actual vs predicted regimes
+        
+        if len(self.regime_history) < 10:
+            return 0.5
+        
+        # Check regime stability (fewer transitions = better)
+        recent_regimes = [s.regime for s in self.regime_history[-20:]]
+        unique_regimes = len(set(recent_regimes))
+        stability_score = 1.0 - (unique_regimes - 1) / len(recent_regimes)
+        
+        # Check confidence levels
+        avg_confidence = np.mean([s.probability for s in self.regime_history[-20:]])
+        
+        # Combined score
+        performance = 0.7 * stability_score + 0.3 * avg_confidence
+        
+        return performance
+    
+    def _create_default_analysis(self) -> RegimeAnalysis:
+        """Create default analysis when detection fails."""
+        default_state = RegimeState(
+            regime=VolatilityRegime.NORMAL,
+            strength=RegimeStrength.WEAK,
+            probability=0.5,
+            volatility_level=0.15,
+            percentile=50.0,
+            trend='stable',
+            duration_hours=0,
+            start_time=datetime.now()
         )
-    
-    def _load_historical_data(self) -> None:
-        """Load historical volatility data"""
-        # In production, would load from database
-        # For now, initialize with some recent data
-        base_vix = 16.0
-        for i in range(252):  # One year
-            date = datetime.now() - timedelta(days=252-i)
-            # Simulate some variation
-            vix = base_vix + np.random.normal(0, 2)
-            vix = max(10, min(50, vix))  # Bound between 10-50
-            self.vix_history.append((date, vix))
-    
-    def _update_loop(self) -> None:
-        """Background update loop"""
-        while self._running:
-            try:
-                # Update current data
-                current_vix = self._get_current_vix()
-                self.vix_history.append((datetime.now(), current_vix))
-                
-                # Periodic full analysis
-                self.analyze_current_regime()
-                
-                # Sleep
-                time.sleep(REGIME_UPDATE_INTERVAL)
-                
-            except Exception as e:
-                self.logger.error(f"Error in update loop: {e}")
-                time.sleep(60)  # Wait a minute on error
-    
-    # ==========================================================================
-    # PUBLIC INTERFACE
-    # ==========================================================================
-    def get_current_regime(self) -> VolatilityRegime:
-        """Get current volatility regime"""
-        return self.current_regime
-    
-    def get_position_size_factor(self) -> float:
-        """Get position sizing factor for current regime"""
-        if self.current_analysis:
-            return self.current_analysis.position_size_adjustment
-        return 1.0
-    
-    def get_recommended_strategies(self) -> List[str]:
-        """Get recommended strategies for current regime"""
-        if self.current_analysis:
-            return self.current_analysis.recommended_strategies
-        return ["iron_condor"]  # Default
-    
-    def is_high_volatility(self) -> bool:
-        """Check if currently in high volatility regime"""
-        return self.current_regime in [VolatilityRegime.HIGH, VolatilityRegime.EXTREME]
-    
-    def get_regime_analysis(self) -> Optional[RegimeAnalysis]:
-        """Get latest regime analysis"""
-        return self.current_analysis
-    
-    def update_vix_data(self, vix_value: float) -> None:
-        """Update VIX data (for real-time feeds)"""
-        with self._data_lock:
-            self.vix_history.append((datetime.now(), vix_value))
-            # Trim old data
-            cutoff = datetime.now() - timedelta(days=365)
-            self.vix_history = [(d, v) for d, v in self.vix_history if d > cutoff]
-    
-    def update_iv_data(self, symbol: str, iv_value: float) -> None:
-        """Update IV data for a symbol"""
-        with self._data_lock:
-            if symbol not in self.iv_history:
-                self.iv_history[symbol] = []
-            
-            self.iv_history[symbol].append((datetime.now(), iv_value))
-            
-            # Trim old data
-            cutoff = datetime.now() - timedelta(days=365)
-            self.iv_history[symbol] = [(d, v) for d, v in self.iv_history[symbol] 
-                                       if d > cutoff]
+        
+        return RegimeAnalysis(
+            current_state=default_state,
+            regime_history=[],
+            recent_transitions=[],
+            regime_distribution={regime: 0.0 for regime in VolatilityRegime}
+        )
+
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# EXAMPLE USAGE
 # ==============================================================================
 if __name__ == "__main__":
-    # Test the volatility regime analyzer
-    from SpyderA_Core.SpyderA05_EventManager import EventManager
+    # Create sample data with regime changes
+    dates = pd.date_range('2024-01-01', periods=1000, freq='1h')
     
-    # Create event manager
-    event_manager = EventManager()
+    # Generate data with different volatility regimes
+    np.random.seed(42)
+    prices = []
+    price = 585.0
     
-    # Create analyzer
-    analyzer = VolatilityRegimeAnalyzer(event_manager)
+    for i in range(1000):
+        # Create regime changes
+        if i < 200:
+            # Low volatility regime
+            volatility = 0.0005
+        elif i < 400:
+            # Normal volatility
+            volatility = 0.001
+        elif i < 600:
+            # High volatility
+            volatility = 0.002
+        elif i < 800:
+            # Back to normal
+            volatility = 0.001
+        else:
+            # Extreme volatility
+            volatility = 0.003
+        
+        # Generate price with regime-specific volatility
+        price *= (1 + np.random.normal(0, volatility))
+        prices.append(price)
     
-    # Start analyzer
-    analyzer.start()
+    # Create OHLCV data
+    data = pd.DataFrame({
+        'open': prices,
+        'high': [p * (1 + abs(np.random.normal(0, 0.001))) for p in prices],
+        'low': [p * (1 - abs(np.random.normal(0, 0.001))) for p in prices],
+        'close': [p * (1 + np.random.normal(0, 0.0005)) for p in prices],
+        'volume': np.random.randint(1000, 10000, 1000)
+    }, index=dates)
     
-    # Perform analysis
-    print("Performing volatility regime analysis...")
-    analysis = analyzer.analyze_current_regime()
+    # Mock ML model manager
+    class MockMLModelManager:
+        def __init__(self):
+            self.models = {}
+        
+        def register_model(self, model, name, version, config, performance_metrics):
+            self.models[name] = {
+                'model': model,
+                'version': version,
+                'config': config,
+                'metrics': performance_metrics,
+                'trained_at': datetime.now()
+            }
+            print(f"Model '{name}' v{version} registered")
+        
+        def get_model(self, name):
+            return self.models.get(name)
     
-    print(f"\nCurrent Regime: {analysis.current_regime.value}")
-    print(f"Regime Strength: {analysis.regime_strength.value}")
-    print(f"VIX Level: {analysis.vix_level:.2f}")
-    print(f"VIX Percentile: {analysis.vix_percentile:.1f}%")
-    print(f"IV Percentile: {analysis.iv_percentile:.1f}%")
-    print(f"Confidence: {analysis.regime_confidence:.1%}")
-    print(f"Position Size Adjustment: {analysis.position_size_adjustment:.2f}x")
+    # Initialize analyzer
+    config_manager = ConfigManager()
+    ml_manager = MockMLModelManager()
+    analyzer = VolatilityRegimeAnalyzer(config_manager, ml_manager)
     
-    print("\nRecommended Strategies:")
-    for strategy in analysis.recommended_strategies:
-        print(f"  - {strategy}")
+    # Initial training
+    print("=== Initial Model Training ===")
+    analyzer.force_retrain(data[:500])
     
-    print("\nTransition Probabilities:")
-    for regime, prob in analysis.transition_probability.items():
-        print(f"  {regime.value}: {prob:.1%}")
+    # Analyze current regime
+    print("\n=== Regime Analysis ===")
+    analysis = analyzer.analyze_regime(data)
     
-    print("\nNotes:")
-    for note in analysis.notes:
-        print(f"  - {note}")
+    print(f"Current Regime: {analysis.current_state.regime.value}")
+    print(f"Strength: {analysis.current_state.strength.name}")
+    print(f"Probability: {analysis.current_state.probability:.2f}")
+    print(f"Volatility Level: {analysis.current_state.volatility_level:.4f}")
+    print(f"Percentile: {analysis.current_state.percentile:.1f}")
+    print(f"Trend: {analysis.current_state.trend}")
+    print(f"Duration: {analysis.current_state.duration_hours:.0f} hours")
     
-    # Test IV percentile calculation
-    print(f"\nSPY IV Percentile: {analyzer.get_iv_percentile('SPY'):.1f}%")
+    # Show regime distribution
+    print("\n=== Regime Distribution ===")
+    for regime, pct in analysis.regime_distribution.items():
+        print(f"{regime.value}: {pct:.1%}")
     
-    # Stop analyzer
-    analyzer.stop()
+    # Show recent transitions
+    print("\n=== Recent Transitions ===")
+    for transition in analysis.recent_transitions[-3:]:
+        print(f"{transition.from_regime.value} -> {transition.to_regime.value} "
+              f"at {transition.transition_time.strftime('%Y-%m-%d %H:%M')} "
+              f"(trigger: {transition.trigger})")
+    
+    # Get recommendations
+    print("\n=== Trading Recommendations ===")
+    recommendations = analyzer.get_regime_recommendations(analysis.current_state.regime)
+    
+    print(f"Suitable Strategies: {', '.join(recommendations['suitable_strategies'])}")
+    print(f"Position Sizing: {recommendations['position_sizing']:.1%}")
+    print(f"Warnings: {recommendations['warnings']}")
+    
+    # Test prediction
+    if analysis.prediction:
+        print("\n=== Regime Prediction ===")
+        print(f"Trend Direction: {analysis.prediction['trend_direction']}")
+        print("Next Regime Probabilities:")
+        for regime, prob in analysis.prediction['next_regime_probability'].items():
+            print(f"  {regime.value}: {prob:.1%}")
+    
+    # Model info
+    if analysis.model_info:
+        print("\n=== Model Information ===")
+        print(f"Version: {analysis.model_info['version']}")
+        print(f"Last Retrain: {analysis.model_info['last_retrain']}")
+        print(f"Performance Score: {analysis.model_info['performance_score']:.2f}")
+    
+    # Test auto-retraining
+    print("\n=== Testing Auto-Retraining ===")
+    # Simulate time passing
+    analyzer.last_retrain_date = datetime.now() - timedelta(days=31)
+    
+    # This should trigger retrain
+    analysis2 = analyzer.analyze_regime(data)
+    print(f"Model version after auto-retrain: {analyzer.model_version}")

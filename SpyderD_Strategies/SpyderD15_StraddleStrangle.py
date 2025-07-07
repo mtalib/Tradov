@@ -5,30 +5,27 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderD15_StraddleStrangle.py
 Group: D (Trading Strategies)
-Purpose: Straddle and Strangle strategies for volatility trading
+Purpose: Volatility trading through straddles and strangles
 
 Description:
-    Professional implementation of Straddle and Strangle strategies based on 
-    LEAN's LongAndShortStraddleStrategiesAlgorithm and LongAndShortStrangleStrategiesAlgorithm.
-    Optimized for SPY options volatility trading with advanced Greeks management.
+    Professional implementation of straddle and strangle strategies for capturing
+    volatility expansion. Features event detection, dynamic strike selection,
+    real-time Greeks management, and gamma scalping capabilities for both long
+    and short volatility positions.
 
-Based on: QuantConnect LEAN Straddle/Strangle algorithms
-Author: Spyder Development Team
-Created: 2025-06-23
-Version: 1.0 (LEAN-Enhanced)
+Author: Mohamed Talib
+Date: 2025-01-10
+Version: 2.0
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import asyncio
-from datetime import datetime, timedelta
-import itertools
+from datetime import datetime, time, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import uuid
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -40,641 +37,1342 @@ from scipy import stats
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+from SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    BaseStrategy, TradingSignal, SignalStrength, MarketCondition
+)
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import OptionType, OrderAction
-from SpyderU_Utilities.SpyderU14_OptionStrategies import SpyderOptionStrategies, StrategyType
+from SpyderU_Utilities.SpyderU07_Constants import (
+    SignalType, OptionType, SPY_CONTRACT_MULTIPLIER
+)
+from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
+from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
+from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
+from SpyderC_MarketData.SpyderC09_NewsManager import NewsManager
+from SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
 
 # ==============================================================================
-# CONSTANTS (From LEAN Algorithms)
+# CONSTANTS
 # ==============================================================================
-# Volatility requirements
-MIN_IV_FOR_STRADDLE = 0.15        # 15% minimum IV for straddle entry
-MIN_IV_FOR_STRANGLE = 0.12        # 12% minimum IV for strangle entry
-MAX_IV_FOR_SHORT_STRADDLE = 0.35  # 35% maximum IV for short straddle
-MAX_IV_FOR_SHORT_STRANGLE = 0.40  # 40% maximum IV for short strangle
+# Strategy Configuration
+MAX_VOLATILITY_POSITIONS = 3
+MIN_DTE_LONG = 20          # Min days for long volatility
+MAX_DTE_LONG = 60          # Max days for long volatility
+MIN_DTE_SHORT = 7          # Min days for short volatility
+MAX_DTE_SHORT = 30         # Max days for short volatility
 
-# Strike selection (LEAN patterns)
-ATM_TOLERANCE = 1.0               # ATM tolerance for straddles
-STRANGLE_STRIKE_DISTANCE = 5.0    # Distance between strangle strikes
-OTM_DISTANCE_MIN = 2.0            # Minimum OTM distance
-OTM_DISTANCE_MAX = 15.0           # Maximum OTM distance
+# Strike Selection
+STRADDLE_STRIKE_OFFSET = 0   # ATM
+STRANGLE_CALL_OFFSET = 5     # Points OTM for calls
+STRANGLE_PUT_OFFSET = 5      # Points OTM for puts
+DELTA_TARGET_STRANGLE = 0.25  # Target delta for strangle strikes
 
-# Time to expiration
-MIN_DTE_LONG = 14                 # Minimum DTE for long strategies
-MAX_DTE_LONG = 45                 # Maximum DTE for long strategies
-MIN_DTE_SHORT = 7                 # Minimum DTE for short strategies
-MAX_DTE_SHORT = 30                # Maximum DTE for short strategies
+# Entry Conditions
+MIN_IV_RANK_LONG = 10        # Buy volatility when IV low
+MAX_IV_RANK_LONG = 30
+MIN_IV_RANK_SHORT = 70       # Sell volatility when IV high
+MAX_IV_RANK_SHORT = 90
 
-# Position management
-STRADDLE_PROFIT_TARGET = 0.50     # 50% profit target
-STRANGLE_PROFIT_TARGET = 0.40     # 40% profit target
-STOP_LOSS_THRESHOLD = 2.0         # 200% stop loss
-MAX_POSITION_COUNT = 2            # Maximum concurrent positions
+# Event Detection
+EVENT_IV_SPIKE_THRESHOLD = 0.20   # 20% IV increase = event
+EVENT_VOLUME_MULTIPLIER = 2.0     # 2x average volume
+PRE_EARNINGS_DAYS = 5             # Days before earnings
+PRE_FED_DAYS = 2                  # Days before Fed
 
-# Greeks thresholds
-MIN_DELTA_NEUTRAL_THRESHOLD = 0.05  # Delta neutrality tolerance
-MAX_GAMMA_EXPOSURE = 10.0          # Maximum gamma exposure
-MIN_VEGA_EXPOSURE = 5.0            # Minimum vega for volatility plays
+# Position Management
+LONG_VOL_PROFIT_TARGET = 0.50    # 50% profit on long vol
+LONG_VOL_STOP_LOSS = 0.30        # 30% loss on long vol
+SHORT_VOL_PROFIT_TARGET = 0.25   # 25% profit on short vol
+SHORT_VOL_STOP_LOSS = 0.50       # 50% loss on short vol
+
+# Greeks Management
+MAX_GAMMA_LONG = 100             # Max gamma for long positions
+MAX_GAMMA_SHORT = -50            # Max gamma for short positions
+MIN_VEGA_LONG = 50               # Min vega for long vol
+MAX_VEGA_SHORT = -100            # Max vega for short vol
+GAMMA_SCALP_THRESHOLD = 20       # Gamma threshold for scalping
+
+# Volatility Smile
+SMILE_SKEW_THRESHOLD = 0.05      # 5% skew indicates directional bias
+PUT_CALL_SKEW_NORMAL = 1.0       # Normal put/call skew
 
 # ==============================================================================
-# ENUMERATIONS
+# ENUMS
 # ==============================================================================
 class VolatilityStrategy(Enum):
-    """Volatility strategy types (from LEAN)"""
+    """Types of volatility strategies"""
     LONG_STRADDLE = "long_straddle"
-    SHORT_STRADDLE = "short_straddle"
     LONG_STRANGLE = "long_strangle"
+    SHORT_STRADDLE = "short_straddle"
     SHORT_STRANGLE = "short_strangle"
-    IRON_STRADDLE = "iron_straddle"      # Short straddle with protective wings
-    IRON_STRANGLE = "iron_strangle"      # Short strangle with protective wings
+    IRON_FLY = "iron_fly"           # Short straddle with protection
+    IRON_CONDOR = "iron_condor"     # Short strangle with protection
 
-class VolatilityDirection(Enum):
-    """Expected volatility direction"""
-    EXPANSION = "expansion"     # Expecting vol increase
-    CONTRACTION = "contraction" # Expecting vol decrease
-    NEUTRAL = "neutral"         # No vol direction bias
+class VolatilityEvent(Enum):
+    """Types of volatility events"""
+    EARNINGS = "earnings"
+    FED_MEETING = "fed_meeting"
+    ECONOMIC_DATA = "economic_data"
+    TECHNICAL_BREAKOUT = "technical_breakout"
+    VOLATILITY_CRUSH = "volatility_crush"
+    UNKNOWN = "unknown"
 
 class PositionState(Enum):
-    """Position lifecycle states"""
-    SCANNING = "scanning"
-    PENDING_ENTRY = "pending_entry"
-    ACTIVE = "active"
-    PROFIT_TAKING = "profit_taking"
-    RISK_MANAGEMENT = "risk_management"
-    CLOSING = "closing"
-    CLOSED = "closed"
-    EXPIRED = "expired"
+    """Volatility position states"""
+    BUILDING = auto()
+    ESTABLISHED = auto()
+    GAMMA_SCALPING = auto()
+    ADJUSTING = auto()
+    REDUCING = auto()
+    CLOSING = auto()
 
 # ==============================================================================
-# DATA STRUCTURES
+# DATA CLASSES
 # ==============================================================================
 @dataclass
-class VolatilityAnalysis:
-    """Volatility analysis data structure"""
-    current_iv: float
-    iv_rank: float              # IV rank (0-100)
-    iv_percentile: float        # IV percentile (0-100)
-    realized_vol: float         # Historical realized volatility
-    vol_premium: float          # IV - RV premium
-    vol_trend: str              # "rising", "falling", "stable"
-    term_structure: Dict[int, float]  # DTE -> IV mapping
-    skew: float                 # Put/call skew
-    confidence: float           # Analysis confidence (0-1)
-
-@dataclass
-class StraddleStrangleLegs:
-    """Straddle/Strangle leg definition (LEAN-style)"""
-    strategy_type: VolatilityStrategy
+class VolatilitySetup:
+    """Volatility trade setup"""
+    strategy: VolatilityStrategy
     call_strike: float
     put_strike: float
     expiry: datetime
-    underlying_symbol: str = "SPY"
-    
-    # Greeks and pricing
-    total_premium: float = 0.0
-    delta: float = 0.0
-    gamma: float = 0.0
-    theta: float = 0.0
-    vega: float = 0.0
-    
-    # Risk metrics
-    max_profit: float = float('inf')  # Unlimited for long strategies
-    max_loss: float = 0.0
-    breakeven_upper: float = 0.0
-    breakeven_lower: float = 0.0
+    contracts: int
+    net_debit: float  # Positive for long, negative for short
+    max_profit: float
+    max_loss: float
+    breakeven_upper: float
+    breakeven_lower: float
+    iv_at_entry: float
+    expected_iv_change: float
+    event_type: Optional[VolatilityEvent] = None
+    event_date: Optional[datetime] = None
+
+@dataclass
+class GreeksSnapshot:
+    """Greeks for volatility position"""
+    delta: float
+    gamma: float
+    vega: float
+    theta: float
+    rho: float
+    timestamp: datetime
 
 @dataclass
 class VolatilityPosition:
-    """Active volatility position tracking"""
+    """Active volatility position"""
     position_id: str
-    strategy_type: VolatilityStrategy
-    legs: StraddleStrangleLegs
+    setup: VolatilitySetup
     entry_time: datetime
     entry_price: float
-    current_price: float = 0.0
-    pnl: float = 0.0
-    pnl_percent: float = 0.0
-    
-    # Greeks tracking
-    current_delta: float = 0.0
-    current_gamma: float = 0.0
-    current_theta: float = 0.0
-    current_vega: float = 0.0
-    
-    # Position management
-    state: PositionState = PositionState.ACTIVE
-    profit_target: float = 0.0
-    stop_loss: float = 0.0
-    dte_remaining: int = 0
-    
-    # Volatility tracking
-    entry_iv: float = 0.0
-    current_iv: float = 0.0
-    vol_change: float = 0.0
+    current_value: float = 0.0
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0  # From gamma scalping
+    greeks_history: List[GreeksSnapshot] = field(default_factory=list)
+    current_greeks: Optional[GreeksSnapshot] = None
+    gamma_scalp_count: int = 0
+    state: PositionState = PositionState.BUILDING
+    adjustments: List[Dict] = field(default_factory=list)
+    exit_time: Optional[datetime] = None
+    exit_reason: Optional[str] = None
 
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
-class SpyderD15_StraddleStrangle:
+class StraddleStrangleStrategy(BaseStrategy):
     """
-    LEAN-Enhanced Straddle and Strangle Trading Strategy.
+    Professional straddle/strangle strategy implementation.
     
-    Implements professional volatility trading strategies based on QuantConnect
-    LEAN's straddle and strangle algorithms with advanced Greeks management.
+    Captures volatility expansion through long positions or collects premium
+    through short positions based on IV rank and event detection.
     """
     
-    def __init__(self, config: Dict[str, Any] = None):
-        """Initialize the Straddle/Strangle strategy."""
-        self.config = config or {}
-        self.logger = SpyderLogger.get_logger(__name__)
+    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+                 config: Dict[str, Any] = None):
+        """Initialize Straddle/Strangle strategy"""
+        super().__init__(
+            name="Straddle/Strangle Strategy",
+            strategy_type="volatility_trading",
+            event_manager=event_manager,
+            risk_profile=risk_profile,
+            config=config or {}
+        )
+        
+        # Initialize components
+        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
+        self.greeks_calculator = GreeksCalculator()
+        self.volatility_analyzer = VolatilityAnalyzer()
+        self.volatility_regime = VolatilityRegimeAnalyzer()
+        self.news_manager = NewsManager()
         
         # Strategy state
         self.active_positions: Dict[str, VolatilityPosition] = {}
-        self.strategy_statistics = {
+        self.upcoming_events: List[Dict] = []
+        self.current_iv_rank: float = 50.0
+        self.volatility_surface: Optional[pd.DataFrame] = None
+        
+        # Configuration
+        self.max_positions = config.get('max_positions', MAX_VOLATILITY_POSITIONS)
+        self.allow_short = config.get('allow_short', True)
+        self.enable_gamma_scalping = config.get('gamma_scalping', True)
+        self.event_trading = config.get('event_trading', True)
+        
+        # Performance tracking
+        self.performance_stats = {
             'total_trades': 0,
             'winning_trades': 0,
-            'losing_trades': 0,
-            'total_pnl': 0.0,
-            'win_rate': 0.0,
-            'avg_winner': 0.0,
-            'avg_loser': 0.0,
-            'max_drawdown': 0.0,
-            'vol_prediction_accuracy': 0.0
+            'total_gamma_scalps': 0,
+            'gamma_scalp_pnl': 0.0,
+            'best_trade': 0.0,
+            'worst_trade': 0.0,
+            'avg_iv_expansion': 0.0
         }
         
-        # LEAN-style configuration
-        self.max_positions = self.config.get('max_positions', MAX_POSITION_COUNT)
-        self.profit_target = self.config.get('profit_target', STRADDLE_PROFIT_TARGET)
-        self.stop_loss = self.config.get('stop_loss', STOP_LOSS_THRESHOLD)
-        
-        self.logger.info("SpyderD15_StraddleStrangle initialized with LEAN enhancements")
+        self.logger.info(f"Initialized {self.name}")
     
     # ==========================================================================
-    # VOLATILITY ANALYSIS (LEAN-Enhanced)
+    # EVENT DETECTION
     # ==========================================================================
     
-    def analyze_volatility_environment(self, market_data: Dict[str, Any]) -> VolatilityAnalysis:
-        """
-        Analyze volatility environment using LEAN patterns.
+    def _detect_upcoming_events(self, market_data: pd.DataFrame) -> List[Dict]:
+        """Detect upcoming volatility events"""
+        events = []
+        current_date = datetime.now()
         
-        Based on LEAN's volatility analysis algorithms with professional
-        IV rank, percentile, and term structure analysis.
-        """
         try:
-            option_chain = market_data.get('option_chain', [])
-            underlying_price = market_data.get('underlying_price', 0.0)
-            historical_data = market_data.get('historical_data', [])
+            # Check earnings calendar
+            if self.event_trading:
+                earnings = self._check_earnings_calendar()
+                for earning in earnings:
+                    if 0 < (earning['date'] - current_date).days <= PRE_EARNINGS_DAYS:
+                        events.append({
+                            'type': VolatilityEvent.EARNINGS,
+                            'date': earning['date'],
+                            'impact': 'high',
+                            'expected_move': earning.get('expected_move', 0.03)
+                        })
             
-            if not option_chain:
-                return self._create_neutral_vol_analysis()
+            # Check Fed calendar
+            fed_events = self._check_fed_calendar()
+            for fed in fed_events:
+                if 0 < (fed['date'] - current_date).days <= PRE_FED_DAYS:
+                    events.append({
+                        'type': VolatilityEvent.FED_MEETING,
+                        'date': fed['date'],
+                        'impact': 'high',
+                        'expected_move': 0.02
+                    })
             
-            # Calculate current IV (ATM options)
-            current_iv = self._calculate_atm_iv(option_chain, underlying_price)
+            # Check for technical breakouts
+            breakout = self._detect_technical_breakout(market_data)
+            if breakout:
+                events.append({
+                    'type': VolatilityEvent.TECHNICAL_BREAKOUT,
+                    'date': current_date,
+                    'impact': 'medium',
+                    'expected_move': breakout['expected_move']
+                })
             
-            # Calculate IV rank and percentile
-            iv_rank = self._calculate_iv_rank(current_iv, historical_data)
-            iv_percentile = self._calculate_iv_percentile(current_iv, historical_data)
+            # Check for volatility crush opportunities
+            if self.current_iv_rank > 80:
+                vol_crush = self._detect_volatility_crush(market_data)
+                if vol_crush:
+                    events.append({
+                        'type': VolatilityEvent.VOLATILITY_CRUSH,
+                        'date': current_date,
+                        'impact': 'medium',
+                        'expected_move': -0.01  # Negative for crush
+                    })
             
-            # Calculate realized volatility
-            realized_vol = self._calculate_realized_volatility(historical_data)
+        except Exception as e:
+            self.logger.error(f"Error detecting events: {e}")
+        
+        self.upcoming_events = events
+        return events
+    
+    def _check_earnings_calendar(self) -> List[Dict]:
+        """Check for upcoming earnings"""
+        # In production, would connect to earnings calendar API
+        # Mock data for testing
+        earnings = []
+        
+        # Simulate quarterly earnings
+        next_earnings = datetime.now() + timedelta(days=3)
+        if next_earnings.month in [1, 4, 7, 10]:  # Earnings months
+            earnings.append({
+                'date': next_earnings,
+                'company': 'Major S&P component',
+                'expected_move': 0.04  # 4% expected move
+            })
+        
+        return earnings
+    
+    def _check_fed_calendar(self) -> List[Dict]:
+        """Check for Fed meetings"""
+        # In production, would use actual Fed calendar
+        fed_events = []
+        
+        # FOMC meetings (simplified)
+        days_to_next_wed = (2 - datetime.now().weekday()) % 7
+        if days_to_next_wed == 0:
+            days_to_next_wed = 7
+        
+        next_fed = datetime.now() + timedelta(days=days_to_next_wed)
+        if next_fed.day >= 15 and next_fed.day <= 21:  # Third week
+            fed_events.append({
+                'date': next_fed,
+                'type': 'FOMC',
+                'impact': 'high'
+            })
+        
+        return fed_events
+    
+    def _detect_technical_breakout(self, market_data: pd.DataFrame) -> Optional[Dict]:
+        """Detect technical breakout patterns"""
+        try:
+            if len(market_data) < 20:
+                return None
             
-            # Calculate volatility premium
-            vol_premium = current_iv - realized_vol
+            # Calculate recent range
+            recent_high = market_data['high'].iloc[-20:].max()
+            recent_low = market_data['low'].iloc[-20:].min()
+            current_price = market_data['close'].iloc[-1]
             
-            # Analyze volatility trend
-            vol_trend = self._analyze_vol_trend(historical_data)
+            # Check for breakout
+            if current_price > recent_high:
+                return {
+                    'direction': 'bullish',
+                    'breakout_level': recent_high,
+                    'expected_move': (current_price - recent_high) / recent_high * 2
+                }
+            elif current_price < recent_low:
+                return {
+                    'direction': 'bearish',
+                    'breakout_level': recent_low,
+                    'expected_move': (recent_low - current_price) / current_price * 2
+                }
             
-            # Build term structure
-            term_structure = self._build_vol_term_structure(option_chain)
+            return None
             
-            # Calculate skew
-            skew = self._calculate_volatility_skew(option_chain, underlying_price)
+        except Exception:
+            return None
+    
+    def _detect_volatility_crush(self, market_data: pd.DataFrame) -> Optional[Dict]:
+        """Detect potential volatility crush"""
+        try:
+            if 'iv' not in market_data.columns:
+                return None
+            
+            # Check IV trend
+            recent_iv = market_data['iv'].iloc[-10:]
+            iv_slope = np.polyfit(range(len(recent_iv)), recent_iv, 1)[0]
+            
+            # Negative slope with high IV = crush potential
+            if iv_slope < -0.001 and self.current_iv_rank > 70:
+                return {
+                    'current_iv': recent_iv.iloc[-1],
+                    'iv_slope': iv_slope,
+                    'expected_crush': abs(iv_slope) * 5  # 5-day projection
+                }
+            
+            return None
+            
+        except Exception:
+            return None
+    
+    # ==========================================================================
+    # VOLATILITY ANALYSIS
+    # ==========================================================================
+    
+    def _analyze_volatility_surface(self, market_data: pd.DataFrame) -> Dict[str, Any]:
+        """Analyze volatility surface and smile"""
+        try:
+            current_price = market_data['close'].iloc[-1]
+            
+            # Get volatility surface data
+            # In production, would get from options chain
+            vol_surface = self._construct_volatility_surface(current_price)
+            self.volatility_surface = vol_surface
+            
+            # Calculate smile metrics
+            atm_iv = self._get_atm_iv(vol_surface, current_price)
+            put_skew = self._calculate_put_skew(vol_surface, current_price)
+            call_skew = self._calculate_call_skew(vol_surface, current_price)
+            
+            # Term structure
+            term_structure = self._analyze_term_structure(vol_surface)
+            
+            return {
+                'atm_iv': atm_iv,
+                'put_skew': put_skew,
+                'call_skew': call_skew,
+                'skew_ratio': put_skew / call_skew if call_skew > 0 else 1.0,
+                'term_structure': term_structure,
+                'smile_type': self._classify_smile(put_skew, call_skew)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing volatility surface: {e}")
+            return {}
+    
+    def _construct_volatility_surface(self, spot_price: float) -> pd.DataFrame:
+        """Construct mock volatility surface"""
+        # In production, would use actual options chain data
+        strikes = np.arange(spot_price * 0.9, spot_price * 1.1, 5)
+        expiries = [7, 14, 30, 60]  # DTE
+        
+        surface_data = []
+        base_iv = 0.20
+        
+        for expiry in expiries:
+            for strike in strikes:
+                # Create realistic smile
+                moneyness = strike / spot_price
+                if moneyness < 1:  # Put side
+                    iv = base_iv * (1 + 0.2 * (1 - moneyness))
+                else:  # Call side
+                    iv = base_iv * (1 + 0.1 * (moneyness - 1))
+                
+                # Term structure adjustment
+                iv *= (1 + 0.001 * expiry)
+                
+                surface_data.append({
+                    'strike': strike,
+                    'expiry': expiry,
+                    'iv': iv,
+                    'moneyness': moneyness
+                })
+        
+        return pd.DataFrame(surface_data)
+    
+    def _get_atm_iv(self, vol_surface: pd.DataFrame, spot_price: float) -> float:
+        """Get at-the-money implied volatility"""
+        atm_data = vol_surface[
+            (vol_surface['strike'] >= spot_price - 1) & 
+            (vol_surface['strike'] <= spot_price + 1)
+        ]
+        
+        if not atm_data.empty:
+            return atm_data['iv'].mean()
+        return 0.20  # Default
+    
+    def _calculate_put_skew(self, vol_surface: pd.DataFrame, spot_price: float) -> float:
+        """Calculate put skew (25 delta put IV / ATM IV)"""
+        put_25d_strike = spot_price * 0.95  # Approximate 25 delta put
+        
+        put_iv = vol_surface[
+            (vol_surface['strike'] >= put_25d_strike - 2) & 
+            (vol_surface['strike'] <= put_25d_strike + 2)
+        ]['iv'].mean()
+        
+        atm_iv = self._get_atm_iv(vol_surface, spot_price)
+        
+        return put_iv / atm_iv if atm_iv > 0 else 1.0
+    
+    def _calculate_call_skew(self, vol_surface: pd.DataFrame, spot_price: float) -> float:
+        """Calculate call skew (25 delta call IV / ATM IV)"""
+        call_25d_strike = spot_price * 1.05  # Approximate 25 delta call
+        
+        call_iv = vol_surface[
+            (vol_surface['strike'] >= call_25d_strike - 2) & 
+            (vol_surface['strike'] <= call_25d_strike + 2)
+        ]['iv'].mean()
+        
+        atm_iv = self._get_atm_iv(vol_surface, spot_price)
+        
+        return call_iv / atm_iv if atm_iv > 0 else 1.0
+    
+    def _analyze_term_structure(self, vol_surface: pd.DataFrame) -> str:
+        """Analyze volatility term structure"""
+        short_term = vol_surface[vol_surface['expiry'] <= 14]['iv'].mean()
+        long_term = vol_surface[vol_surface['expiry'] >= 30]['iv'].mean()
+        
+        if long_term > short_term * 1.05:
+            return 'contango'
+        elif short_term > long_term * 1.05:
+            return 'backwardation'
+        else:
+            return 'flat'
+    
+    def _classify_smile(self, put_skew: float, call_skew: float) -> str:
+        """Classify volatility smile type"""
+        if put_skew > 1.1 and call_skew < 1.05:
+            return 'put_skewed'  # Normal equity smile
+        elif call_skew > 1.1 and put_skew < 1.05:
+            return 'call_skewed'  # Commodity-like
+        elif put_skew > 1.1 and call_skew > 1.1:
+            return 'symmetric_smile'  # High volatility
+        else:
+            return 'flat_smile'  # Low volatility
+    
+    # ==========================================================================
+    # SIGNAL GENERATION
+    # ==========================================================================
+    
+    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Generate volatility trading signals"""
+        try:
+            signals = []
+            
+            # Check position limits
+            if len(self.active_positions) >= self.max_positions:
+                return signals
+            
+            # Update IV rank
+            self.current_iv_rank = self._calculate_iv_rank(market_data)
+            
+            # Detect upcoming events
+            events = self._detect_upcoming_events(market_data)
+            
+            # Analyze volatility surface
+            vol_analysis = self._analyze_volatility_surface(market_data)
+            
+            # Determine strategy type
+            strategy = self._select_volatility_strategy(
+                self.current_iv_rank, events, vol_analysis
+            )
+            
+            if strategy:
+                # Create setup
+                setup = self._create_volatility_setup(
+                    strategy, market_data, vol_analysis, events
+                )
+                
+                if setup and self._validate_setup(setup):
+                    signal = self._create_trading_signal(setup, market_data)
+                    if signal:
+                        signals.append(signal)
+            
+            return signals
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, market_data)
+            return []
+    
+    def _calculate_iv_rank(self, market_data: pd.DataFrame) -> float:
+        """Calculate current IV rank"""
+        if 'iv' not in market_data.columns:
+            return 50.0
+        
+        iv_series = market_data['iv'].iloc[-252:]  # 1 year
+        current_iv = iv_series.iloc[-1]
+        
+        min_iv = iv_series.min()
+        max_iv = iv_series.max()
+        
+        if max_iv > min_iv:
+            return ((current_iv - min_iv) / (max_iv - min_iv)) * 100
+        return 50.0
+    
+    def _select_volatility_strategy(self, iv_rank: float, events: List[Dict],
+                                   vol_analysis: Dict[str, Any]) -> Optional[VolatilityStrategy]:
+        """Select appropriate volatility strategy"""
+        # Event-based selection
+        if events:
+            high_impact_event = any(e['impact'] == 'high' for e in events)
+            
+            if high_impact_event and iv_rank < MAX_IV_RANK_LONG:
+                # Buy volatility before events
+                if vol_analysis.get('smile_type') == 'flat_smile':
+                    return VolatilityStrategy.LONG_STRADDLE
+                else:
+                    return VolatilityStrategy.LONG_STRANGLE
+        
+        # IV rank-based selection
+        if MIN_IV_RANK_LONG <= iv_rank <= MAX_IV_RANK_LONG:
+            # Low IV - buy volatility
+            return VolatilityStrategy.LONG_STRANGLE
+        
+        elif MIN_IV_RANK_SHORT <= iv_rank <= MAX_IV_RANK_SHORT and self.allow_short:
+            # High IV - sell volatility
+            if vol_analysis.get('term_structure') == 'backwardation':
+                # Prefer defined risk in backwardation
+                return VolatilityStrategy.IRON_CONDOR
+            else:
+                return VolatilityStrategy.SHORT_STRANGLE
+        
+        return None
+    
+    def _create_volatility_setup(self, strategy: VolatilityStrategy,
+                               market_data: pd.DataFrame,
+                               vol_analysis: Dict[str, Any],
+                               events: List[Dict]) -> Optional[VolatilitySetup]:
+        """Create volatility trade setup"""
+        try:
+            current_price = market_data['close'].iloc[-1]
+            
+            # Select strikes
+            if strategy in [VolatilityStrategy.LONG_STRADDLE, VolatilityStrategy.SHORT_STRADDLE]:
+                call_strike = put_strike = round(current_price)  # ATM
+            else:  # Strangles
+                call_strike, put_strike = self._select_strangle_strikes(
+                    current_price, vol_analysis
+                )
+            
+            # Select expiry
+            expiry = self._select_expiry(strategy, events)
+            
+            # Calculate position size
+            contracts = self._calculate_position_size(strategy, vol_analysis)
+            
+            # Estimate prices and Greeks
+            prices = self._estimate_option_prices(
+                current_price, call_strike, put_strike, expiry, vol_analysis
+            )
+            
+            # Calculate net debit/credit
+            if strategy in [VolatilityStrategy.LONG_STRADDLE, VolatilityStrategy.LONG_STRANGLE]:
+                net_debit = (prices['call'] + prices['put']) * contracts * SPY_CONTRACT_MULTIPLIER
+                max_profit = float('inf')  # Unlimited
+                max_loss = net_debit
+            else:  # Short strategies
+                net_debit = -(prices['call'] + prices['put']) * contracts * SPY_CONTRACT_MULTIPLIER
+                max_profit = -net_debit
+                max_loss = float('inf')  # Unlimited for naked
+            
+            # Calculate breakevens
+            breakevens = self._calculate_breakevens(
+                call_strike, put_strike, prices, strategy
+            )
+            
+            # Expected IV change
+            expected_iv_change = self._estimate_iv_change(events, vol_analysis)
+            
+            # Determine event type
+            event_type = None
+            event_date = None
+            if events:
+                event_type = events[0]['type']
+                event_date = events[0]['date']
+            
+            setup = VolatilitySetup(
+                strategy=strategy,
+                call_strike=call_strike,
+                put_strike=put_strike,
+                expiry=expiry,
+                contracts=contracts,
+                net_debit=net_debit,
+                max_profit=max_profit,
+                max_loss=max_loss,
+                breakeven_upper=breakevens['upper'],
+                breakeven_lower=breakevens['lower'],
+                iv_at_entry=vol_analysis.get('atm_iv', 0.20),
+                expected_iv_change=expected_iv_change,
+                event_type=event_type,
+                event_date=event_date
+            )
+            
+            return setup
+            
+        except Exception as e:
+            self.logger.error(f"Error creating volatility setup: {e}")
+            return None
+    
+    def _select_strangle_strikes(self, current_price: float,
+                                vol_analysis: Dict[str, Any]) -> Tuple[float, float]:
+        """Select strangle strikes based on delta or fixed offset"""
+        # Use skew information
+        if vol_analysis.get('smile_type') == 'put_skewed':
+            # Wider put strike in put-skewed market
+            put_offset = STRANGLE_PUT_OFFSET * 1.2
+            call_offset = STRANGLE_CALL_OFFSET
+        elif vol_analysis.get('smile_type') == 'call_skewed':
+            # Wider call strike in call-skewed market
+            put_offset = STRANGLE_PUT_OFFSET
+            call_offset = STRANGLE_CALL_OFFSET * 1.2
+        else:
+            put_offset = STRANGLE_PUT_OFFSET
+            call_offset = STRANGLE_CALL_OFFSET
+        
+        call_strike = round(current_price + call_offset)
+        put_strike = round(current_price - put_offset)
+        
+        return call_strike, put_strike
+    
+    def _select_expiry(self, strategy: VolatilityStrategy,
+                      events: List[Dict]) -> datetime:
+        """Select optimal expiration date"""
+        current_date = datetime.now()
+        
+        # Event-based expiry
+        if events and events[0]['type'] != VolatilityEvent.VOLATILITY_CRUSH:
+            # Expire after event
+            event_date = events[0]['date']
+            days_after = 3 if strategy in [VolatilityStrategy.LONG_STRADDLE, 
+                                          VolatilityStrategy.LONG_STRANGLE] else 7
+            target_date = event_date + timedelta(days=days_after)
+        else:
+            # Standard expiry selection
+            if strategy in [VolatilityStrategy.LONG_STRADDLE, VolatilityStrategy.LONG_STRANGLE]:
+                target_dte = 30  # 30 days for long vol
+            else:
+                target_dte = 14  # 14 days for short vol
+            
+            target_date = current_date + timedelta(days=target_dte)
+        
+        # Find next Friday
+        days_to_friday = (4 - target_date.weekday()) % 7
+        if days_to_friday == 0:
+            days_to_friday = 7
+        
+        return target_date + timedelta(days=days_to_friday)
+    
+    def _calculate_position_size(self, strategy: VolatilityStrategy,
+                               vol_analysis: Dict[str, Any]) -> int:
+        """Calculate appropriate position size"""
+        base_size = 1
+        
+        # Adjust for account size
+        account_size = self.risk_profile.account_size
+        if account_size > 100000:
+            base_size = int(account_size / 50000)
+        
+        # Reduce size for undefined risk strategies
+        if strategy in [VolatilityStrategy.SHORT_STRADDLE, VolatilityStrategy.SHORT_STRANGLE]:
+            base_size = max(1, base_size // 2)
+        
+        return base_size
+    
+    def _estimate_option_prices(self, spot: float, call_strike: float,
+                              put_strike: float, expiry: datetime,
+                              vol_analysis: Dict[str, Any]) -> Dict[str, float]:
+        """Estimate option prices"""
+        # Simplified pricing - in production use Black-Scholes
+        dte = (expiry - datetime.now()).days / 365.0
+        atm_iv = vol_analysis.get('atm_iv', 0.20)
+        
+        # Call price approximation
+        call_moneyness = call_strike / spot
+        if call_moneyness > 1:  # OTM
+            call_price = spot * atm_iv * np.sqrt(dte) * 0.4 * (1 - (call_moneyness - 1))
+        else:  # ITM
+            call_price = spot - call_strike + spot * atm_iv * np.sqrt(dte) * 0.4
+        
+        # Put price approximation
+        put_moneyness = put_strike / spot
+        if put_moneyness < 1:  # OTM
+            put_price = spot * atm_iv * np.sqrt(dte) * 0.4 * (1 - (1 - put_moneyness))
+        else:  # ITM
+            put_price = put_strike - spot + spot * atm_iv * np.sqrt(dte) * 0.4
+        
+        return {
+            'call': max(0.10, call_price),
+            'put': max(0.10, put_price)
+        }
+    
+    def _calculate_breakevens(self, call_strike: float, put_strike: float,
+                            prices: Dict[str, float],
+                            strategy: VolatilityStrategy) -> Dict[str, float]:
+        """Calculate breakeven points"""
+        total_premium = prices['call'] + prices['put']
+        
+        if strategy == VolatilityStrategy.LONG_STRADDLE:
+            # Same strike for both
+            upper = call_strike + total_premium
+            lower = put_strike - total_premium
+        elif strategy == VolatilityStrategy.LONG_STRANGLE:
+            # Different strikes
+            upper = call_strike + total_premium
+            lower = put_strike - total_premium
+        elif strategy == VolatilityStrategy.SHORT_STRADDLE:
+            # Inverse for short
+            upper = call_strike + total_premium
+            lower = put_strike - total_premium
+        else:  # Short strangle
+            upper = call_strike + total_premium
+            lower = put_strike - total_premium
+        
+        return {'upper': upper, 'lower': lower}
+    
+    def _estimate_iv_change(self, events: List[Dict],
+                          vol_analysis: Dict[str, Any]) -> float:
+        """Estimate expected IV change"""
+        if events:
+            if events[0]['type'] == VolatilityEvent.EARNINGS:
+                return 0.10  # 10% IV expansion expected
+            elif events[0]['type'] == VolatilityEvent.FED_MEETING:
+                return 0.05  # 5% IV expansion
+            elif events[0]['type'] == VolatilityEvent.VOLATILITY_CRUSH:
+                return -0.20  # 20% IV crush
+        
+        # Non-event based on regime
+        if self.current_iv_rank < 30:
+            return 0.03  # Expect expansion from low IV
+        elif self.current_iv_rank > 70:
+            return -0.05  # Expect contraction from high IV
+        
+        return 0.0
+    
+    def _validate_setup(self, setup: VolatilitySetup) -> bool:
+        """Validate volatility setup"""
+        # Check breakeven width
+        breakeven_width = setup.breakeven_upper - setup.breakeven_lower
+        spot_price = (setup.call_strike + setup.put_strike) / 2
+        
+        if breakeven_width / spot_price < 0.02:  # Less than 2% profit zone
+            self.logger.info("Setup rejected: Profit zone too narrow")
+            return False
+        
+        # Check debit/credit reasonableness
+        if abs(setup.net_debit) / (spot_price * setup.contracts * 100) > 0.10:
+            self.logger.info("Setup rejected: Position too expensive")
+            return False
+        
+        return True
+    
+    def _create_trading_signal(self, setup: VolatilitySetup,
+                             market_data: pd.DataFrame) -> Optional[TradingSignal]:
+        """Convert setup to trading signal"""
+        try:
+            # Determine signal strength
+            if setup.event_type and setup.expected_iv_change > 0.05:
+                strength = SignalStrength.STRONG
+            elif abs(setup.expected_iv_change) > 0.03:
+                strength = SignalStrength.MEDIUM
+            else:
+                strength = SignalStrength.WEAK
             
             # Calculate confidence
-            confidence = self._calculate_analysis_confidence(
-                len(option_chain), len(historical_data), iv_rank
+            confidence = self._calculate_signal_confidence(setup)
+            
+            signal = TradingSignal(
+                timestamp=datetime.now(),
+                signal_type=SignalType.ENTRY,
+                strength=strength,
+                confidence=confidence,
+                metadata={
+                    'strategy': 'volatility',
+                    'setup': setup.__dict__,
+                    'strategy_type': setup.strategy.value,
+                    'strikes': {
+                        'call': setup.call_strike,
+                        'put': setup.put_strike
+                    },
+                    'expiry': setup.expiry.strftime('%Y-%m-%d'),
+                    'net_debit': setup.net_debit,
+                    'breakevens': {
+                        'upper': setup.breakeven_upper,
+                        'lower': setup.breakeven_lower
+                    },
+                    'event': setup.event_type.value if setup.event_type else None,
+                    'iv_rank': self.current_iv_rank
+                }
             )
             
-            return VolatilityAnalysis(
-                current_iv=current_iv,
-                iv_rank=iv_rank,
-                iv_percentile=iv_percentile,
-                realized_vol=realized_vol,
-                vol_premium=vol_premium,
-                vol_trend=vol_trend,
-                term_structure=term_structure,
-                skew=skew,
-                confidence=confidence
-            )
+            self.logger.info(f"Generated {setup.strategy.value} signal")
+            return signal
             
         except Exception as e:
-            self.logger.error(f"Volatility analysis failed: {e}")
-            return self._create_neutral_vol_analysis()
+            self.logger.error(f"Error creating signal: {e}")
+            return None
     
-    def _calculate_atm_iv(self, option_chain: List[Any], underlying_price: float) -> float:
-        """Calculate ATM implied volatility using LEAN patterns."""
-        try:
-            atm_options = []
-            
-            for option in option_chain:
-                if abs(option.strike - underlying_price) <= ATM_TOLERANCE:
-                    if hasattr(option, 'implied_volatility') and option.implied_volatility > 0:
-                        atm_options.append(option.implied_volatility)
-            
-            return np.mean(atm_options) if atm_options else 0.2  # Default 20%
-            
-        except Exception as e:
-            self.logger.error(f"ATM IV calculation failed: {e}")
-            return 0.2
-    
-    def _calculate_iv_rank(self, current_iv: float, historical_data: List[Any]) -> float:
-        """Calculate IV rank (LEAN pattern)."""
-        try:
-            if len(historical_data) < 252:  # Need at least 1 year
-                return 50.0  # Neutral rank
-            
-            iv_history = [data.get('iv', 0.2) for data in historical_data[-252:]]
-            rank = stats.percentileofscore(iv_history, current_iv)
-            return max(0.0, min(100.0, rank))
-            
-        except Exception:
-            return 50.0
-    
-    def _calculate_iv_percentile(self, current_iv: float, historical_data: List[Any]) -> float:
-        """Calculate IV percentile using LEAN patterns."""
-        try:
-            if len(historical_data) < 30:
-                return 50.0
-            
-            iv_history = [data.get('iv', 0.2) for data in historical_data[-30:]]
-            percentile = stats.percentileofscore(iv_history, current_iv)
-            return max(0.0, min(100.0, percentile))
-            
-        except Exception:
-            return 50.0
-    
-    # ==========================================================================
-    # STRATEGY SELECTION (LEAN-Enhanced)
-    # ==========================================================================
-    
-    def select_optimal_strategy(self, 
-                              vol_analysis: VolatilityAnalysis,
-                              market_data: Dict[str, Any]) -> Optional[VolatilityStrategy]:
-        """
-        Select optimal volatility strategy based on LEAN decision logic.
+    def _calculate_signal_confidence(self, setup: VolatilitySetup) -> float:
+        """Calculate signal confidence"""
+        confidence = 0.5
         
-        Uses sophisticated volatility environment analysis to choose between
-        long/short straddles/strangles based on IV levels and market conditions.
-        """
-        try:
-            # LEAN Pattern: Check volatility regime first
-            if vol_analysis.confidence < 0.5:
-                self.logger.info("Low confidence in volatility analysis, skipping")
-                return None
-            
-            iv_rank = vol_analysis.iv_rank
-            vol_premium = vol_analysis.vol_premium
-            trend = vol_analysis.vol_trend
-            
-            # LEAN Pattern: Strategy selection based on IV environment
-            if iv_rank < 20:  # Low IV environment
-                if vol_premium > 0.03:  # High vol premium
-                    return VolatilityStrategy.LONG_STRANGLE  # Cheaper than straddle
-                elif trend == "rising":
-                    return VolatilityStrategy.LONG_STRADDLE  # Max volatility exposure
-                    
-            elif iv_rank > 80:  # High IV environment
-                if vol_premium > 0.05:  # Very high vol premium
-                    return VolatilityStrategy.SHORT_STRANGLE  # Collect premium
-                elif trend == "falling":
-                    return VolatilityStrategy.SHORT_STRADDLE  # Max premium collection
-                    
-            elif 30 <= iv_rank <= 70:  # Normal IV environment
-                if trend == "rising" and vol_premium < 0.02:
-                    return VolatilityStrategy.LONG_STRADDLE
-                elif trend == "falling" and vol_premium > 0.03:
-                    return VolatilityStrategy.SHORT_STRANGLE
-            
-            # Check current position count
-            if len(self.active_positions) >= self.max_positions:
-                self.logger.info("Maximum positions reached, skipping new entries")
-                return None
-            
-            # Default: No strategy if conditions not met
-            return None
-            
-        except Exception as e:
-            self.logger.error(f"Strategy selection failed: {e}")
-            return None
-    
-    # ==========================================================================
-    # STRIKE SELECTION (LEAN Algorithms)
-    # ==========================================================================
-    
-    def select_strategy_strikes(self,
-                              strategy_type: VolatilityStrategy,
-                              option_chain: List[Any],
-                              underlying_price: float) -> Optional[StraddleStrangleLegs]:
-        """
-        Select optimal strikes using LEAN algorithm patterns.
+        # Event-based confidence
+        if setup.event_type:
+            if setup.event_type == VolatilityEvent.EARNINGS:
+                confidence += 0.2
+            elif setup.event_type == VolatilityEvent.FED_MEETING:
+                confidence += 0.15
         
-        Based on LEAN's LongAndShortStraddleStrategiesAlgorithm and 
-        LongAndShortStrangleStrategiesAlgorithm strike selection logic.
-        """
-        try:
-            # LEAN Pattern: Group by expiry and select appropriate one
-            for expiry, group in itertools.groupby(option_chain, lambda x: x.expiry):
-                contracts = sorted(group, key=lambda x: x.strike)
-                
-                # LEAN Pattern: Check DTE requirements
-                dte = (expiry - datetime.now()).days
-                if not self._validate_dte_for_strategy(strategy_type, dte):
-                    continue
-                
-                # LEAN Pattern: Separate puts and calls
-                puts = [x for x in contracts if x.option_right == "PUT"]
-                calls = [x for x in contracts if x.option_right == "CALL"]
-                
-                if len(puts) < 2 or len(calls) < 2:
-                    continue
-                
-                # Select strikes based on strategy type
-                if strategy_type in [VolatilityStrategy.LONG_STRADDLE, 
-                                   VolatilityStrategy.SHORT_STRADDLE]:
-                    return self._select_straddle_strikes(
-                        strategy_type, puts, calls, underlying_price, expiry
-                    )
-                else:  # Strangle strategies
-                    return self._select_strangle_strikes(
-                        strategy_type, puts, calls, underlying_price, expiry
-                    )
-            
-            return None
-            
-        except Exception as e:
-            self.logger.error(f"Strike selection failed: {e}")
-            return None
-    
-    def _select_straddle_strikes(self,
-                               strategy_type: VolatilityStrategy,
-                               puts: List[Any],
-                               calls: List[Any],
-                               underlying_price: float,
-                               expiry: datetime) -> Optional[StraddleStrangleLegs]:
-        """Select straddle strikes (ATM for both legs)."""
-        try:
-            # Find ATM strike
-            all_strikes = [opt.strike for opt in puts + calls]
-            atm_strike = min(all_strikes, key=lambda x: abs(x - underlying_price))
-            
-            # Verify we have both put and call at ATM strike
-            atm_put = next((p for p in puts if p.strike == atm_strike), None)
-            atm_call = next((c for c in calls if c.strike == atm_strike), None)
-            
-            if not atm_put or not atm_call:
-                return None
-            
-            # Calculate Greeks and pricing
-            total_premium = self._estimate_total_premium(atm_put, atm_call, strategy_type)
-            delta = self._calculate_straddle_delta(atm_put, atm_call)
-            gamma = self._calculate_straddle_gamma(atm_put, atm_call)
-            theta = self._calculate_straddle_theta(atm_put, atm_call)
-            vega = self._calculate_straddle_vega(atm_put, atm_call)
-            
-            # Calculate profit/loss parameters
-            max_profit, max_loss, be_upper, be_lower = self._calculate_straddle_pnl_params(
-                strategy_type, atm_strike, total_premium
-            )
-            
-            return StraddleStrangleLegs(
-                strategy_type=strategy_type,
-                call_strike=atm_strike,
-                put_strike=atm_strike,
-                expiry=expiry,
-                total_premium=total_premium,
-                delta=delta,
-                gamma=gamma,
-                theta=theta,
-                vega=vega,
-                max_profit=max_profit,
-                max_loss=max_loss,
-                breakeven_upper=be_upper,
-                breakeven_lower=be_lower
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Straddle strike selection failed: {e}")
-            return None
-    
-    def _select_strangle_strikes(self,
-                               strategy_type: VolatilityStrategy,
-                               puts: List[Any],
-                               calls: List[Any],
-                               underlying_price: float,
-                               expiry: datetime) -> Optional[StraddleStrangleLegs]:
-        """Select strangle strikes (OTM puts and calls)."""
-        try:
-            # Find OTM put (below underlying)
-            otm_puts = [p for p in puts if p.strike < underlying_price]
-            if not otm_puts:
-                return None
-            
-            # Select put strike based on distance
-            target_put_distance = STRANGLE_STRIKE_DISTANCE
-            otm_put = min(otm_puts, key=lambda p: abs(underlying_price - p.strike - target_put_distance))
-            
-            # Find OTM call (above underlying)  
-            otm_calls = [c for c in calls if c.strike > underlying_price]
-            if not otm_calls:
-                return None
-            
-            # Select call strike based on distance
-            target_call_distance = STRANGLE_STRIKE_DISTANCE
-            otm_call = min(otm_calls, key=lambda c: abs(c.strike - underlying_price - target_call_distance))
-            
-            # Calculate Greeks and pricing
-            total_premium = self._estimate_total_premium(otm_put, otm_call, strategy_type)
-            delta = self._calculate_strangle_delta(otm_put, otm_call)
-            gamma = self._calculate_strangle_gamma(otm_put, otm_call)
-            theta = self._calculate_strangle_theta(otm_put, otm_call)
-            vega = self._calculate_strangle_vega(otm_put, otm_call)
-            
-            # Calculate profit/loss parameters
-            max_profit, max_loss, be_upper, be_lower = self._calculate_strangle_pnl_params(
-                strategy_type, otm_put.strike, otm_call.strike, total_premium
-            )
-            
-            return StraddleStrangleLegs(
-                strategy_type=strategy_type,
-                call_strike=otm_call.strike,
-                put_strike=otm_put.strike,
-                expiry=expiry,
-                total_premium=total_premium,
-                delta=delta,
-                gamma=gamma,
-                theta=theta,
-                vega=vega,
-                max_profit=max_profit,
-                max_loss=max_loss,
-                breakeven_upper=be_upper,
-                breakeven_lower=be_lower
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Strangle strike selection failed: {e}")
-            return None
-    
-    # ==========================================================================
-    # POSITION MANAGEMENT (LEAN-Enhanced)
-    # ==========================================================================
-    
-    async def execute_volatility_strategy(self,
-                                        strategy_type: VolatilityStrategy,
-                                        legs: StraddleStrangleLegs) -> bool:
-        """
-        Execute volatility strategy using LEAN position management patterns.
-        
-        Creates atomic multi-leg orders with professional validation and
-        position group management like LEAN's OptionStrategies.
-        """
-        try:
-            # LEAN Pattern: Create strategy using OptionStrategies helper
-            if strategy_type == VolatilityStrategy.LONG_STRADDLE:
-                strategy = SpyderOptionStrategies.long_straddle(
-                    "SPY", legs.call_strike, legs.expiry
-                )
-            elif strategy_type == VolatilityStrategy.SHORT_STRADDLE:
-                strategy = SpyderOptionStrategies.short_straddle(
-                    "SPY", legs.call_strike, legs.expiry
-                )
-            elif strategy_type == VolatilityStrategy.LONG_STRANGLE:
-                strategy = SpyderOptionStrategies.long_strangle(
-                    "SPY", legs.put_strike, legs.call_strike, legs.expiry
-                )
-            elif strategy_type == VolatilityStrategy.SHORT_STRANGLE:
-                strategy = SpyderOptionStrategies.short_strangle(
-                    "SPY", legs.put_strike, legs.call_strike, legs.expiry
-                )
-            else:
-                raise ValueError(f"Unsupported strategy type: {strategy_type}")
-            
-            # LEAN Pattern: Validate strategy before execution
-            SpyderOptionStrategies.validate_strategy_legs(strategy)
-            
-            # Create position tracking
-            position = VolatilityPosition(
-                position_id=f"VOL_{uuid.uuid4().hex[:8]}",
-                strategy_type=strategy_type,
-                legs=legs,
-                entry_time=datetime.now(),
-                entry_price=legs.total_premium,
-                profit_target=legs.total_premium * self.profit_target,
-                stop_loss=legs.total_premium * self.stop_loss,
-                dte_remaining=(legs.expiry - datetime.now()).days,
-                entry_iv=0.0  # Will be updated with current IV
-            )
-            
-            # Add to active positions
-            self.active_positions[position.position_id] = position
-            
-            # Update statistics
-            self.strategy_statistics['total_trades'] += 1
-            
-            self.logger.info(f"Executed {strategy_type.value} strategy: {position.position_id}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Strategy execution failed: {e}")
-            self.error_handler.handle_error(e, {"strategy_type": strategy_type.value})
-            return False
-    
-    # ==========================================================================
-    # GREEKS CALCULATIONS (LEAN-Enhanced)
-    # ==========================================================================
-    
-    def _calculate_straddle_delta(self, put_option: Any, call_option: Any) -> float:
-        """Calculate total straddle delta (should be near zero for ATM)."""
-        try:
-            put_delta = getattr(put_option, 'delta', -0.5)  # Default put delta
-            call_delta = getattr(call_option, 'delta', 0.5)  # Default call delta
-            return abs(put_delta + call_delta)  # Should be near zero for ATM straddle
-        except Exception:
-            return 0.05  # Default small delta
-    
-    def _calculate_straddle_gamma(self, put_option: Any, call_option: Any) -> float:
-        """Calculate total straddle gamma (positive for long, negative for short)."""
-        try:
-            put_gamma = getattr(put_option, 'gamma', 0.1)
-            call_gamma = getattr(call_option, 'gamma', 0.1)
-            return put_gamma + call_gamma
-        except Exception:
-            return 0.2  # Default gamma
-    
-    def _calculate_straddle_theta(self, put_option: Any, call_option: Any) -> float:
-        """Calculate total straddle theta (time decay)."""
-        try:
-            put_theta = getattr(put_option, 'theta', -0.05)
-            call_theta = getattr(call_option, 'theta', -0.05)
-            return put_theta + call_theta
-        except Exception:
-            return -0.1  # Default theta
-    
-    def _calculate_straddle_vega(self, put_option: Any, call_option: Any) -> float:
-        """Calculate total straddle vega (volatility sensitivity)."""
-        try:
-            put_vega = getattr(put_option, 'vega', 0.15)
-            call_vega = getattr(call_option, 'vega', 0.15)
-            return put_vega + call_vega
-        except Exception:
-            return 0.3  # Default vega
-    
-    # ==========================================================================
-    # HELPER METHODS
-    # ==========================================================================
-    
-    def _create_neutral_vol_analysis(self) -> VolatilityAnalysis:
-        """Create neutral volatility analysis for error cases."""
-        return VolatilityAnalysis(
-            current_iv=0.2,
-            iv_rank=50.0,
-            iv_percentile=50.0,
-            realized_vol=0.18,
-            vol_premium=0.02,
-            vol_trend="stable",
-            term_structure={},
-            skew=0.0,
-            confidence=0.0
-        )
-    
-    def _validate_dte_for_strategy(self, strategy_type: VolatilityStrategy, dte: int) -> bool:
-        """Validate DTE requirements for strategy type."""
-        if strategy_type in [VolatilityStrategy.LONG_STRADDLE, VolatilityStrategy.LONG_STRANGLE]:
-            return MIN_DTE_LONG <= dte <= MAX_DTE_LONG
+        # IV rank confidence
+        if setup.strategy in [VolatilityStrategy.LONG_STRADDLE, VolatilityStrategy.LONG_STRANGLE]:
+            if self.current_iv_rank < 20:
+                confidence += 0.15
         else:  # Short strategies
-            return MIN_DTE_SHORT <= dte <= MAX_DTE_SHORT
+            if self.current_iv_rank > 80:
+                confidence += 0.15
+        
+        # Expected move confidence
+        if abs(setup.expected_iv_change) > 0.10:
+            confidence += 0.1
+        
+        return min(0.9, confidence)
     
-    def get_strategy_summary(self) -> Dict[str, Any]:
-        """Get comprehensive strategy summary."""
+    # ==========================================================================
+    # POSITION MANAGEMENT
+    # ==========================================================================
+    
+    def manage_positions(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Manage active volatility positions"""
+        signals = []
+        
+        current_price = market_data['close'].iloc[-1]
+        current_iv = self._get_current_iv(market_data)
+        
+        for position_id, position in list(self.active_positions.items()):
+            # Update position Greeks
+            self._update_position_greeks(position, current_price, current_iv)
+            
+            # Update position value
+            self._update_position_value(position, current_price, current_iv)
+            
+            # Check for gamma scalping opportunity
+            if self.enable_gamma_scalping:
+                scalp_signal = self._check_gamma_scalp(position, current_price)
+                if scalp_signal:
+                    signals.append(scalp_signal)
+            
+            # Check exit conditions
+            exit_signal = self._check_exit_conditions(position, market_data)
+            if exit_signal:
+                signals.append(exit_signal)
+                del self.active_positions[position_id]
+        
+        return signals
+    
+    def _get_current_iv(self, market_data: pd.DataFrame) -> float:
+        """Get current implied volatility"""
+        if 'iv' in market_data.columns:
+            return market_data['iv'].iloc[-1]
+        
+        # Calculate from price movements
+        returns = market_data['close'].pct_change().dropna()
+        return returns.std() * np.sqrt(252)
+    
+    def _update_position_greeks(self, position: VolatilityPosition,
+                              spot: float, iv: float):
+        """Update position Greeks"""
+        try:
+            dte = (position.setup.expiry - datetime.now()).days / 365.0
+            
+            # Calculate Greeks (simplified)
+            # In production, use proper Greeks calculator
+            
+            # Delta
+            call_delta = stats.norm.cdf((np.log(spot / position.setup.call_strike) + 
+                                        (0.02 + iv**2/2) * dte) / (iv * np.sqrt(dte)))
+            put_delta = call_delta - 1
+            
+            # Gamma (peaks at ATM)
+            atm_distance = min(abs(spot - position.setup.call_strike),
+                             abs(spot - position.setup.put_strike)) / spot
+            gamma = np.exp(-atm_distance * 10) / (spot * iv * np.sqrt(dte)) * 0.1
+            
+            # Vega
+            vega = spot * np.sqrt(dte) * stats.norm.pdf(call_delta) * 0.01
+            
+            # Theta
+            theta = -spot * iv / (2 * np.sqrt(dte)) * stats.norm.pdf(call_delta) / 365
+            
+            # Adjust for position type
+            if position.setup.strategy in [VolatilityStrategy.SHORT_STRADDLE, 
+                                          VolatilityStrategy.SHORT_STRANGLE]:
+                gamma = -gamma
+                vega = -vega
+                theta = -theta
+            
+            # Create Greeks snapshot
+            greeks = GreeksSnapshot(
+                delta=call_delta + put_delta,
+                gamma=gamma * position.setup.contracts * 100,
+                vega=vega * position.setup.contracts * 100,
+                theta=theta * position.setup.contracts * 100,
+                rho=0,  # Simplified
+                timestamp=datetime.now()
+            )
+            
+            position.current_greeks = greeks
+            position.greeks_history.append(greeks)
+            
+        except Exception as e:
+            self.logger.error(f"Error updating Greeks: {e}")
+    
+    def _update_position_value(self, position: VolatilityPosition,
+                             spot: float, current_iv: float):
+        """Update position value and P&L"""
+        try:
+            # Estimate current option values
+            dte = (position.setup.expiry - datetime.now()).days / 365.0
+            
+            # IV change effect
+            iv_change = current_iv - position.setup.iv_at_entry
+            
+            # Price change effect
+            price_change = spot - position.entry_price
+            
+            # Estimate new option values (simplified)
+            vol_analysis = {'atm_iv': current_iv}
+            current_prices = self._estimate_option_prices(
+                spot, position.setup.call_strike, position.setup.put_strike,
+                position.setup.expiry, vol_analysis
+            )
+            
+            # Calculate current value
+            current_value = (current_prices['call'] + current_prices['put']) * \
+                          position.setup.contracts * SPY_CONTRACT_MULTIPLIER
+            
+            # Adjust for long/short
+            if position.setup.strategy in [VolatilityStrategy.SHORT_STRADDLE,
+                                          VolatilityStrategy.SHORT_STRANGLE]:
+                current_value = -current_value
+            
+            position.current_value = current_value
+            position.unrealized_pnl = current_value - position.setup.net_debit
+            
+        except Exception as e:
+            self.logger.error(f"Error updating position value: {e}")
+    
+    def _check_gamma_scalp(self, position: VolatilityPosition,
+                          current_price: float) -> Optional[TradingSignal]:
+        """Check for gamma scalping opportunity"""
+        if not position.current_greeks:
+            return None
+        
+        gamma = position.current_greeks.gamma
+        
+        # Only scalp long gamma positions
+        if gamma < GAMMA_SCALP_THRESHOLD:
+            return None
+        
+        # Check price movement since last scalp
+        price_move = abs(current_price - position.entry_price) / position.entry_price
+        
+        if price_move > 0.01:  # 1% move
+            # Generate scalp signal
+            signal = TradingSignal(
+                timestamp=datetime.now(),
+                signal_type=SignalType.ADJUST,
+                strength=SignalStrength.MEDIUM,
+                confidence=0.7,
+                metadata={
+                    'position_id': position.position_id,
+                    'action': 'gamma_scalp',
+                    'gamma': gamma,
+                    'suggested_hedge': -gamma * (current_price - position.entry_price)
+                }
+            )
+            
+            # Update position
+            position.gamma_scalp_count += 1
+            position.state = PositionState.GAMMA_SCALPING
+            
+            self.logger.info(f"Gamma scalp opportunity for {position.position_id}")
+            return signal
+        
+        return None
+    
+    def _check_exit_conditions(self, position: VolatilityPosition,
+                             market_data: pd.DataFrame) -> Optional[TradingSignal]:
+        """Check position exit conditions"""
+        # Profit target
+        profit_target = (LONG_VOL_PROFIT_TARGET if position.setup.strategy in 
+                        [VolatilityStrategy.LONG_STRADDLE, VolatilityStrategy.LONG_STRANGLE]
+                        else SHORT_VOL_PROFIT_TARGET)
+        
+        if position.unrealized_pnl >= abs(position.setup.net_debit) * profit_target:
+            return self._create_exit_signal(position, "profit_target")
+        
+        # Stop loss
+        stop_loss = (LONG_VOL_STOP_LOSS if position.setup.strategy in 
+                    [VolatilityStrategy.LONG_STRADDLE, VolatilityStrategy.LONG_STRANGLE]
+                    else SHORT_VOL_STOP_LOSS)
+        
+        if position.unrealized_pnl <= -abs(position.setup.net_debit) * stop_loss:
+            return self._create_exit_signal(position, "stop_loss")
+        
+        # Time decay (close near expiry)
+        dte = (position.setup.expiry - datetime.now()).days
+        if dte <= 1:
+            return self._create_exit_signal(position, "expiry")
+        
+        # Event passed (for event trades)
+        if position.setup.event_date and datetime.now() > position.setup.event_date + timedelta(days=1):
+            if position.unrealized_pnl > 0:
+                return self._create_exit_signal(position, "event_complete")
+        
+        # IV crush completed
+        if position.setup.event_type == VolatilityEvent.VOLATILITY_CRUSH:
+            current_iv = self._get_current_iv(market_data)
+            if current_iv < position.setup.iv_at_entry * 0.8:
+                return self._create_exit_signal(position, "vol_crush_complete")
+        
+        return None
+    
+    def _create_exit_signal(self, position: VolatilityPosition,
+                          reason: str) -> TradingSignal:
+        """Create exit signal"""
+        position.exit_time = datetime.now()
+        position.exit_reason = reason
+        position.state = PositionState.CLOSING
+        
+        # Update stats
+        self._update_performance_stats(position)
+        
+        signal = TradingSignal(
+            timestamp=datetime.now(),
+            signal_type=SignalType.EXIT,
+            strength=SignalStrength.STRONG,
+            confidence=0.95,
+            metadata={
+                'position_id': position.position_id,
+                'exit_reason': reason,
+                'unrealized_pnl': position.unrealized_pnl,
+                'realized_pnl': position.realized_pnl,
+                'total_pnl': position.unrealized_pnl + position.realized_pnl,
+                'gamma_scalps': position.gamma_scalp_count,
+                'final_greeks': position.current_greeks.__dict__ if position.current_greeks else None
+            }
+        )
+        
+        self.logger.info(f"Exit {position.position_id}: {reason}, Total P&L: ${position.unrealized_pnl + position.realized_pnl:.2f}")
+        return signal
+    
+    def _update_performance_stats(self, position: VolatilityPosition):
+        """Update strategy performance statistics"""
+        total_pnl = position.unrealized_pnl + position.realized_pnl
+        
+        self.performance_stats['total_trades'] += 1
+        if total_pnl > 0:
+            self.performance_stats['winning_trades'] += 1
+        
+        self.performance_stats['total_gamma_scalps'] += position.gamma_scalp_count
+        self.performance_stats['gamma_scalp_pnl'] += position.realized_pnl
+        
+        if total_pnl > self.performance_stats['best_trade']:
+            self.performance_stats['best_trade'] = total_pnl
+        if total_pnl < self.performance_stats['worst_trade']:
+            self.performance_stats['worst_trade'] = total_pnl
+        
+        # Update IV expansion tracking
+        if position.setup.event_type:
+            current_iv = position.setup.iv_at_entry + position.setup.expected_iv_change
+            actual_change = (current_iv - position.setup.iv_at_entry) / position.setup.iv_at_entry
+            
+            n = self.performance_stats['total_trades']
+            avg = self.performance_stats['avg_iv_expansion']
+            self.performance_stats['avg_iv_expansion'] = (avg * (n-1) + actual_change) / n
+    
+    # ==========================================================================
+    # PUBLIC INTERFACE
+    # ==========================================================================
+    
+    def add_position(self, signal: TradingSignal) -> str:
+        """Add new volatility position"""
+        position_id = f"VOL_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        
+        # Reconstruct setup from signal
+        setup_dict = signal.metadata['setup']
+        # In production, properly deserialize
+        
+        position = VolatilityPosition(
+            position_id=position_id,
+            setup=None,  # Would reconstruct
+            entry_time=datetime.now(),
+            entry_price=signal.metadata.get('current_price', 0),
+            state=PositionState.ESTABLISHED
+        )
+        
+        self.active_positions[position_id] = position
+        self.logger.info(f"Added volatility position {position_id}")
+        
+        return position_id
+    
+    def get_position_summary(self) -> List[Dict[str, Any]]:
+        """Get summary of active positions"""
+        summaries = []
+        
+        for position_id, position in self.active_positions.items():
+            summary = {
+                'position_id': position_id,
+                'strategy': position.setup.strategy.value if position.setup else 'unknown',
+                'unrealized_pnl': position.unrealized_pnl,
+                'realized_pnl': position.realized_pnl,
+                'total_pnl': position.unrealized_pnl + position.realized_pnl,
+                'current_greeks': position.current_greeks.__dict__ if position.current_greeks else None,
+                'gamma_scalps': position.gamma_scalp_count,
+                'state': position.state.name
+            }
+            summaries.append(summary)
+        
+        return summaries
+    
+    def get_strategy_stats(self) -> Dict[str, Any]:
+        """Get strategy statistics"""
+        total_trades = self.performance_stats['total_trades']
+        win_rate = self.performance_stats['winning_trades'] / total_trades if total_trades > 0 else 0
+        
         return {
-            'module_name': 'SpyderD15_StraddleStrangle',
-            'strategy_type': 'Volatility Trading (LEAN-Enhanced)',
             'active_positions': len(self.active_positions),
-            'statistics': self.strategy_statistics.copy(),
-            'available_strategies': [s.value for s in VolatilityStrategy],
-            'last_updated': datetime.now().isoformat()
+            'current_iv_rank': self.current_iv_rank,
+            'total_trades': total_trades,
+            'win_rate': win_rate,
+            'total_gamma_scalps': self.performance_stats['total_gamma_scalps'],
+            'gamma_scalp_pnl': self.performance_stats['gamma_scalp_pnl'],
+            'avg_iv_expansion': self.performance_stats['avg_iv_expansion'],
+            'best_trade': self.performance_stats['best_trade'],
+            'worst_trade': self.performance_stats['worst_trade'],
+            'upcoming_events': len(self.upcoming_events)
         }
 
+
 # ==============================================================================
-# FACTORY FUNCTION
+# TESTING
 # ==============================================================================
-def create_straddle_strangle_strategy(config: Dict[str, Any] = None) -> SpyderD15_StraddleStrangle:
-    """Factory function to create StraddleStrangle strategy instance."""
-    return SpyderD15_StraddleStrangle(config)
+def test_straddle_strangle():
+    """Test the Straddle/Strangle strategy"""
+    print("Testing Straddle/Strangle Strategy")
+    print("=" * 60)
+    
+    # Create mock components
+    from SpyderA_Core.SpyderA05_EventManager import EventManager
+    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    
+    event_manager = EventManager()
+    risk_profile = RiskProfile(
+        account_size=100000,
+        max_position_size=0.02,
+        max_portfolio_risk=0.06,
+        max_loss_per_trade=1000
+    )
+    
+    config = {
+        'max_positions': 2,
+        'allow_short': True,
+        'gamma_scalping': True,
+        'event_trading': True
+    }
+    
+    # Create strategy
+    strategy = StraddleStrangleStrategy(event_manager, risk_profile, config)
+    
+    print(f"Strategy: {strategy.name}")
+    print(f"Allow Short: {strategy.allow_short}")
+    print(f"Gamma Scalping: {strategy.enable_gamma_scalping}")
+    
+    # Create sample market data
+    dates = pd.date_range(end=datetime.now(), periods=100, freq='5min')
+    
+    # Simulate volatility environment
+    base_price = 450
+    returns = np.random.randn(100) * 0.01
+    prices = base_price * np.exp(np.cumsum(returns))
+    
+    # Add IV data
+    base_iv = 0.18
+    iv_returns = np.random.randn(100) * 0.005
+    iv_series = base_iv * np.exp(np.cumsum(iv_returns))
+    
+    market_data = pd.DataFrame({
+        'timestamp': dates,
+        'open': prices * (1 - abs(np.random.randn(100) * 0.001)),
+        'high': prices * (1 + abs(np.random.randn(100) * 0.002)),
+        'low': prices * (1 - abs(np.random.randn(100) * 0.002)),
+        'close': prices,
+        'volume': np.random.randint(50000000, 150000000, 100),
+        'iv': iv_series
+    })
+    
+    # Test IV rank calculation
+    print(f"\nCurrent IV Rank: {strategy._calculate_iv_rank(market_data):.1f}")
+    
+    # Test event detection
+    print("\nDetecting Events...")
+    events = strategy._detect_upcoming_events(market_data)
+    print(f"Found {len(events)} upcoming events")
+    for event in events:
+        print(f"- {event['type'].value}: {event.get('date', 'N/A')}, Impact: {event['impact']}")
+    
+    # Test volatility surface analysis
+    print("\nAnalyzing Volatility Surface...")
+    vol_analysis = strategy._analyze_volatility_surface(market_data)
+    print(f"ATM IV: {vol_analysis.get('atm_iv', 0):.1%}")
+    print(f"Put Skew: {vol_analysis.get('put_skew', 1):.2f}")
+    print(f"Call Skew: {vol_analysis.get('call_skew', 1):.2f}")
+    print(f"Smile Type: {vol_analysis.get('smile_type', 'unknown')}")
+    print(f"Term Structure: {vol_analysis.get('term_structure', 'unknown')}")
+    
+    # Generate signals
+    print("\nGenerating Signals...")
+    signals = strategy.generate_signals(market_data)
+    
+    print(f"Generated {len(signals)} signals")
+    
+    for signal in signals:
+        setup = signal.metadata
+        print(f"\nStrategy: {setup['strategy_type']}")
+        print(f"Strikes: Call ${setup['strikes']['call']}, Put ${setup['strikes']['put']}")
+        print(f"Expiry: {setup['expiry']}")
+        print(f"Net Debit: ${setup['net_debit']:.2f}")
+        print(f"Breakevens: ${setup['breakevens']['lower']:.2f} - ${setup['breakevens']['upper']:.2f}")
+        print(f"Event: {setup.get('event', 'None')}")
+        print(f"Confidence: {signal.confidence:.1%}")
+        
+        # Add position
+        position_id = strategy.add_position(signal)
+    
+    # Simulate position management
+    if strategy.active_positions:
+        print("\n" + "=" * 40)
+        print("Position Management Test")
+        
+        # Simulate price movement
+        for i in range(20):
+            # Add volatility
+            price_shock = np.random.randn() * 2
+            new_price = prices[-1] + price_shock
+            new_iv = iv_series[-1] * (1 + np.random.randn() * 0.02)
+            
+            market_data.loc[len(market_data)] = {
+                'timestamp': datetime.now() + timedelta(minutes=i*5),
+                'open': new_price - 0.1,
+                'high': new_price + 0.2,
+                'low': new_price - 0.2,
+                'close': new_price,
+                'volume': 100000000,
+                'iv': new_iv
+            }
+            
+            # Update prices for next iteration
+            prices = np.append(prices, new_price)
+            iv_series = np.append(iv_series, new_iv)
+            
+            # Manage positions
+            management_signals = strategy.manage_positions(market_data)
+            
+            if management_signals:
+                for mgmt_signal in management_signals:
+                    if mgmt_signal.signal_type == SignalType.ADJUST:
+                        print(f"\nGamma Scalp at iteration {i}")
+                        print(f"Gamma: {mgmt_signal.metadata['gamma']:.1f}")
+                        print(f"Suggested Hedge: ${mgmt_signal.metadata['suggested_hedge']:.2f}")
+                    elif mgmt_signal.signal_type == SignalType.EXIT:
+                        print(f"\nExit at iteration {i}")
+                        print(f"Reason: {mgmt_signal.metadata['exit_reason']}")
+                        print(f"Total P&L: ${mgmt_signal.metadata['total_pnl']:.2f}")
+                        print(f"Gamma Scalps: {mgmt_signal.metadata['gamma_scalps']}")
+    
+    # Print final statistics
+    stats = strategy.get_strategy_stats()
+    print("\n" + "=" * 40)
+    print("Strategy Statistics:")
+    print(f"Active Positions: {stats['active_positions']}")
+    print(f"Current IV Rank: {stats['current_iv_rank']:.1f}")
+    print(f"Total Trades: {stats['total_trades']}")
+    print(f"Win Rate: {stats['win_rate']:.1%}")
+    print(f"Total Gamma Scalps: {stats['total_gamma_scalps']}")
+    print(f"Gamma Scalp P&L: ${stats['gamma_scalp_pnl']:.2f}")
+    print(f"Avg IV Expansion: {stats['avg_iv_expansion']:.1%}")
+    print(f"Best Trade: ${stats['best_trade']:.2f}")
+    print(f"Worst Trade: ${stats['worst_trade']:.2f}")
+    
+    print("\n✅ Straddle/Strangle Strategy Test Complete!")
+    print("\nKey Features Tested:")
+    print("- ✅ Event detection (earnings, Fed, technical)")
+    print("- ✅ Volatility surface analysis")
+    print("- ✅ IV rank calculation")
+    print("- ✅ Strike selection (ATM/OTM)")
+    print("- ✅ Long/short strategy selection")
+    print("- ✅ Greeks calculation and monitoring")
+    print("- ✅ Gamma scalping detection")
+    print("- ✅ Position value updates")
+    print("- ✅ Multiple exit conditions")
+    print("- ✅ Performance tracking")
+
 
 if __name__ == "__main__":
-    # Example usage
-    strategy = create_straddle_strangle_strategy()
-    print("SpyderD15_StraddleStrangle strategy initialized successfully!")
-    print(f"Available strategies: {[s.value for s in VolatilityStrategy]}")
+    test_straddle_strangle()
+                

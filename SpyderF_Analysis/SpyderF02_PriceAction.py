@@ -5,378 +5,828 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderF02_PriceAction.py
 Group: F (Technical Analysis)
-Purpose: Price action and pattern recognition
+Purpose: Price action analysis with performance monitoring
 
 Description:
-    This module analyzes price action patterns and candlestick formations
-    for trading signal generation. It identifies key patterns such as
-    pin bars, engulfing patterns, inside bars, and complex formations
-    like head and shoulders. The module provides real-time pattern
-    detection optimized for SPY options trading.
+    This module analyzes price action patterns including candlestick patterns,
+    chart patterns, and micro-structure. It includes performance monitoring
+    to ensure pattern detection runs efficiently in real-time.
 
-Author: Mohamed Talib
-Date: 2025-06-01
-Version: 1.4
+Author: Claude AI (Enhanced by Maestro)
+Date: 2024-01-07
+Version: 2.0 - Added performance monitoring and optimization
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import time
+from typing import Dict, List, Optional, Tuple, Set
+from enum import Enum
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union
-from dataclasses import dataclass, field
-from enum import Enum, auto
-import math
-import statistics
+from dataclasses import dataclass
+import threading
+from collections import deque
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
 import numpy as np
-from scipy.signal import find_peaks
+from scipy import signal
+from scipy.stats import linregress
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU07_Constants import LATENCY_SAMPLE_SIZE
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Pattern recognition settings
-MIN_PATTERN_STRENGTH = 0.6
-PATTERN_LOOKBACK = 50
-CONFIRMATION_BARS = 2
-
-# Price action thresholds
-PIN_BAR_RATIO = 0.6        # Wick to body ratio for pin bars
-DOJI_BODY_PERCENT = 0.1    # Max body size for doji (% of range)
-ENGULFING_THRESHOLD = 1.0  # Body engulfing ratio
+from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
+from SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
+from SpyderU_Utilities.SpyderU11_FeatureFlags import FeatureFlags
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class PatternType(Enum):
-    """Price action pattern types"""
-    # Single bar patterns
-    PIN_BAR = "pin_bar"
+    """Types of price patterns."""
+    # Candlestick patterns
     DOJI = "doji"
-    MARUBOZU = "marubozu"
     HAMMER = "hammer"
     SHOOTING_STAR = "shooting_star"
-    
-    # Two bar patterns
-    ENGULFING = "engulfing"
-    HARAMI = "harami"
-    PIERCING = "piercing"
-    DARK_CLOUD = "dark_cloud"
-    TWEEZER = "tweezer"
-    
-    # Multi-bar patterns
-    INSIDE_BAR = "inside_bar"
-    OUTSIDE_BAR = "outside_bar"
-    THREE_BAR_REVERSAL = "three_bar_reversal"
+    ENGULFING_BULL = "engulfing_bull"
+    ENGULFING_BEAR = "engulfing_bear"
+    HARAMI_BULL = "harami_bull"
+    HARAMI_BEAR = "harami_bear"
     MORNING_STAR = "morning_star"
     EVENING_STAR = "evening_star"
-    THREE_SOLDIERS = "three_soldiers"
-    THREE_CROWS = "three_crows"
     
     # Chart patterns
     DOUBLE_TOP = "double_top"
     DOUBLE_BOTTOM = "double_bottom"
     HEAD_SHOULDERS = "head_shoulders"
-    TRIANGLE = "triangle"
-    FLAG = "flag"
-    WEDGE = "wedge"
+    TRIANGLE_ASC = "triangle_ascending"
+    TRIANGLE_DESC = "triangle_descending"
+    FLAG_BULL = "flag_bull"
+    FLAG_BEAR = "flag_bear"
     
-    # Price action
-    SUPPORT_BOUNCE = "support_bounce"
-    RESISTANCE_REJECTION = "resistance_rejection"
+    # Micro patterns
+    ABSORPTION = "absorption"
+    REJECTION = "rejection"
     BREAKOUT = "breakout"
-    BREAKDOWN = "breakdown"
-    FALSE_BREAKOUT = "false_breakout"
+    FAKEOUT = "fakeout"
 
 class PatternDirection(Enum):
-    """Pattern direction bias"""
+    """Pattern direction bias."""
     BULLISH = "bullish"
     BEARISH = "bearish"
     NEUTRAL = "neutral"
 
 class TrendDirection(Enum):
-    """Market trend direction"""
+    """Trend direction."""
     UP = "up"
     DOWN = "down"
     SIDEWAYS = "sideways"
 
 # ==============================================================================
-# DATA STRUCTURES
+# DATA CLASSES
 # ==============================================================================
 @dataclass
 class Candle:
-    """Candlestick data"""
+    """Single candlestick data."""
     timestamp: datetime
     open: float
     high: float
     low: float
     close: float
-    volume: int
+    volume: float
     
     @property
     def body(self) -> float:
-        """Get candle body size"""
+        """Candle body size."""
         return abs(self.close - self.open)
     
     @property
     def range(self) -> float:
-        """Get total candle range"""
+        """Full candle range."""
         return self.high - self.low
     
     @property
     def upper_wick(self) -> float:
-        """Get upper wick size"""
+        """Upper wick size."""
         return self.high - max(self.open, self.close)
     
     @property
     def lower_wick(self) -> float:
-        """Get lower wick size"""
+        """Lower wick size."""
         return min(self.open, self.close) - self.low
+    
+    @property
+    def body_position(self) -> float:
+        """Body position in range (0=bottom, 1=top)."""
+        if self.range == 0:
+            return 0.5
+        return (min(self.open, self.close) - self.low) / self.range
+    
+    @property
+    def is_bullish(self) -> bool:
+        """Is bullish candle."""
+        return self.close > self.open
+    
+    @property
+    def is_doji(self) -> bool:
+        """Is doji candle."""
+        return self.body < self.range * 0.1
 
 @dataclass
 class Pattern:
-    """Price action pattern"""
+    """Detected pattern."""
     pattern_type: PatternType
     direction: PatternDirection
-    strength: float
-    timestamp: datetime
-    price_level: float
+    start_time: datetime
+    end_time: datetime
     confidence: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    candles: List[Candle]
+    support_level: Optional[float] = None
+    resistance_level: Optional[float] = None
+    target_price: Optional[float] = None
+    stop_loss: Optional[float] = None
+
+@dataclass
+class PerformanceMetrics:
+    """Performance tracking for pattern detection."""
+    total_patterns_scanned: int = 0
+    patterns_found: int = 0
+    total_execution_time_ms: float = 0.0
+    avg_execution_time_ms: float = 0.0
+    max_execution_time_ms: float = 0.0
+    slow_executions: int = 0
+    last_update: datetime = None
 
 # ==============================================================================
-# PRICE ACTION ANALYZER CLASS
+# MAIN CLASS
 # ==============================================================================
 class PriceActionAnalyzer:
-    """Price action pattern recognition and analysis."""
+    """
+    Price action pattern analyzer with performance monitoring.
     
-    def __init__(self):
+    Features:
+    - Candlestick pattern recognition
+    - Chart pattern detection
+    - Micro-structure analysis
+    - Performance monitoring and optimization
+    - Parallel pattern detection
+    """
+    
+    def __init__(self, config_manager: Optional[ConfigManager] = None,
+                 monitor: Optional[SystemMonitor] = None):
         """Initialize price action analyzer."""
-        self.logger = SpyderLogger("PriceActionAnalyzer")
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        self.detected_patterns = []
+        self.config_manager = config_manager or ConfigManager()
+        self.monitor = monitor or SystemMonitor()
+        self.feature_flags = FeatureFlags()
+        
+        # Load configuration
+        self._load_config()
+        
+        # Performance tracking
+        self.performance_metrics = PerformanceMetrics()
+        self.execution_times = deque(maxlen=1000)
+        self._metrics_lock = threading.Lock()
+        
+        # Pattern cache
+        self._pattern_cache = {}
+        self._cache_lock = threading.Lock()
+        
+        self.logger.info("PriceActionAnalyzer initialized with performance monitoring")
     
-    def analyze_patterns(self, data: pd.DataFrame) -> List[Pattern]:
-        """Analyze price data for patterns."""
+    def _load_config(self):
+        """Load configuration."""
+        config = self.config_manager.get_config('price_action', {})
+        
+        # Performance settings
+        self.monitoring_enabled = config.get('enable_monitoring', True)
+        self.performance_threshold_ms = config.get('performance_threshold_ms', 100)
+        self.parallel_detection = config.get('parallel_detection', True)
+        self.max_workers = config.get('max_workers', 4)
+        
+        # Pattern detection settings
+        self.min_pattern_confidence = config.get('min_pattern_confidence', 0.7)
+        self.lookback_periods = config.get('lookback_periods', 50)
+        self.enable_micro_patterns = config.get('enable_micro_patterns', True)
+        
+        # Cache settings
+        self.cache_enabled = config.get('cache_enabled', True)
+        self.cache_ttl_seconds = config.get('cache_ttl_seconds', 60)
+        
+        # Feature flags
+        self.use_ml_enhancement = self.feature_flags.is_enabled('ml_pattern_enhancement')
+        self.use_volume_analysis = self.feature_flags.is_enabled('volume_pattern_analysis')
+    
+    # ==========================================================================
+    # PUBLIC METHODS
+    # ==========================================================================
+    
+    def detect_patterns(self, data: pd.DataFrame, 
+                       pattern_types: Optional[List[PatternType]] = None) -> List[Pattern]:
+        """
+        Detect patterns with performance monitoring.
+        
+        Args:
+            data: OHLCV DataFrame
+            pattern_types: Specific patterns to look for (None = all)
+            
+        Returns:
+            List of detected patterns
+        """
+        start_time = time.time()
+        patterns = []
+        
         try:
-            patterns = []
+            # Check cache
+            cache_key = self._generate_cache_key(data)
+            if self.cache_enabled and cache_key in self._pattern_cache:
+                cached_result, cache_time = self._pattern_cache[cache_key]
+                if time.time() - cache_time < self.cache_ttl_seconds:
+                    self._record_execution(0, len(cached_result))  # 0ms for cache hit
+                    return cached_result
             
-            if len(data) < 3:
-                return patterns
+            # Convert to candles
+            candles = self._df_to_candles(data)
             
-            # Convert to candle objects
-            candles = self._dataframe_to_candles(data)
+            # Detect patterns
+            if self.parallel_detection and len(candles) > 20:
+                patterns = self._detect_patterns_parallel(candles, pattern_types)
+            else:
+                patterns = self._detect_patterns_sequential(candles, pattern_types)
             
-            # Detect various patterns
-            patterns.extend(self._detect_single_bar_patterns(candles))
-            patterns.extend(self._detect_multi_bar_patterns(candles))
+            # Filter by confidence
+            patterns = [p for p in patterns if p.confidence >= self.min_pattern_confidence]
             
-            return patterns
+            # Cache results
+            if self.cache_enabled:
+                with self._cache_lock:
+                    self._pattern_cache[cache_key] = (patterns, time.time())
+            
+            # Record performance
+            elapsed_ms = (time.time() - start_time) * 1000
+            self._record_execution(elapsed_ms, len(patterns))
+            
+            # Log if slow
+            if elapsed_ms > self.performance_threshold_ms:
+                self.logger.warning(
+                    f"Pattern detection slow: {elapsed_ms:.1f}ms for {len(candles)} candles"
+                )
             
         except Exception as e:
-            self.error_handler.handle_error(e, {"data_length": len(data)})
-            return []
+            self.error_handler.handle_error(e, "Pattern detection failed")
+            elapsed_ms = (time.time() - start_time) * 1000
+            self._record_execution(elapsed_ms, 0)
+        
+        return patterns
     
-    def _dataframe_to_candles(self, data: pd.DataFrame) -> List[Candle]:
+    def analyze_trend(self, data: pd.DataFrame, period: int = 20) -> Dict:
+        """
+        Analyze price trend with performance monitoring.
+        
+        Returns:
+            Dictionary with trend analysis
+        """
+        start_time = time.time()
+        
+        try:
+            result = {
+                'direction': TrendDirection.SIDEWAYS,
+                'strength': 0.0,
+                'angle': 0.0,
+                'r_squared': 0.0
+            }
+            
+            if len(data) < period:
+                return result
+            
+            # Use close prices for trend
+            prices = data['close'].values[-period:]
+            x = np.arange(len(prices))
+            
+            # Linear regression
+            slope, intercept, r_value, _, _ = linregress(x, prices)
+            
+            # Calculate trend metrics
+            angle = np.degrees(np.arctan(slope))
+            r_squared = r_value ** 2
+            
+            # Determine direction
+            if abs(angle) < 5:
+                direction = TrendDirection.SIDEWAYS
+            elif angle > 0:
+                direction = TrendDirection.UP
+            else:
+                direction = TrendDirection.DOWN
+            
+            # Update result
+            result.update({
+                'direction': direction,
+                'strength': abs(slope) / np.mean(prices),
+                'angle': angle,
+                'r_squared': r_squared
+            })
+            
+            # Record performance
+            elapsed_ms = (time.time() - start_time) * 1000
+            if self.monitoring_enabled:
+                self.monitor.record_metric('price_action.trend_analysis_ms', elapsed_ms)
+            
+            return result
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Trend analysis failed")
+            return result
+    
+    def find_support_resistance(self, data: pd.DataFrame, 
+                               min_touches: int = 3) -> Dict[str, List[float]]:
+        """
+        Find support and resistance levels with performance monitoring.
+        
+        Returns:
+            Dictionary with support and resistance levels
+        """
+        start_time = time.time()
+        
+        try:
+            levels = {
+                'support': [],
+                'resistance': []
+            }
+            
+            if len(data) < 20:
+                return levels
+            
+            # Find peaks and troughs
+            highs = data['high'].values
+            lows = data['low'].values
+            
+            # Find local maxima (resistance)
+            peaks, _ = signal.find_peaks(highs, distance=5)
+            if len(peaks) >= min_touches:
+                # Cluster nearby peaks
+                peak_prices = highs[peaks]
+                resistance_levels = self._cluster_levels(peak_prices, threshold=0.01)
+                levels['resistance'] = resistance_levels
+            
+            # Find local minima (support)
+            troughs, _ = signal.find_peaks(-lows, distance=5)
+            if len(troughs) >= min_touches:
+                # Cluster nearby troughs
+                trough_prices = lows[troughs]
+                support_levels = self._cluster_levels(trough_prices, threshold=0.01)
+                levels['support'] = support_levels
+            
+            # Record performance
+            elapsed_ms = (time.time() - start_time) * 1000
+            if self.monitoring_enabled:
+                self.monitor.record_metric('price_action.sr_detection_ms', elapsed_ms)
+            
+            return levels
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Support/Resistance detection failed")
+            return {'support': [], 'resistance': []}
+    
+    def get_performance_stats(self) -> Dict:
+        """Get performance statistics."""
+        with self._metrics_lock:
+            if not self.execution_times:
+                return {
+                    'avg_execution_ms': 0,
+                    'max_execution_ms': 0,
+                    'patterns_per_second': 0,
+                    'cache_size': len(self._pattern_cache),
+                    'slow_execution_rate': 0
+                }
+            
+            execution_times = list(self.execution_times)
+            total_patterns = self.performance_metrics.patterns_found
+            total_scans = self.performance_metrics.total_patterns_scanned
+            
+            return {
+                'avg_execution_ms': np.mean(execution_times),
+                'max_execution_ms': np.max(execution_times),
+                'min_execution_ms': np.min(execution_times),
+                'patterns_per_second': total_patterns / (sum(execution_times) / 1000) if execution_times else 0,
+                'cache_size': len(self._pattern_cache),
+                'cache_hit_rate': self._calculate_cache_hit_rate(),
+                'slow_execution_rate': self.performance_metrics.slow_executions / len(execution_times) if execution_times else 0,
+                'total_patterns_found': total_patterns,
+                'detection_success_rate': total_patterns / total_scans if total_scans > 0 else 0
+            }
+    
+    def clear_cache(self):
+        """Clear pattern cache."""
+        with self._cache_lock:
+            self._pattern_cache.clear()
+        self.logger.info("Pattern cache cleared")
+    
+    # ==========================================================================
+    # PATTERN DETECTION METHODS
+    # ==========================================================================
+    
+    def _detect_patterns_sequential(self, candles: List[Candle], 
+                                  pattern_types: Optional[List[PatternType]]) -> List[Pattern]:
+        """Sequential pattern detection."""
+        patterns = []
+        
+        # Detect candlestick patterns
+        patterns.extend(self._detect_candlestick_patterns(candles, pattern_types))
+        
+        # Detect chart patterns
+        if len(candles) >= 20:
+            patterns.extend(self._detect_chart_patterns(candles, pattern_types))
+        
+        # Detect micro patterns
+        if self.enable_micro_patterns:
+            patterns.extend(self._detect_micro_patterns(candles, pattern_types))
+        
+        return patterns
+    
+    def _detect_patterns_parallel(self, candles: List[Candle], 
+                                pattern_types: Optional[List[PatternType]]) -> List[Pattern]:
+        """Parallel pattern detection using thread pool."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        patterns = []
+        
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = []
+            
+            # Submit detection tasks
+            futures.append(
+                executor.submit(self._detect_candlestick_patterns, candles, pattern_types)
+            )
+            
+            if len(candles) >= 20:
+                futures.append(
+                    executor.submit(self._detect_chart_patterns, candles, pattern_types)
+                )
+            
+            if self.enable_micro_patterns:
+                futures.append(
+                    executor.submit(self._detect_micro_patterns, candles, pattern_types)
+                )
+            
+            # Collect results
+            for future in as_completed(futures):
+                try:
+                    patterns.extend(future.result())
+                except Exception as e:
+                    self.logger.error(f"Pattern detection task failed: {e}")
+        
+        return patterns
+    
+    def _detect_candlestick_patterns(self, candles: List[Candle], 
+                                   pattern_types: Optional[List[PatternType]]) -> List[Pattern]:
+        """Detect candlestick patterns."""
+        patterns = []
+        
+        if len(candles) < 3:
+            return patterns
+        
+        # Check each pattern type
+        for i in range(2, len(candles)):
+            candle = candles[i]
+            prev_candle = candles[i-1]
+            prev_prev_candle = candles[i-2] if i >= 2 else None
+            
+            # Doji
+            if self._should_check_pattern(PatternType.DOJI, pattern_types):
+                if candle.is_doji:
+                    patterns.append(Pattern(
+                        pattern_type=PatternType.DOJI,
+                        direction=PatternDirection.NEUTRAL,
+                        start_time=candle.timestamp,
+                        end_time=candle.timestamp,
+                        confidence=0.8,
+                        candles=[candle]
+                    ))
+            
+            # Hammer/Shooting Star
+            if self._should_check_pattern(PatternType.HAMMER, pattern_types):
+                if self._is_hammer(candle):
+                    patterns.append(Pattern(
+                        pattern_type=PatternType.HAMMER,
+                        direction=PatternDirection.BULLISH,
+                        start_time=candle.timestamp,
+                        end_time=candle.timestamp,
+                        confidence=0.75,
+                        candles=[candle]
+                    ))
+            
+            if self._should_check_pattern(PatternType.SHOOTING_STAR, pattern_types):
+                if self._is_shooting_star(candle):
+                    patterns.append(Pattern(
+                        pattern_type=PatternType.SHOOTING_STAR,
+                        direction=PatternDirection.BEARISH,
+                        start_time=candle.timestamp,
+                        end_time=candle.timestamp,
+                        confidence=0.75,
+                        candles=[candle]
+                    ))
+            
+            # Engulfing patterns
+            if self._should_check_pattern(PatternType.ENGULFING_BULL, pattern_types):
+                if self._is_bullish_engulfing(prev_candle, candle):
+                    patterns.append(Pattern(
+                        pattern_type=PatternType.ENGULFING_BULL,
+                        direction=PatternDirection.BULLISH,
+                        start_time=prev_candle.timestamp,
+                        end_time=candle.timestamp,
+                        confidence=0.85,
+                        candles=[prev_candle, candle]
+                    ))
+            
+            if self._should_check_pattern(PatternType.ENGULFING_BEAR, pattern_types):
+                if self._is_bearish_engulfing(prev_candle, candle):
+                    patterns.append(Pattern(
+                        pattern_type=PatternType.ENGULFING_BEAR,
+                        direction=PatternDirection.BEARISH,
+                        start_time=prev_candle.timestamp,
+                        end_time=candle.timestamp,
+                        confidence=0.85,
+                        candles=[prev_candle, candle]
+                    ))
+        
+        return patterns
+    
+    def _detect_chart_patterns(self, candles: List[Candle], 
+                             pattern_types: Optional[List[PatternType]]) -> List[Pattern]:
+        """Detect chart patterns (placeholder for complex patterns)."""
+        patterns = []
+        
+        # This would contain more sophisticated pattern detection
+        # For now, just a placeholder
+        
+        return patterns
+    
+    def _detect_micro_patterns(self, candles: List[Candle], 
+                             pattern_types: Optional[List[PatternType]]) -> List[Pattern]:
+        """Detect micro-structure patterns."""
+        patterns = []
+        
+        if len(candles) < 5:
+            return patterns
+        
+        # Volume-based absorption
+        if self.use_volume_analysis:
+            for i in range(4, len(candles)):
+                if self._is_absorption(candles[i-4:i+1]):
+                    patterns.append(Pattern(
+                        pattern_type=PatternType.ABSORPTION,
+                        direction=PatternDirection.NEUTRAL,
+                        start_time=candles[i-4].timestamp,
+                        end_time=candles[i].timestamp,
+                        confidence=0.7,
+                        candles=candles[i-4:i+1]
+                    ))
+        
+        return patterns
+    
+    # ==========================================================================
+    # PATTERN RECOGNITION HELPERS
+    # ==========================================================================
+    
+    def _is_hammer(self, candle: Candle) -> bool:
+        """Check if candle is a hammer."""
+        return (candle.lower_wick > candle.body * 2 and 
+                candle.upper_wick < candle.body * 0.3 and
+                candle.body_position < 0.3)
+    
+    def _is_shooting_star(self, candle: Candle) -> bool:
+        """Check if candle is a shooting star."""
+        return (candle.upper_wick > candle.body * 2 and 
+                candle.lower_wick < candle.body * 0.3 and
+                candle.body_position > 0.7)
+    
+    def _is_bullish_engulfing(self, prev: Candle, curr: Candle) -> bool:
+        """Check if current candle engulfs previous bearish candle."""
+        return (not prev.is_bullish and curr.is_bullish and
+                curr.open < prev.close and curr.close > prev.open)
+    
+    def _is_bearish_engulfing(self, prev: Candle, curr: Candle) -> bool:
+        """Check if current candle engulfs previous bullish candle."""
+        return (prev.is_bullish and not curr.is_bullish and
+                curr.open > prev.close and curr.close < prev.open)
+    
+    def _is_absorption(self, candles: List[Candle]) -> bool:
+        """Check for volume absorption pattern."""
+        if len(candles) < 5:
+            return False
+        
+        # High volume with small price movement
+        avg_volume = np.mean([c.volume for c in candles[:-1]])
+        last_volume = candles[-1].volume
+        price_change = abs(candles[-1].close - candles[0].close) / candles[0].close
+        
+        return (last_volume > avg_volume * 1.5 and price_change < 0.002)
+    
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+    
+    def _df_to_candles(self, df: pd.DataFrame) -> List[Candle]:
         """Convert DataFrame to Candle objects."""
         candles = []
         
-        for _, row in data.iterrows():
-            candle = Candle(
-                timestamp=row.name if isinstance(row.name, datetime) else datetime.now(),
-                open=float(row['open']),
-                high=float(row['high']),
-                low=float(row['low']),
-                close=float(row['close']),
-                volume=int(row.get('volume', 0))
-            )
-            candles.append(candle)
+        for idx, row in df.iterrows():
+            candles.append(Candle(
+                timestamp=idx if isinstance(idx, datetime) else datetime.now(),
+                open=row['open'],
+                high=row['high'],
+                low=row['low'],
+                close=row['close'],
+                volume=row['volume']
+            ))
         
         return candles
     
-    def _detect_single_bar_patterns(self, candles: List[Candle]) -> List[Pattern]:
-        """Detect single bar patterns."""
-        patterns = []
+    def _cluster_levels(self, prices: np.ndarray, threshold: float) -> List[float]:
+        """Cluster price levels within threshold."""
+        if len(prices) == 0:
+            return []
         
-        for i, candle in enumerate(candles[-10:]):  # Check last 10 candles
-            # Pin bar detection
-            if self._is_pin_bar(candle):
-                direction = PatternDirection.BULLISH if candle.lower_wick > candle.upper_wick else PatternDirection.BEARISH
-                pattern = Pattern(
-                    pattern_type=PatternType.PIN_BAR,
-                    direction=direction,
-                    strength=0.7,
-                    timestamp=candle.timestamp,
-                    price_level=candle.close,
-                    confidence=0.8
-                )
-                patterns.append(pattern)
-            
-            # Doji detection
-            if self._is_doji(candle):
-                pattern = Pattern(
-                    pattern_type=PatternType.DOJI,
-                    direction=PatternDirection.NEUTRAL,
-                    strength=0.6,
-                    timestamp=candle.timestamp,
-                    price_level=candle.close,
-                    confidence=0.7
-                )
-                patterns.append(pattern)
+        # Sort prices
+        sorted_prices = np.sort(prices)
+        clusters = []
+        current_cluster = [sorted_prices[0]]
         
-        return patterns
+        for price in sorted_prices[1:]:
+            if price - current_cluster[-1] <= threshold * price:
+                current_cluster.append(price)
+            else:
+                # New cluster
+                clusters.append(np.mean(current_cluster))
+                current_cluster = [price]
+        
+        # Don't forget last cluster
+        clusters.append(np.mean(current_cluster))
+        
+        return clusters
     
-    def _detect_multi_bar_patterns(self, candles: List[Candle]) -> List[Pattern]:
-        """Detect multi-bar patterns."""
-        patterns = []
-        
-        if len(candles) < 2:
-            return patterns
-        
-        # Check last few candle pairs
-        for i in range(len(candles) - 1, max(0, len(candles) - 5), -1):
-            if i < 1:
-                continue
-                
-            current = candles[i]
-            previous = candles[i-1]
-            
-            # Engulfing pattern
-            if self._is_engulfing(previous, current):
-                direction = PatternDirection.BULLISH if current.close > current.open else PatternDirection.BEARISH
-                pattern = Pattern(
-                    pattern_type=PatternType.ENGULFING,
-                    direction=direction,
-                    strength=0.8,
-                    timestamp=current.timestamp,
-                    price_level=current.close,
-                    confidence=0.85
-                )
-                patterns.append(pattern)
-        
-        return patterns
-    
-    def _is_pin_bar(self, candle: Candle) -> bool:
-        """Check if candle is a pin bar."""
-        if candle.range == 0:
-            return False
-        
-        body_ratio = candle.body / candle.range
-        wick_ratio = max(candle.upper_wick, candle.lower_wick) / candle.range
-        
-        return body_ratio < 0.3 and wick_ratio > PIN_BAR_RATIO
-    
-    def _is_doji(self, candle: Candle) -> bool:
-        """Check if candle is a doji."""
-        if candle.range == 0:
+    def _should_check_pattern(self, pattern_type: PatternType, 
+                            pattern_types: Optional[List[PatternType]]) -> bool:
+        """Check if we should look for this pattern type."""
+        if pattern_types is None:
             return True
-        
-        body_ratio = candle.body / candle.range
-        return body_ratio < DOJI_BODY_PERCENT
+        return pattern_type in pattern_types
     
-    def _is_engulfing(self, prev: Candle, current: Candle) -> bool:
-        """Check if current candle engulfs previous."""
-        prev_bullish = prev.close > prev.open
-        curr_bullish = current.close > current.open
+    def _generate_cache_key(self, data: pd.DataFrame) -> str:
+        """Generate cache key for DataFrame."""
+        # Use last row's data and length as key
+        last_row = data.iloc[-1]
+        key = f"{len(data)}_{last_row['close']:.2f}_{last_row['volume']}"
+        return key
+    
+    # ==========================================================================
+    # PERFORMANCE TRACKING
+    # ==========================================================================
+    
+    def _record_execution(self, elapsed_ms: float, patterns_found: int):
+        """Record execution metrics."""
+        with self._metrics_lock:
+            self.execution_times.append(elapsed_ms)
+            self.performance_metrics.total_execution_time_ms += elapsed_ms
+            self.performance_metrics.patterns_found += patterns_found
+            self.performance_metrics.total_patterns_scanned += 1
+            
+            if elapsed_ms > self.performance_metrics.max_execution_time_ms:
+                self.performance_metrics.max_execution_time_ms = elapsed_ms
+            
+            if elapsed_ms > self.performance_threshold_ms:
+                self.performance_metrics.slow_executions += 1
+            
+            # Update average
+            if self.execution_times:
+                self.performance_metrics.avg_execution_time_ms = np.mean(self.execution_times)
+            
+            self.performance_metrics.last_update = datetime.now()
         
-        if prev_bullish == curr_bullish:
-            return False
+        # Report to monitor
+        if self.monitoring_enabled:
+            self.monitor.record_metric('price_action.pattern_detection_ms', elapsed_ms)
+            self.monitor.record_metric('price_action.patterns_found', patterns_found)
+    
+    def _calculate_cache_hit_rate(self) -> float:
+        """Calculate cache hit rate from execution times."""
+        if not self.execution_times:
+            return 0.0
         
-        # Check if current body engulfs previous body
-        curr_body_top = max(current.open, current.close)
-        curr_body_bottom = min(current.open, current.close)
-        prev_body_top = max(prev.open, prev.close)
-        prev_body_bottom = min(prev.open, prev.close)
-        
-        return (curr_body_top > prev_body_top and 
-                curr_body_bottom < prev_body_bottom)
+        # Cache hits have 0ms execution time
+        cache_hits = sum(1 for t in self.execution_times if t == 0)
+        return cache_hits / len(self.execution_times)
 
-def calculate_support_resistance(data: pd.DataFrame, lookback: int = 50) -> Dict[str, List[float]]:
-    """
-    Calculate support and resistance levels.
-    
-    Args:
-        data: OHLCV DataFrame
-        lookback: Lookback period
-        
-    Returns:
-        Dictionary with support and resistance levels
-    """
-    if len(data) < lookback:
-        lookback = len(data)
-    
-    recent_data = data.tail(lookback)
-    
-    # Find peaks and troughs
-    highs = recent_data['high'].values
-    lows = recent_data['low'].values
-    
-    # Detect peaks (resistance)
-    peaks, _ = find_peaks(highs, distance=5, prominence=highs.std() * 0.5)
-    
-    # Detect troughs (support)
-    troughs, _ = find_peaks(-lows, distance=5, prominence=lows.std() * 0.5)
-    
-    # Extract price levels
-    resistance_levels = sorted([highs[p] for p in peaks], reverse=True)[:5]
-    support_levels = sorted([lows[t] for t in troughs])[:5]
-    
-    return {
-        'resistance': resistance_levels,
-        'support': support_levels,
-        'current_price': data['close'].iloc[-1]
-    }
 
-def calculate_pattern_success_rate(patterns: List[Pattern], outcomes: List[bool]) -> Dict[str, float]:
-    """
-    Calculate success rate for different pattern types.
+# ==============================================================================
+# EXAMPLE USAGE
+# ==============================================================================
+if __name__ == "__main__":
+    # Create sample data
+    dates = pd.date_range('2024-01-01 09:30', periods=100, freq='5min')
+    data = pd.DataFrame({
+        'open': np.random.randn(100).cumsum() + 585,
+        'high': np.random.randn(100).cumsum() + 586,
+        'low': np.random.randn(100).cumsum() + 584,
+        'close': np.random.randn(100).cumsum() + 585,
+        'volume': np.random.randint(1000, 10000, 100)
+    }, index=dates)
     
-    Args:
-        patterns: List of detected patterns
-        outcomes: List of pattern outcomes (True = successful)
-        
-    Returns:
-        Dictionary of pattern type to success rate
-    """
-    if len(patterns) != len(outcomes):
-        raise ValueError("Patterns and outcomes must have same length")
+    # Ensure high > low
+    data['high'] = data[['open', 'high', 'close']].max(axis=1)
+    data['low'] = data[['open', 'low', 'close']].min(axis=1)
     
-    success_rates = {}
+    # Initialize analyzer
+    config_manager = ConfigManager()
+    monitor = SystemMonitor()
+    analyzer = PriceActionAnalyzer(config_manager, monitor)
     
-    for pattern_type in PatternType:
-        pattern_outcomes = [
-            outcomes[i] for i, p in enumerate(patterns)
-            if p.pattern_type == pattern_type
-        ]
-        
-        if pattern_outcomes:
-            success_rates[pattern_type.value] = sum(pattern_outcomes) / len(pattern_outcomes)
+    # Detect patterns
+    print("=== Pattern Detection ===")
+    patterns = analyzer.detect_patterns(data)
+    print(f"Found {len(patterns)} patterns")
+    for pattern in patterns[:5]:  # Show first 5
+        print(f"  {pattern.pattern_type.value}: {pattern.confidence:.2f} confidence")
+    
+    # Analyze trend
+    print("\n=== Trend Analysis ===")
+    trend = analyzer.analyze_trend(data)
+    print(f"Direction: {trend['direction'].value}")
+    print(f"Strength: {trend['strength']:.4f}")
+    print(f"R-squared: {trend['r_squared']:.3f}")
+    
+    # Find support/resistance
+    print("\n=== Support/Resistance ===")
+    levels = analyzer.find_support_resistance(data)
+    print(f"Support levels: {[f'{l:.2f}' for l in levels['support']]}")
+    print(f"Resistance levels: {[f'{l:.2f}' for l in levels['resistance']]}")
+    
+    # Performance test
+    print("\n=== Performance Test ===")
+    
+    # First run (no cache)
+    start = time.time()
+    patterns1 = analyzer.detect_patterns(data)
+    time1 = (time.time() - start) * 1000
+    
+    # Second run (with cache)
+    start = time.time()
+    patterns2 = analyzer.detect_patterns(data)
+    time2 = (time.time() - start) * 1000
+    
+    print(f"First run: {time1:.1f}ms ({len(patterns1)} patterns)")
+    print(f"Second run (cached): {time2:.1f}ms ({len(patterns2)} patterns)")
+    print(f"Speed improvement: {time1/time2:.1f}x")
+    
+    # Get performance stats
+    print("\n=== Performance Statistics ===")
+    stats = analyzer.get_performance_stats()
+    for key, value in stats.items():
+        if isinstance(value, float):
+            print(f"{key}: {value:.2f}")
         else:
-            success_rates[pattern_type.value] = 0.0
+            print(f"{key}: {value}")
     
-    return success_rates
-
-# ==============================================================================
-# MODULE EXPORTS
-# ==============================================================================
-__all__ = [
-    "PriceActionAnalyzer",
-    "Pattern",
-    "PatternType", 
-    "PatternDirection",
-    "TrendDirection",
-    "Candle",
-    "calculate_support_resistance",
-    "calculate_pattern_success_rate"
-]
+    # Test parallel detection
+    print("\n=== Parallel vs Sequential ===")
+    
+    # Large dataset
+    large_data = pd.DataFrame({
+        'open': np.random.randn(500).cumsum() + 585,
+        'high': np.random.randn(500).cumsum() + 586,
+        'low': np.random.randn(500).cumsum() + 584,
+        'close': np.random.randn(500).cumsum() + 585,
+        'volume': np.random.randint(1000, 10000, 500)
+    }, index=pd.date_range('2024-01-01', periods=500, freq='5min'))
+    
+    large_data['high'] = large_data[['open', 'high', 'close']].max(axis=1)
+    large_data['low'] = large_data[['open', 'low', 'close']].min(axis=1)
+    
+    # Clear cache
+    analyzer.clear_cache()
+    
+    # Sequential
+    analyzer.parallel_detection = False
+    start = time.time()
+    seq_patterns = analyzer.detect_patterns(large_data)
+    seq_time = (time.time() - start) * 1000
+    
+    # Clear cache again
+    analyzer.clear_cache()
+    
+    # Parallel
+    analyzer.parallel_detection = True
+    start = time.time()
+    par_patterns = analyzer.detect_patterns(large_data)
+    par_time = (time.time() - start) * 1000
+    
+    print(f"Sequential: {seq_time:.1f}ms ({len(seq_patterns)} patterns)")
+    print(f"Parallel: {par_time:.1f}ms ({len(par_patterns)} patterns)")
+    print(f"Speed improvement: {seq_time/par_time:.1f}x")

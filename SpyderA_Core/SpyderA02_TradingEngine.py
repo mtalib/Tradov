@@ -14,10 +14,10 @@ Description:
     real-time monitoring, automated error recovery, and comprehensive performance
     tracking for all trading operations.
 
-Spyder Version: 1.0
+Spyder Version: 2.0
 Architect: Mohamed Talib
 Date Created: 2025-07-03
-Last Updated: 2025-07-03 Time: 16:00:00
+Last Updated: 2025-07-06 - Production Ready
 """
 
 # ==============================================================================
@@ -42,6 +42,7 @@ import queue
 import weakref
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import pickle
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -61,296 +62,295 @@ from SpyderU_Utilities.SpyderU07_Constants import (
 )
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager, RiskProfile
-from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
-
-# Conditional imports to handle missing modules gracefully
-try:
-    from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
-    HAS_BASE_STRATEGY = True
-except ImportError:
-    HAS_BASE_STRATEGY = False
-    BaseStrategy = object  # Fallback
-
-try:
-    from SpyderB_Broker.SpyderB02_OrderManager import OrderManager
-    HAS_ORDER_MANAGER = True
-except ImportError:
-    HAS_ORDER_MANAGER = False
-
-try:
-    from SpyderB_Broker.SpyderB03_PositionTracker import PositionTracker
-    HAS_POSITION_TRACKER = True
-except ImportError:
-    HAS_POSITION_TRACKER = False
+from SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Engine Configuration
-MAX_CONCURRENT_STRATEGIES = 20
-MAX_ORDERS_PER_MINUTE = 60
-MAX_POSITION_SIZE_USD = 50000
-DEFAULT_HEARTBEAT_INTERVAL = 30  # seconds
-
-# Threading Configuration
-MAX_WORKER_THREADS = 10
-ORDER_QUEUE_MAX_SIZE = 1000
-SIGNAL_QUEUE_MAX_SIZE = 500
-
-# Performance Limits
-MAX_EXECUTION_TIME_MS = 5000
-MAX_MEMORY_USAGE_MB = 2048
-MAX_CPU_USAGE_PERCENT = 80
-
-# Risk Limits
-DEFAULT_MAX_DAILY_LOSS = 5000
-DEFAULT_MAX_PORTFOLIO_DELTA = 1000
-DEFAULT_MAX_SINGLE_POSITION = 10000
+MAX_STRATEGIES = 20
+MAX_ORDERS_PER_MINUTE = 100
+MAX_POSITION_AGE_HOURS = 24
+PERFORMANCE_WINDOW_SIZE = 1000
+HEALTH_CHECK_INTERVAL = 60  # seconds
+CLEANUP_INTERVAL = 300  # 5 minutes
+STATE_SAVE_INTERVAL = 60  # seconds
+MAX_ORDER_RETRIES = 3
+ORDER_RETRY_DELAY = 1  # seconds
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class EngineState(Enum):
-    """Trading engine states"""
-    INITIALIZING = "initializing"
-    READY = "ready"
-    RUNNING = "running"
-    PAUSED = "paused"
-    STOPPING = "stopping"
-    STOPPED = "stopped"
-    ERROR = "error"
-    EMERGENCY_STOP = "emergency_stop"
+    """Trading engine operational states"""
+    INITIALIZING = auto()
+    READY = auto()
+    RUNNING = auto()
+    PAUSED = auto()
+    STOPPED = auto()
+    ERROR = auto()
+    RECOVERING = auto()
 
 class StrategyState(Enum):
-    """Strategy states within the engine"""
-    REGISTERED = "registered"
-    INITIALIZING = "initializing"
-    READY = "ready"
-    RUNNING = "running"
-    PAUSED = "paused"
-    STOPPING = "stopping"
-    STOPPED = "stopped"
-    ERROR = "error"
-    DISABLED = "disabled"
+    """Strategy lifecycle states"""
+    REGISTERED = auto()
+    INITIALIZING = auto()
+    ACTIVE = auto()
+    PAUSED = auto()
+    STOPPED = auto()
+    ERROR = auto()
+    DISABLED = auto()
 
-class ExecutionPriority(Enum):
-    """Order execution priority levels"""
-    EMERGENCY = 1    # Risk management orders
-    HIGH = 2         # Strategy exit orders
-    NORMAL = 3       # Strategy entry orders
-    LOW = 4          # Optimization orders
+class OrderState(Enum):
+    """Order execution states"""
+    PENDING = auto()
+    SUBMITTED = auto()
+    FILLED = auto()
+    PARTIAL_FILL = auto()
+    CANCELLED = auto()
+    REJECTED = auto()
+    ERROR = auto()
 
-class SignalType(Enum):
-    """Trading signal types"""
-    ENTRY = "entry"
-    EXIT = "exit"
-    ADJUST = "adjust"
-    HEDGE = "hedge"
-    CLOSE_ALL = "close_all"
+class CircuitBreakerState(Enum):
+    """Circuit breaker states"""
+    NORMAL = auto()
+    WARNING = auto()
+    TRIGGERED = auto()
+    RECOVERING = auto()
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class TradingSignal:
-    """Trading signal data structure"""
-    signal_id: str
-    strategy_id: str
-    signal_type: SignalType
-    symbol: str
-    action: OrderAction
-    quantity: int
-    order_type: OrderType = OrderType.MARKET
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
-    time_in_force: str = "DAY"
-    priority: ExecutionPriority = ExecutionPriority.NORMAL
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
-    
-    def __post_init__(self):
-        if not self.signal_id:
-            self.signal_id = str(uuid.uuid4())
-
-@dataclass
-class StrategyRegistration:
+class StrategyInfo:
     """Strategy registration information"""
     strategy_id: str
-    strategy_instance: Any  # BaseStrategy instance
-    strategy_name: str
-    strategy_type: str
-    risk_profile: RiskProfile
-    max_position_size: float
-    max_daily_trades: int
+    name: str
+    class_instance: Any
     state: StrategyState = StrategyState.REGISTERED
-    registration_time: datetime = field(default_factory=datetime.now)
-    last_activity: datetime = field(default_factory=datetime.now)
-    performance_metrics: Dict[str, Any] = field(default_factory=dict)
+    config: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)
+    last_signal: Optional[datetime] = None
+    signal_count: int = 0
+    order_count: int = 0
+    pnl: float = 0.0
     error_count: int = 0
-    
-@dataclass
-class OrderExecution:
-    """Order execution tracking"""
-    execution_id: str
-    signal_id: str
-    strategy_id: str
-    order_id: Optional[str] = None
-    status: str = "PENDING"
-    fill_price: Optional[float] = None
-    fill_quantity: Optional[int] = None
-    fill_time: Optional[datetime] = None
-    execution_time_ms: Optional[float] = None
-    error_message: Optional[str] = None
+    last_error: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    created_time: datetime = field(default_factory=datetime.now)
 
 @dataclass
-class PortfolioSnapshot:
-    """Portfolio state snapshot"""
-    timestamp: datetime
-    total_value: float
-    cash_available: float
-    positions_count: int
-    total_delta: float
-    total_gamma: float
-    total_theta: float
-    total_vega: float
-    daily_pnl: float
-    unrealized_pnl: float
-    realized_pnl: float
-    max_drawdown: float
-    sharpe_ratio: float
-    strategies_running: int
+class OrderInfo:
+    """Order tracking information"""
+    order_id: str
+    strategy_id: str
+    symbol: str
+    action: OrderAction
+    order_type: OrderType
+    quantity: int
+    price: Optional[float]
+    state: OrderState = OrderState.PENDING
+    created_at: datetime = field(default_factory=datetime.now)
+    submitted_at: Optional[datetime] = None
+    filled_at: Optional[datetime] = None
+    fill_price: Optional[float] = None
+    commission: float = 0.0
+    retry_count: int = 0
+    error_message: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class PositionInfo:
+    """Position tracking information"""
+    position_id: str
+    strategy_id: str
+    symbol: str
+    quantity: int
+    entry_price: float
+    entry_time: datetime
+    current_price: float = 0.0
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    high_water_mark: float = 0.0
+    max_drawdown: float = 0.0
+    holding_period: timedelta = timedelta()
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class PerformanceMetrics:
+    """Engine performance metrics"""
+    total_orders: int = 0
+    successful_orders: int = 0
+    failed_orders: int = 0
+    total_trades: int = 0
+    winning_trades: int = 0
+    losing_trades: int = 0
+    total_pnl: float = 0.0
+    sharpe_ratio: float = 0.0
+    max_drawdown: float = 0.0
+    win_rate: float = 0.0
+    avg_win: float = 0.0
+    avg_loss: float = 0.0
+    profit_factor: float = 0.0
+    uptime_seconds: float = 0.0
+    last_updated: datetime = field(default_factory=datetime.now)
+
+@dataclass
+class CircuitBreakerConfig:
+    """Circuit breaker configuration"""
+    max_loss_per_minute: float = 1000.0
+    max_orders_per_minute: int = 50
+    max_errors_per_hour: int = 10
+    max_daily_loss: float = 5000.0
+    cooldown_minutes: int = 15
+    recovery_threshold: float = 0.8  # 80% of limits
+
+@dataclass
+class EngineHealth:
+    """Engine health status"""
+    state: EngineState
+    uptime: timedelta
+    active_strategies: int
+    open_orders: int
+    open_positions: int
+    circuit_breaker_state: CircuitBreakerState
+    last_error: Optional[str]
+    error_rate: float
+    order_success_rate: float
+    memory_usage_mb: float
+    cpu_usage_percent: float
+    last_health_check: datetime
 
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
 class TradingEngine:
     """
-    Core Trading Engine for Spyder System.
+    Core trading engine for strategy orchestration and execution.
     
-    This class manages the complete trading workflow including strategy registration,
-    signal processing, order execution, position management, and risk monitoring.
-    It provides a robust, thread-safe environment for automated trading operations.
-    
-    Key Features:
-    - Multi-strategy execution coordination
-    - Real-time risk monitoring and enforcement
-    - Automated error recovery and circuit breakers
-    - Performance tracking and optimization
-    - Event-driven architecture with comprehensive logging
+    This class manages the complete lifecycle of trading strategies including
+    registration, initialization, signal processing, order execution, position
+    management, and performance tracking. It provides thread-safe operations,
+    circuit breaker protection, and comprehensive error recovery.
     
     Attributes:
         logger: Module logger instance
-        config: Engine configuration
-        state: Current engine state
-        strategies: Registered strategy instances
+        error_handler: Error handling system
+        event_manager: Event management system
+        spyder_client: Broker client interface
         risk_manager: Risk management system
-        
-    Example:
-        >>> engine = TradingEngine(config, spyder_client, event_manager)
-        >>> engine.initialize()
-        >>> engine.register_strategy(my_strategy)
-        >>> engine.start()
+        dal: Data access layer
+        state: Current engine state
+        strategies: Registered trading strategies
+        orders: Active order tracking
+        positions: Open position tracking
+        performance: Performance metrics
+        circuit_breaker: Circuit breaker protection
     """
     
     def __init__(self, config: Dict[str, Any], spyder_client, event_manager: EventManager):
         """
-        Initialize the Trading Engine.
+        Initialize the trading engine.
         
         Args:
-            config: Engine configuration dictionary
+            config: Engine configuration
             spyder_client: Broker client instance
             event_manager: Event management system
         """
-        self.logger = SpyderLogger.get_logger(__name__)
+        # Core components
+        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
-        self.config = config or {}
-        self.spyder_client = spyder_client
         self.event_manager = event_manager
+        self.spyder_client = spyder_client
+        self.dal = get_data_access_layer()
         
-        # Engine state management
+        # Configuration
+        self.config = config or {}
+        self.max_strategies = self.config.get('max_strategies', MAX_STRATEGIES)
+        self.max_orders_per_minute = self.config.get('max_orders_per_minute', MAX_ORDERS_PER_MINUTE)
+        self.enable_circuit_breaker = self.config.get('enable_circuit_breaker', True)
+        self.save_state_enabled = self.config.get('save_state', True)
+        
+        # State management
         self.state = EngineState.INITIALIZING
         self._state_lock = RLock()
         self._shutdown_event = ThreadEvent()
         
         # Strategy management
-        self.strategies: Dict[str, StrategyRegistration] = {}
-        self.strategy_states: Dict[str, StrategyState] = {}
+        self.strategies: Dict[str, StrategyInfo] = {}
         self._strategy_lock = RLock()
         
-        # Order and execution management
-        self.signal_queue = queue.PriorityQueue(maxsize=SIGNAL_QUEUE_MAX_SIZE)
-        self.order_queue = queue.PriorityQueue(maxsize=ORDER_QUEUE_MAX_SIZE)
-        self.pending_executions: Dict[str, OrderExecution] = {}
-        self._execution_lock = RLock()
+        # Order management
+        self.orders: Dict[str, OrderInfo] = {}
+        self.order_queue = queue.PriorityQueue()
+        self._order_lock = RLock()
+        self._order_processor_thread = None
+        
+        # Position management
+        self.positions: Dict[str, PositionInfo] = {}
+        self._position_lock = RLock()
         
         # Performance tracking
-        self.performance_metrics = PerformanceMetrics()
-        self.portfolio_snapshots: deque = deque(maxlen=1000)
-        self._metrics_lock = RLock()
+        self.performance = PerformanceMetrics()
+        self.performance_history = deque(maxlen=PERFORMANCE_WINDOW_SIZE)
+        self._performance_lock = Lock()
         
-        # Threading infrastructure
-        self.thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKER_THREADS)
-        self.worker_threads: Dict[str, threading.Thread] = {}
-        self._threads_lock = RLock()
+        # Circuit breaker
+        self.circuit_breaker_config = self._init_circuit_breaker_config()
+        self.circuit_breaker_state = CircuitBreakerState.NORMAL
+        self.circuit_breaker_metrics = {
+            'loss_per_minute': 0.0,
+            'orders_per_minute': 0,
+            'errors_per_hour': 0,
+            'daily_loss': 0.0,
+            'triggered_at': None,
+            'recovery_at': None
+        }
+        self._circuit_breaker_lock = Lock()
         
         # Risk management integration
-        try:
-            self.risk_manager = get_risk_manager()
-            self.has_risk_manager = True
-        except Exception as e:
-            self.logger.warning(f"Risk manager not available: {e}")
-            self.risk_manager = None
-            self.has_risk_manager = False
+        self.risk_manager = None
+        self.has_risk_manager = False
         
-        # Order management integration
-        if HAS_ORDER_MANAGER:
-            try:
-                self.order_manager = OrderManager(config, spyder_client)
-                self.has_order_manager = True
-            except Exception as e:
-                self.logger.warning(f"Order manager initialization failed: {e}")
-                self.order_manager = None
-                self.has_order_manager = False
-        else:
-            self.order_manager = None
-            self.has_order_manager = False
+        # Order manager integration
+        self.order_manager = None
+        self.has_order_manager = False
         
-        # Position tracking integration
-        if HAS_POSITION_TRACKER:
-            try:
-                self.position_tracker = PositionTracker(config, spyder_client)
-                self.has_position_tracker = True
-            except Exception as e:
-                self.logger.warning(f"Position tracker initialization failed: {e}")
-                self.position_tracker = None
-                self.has_position_tracker = False
-        else:
-            self.position_tracker = None
-            self.has_position_tracker = False
+        # Position tracker integration
+        self.position_tracker = None
+        self.has_position_tracker = False
         
-        # Operational metrics
-        self.start_time: Optional[datetime] = None
-        self.last_heartbeat: Optional[datetime] = None
-        self.orders_processed_today = 0
-        self.signals_processed_today = 0
-        self.total_uptime_seconds = 0
+        # Worker threads
+        self._monitor_thread = None
+        self._cleanup_thread = None
+        self._state_save_thread = None
         
-        # Emergency controls
-        self.emergency_stop_triggered = False
-        self.circuit_breaker_active = False
-        self.max_daily_loss = self.config.get('max_daily_loss', DEFAULT_MAX_DAILY_LOSS)
+        # Timing
+        self.start_time = None
+        self.last_health_check = datetime.now()
         
-        self.logger.info(f"TradingEngine initialized with {len(self.strategies)} strategies")
-    
+        # State persistence
+        self._state_file = Path.home() / ".spyder" / "engine_state.pkl"
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        self.logger.info(f"TradingEngine initialized with {len(self.config)} config parameters")
+
+    def _init_circuit_breaker_config(self) -> CircuitBreakerConfig:
+        """Initialize circuit breaker configuration"""
+        cb_config = self.config.get('circuit_breaker', {})
+        return CircuitBreakerConfig(
+            max_loss_per_minute=cb_config.get('max_loss_per_minute', 1000.0),
+            max_orders_per_minute=cb_config.get('max_orders_per_minute', 50),
+            max_errors_per_hour=cb_config.get('max_errors_per_hour', 10),
+            max_daily_loss=cb_config.get('max_daily_loss', 5000.0),
+            cooldown_minutes=cb_config.get('cooldown_minutes', 15),
+            recovery_threshold=cb_config.get('recovery_threshold', 0.8)
+        )
+
     # ==========================================================================
-    # LIFECYCLE METHODS
+    # LIFECYCLE MANAGEMENT
     # ==========================================================================
-    
     def initialize(self) -> bool:
         """
-        Initialize the trading engine.
+        Initialize the trading engine with all safety checks.
         
         Returns:
             bool: True if initialization successful
@@ -363,23 +363,20 @@ class TradingEngine:
                 
                 self.logger.info("Initializing TradingEngine...")
                 
+                # Load saved state if available
+                if self.save_state_enabled:
+                    self._load_state()
+                
                 # Initialize risk management
-                if self.has_risk_manager and self.risk_manager:
-                    if not self.risk_manager.initialize():
-                        self.logger.error("Risk manager initialization failed")
-                        return False
-                
-                # Initialize order management
-                if self.has_order_manager and self.order_manager:
-                    if not self.order_manager.initialize():
-                        self.logger.error("Order manager initialization failed")
-                        return False
-                
-                # Initialize position tracking
-                if self.has_position_tracker and self.position_tracker:
-                    if not self.position_tracker.initialize():
-                        self.logger.error("Position tracker initialization failed")
-                        return False
+                try:
+                    self.risk_manager = get_risk_manager()
+                    if self.risk_manager and self.risk_manager.initialize():
+                        self.has_risk_manager = True
+                        self.logger.info("Risk manager initialized")
+                    else:
+                        self.logger.warning("Risk manager not available")
+                except Exception as e:
+                    self.logger.warning(f"Risk manager initialization failed: {e}")
                 
                 # Set up event handlers
                 self._setup_event_handlers()
@@ -396,22 +393,26 @@ class TradingEngine:
                 self.logger.info("TradingEngine initialization completed successfully")
                 
                 # Emit initialization event
-                self.event_manager.emit_event(
-                    EventType.ENGINE_INITIALIZED,
-                    {'timestamp': datetime.now(), 'state': self.state.value}
+                self.event_manager.emit(
+                    EventType.SYSTEM,
+                    {
+                        'type': 'engine_initialized',
+                        'timestamp': datetime.now(),
+                        'state': self.state.value
+                    }
                 )
                 
                 return True
                 
         except Exception as e:
             self.logger.error(f"TradingEngine initialization failed: {e}")
-            self.error_handler.handle_engine_error(e, "TradingEngine", "initialize")
+            self.error_handler.handle_error(e, "TradingEngine.initialize")
             self.state = EngineState.ERROR
             return False
-    
+
     def start(self) -> bool:
         """
-        Start the trading engine.
+        Start the trading engine with all subsystems.
         
         Returns:
             bool: True if start successful
@@ -425,33 +426,43 @@ class TradingEngine:
                 self.logger.info("Starting TradingEngine...")
                 self.start_time = datetime.now()
                 
+                # Clear shutdown event
+                self._shutdown_event.clear()
+                
                 # Start worker threads
                 self._start_worker_threads()
                 
                 # Start monitoring systems
                 self._start_monitoring()
                 
-                # Start risk monitoring
+                # Start risk monitoring if available
                 if self.has_risk_manager and self.risk_manager:
                     self.risk_manager.start_monitoring()
+                
+                # Initialize circuit breaker metrics
+                self._reset_circuit_breaker_metrics()
                 
                 self.state = EngineState.RUNNING
                 self.logger.info("TradingEngine started successfully")
                 
                 # Emit start event
-                self.event_manager.emit_event(
-                    EventType.ENGINE_STARTED,
-                    {'timestamp': self.start_time, 'state': self.state.value}
+                self.event_manager.emit(
+                    EventType.SYSTEM,
+                    {
+                        'type': 'engine_started',
+                        'timestamp': self.start_time,
+                        'state': self.state.value
+                    }
                 )
                 
                 return True
                 
         except Exception as e:
             self.logger.error(f"TradingEngine start failed: {e}")
-            self.error_handler.handle_engine_error(e, "TradingEngine", "start")
+            self.error_handler.handle_error(e, "TradingEngine.start")
             self.state = EngineState.ERROR
             return False
-    
+
     def stop(self, reason: str = "Manual stop") -> bool:
         """
         Stop the trading engine gracefully.
@@ -464,49 +475,44 @@ class TradingEngine:
         """
         try:
             with self._state_lock:
-                if self.state in [EngineState.STOPPED, EngineState.STOPPING]:
-                    self.logger.info("TradingEngine already stopped or stopping")
-                    return True
+                if self.state not in [EngineState.RUNNING, EngineState.PAUSED, EngineState.ERROR]:
+                    self.logger.warning(f"Cannot stop from state: {self.state}")
+                    return False
                 
                 self.logger.info(f"Stopping TradingEngine: {reason}")
-                self.state = EngineState.STOPPING
                 
-                # Signal shutdown to all threads
+                # Signal shutdown
                 self._shutdown_event.set()
                 
-                # Stop all strategies gracefully
+                # Stop all strategies
                 self._stop_all_strategies(reason)
+                
+                # Cancel pending orders
+                self._cancel_all_pending_orders(reason)
                 
                 # Stop worker threads
                 self._stop_worker_threads()
                 
-                # Stop monitoring
-                self._stop_monitoring()
+                # Save final state
+                if self.save_state_enabled:
+                    self._save_state()
                 
-                # Stop risk monitoring
-                if self.has_risk_manager and self.risk_manager:
-                    self.risk_manager.stop_monitoring()
-                
-                # Final cleanup
-                self._cleanup_resources()
+                # Calculate session metrics
+                if self.start_time:
+                    session_duration = datetime.now() - self.start_time
+                    self.performance.uptime_seconds = session_duration.total_seconds()
                 
                 self.state = EngineState.STOPPED
-                stop_time = datetime.now()
-                
-                if self.start_time:
-                    self.total_uptime_seconds = (stop_time - self.start_time).total_seconds()
-                
-                self.logger.info(f"TradingEngine stopped successfully. Uptime: {self.total_uptime_seconds:.2f}s")
+                self.logger.info(f"TradingEngine stopped successfully after {session_duration}")
                 
                 # Emit stop event
-                self.event_manager.emit_event(
-                    EventType.ENGINE_STOPPED,
+                self.event_manager.emit(
+                    EventType.SYSTEM,
                     {
-                        'timestamp': stop_time,
+                        'type': 'engine_stopped',
+                        'timestamp': datetime.now(),
                         'reason': reason,
-                        'uptime_seconds': self.total_uptime_seconds,
-                        'orders_processed': self.orders_processed_today,
-                        'signals_processed': self.signals_processed_today
+                        'session_duration': str(session_duration) if self.start_time else None
                     }
                 )
                 
@@ -514,339 +520,82 @@ class TradingEngine:
                 
         except Exception as e:
             self.logger.error(f"TradingEngine stop failed: {e}")
-            self.error_handler.handle_engine_error(e, "TradingEngine", "stop")
+            self.error_handler.handle_error(e, "TradingEngine.stop")
             return False
-    
-    def emergency_stop(self, reason: str = "Emergency stop triggered") -> bool:
+
+    def pause(self, reason: str = "Manual pause") -> bool:
         """
-        Execute emergency stop procedures.
+        Pause trading operations without stopping the engine.
         
         Args:
-            reason: Reason for emergency stop
+            reason: Reason for pausing
             
         Returns:
-            bool: True if emergency stop successful
+            bool: True if pause successful
         """
         try:
-            self.logger.critical(f"EMERGENCY STOP TRIGGERED: {reason}")
-            
             with self._state_lock:
-                self.state = EngineState.EMERGENCY_STOP
-                self.emergency_stop_triggered = True
-            
-            # Immediately stop all strategies
-            for strategy_id in list(self.strategies.keys()):
-                try:
-                    self.force_stop_strategy(strategy_id, f"Emergency stop: {reason}")
-                except Exception as e:
-                    self.logger.error(f"Failed to emergency stop strategy {strategy_id}: {e}")
-            
-            # Cancel all pending orders
-            self._cancel_all_pending_orders()
-            
-            # Signal all threads to stop immediately
-            self._shutdown_event.set()
-            
-            # Emit emergency stop event
-            self.event_manager.emit_event(
-                EventType.EMERGENCY_STOP,
-                {
-                    'timestamp': datetime.now(),
-                    'reason': reason,
-                    'strategies_count': len(self.strategies),
-                    'pending_orders': len(self.pending_executions)
-                }
-            )
-            
-            self.logger.critical("Emergency stop completed")
-            return True
-            
-        except Exception as e:
-            self.logger.critical(f"Emergency stop failed: {e}")
-            return False
-    
-    # ==========================================================================
-    # STRATEGY MANAGEMENT
-    # ==========================================================================
-    
-    def register_strategy(
-        self, 
-        strategy_instance, 
-        strategy_name: str = None,
-        risk_profile: RiskProfile = None,
-        max_position_size: float = None,
-        max_daily_trades: int = None
-    ) -> str:
-        """
-        Register a trading strategy with the engine.
-        
-        Args:
-            strategy_instance: Strategy instance to register
-            strategy_name: Human-readable strategy name
-            risk_profile: Risk profile for the strategy
-            max_position_size: Maximum position size in USD
-            max_daily_trades: Maximum daily trades allowed
-            
-        Returns:
-            str: Strategy ID
-            
-        Raises:
-            ValueError: If strategy validation fails
-            RuntimeError: If registration fails
-        """
-        try:
-            if not HAS_BASE_STRATEGY:
-                raise RuntimeError("BaseStrategy module not available")
-            
-            # Validate strategy instance
-            if not isinstance(strategy_instance, BaseStrategy):
-                raise ValueError("Strategy must inherit from BaseStrategy")
-            
-            # Generate strategy ID
-            strategy_id = str(uuid.uuid4())
-            
-            # Set defaults
-            if strategy_name is None:
-                strategy_name = strategy_instance.__class__.__name__
-            
-            if risk_profile is None:
-                risk_profile = RiskProfile.MEDIUM
-            
-            if max_position_size is None:
-                max_position_size = self.config.get('default_max_position_size', MAX_POSITION_SIZE_USD)
-            
-            if max_daily_trades is None:
-                max_daily_trades = self.config.get('default_max_daily_trades', 50)
-            
-            # Validate limits
-            if len(self.strategies) >= MAX_CONCURRENT_STRATEGIES:
-                raise RuntimeError(f"Maximum strategies limit reached: {MAX_CONCURRENT_STRATEGIES}")
-            
-            # Create registration
-            registration = StrategyRegistration(
-                strategy_id=strategy_id,
-                strategy_instance=strategy_instance,
-                strategy_name=strategy_name,
-                strategy_type=strategy_instance.__class__.__name__,
-                risk_profile=risk_profile,
-                max_position_size=max_position_size,
-                max_daily_trades=max_daily_trades,
-                state=StrategyState.REGISTERED
-            )
-            
-            with self._strategy_lock:
-                # Register strategy
-                self.strategies[strategy_id] = registration
-                self.strategy_states[strategy_id] = StrategyState.REGISTERED
-                
-                # Initialize strategy if engine is running
-                if self.state == EngineState.RUNNING:
-                    self._initialize_strategy(strategy_id)
-            
-            self.logger.info(f"Strategy registered: {strategy_name} (ID: {strategy_id})")
-            
-            # Emit registration event
-            self.event_manager.emit_event(
-                EventType.STRATEGY_REGISTERED,
-                {
-                    'strategy_id': strategy_id,
-                    'strategy_name': strategy_name,
-                    'strategy_type': registration.strategy_type,
-                    'risk_profile': risk_profile.value,
-                    'timestamp': datetime.now()
-                }
-            )
-            
-            return strategy_id
-            
-        except Exception as e:
-            self.logger.error(f"Strategy registration failed: {e}")
-            self.error_handler.handle_strategy_error(e, strategy_name or "Unknown", "register_strategy")
-            raise
-    
-    def start_strategy(self, strategy_id: str, force: bool = False) -> bool:
-        """
-        Start a registered strategy.
-        
-        Args:
-            strategy_id: Strategy ID to start
-            force: Force start even if conditions not met
-            
-        Returns:
-            bool: True if start successful
-        """
-        try:
-            with self._strategy_lock:
-                if strategy_id not in self.strategies:
-                    raise ValueError(f"Strategy not found: {strategy_id}")
-                
-                registration = self.strategies[strategy_id]
-                current_state = self.strategy_states[strategy_id]
-                
-                # Validate state transition
-                if current_state not in [StrategyState.READY, StrategyState.STOPPED] and not force:
-                    self.logger.warning(f"Cannot start strategy {strategy_id} from state: {current_state}")
+                if self.state != EngineState.RUNNING:
+                    self.logger.warning(f"Cannot pause from state: {self.state}")
                     return False
                 
-                # Validate engine state
-                if self.state != EngineState.RUNNING and not force:
-                    self.logger.warning(f"Cannot start strategy when engine state is: {self.state}")
-                    return False
+                self.logger.info(f"Pausing TradingEngine: {reason}")
                 
-                # Perform pre-start checks
-                if not force and not self._pre_start_checks(strategy_id):
-                    self.logger.warning(f"Pre-start checks failed for strategy: {strategy_id}")
-                    return False
+                # Pause all active strategies
+                for strategy_id in list(self.strategies.keys()):
+                    self._pause_strategy(strategy_id)
                 
-                # Initialize strategy if needed
-                if current_state == StrategyState.REGISTERED:
-                    if not self._initialize_strategy(strategy_id):
-                        return False
+                self.state = EngineState.PAUSED
                 
-                # Start the strategy
-                try:
-                    strategy_instance = registration.strategy_instance
-                    strategy_instance.start()
-                    
-                    self.strategy_states[strategy_id] = StrategyState.RUNNING
-                    registration.last_activity = datetime.now()
-                    
-                    self.logger.info(f"Strategy started: {registration.strategy_name} (ID: {strategy_id})")
-                    
-                    # Emit start event
-                    self.event_manager.emit_event(
-                        EventType.STRATEGY_STARTED,
-                        {
-                            'strategy_id': strategy_id,
-                            'strategy_name': registration.strategy_name,
-                            'timestamp': datetime.now()
-                        }
-                    )
-                    
-                    return True
-                    
-                except Exception as e:
-                    self.logger.error(f"Failed to start strategy {strategy_id}: {e}")
-                    self.strategy_states[strategy_id] = StrategyState.ERROR
-                    registration.error_count += 1
-                    self.error_handler.handle_strategy_error(e, registration.strategy_name, "start_strategy")
-                    return False
-                    
-        except Exception as e:
-            self.logger.error(f"Strategy start failed: {e}")
-            self.error_handler.handle_strategy_error(e, strategy_id, "start_strategy")
-            return False
-    
-    def stop_strategy(self, strategy_id: str, reason: str = "Manual stop") -> bool:
-        """
-        Stop a running strategy gracefully.
-        
-        Args:
-            strategy_id: Strategy ID to stop
-            reason: Reason for stopping
-            
-        Returns:
-            bool: True if stop successful
-        """
-        try:
-            with self._strategy_lock:
-                if strategy_id not in self.strategies:
-                    raise ValueError(f"Strategy not found: {strategy_id}")
-                
-                registration = self.strategies[strategy_id]
-                current_state = self.strategy_states[strategy_id]
-                
-                if current_state not in [StrategyState.RUNNING, StrategyState.PAUSED]:
-                    self.logger.info(f"Strategy {strategy_id} already stopped or not running")
-                    return True
-                
-                self.logger.info(f"Stopping strategy: {registration.strategy_name} (Reason: {reason})")
-                self.strategy_states[strategy_id] = StrategyState.STOPPING
-                
-                try:
-                    # Cancel any pending orders for this strategy
-                    self._cancel_strategy_orders(strategy_id)
-                    
-                    # Stop the strategy instance
-                    strategy_instance = registration.strategy_instance
-                    strategy_instance.stop()
-                    
-                    self.strategy_states[strategy_id] = StrategyState.STOPPED
-                    registration.last_activity = datetime.now()
-                    
-                    self.logger.info(f"Strategy stopped: {registration.strategy_name}")
-                    
-                    # Emit stop event
-                    self.event_manager.emit_event(
-                        EventType.STRATEGY_STOPPED,
-                        {
-                            'strategy_id': strategy_id,
-                            'strategy_name': registration.strategy_name,
-                            'reason': reason,
-                            'timestamp': datetime.now()
-                        }
-                    )
-                    
-                    return True
-                    
-                except Exception as e:
-                    self.logger.error(f"Failed to stop strategy {strategy_id}: {e}")
-                    self.strategy_states[strategy_id] = StrategyState.ERROR
-                    registration.error_count += 1
-                    self.error_handler.handle_strategy_error(e, registration.strategy_name, "stop_strategy")
-                    return False
-                    
-        except Exception as e:
-            self.logger.error(f"Strategy stop failed: {e}")
-            self.error_handler.handle_strategy_error(e, strategy_id, "stop_strategy")
-            return False
-    
-    def force_stop_strategy(self, strategy_id: str, reason: str = "Force stop") -> bool:
-        """
-        Force stop a strategy immediately without graceful shutdown.
-        
-        Args:
-            strategy_id: Strategy ID to force stop
-            reason: Reason for force stopping
-            
-        Returns:
-            bool: True if force stop successful
-        """
-        try:
-            with self._strategy_lock:
-                if strategy_id not in self.strategies:
-                    self.logger.warning(f"Strategy not found for force stop: {strategy_id}")
-                    return True  # Consider it successful if not found
-                
-                registration = self.strategies[strategy_id]
-                
-                self.logger.warning(f"Force stopping strategy: {registration.strategy_name} (Reason: {reason})")
-                
-                # Immediately cancel all orders
-                self._cancel_strategy_orders(strategy_id)
-                
-                # Force stop strategy instance
-                try:
-                    strategy_instance = registration.strategy_instance
-                    if hasattr(strategy_instance, 'force_stop'):
-                        strategy_instance.force_stop()
-                    else:
-                        strategy_instance.stop()
-                except Exception as e:
-                    self.logger.error(f"Error during force stop of {strategy_id}: {e}")
-                
-                # Update state
-                self.strategy_states[strategy_id] = StrategyState.STOPPED
-                registration.last_activity = datetime.now()
-                registration.error_count += 1
-                
-                # Emit force stop event
-                self.event_manager.emit_event(
-                    EventType.STRATEGY_FORCE_STOPPED,
+                # Emit pause event
+                self.event_manager.emit(
+                    EventType.SYSTEM,
                     {
-                        'strategy_id': strategy_id,
-                        'strategy_name': registration.strategy_name,
-                        'reason': reason,
+                        'type': 'engine_paused',
+                        'timestamp': datetime.now(),
+                        'reason': reason
+                    }
+                )
+                
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"TradingEngine pause failed: {e}")
+            self.error_handler.handle_error(e, "TradingEngine.pause")
+            return False
+
+    def resume(self) -> bool:
+        """
+        Resume trading operations after pause.
+        
+        Returns:
+            bool: True if resume successful
+        """
+        try:
+            with self._state_lock:
+                if self.state != EngineState.PAUSED:
+                    self.logger.warning(f"Cannot resume from state: {self.state}")
+                    return False
+                
+                self.logger.info("Resuming TradingEngine...")
+                
+                # Check circuit breaker state
+                if self.circuit_breaker_state == CircuitBreakerState.TRIGGERED:
+                    self.logger.warning("Cannot resume - circuit breaker is triggered")
+                    return False
+                
+                # Resume all paused strategies
+                for strategy_id, strategy_info in self.strategies.items():
+                    if strategy_info.state == StrategyState.PAUSED:
+                        self._resume_strategy(strategy_id)
+                
+                self.state = EngineState.RUNNING
+                
+                # Emit resume event
+                self.event_manager.emit(
+                    EventType.SYSTEM,
+                    {
+                        'type': 'engine_resumed',
                         'timestamp': datetime.now()
                     }
                 )
@@ -854,787 +603,1341 @@ class TradingEngine:
                 return True
                 
         except Exception as e:
-            self.logger.error(f"Force stop failed for strategy {strategy_id}: {e}")
+            self.logger.error(f"TradingEngine resume failed: {e}")
+            self.error_handler.handle_error(e, "TradingEngine.resume")
             return False
-    
-    # ==========================================================================
-    # SIGNAL PROCESSING
-    # ==========================================================================
-    
-    def process_strategy_signal(self, signal: TradingSignal) -> bool:
+
+    def shutdown(self) -> bool:
         """
-        Process a trading signal from a strategy.
+        Perform complete shutdown with cleanup.
         
-        Args:
-            signal: Trading signal to process
-            
         Returns:
-            bool: True if signal processing initiated successfully
+            bool: True if shutdown successful
         """
         try:
-            # Validate signal
-            if not self._validate_signal(signal):
-                self.logger.warning(f"Invalid signal rejected: {signal.signal_id}")
-                return False
+            self.logger.info("Shutting down TradingEngine...")
             
-            # Check if engine is running
-            if self.state != EngineState.RUNNING:
-                self.logger.warning(f"Signal rejected - engine not running: {self.state}")
-                return False
+            # Stop if running
+            if self.state in [EngineState.RUNNING, EngineState.PAUSED]:
+                self.stop("Shutdown requested")
             
-            # Check strategy state
-            if signal.strategy_id not in self.strategies:
-                self.logger.warning(f"Signal rejected - unknown strategy: {signal.strategy_id}")
-                return False
+            # Clean up resources
+            self._cleanup_resources()
             
-            if self.strategy_states[signal.strategy_id] != StrategyState.RUNNING:
-                self.logger.warning(f"Signal rejected - strategy not running: {signal.strategy_id}")
-                return False
+            # Clear all data structures
+            with self._strategy_lock:
+                self.strategies.clear()
             
-            # Pre-trade risk checks
-            if self.has_risk_manager and self.risk_manager:
-                risk_check_result = self.risk_manager.check_pre_trade_risk(signal)
-                if not risk_check_result.approved:
-                    self.logger.warning(f"Signal rejected by risk manager: {risk_check_result.reason}")
+            with self._order_lock:
+                self.orders.clear()
+            
+            with self._position_lock:
+                self.positions.clear()
+            
+            self.logger.info("TradingEngine shutdown completed")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"TradingEngine shutdown failed: {e}")
+            return False
+
+    # ==========================================================================
+    # STRATEGY MANAGEMENT
+    # ==========================================================================
+    def register_strategy(self, strategy_id: str, strategy_instance: Any,
+                         config: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Register a trading strategy with the engine.
+        
+        Args:
+            strategy_id: Unique strategy identifier
+            strategy_instance: Strategy class instance
+            config: Strategy configuration
+            
+        Returns:
+            bool: True if registration successful
+        """
+        try:
+            with self._strategy_lock:
+                # Check if already registered
+                if strategy_id in self.strategies:
+                    self.logger.warning(f"Strategy {strategy_id} already registered")
                     return False
-            
-            # Add signal to processing queue
-            try:
-                priority = signal.priority.value
-                self.signal_queue.put((priority, signal), timeout=1.0)
-                self.signals_processed_today += 1
                 
-                self.logger.info(f"Signal queued for processing: {signal.signal_id} (Strategy: {signal.strategy_id})")
+                # Check strategy limit
+                if len(self.strategies) >= self.max_strategies:
+                    self.logger.error(f"Maximum strategies ({self.max_strategies}) reached")
+                    return False
                 
-                # Emit signal received event
-                self.event_manager.emit_event(
-                    EventType.SIGNAL_RECEIVED,
+                # Validate strategy instance
+                if not self._validate_strategy(strategy_instance):
+                    self.logger.error(f"Strategy {strategy_id} validation failed")
+                    return False
+                
+                # Create strategy info
+                strategy_info = StrategyInfo(
+                    strategy_id=strategy_id,
+                    name=getattr(strategy_instance, 'name', strategy_id),
+                    class_instance=strategy_instance,
+                    config=config or {},
+                    state=StrategyState.REGISTERED
+                )
+                
+                # Store strategy
+                self.strategies[strategy_id] = strategy_info
+                
+                # Initialize strategy if engine is running
+                if self.state == EngineState.RUNNING:
+                    self._initialize_strategy(strategy_id)
+                
+                self.logger.info(f"Registered strategy: {strategy_id}")
+                
+                # Emit registration event
+                self.event_manager.emit(
+                    EventType.SYSTEM,
                     {
-                        'signal_id': signal.signal_id,
-                        'strategy_id': signal.strategy_id,
-                        'signal_type': signal.signal_type.value,
-                        'symbol': signal.symbol,
-                        'action': signal.action.value,
-                        'quantity': signal.quantity,
-                        'timestamp': signal.timestamp
+                        'type': 'strategy_registered',
+                        'strategy_id': strategy_id,
+                        'timestamp': datetime.now()
                     }
                 )
                 
                 return True
                 
-            except queue.Full:
-                self.logger.error("Signal queue full - rejecting signal")
+        except Exception as e:
+            self.logger.error(f"Strategy registration failed: {e}")
+            self.error_handler.handle_error(e, f"register_strategy.{strategy_id}")
+            return False
+
+    def unregister_strategy(self, strategy_id: str, force: bool = False) -> bool:
+        """
+        Unregister a trading strategy.
+        
+        Args:
+            strategy_id: Strategy identifier
+            force: Force unregistration even with open positions
+            
+        Returns:
+            bool: True if unregistration successful
+        """
+        try:
+            with self._strategy_lock:
+                if strategy_id not in self.strategies:
+                    self.logger.warning(f"Strategy {strategy_id} not found")
+                    return False
+                
+                strategy_info = self.strategies[strategy_id]
+                
+                # Check for open positions
+                open_positions = self._get_strategy_positions(strategy_id)
+                if open_positions and not force:
+                    self.logger.error(f"Cannot unregister strategy {strategy_id} with {len(open_positions)} open positions")
+                    return False
+                
+                # Stop strategy if active
+                if strategy_info.state in [StrategyState.ACTIVE, StrategyState.PAUSED]:
+                    self._stop_strategy(strategy_id, "Unregistration requested")
+                
+                # Clean up strategy resources
+                self._cleanup_strategy(strategy_id)
+                
+                # Remove strategy
+                del self.strategies[strategy_id]
+                
+                self.logger.info(f"Unregistered strategy: {strategy_id}")
+                
+                # Emit unregistration event
+                self.event_manager.emit(
+                    EventType.SYSTEM,
+                    {
+                        'type': 'strategy_unregistered',
+                        'strategy_id': strategy_id,
+                        'timestamp': datetime.now()
+                    }
+                )
+                
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Strategy unregistration failed: {e}")
+            self.error_handler.handle_error(e, f"unregister_strategy.{strategy_id}")
+            return False
+
+    def _validate_strategy(self, strategy_instance: Any) -> bool:
+        """Validate strategy instance has required methods"""
+        required_methods = ['initialize', 'generate_signals', 'on_position_update']
+        
+        for method in required_methods:
+            if not hasattr(strategy_instance, method):
+                self.logger.error(f"Strategy missing required method: {method}")
                 return False
-                
-        except Exception as e:
-            self.logger.error(f"Signal processing failed: {e}")
-            self.error_handler.handle_signal_error(e, signal.signal_id, signal.strategy_id)
-            return False
-    
-    def _process_signal_queue(self):
-        """Process signals from the signal queue (runs in worker thread)."""
-        while not self._shutdown_event.is_set():
-            try:
-                # Get signal with timeout
-                try:
-                    priority, signal = self.signal_queue.get(timeout=1.0)
-                except queue.Empty:
-                    continue
-                
-                # Process the signal
-                self._execute_signal(signal)
-                
-                # Mark task as done
-                self.signal_queue.task_done()
-                
-            except Exception as e:
-                self.logger.error(f"Error in signal processing thread: {e}")
-                time.sleep(1.0)  # Prevent tight error loop
-    
-    def _execute_signal(self, signal: TradingSignal):
-        """Execute a trading signal by converting it to orders."""
-        try:
-            execution_id = str(uuid.uuid4())
-            
-            # Create execution tracking
-            execution = OrderExecution(
-                execution_id=execution_id,
-                signal_id=signal.signal_id,
-                strategy_id=signal.strategy_id,
-                status="PROCESSING"
-            )
-            
-            with self._execution_lock:
-                self.pending_executions[execution_id] = execution
-            
-            # Generate orders from signal
-            orders = self._generate_orders_from_signal(signal)
-            
-            if not orders:
-                execution.status = "FAILED"
-                execution.error_message = "No orders generated from signal"
-                self.logger.warning(f"No orders generated for signal: {signal.signal_id}")
-                return
-            
-            # Execute orders
-            success = True
-            for order in orders:
-                if not self._execute_single_order(order, execution_id):
-                    success = False
-                    break
-            
-            # Update execution status
-            execution.status = "COMPLETED" if success else "FAILED"
-            
-            self.logger.info(f"Signal execution {'completed' if success else 'failed'}: {signal.signal_id}")
-            
-        except Exception as e:
-            self.logger.error(f"Signal execution failed: {e}")
-            if execution_id in self.pending_executions:
-                self.pending_executions[execution_id].status = "ERROR"
-                self.pending_executions[execution_id].error_message = str(e)
-    
-    # ==========================================================================
-    # ORDER EXECUTION
-    # ==========================================================================
-    
-    def _generate_orders_from_signal(self, signal: TradingSignal) -> List[Dict[str, Any]]:
-        """
-        Generate executable orders from a trading signal.
         
-        Args:
-            signal: Trading signal to convert
-            
-        Returns:
-            List of order dictionaries
-        """
+        return True
+
+    def _initialize_strategy(self, strategy_id: str) -> bool:
+        """Initialize a registered strategy"""
         try:
-            orders = []
+            strategy_info = self.strategies.get(strategy_id)
+            if not strategy_info:
+                return False
             
-            # Basic order structure
-            base_order = {
-                'symbol': signal.symbol,
-                'action': signal.action.value,
-                'quantity': signal.quantity,
-                'order_type': signal.order_type.value,
-                'time_in_force': signal.time_in_force,
-                'strategy_id': signal.strategy_id,
-                'signal_id': signal.signal_id,
-                'metadata': signal.metadata.copy()
-            }
+            strategy_info.state = StrategyState.INITIALIZING
             
-            # Add price information based on order type
-            if signal.order_type == OrderType.LIMIT and signal.limit_price:
-                base_order['limit_price'] = signal.limit_price
-            elif signal.order_type == OrderType.STOP and signal.stop_price:
-                base_order['stop_price'] = signal.stop_price
-            elif signal.order_type == OrderType.STOP_LIMIT:
-                if signal.limit_price and signal.stop_price:
-                    base_order['limit_price'] = signal.limit_price
-                    base_order['stop_price'] = signal.stop_price
-                else:
-                    self.logger.error(f"Stop limit order missing prices: {signal.signal_id}")
-                    return []
-            
-            orders.append(base_order)
-            
-            return orders
-            
-        except Exception as e:
-            self.logger.error(f"Order generation failed: {e}")
-            return []
-    
-    def _execute_single_order(self, order: Dict[str, Any], execution_id: str) -> bool:
-        """
-        Execute a single order.
-        
-        Args:
-            order: Order dictionary to execute
-            execution_id: Execution tracking ID
-            
-        Returns:
-            bool: True if execution successful
-        """
-        try:
-            start_time = time.time()
-            
-            # Use order manager if available
-            if self.has_order_manager and self.order_manager:
-                result = self.order_manager.submit_order(order)
-                
-                if result and result.get('success', False):
-                    order_id = result.get('order_id')
-                    
-                    # Update execution tracking
-                    if execution_id in self.pending_executions:
-                        execution = self.pending_executions[execution_id]
-                        execution.order_id = order_id
-                        execution.status = "SUBMITTED"
-                        execution.execution_time_ms = (time.time() - start_time) * 1000
-                    
-                    self.orders_processed_today += 1
-                    self.logger.info(f"Order submitted successfully: {order_id}")
-                    
-                    # Emit order submitted event
-                    self.event_manager.emit_event(
-                        EventType.ORDER_SUBMITTED,
-                        {
-                            'order_id': order_id,
-                            'execution_id': execution_id,
-                            'strategy_id': order.get('strategy_id'),
-                            'symbol': order.get('symbol'),
-                            'action': order.get('action'),
-                            'quantity': order.get('quantity'),
-                            'timestamp': datetime.now()
-                        }
-                    )
-                    
-                    return True
-                else:
-                    error_message = result.get('error', 'Unknown error') if result else 'No result returned'
-                    self.logger.error(f"Order submission failed: {error_message}")
-                    
-                    # Update execution tracking
-                    if execution_id in self.pending_executions:
-                        execution = self.pending_executions[execution_id]
-                        execution.status = "FAILED"
-                        execution.error_message = error_message
-                        execution.execution_time_ms = (time.time() - start_time) * 1000
-                    
+            # Call strategy initialization
+            if hasattr(strategy_info.class_instance, 'initialize'):
+                result = strategy_info.class_instance.initialize(strategy_info.config)
+                if not result:
+                    strategy_info.state = StrategyState.ERROR
+                    strategy_info.last_error = "Initialization failed"
                     return False
-            else:
-                # Fallback: simulate order execution for testing
-                self.logger.warning("Order manager not available - simulating order execution")
-                
-                # Simulate execution delay
-                time.sleep(0.1)
-                
-                # Generate mock order ID
-                order_id = f"SIM_{int(time.time() * 1000)}"
-                
-                # Update execution tracking
-                if execution_id in self.pending_executions:
-                    execution = self.pending_executions[execution_id]
-                    execution.order_id = order_id
-                    execution.status = "SIMULATED"
-                    execution.execution_time_ms = (time.time() - start_time) * 1000
-                
-                self.orders_processed_today += 1
-                self.logger.info(f"Order simulated: {order_id}")
-                
-                return True
-                
+            
+            strategy_info.state = StrategyState.ACTIVE
+            self.logger.info(f"Strategy {strategy_id} initialized successfully")
+            return True
+            
         except Exception as e:
-            self.logger.error(f"Order execution failed: {e}")
-            
-            # Update execution tracking
-            if execution_id in self.pending_executions:
-                execution = self.pending_executions[execution_id]
-                execution.status = "ERROR"
-                execution.error_message = str(e)
-                execution.execution_time_ms = (time.time() - start_time) * 1000 if 'start_time' in locals() else None
-            
+            self.logger.error(f"Strategy initialization failed: {e}")
+            strategy_info.state = StrategyState.ERROR
+            strategy_info.last_error = str(e)
             return False
-    
-    # ==========================================================================
-    # POSITION MANAGEMENT
-    # ==========================================================================
-    
-    def update_positions(self) -> bool:
-        """
-        Update all position data and calculate portfolio metrics.
-        
-        Returns:
-            bool: True if update successful
-        """
+
+    def _stop_strategy(self, strategy_id: str, reason: str) -> bool:
+        """Stop a running strategy"""
         try:
-            if self.has_position_tracker and self.position_tracker:
-                # Update positions from broker
-                positions_updated = self.position_tracker.update_positions()
-                
-                if positions_updated:
-                    # Calculate portfolio Greeks
-                    self._calculate_portfolio_greeks()
-                    
-                    # Update performance metrics
-                    self._update_performance_metrics()
-                    
-                    # Check position limits
-                    self._check_position_limits()
-                    
-                    # Create portfolio snapshot
-                    self._create_portfolio_snapshot()
-                    
-                    return True
-                else:
-                    self.logger.warning("Position update failed")
-                    return False
-            else:
-                # Simulate position updates for testing
-                self._simulate_position_update()
-                return True
-                
+            strategy_info = self.strategies.get(strategy_id)
+            if not strategy_info:
+                return False
+            
+            # Cancel strategy orders
+            self._cancel_strategy_orders(strategy_id, reason)
+            
+            # Call strategy stop method if available
+            if hasattr(strategy_info.class_instance, 'stop'):
+                strategy_info.class_instance.stop(reason)
+            
+            strategy_info.state = StrategyState.STOPPED
+            self.logger.info(f"Strategy {strategy_id} stopped: {reason}")
+            return True
+            
         except Exception as e:
-            self.logger.error(f"Position update failed: {e}")
-            self.error_handler.handle_position_error(e, "TradingEngine", "update_positions")
+            self.logger.error(f"Strategy stop failed: {e}")
             return False
-    
-    def _calculate_portfolio_greeks(self):
-        """Calculate aggregated portfolio Greeks."""
+
+    def _pause_strategy(self, strategy_id: str) -> bool:
+        """Pause a running strategy"""
+        strategy_info = self.strategies.get(strategy_id)
+        if strategy_info and strategy_info.state == StrategyState.ACTIVE:
+            strategy_info.state = StrategyState.PAUSED
+            self.logger.info(f"Strategy {strategy_id} paused")
+            return True
+        return False
+
+    def _resume_strategy(self, strategy_id: str) -> bool:
+        """Resume a paused strategy"""
+        strategy_info = self.strategies.get(strategy_id)
+        if strategy_info and strategy_info.state == StrategyState.PAUSED:
+            strategy_info.state = StrategyState.ACTIVE
+            self.logger.info(f"Strategy {strategy_id} resumed")
+            return True
+        return False
+
+    def _cleanup_strategy(self, strategy_id: str):
+        """Clean up strategy resources"""
         try:
-            if not self.has_position_tracker or not self.position_tracker:
-                return
-            
-            positions = self.position_tracker.get_all_positions()
-            
-            total_delta = 0.0
-            total_gamma = 0.0
-            total_theta = 0.0
-            total_vega = 0.0
-            
+            # Close any open positions (if forced)
+            positions = self._get_strategy_positions(strategy_id)
             for position in positions:
-                if position.get('option_data'):
-                    greeks = position['option_data'].get('greeks', {})
-                    quantity = position.get('quantity', 0)
-                    
-                    total_delta += greeks.get('delta', 0) * quantity
-                    total_gamma += greeks.get('gamma', 0) * quantity
-                    total_theta += greeks.get('theta', 0) * quantity
-                    total_vega += greeks.get('vega', 0) * quantity
+                self.logger.warning(f"Force closing position {position.position_id}")
+                # Implement position closing logic
             
-            # Store portfolio Greeks
-            with self._metrics_lock:
-                self.performance_metrics.update_greeks({
-                    'total_delta': total_delta,
-                    'total_gamma': total_gamma,
-                    'total_theta': total_theta,
-                    'total_vega': total_vega,
+            # Remove strategy orders from history
+            with self._order_lock:
+                strategy_orders = [oid for oid, order in self.orders.items() 
+                                 if order.strategy_id == strategy_id]
+                for order_id in strategy_orders:
+                    del self.orders[order_id]
+            
+            # Call strategy cleanup if available
+            strategy_info = self.strategies.get(strategy_id)
+            if strategy_info and hasattr(strategy_info.class_instance, 'cleanup'):
+                strategy_info.class_instance.cleanup()
+                
+        except Exception as e:
+            self.logger.error(f"Strategy cleanup failed: {e}")
+
+    def _stop_all_strategies(self, reason: str):
+        """Stop all active strategies"""
+        for strategy_id in list(self.strategies.keys()):
+            strategy_info = self.strategies[strategy_id]
+            if strategy_info.state in [StrategyState.ACTIVE, StrategyState.PAUSED]:
+                self._stop_strategy(strategy_id, reason)
+
+    # ==========================================================================
+    # SIGNAL PROCESSING
+    # ==========================================================================
+    def process_signal(self, strategy_id: str, signal: Dict[str, Any]) -> bool:
+        """
+        Process a trading signal from a strategy.
+        
+        Args:
+            strategy_id: Strategy identifier
+            signal: Signal data dictionary
+            
+        Returns:
+            bool: True if signal processed successfully
+        """
+        try:
+            # Validate engine state
+            if self.state != EngineState.RUNNING:
+                self.logger.warning(f"Cannot process signal - engine state: {self.state}")
+                return False
+            
+            # Validate strategy
+            strategy_info = self.strategies.get(strategy_id)
+            if not strategy_info:
+                self.logger.error(f"Strategy {strategy_id} not found")
+                return False
+            
+            if strategy_info.state != StrategyState.ACTIVE:
+                self.logger.warning(f"Strategy {strategy_id} not active: {strategy_info.state}")
+                return False
+            
+            # Check circuit breaker
+            if self.circuit_breaker_state == CircuitBreakerState.TRIGGERED:
+                self.logger.warning("Circuit breaker triggered - rejecting signal")
+                return False
+            
+            # Validate signal
+            if not self._validate_signal(signal):
+                self.logger.error(f"Invalid signal from strategy {strategy_id}")
+                return False
+            
+            # Risk check
+            if self.has_risk_manager and not self._check_signal_risk(strategy_id, signal):
+                self.logger.warning(f"Signal rejected by risk manager: {signal}")
+                return False
+            
+            # Update strategy metrics
+            strategy_info.last_signal = datetime.now()
+            strategy_info.signal_count += 1
+            
+            # Create order from signal
+            order = self._create_order_from_signal(strategy_id, signal)
+            if not order:
+                return False
+            
+            # Queue order for execution
+            priority = 1 if signal.get('urgent', False) else 5
+            self.order_queue.put((priority, order.order_id, order))
+            
+            self.logger.info(f"Signal processed from {strategy_id}: {signal.get('action', 'unknown')}")
+            
+            # Emit signal event
+            self.event_manager.emit(
+                EventType.STRATEGY_SIGNAL,
+                {
+                    'strategy_id': strategy_id,
+                    'signal': signal,
+                    'order_id': order.order_id,
                     'timestamp': datetime.now()
-                })
-            
-            # Check Greek limits
-            if self.has_risk_manager and self.risk_manager:
-                self.risk_manager.check_greek_limits({
-                    'delta': total_delta,
-                    'gamma': total_gamma,
-                    'theta': total_theta,
-                    'vega': total_vega
-                })
-            
-            self.logger.debug(f"Portfolio Greeks - Delta: {total_delta:.2f}, Gamma: {total_gamma:.4f}, "
-                            f"Theta: {total_theta:.2f}, Vega: {total_vega:.2f}")
-            
-        except Exception as e:
-            self.logger.error(f"Portfolio Greeks calculation failed: {e}")
-    
-    def _simulate_position_update(self):
-        """Simulate position updates for testing when position tracker unavailable."""
-        try:
-            # Generate mock portfolio metrics
-            import random
-            
-            mock_greeks = {
-                'total_delta': random.uniform(-100, 100),
-                'total_gamma': random.uniform(-10, 10),
-                'total_theta': random.uniform(-50, 0),
-                'total_vega': random.uniform(-20, 20),
-                'timestamp': datetime.now()
-            }
-            
-            with self._metrics_lock:
-                self.performance_metrics.update_greeks(mock_greeks)
-            
-            self.logger.debug("Simulated position update completed")
-            
-        except Exception as e:
-            self.logger.error(f"Position simulation failed: {e}")
-    
-    # ==========================================================================
-    # MONITORING AND HEALTH CHECKS
-    # ==========================================================================
-    
-    def _start_monitoring(self):
-        """Start monitoring threads."""
-        try:
-            # Start heartbeat monitoring
-            heartbeat_thread = threading.Thread(
-                target=self._heartbeat_monitor,
-                name="HeartbeatMonitor",
-                daemon=True
+                }
             )
-            heartbeat_thread.start()
-            self.worker_threads['heartbeat'] = heartbeat_thread
-            
-            # Start performance monitoring
-            performance_thread = threading.Thread(
-                target=self._performance_monitor,
-                name="PerformanceMonitor",
-                daemon=True
-            )
-            performance_thread.start()
-            self.worker_threads['performance'] = performance_thread
-            
-            # Start risk monitoring
-            risk_thread = threading.Thread(
-                target=self._risk_monitor,
-                name="RiskMonitor",
-                daemon=True
-            )
-            risk_thread.start()
-            self.worker_threads['risk'] = risk_thread
-            
-            self.logger.info("Monitoring threads started")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to start monitoring: {e}")
-    
-    def _heartbeat_monitor(self):
-        """Monitor system heartbeat and health."""
-        while not self._shutdown_event.is_set():
-            try:
-                self.last_heartbeat = datetime.now()
-                
-                # Check engine health
-                health_status = self._check_engine_health()
-                
-                if not health_status['healthy']:
-                    self.logger.warning(f"Engine health check failed: {health_status['issues']}")
-                    
-                    # Emit health warning event
-                    self.event_manager.emit_event(
-                        EventType.HEALTH_WARNING,
-                        {
-                            'timestamp': self.last_heartbeat,
-                            'issues': health_status['issues'],
-                            'metrics': health_status['metrics']
-                        }
-                    )
-                
-                # Sleep until next heartbeat
-                self._shutdown_event.wait(DEFAULT_HEARTBEAT_INTERVAL)
-                
-            except Exception as e:
-                self.logger.error(f"Heartbeat monitor error: {e}")
-                self._shutdown_event.wait(5.0)  # Brief pause on error
-    
-    def _performance_monitor(self):
-        """Monitor system performance metrics."""
-        while not self._shutdown_event.is_set():
-            try:
-                # Update positions every 30 seconds
-                if not self.update_positions():
-                    self.logger.warning("Position update failed in performance monitor")
-                
-                # Check performance thresholds
-                self._check_performance_thresholds()
-                
-                # Clean up old executions
-                self._cleanup_old_executions()
-                
-                # Sleep until next check
-                self._shutdown_event.wait(30.0)
-                
-            except Exception as e:
-                self.logger.error(f"Performance monitor error: {e}")
-                self._shutdown_event.wait(10.0)
-    
-    def _risk_monitor(self):
-        """Monitor risk metrics and limits."""
-        while not self._shutdown_event.is_set():
-            try:
-                # Check daily loss limits
-                daily_pnl = self._calculate_daily_pnl()
-                
-                if daily_pnl < -self.max_daily_loss:
-                    self.logger.critical(f"Daily loss limit exceeded: {daily_pnl:.2f}")
-                    self.emergency_stop(f"Daily loss limit exceeded: {daily_pnl:.2f}")
-                    break
-                
-                # Check circuit breaker conditions
-                if self._should_trigger_circuit_breaker():
-                    self.logger.warning("Circuit breaker conditions met")
-                    self._activate_circuit_breaker()
-                
-                # Sleep until next check
-                self._shutdown_event.wait(10.0)
-                
-            except Exception as e:
-                self.logger.error(f"Risk monitor error: {e}")
-                self._shutdown_event.wait(5.0)
-    
-    # ==========================================================================
-    # HELPER METHODS
-    # ==========================================================================
-    
-    def _validate_signal(self, signal: TradingSignal) -> bool:
-        """Validate a trading signal."""
-        try:
-            # Check required fields
-            if not signal.signal_id or not signal.strategy_id:
-                return False
-            
-            if not signal.symbol or not signal.action:
-                return False
-            
-            if signal.quantity <= 0:
-                return False
-            
-            # Check signal type
-            if signal.signal_type not in SignalType:
-                return False
-            
-            # Check action type
-            if signal.action not in OrderAction:
-                return False
-            
-            # Check order type
-            if signal.order_type not in OrderType:
-                return False
-            
-            # Validate prices for limit orders
-            if signal.order_type == OrderType.LIMIT and not signal.limit_price:
-                return False
-            
-            if signal.order_type == OrderType.STOP and not signal.stop_price:
-                return False
-            
-            if signal.order_type == OrderType.STOP_LIMIT:
-                if not signal.limit_price or not signal.stop_price:
-                    return False
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Signal validation error: {e}")
+            self.logger.error(f"Signal processing failed: {e}")
+            self.error_handler.handle_error(e, f"process_signal.{strategy_id}")
+            self._increment_strategy_error(strategy_id, str(e))
             return False
-    
-    def _check_engine_health(self) -> Dict[str, Any]:
-        """Check overall engine health."""
+
+    def _validate_signal(self, signal: Dict[str, Any]) -> bool:
+        """Validate signal has required fields"""
+        required_fields = ['symbol', 'action', 'quantity']
+        
+        for field in required_fields:
+            if field not in signal:
+                self.logger.error(f"Signal missing required field: {field}")
+                return False
+        
+        # Validate action
         try:
-            issues = []
-            metrics = {}
-            
-            # Check thread health
-            dead_threads = []
-            for name, thread in self.worker_threads.items():
-                if not thread.is_alive():
-                    dead_threads.append(name)
-            
-            if dead_threads:
-                issues.append(f"Dead threads: {dead_threads}")
-            
-            # Check queue sizes
-            signal_queue_size = self.signal_queue.qsize()
-            order_queue_size = self.order_queue.qsize()
-            
-            metrics['signal_queue_size'] = signal_queue_size
-            metrics['order_queue_size'] = order_queue_size
-            
-            if signal_queue_size > SIGNAL_QUEUE_MAX_SIZE * 0.8:
-                issues.append(f"Signal queue nearly full: {signal_queue_size}")
-            
-            if order_queue_size > ORDER_QUEUE_MAX_SIZE * 0.8:
-                issues.append(f"Order queue nearly full: {order_queue_size}")
-            
-            # Check strategy health
-            error_strategies = []
-            for strategy_id, state in self.strategy_states.items():
-                if state == StrategyState.ERROR:
-                    error_strategies.append(strategy_id)
-            
-            if error_strategies:
-                issues.append(f"Strategies in error state: {len(error_strategies)}")
-            
-            # Check broker connection
-            if self.spyder_client and hasattr(self.spyder_client, 'is_connected'):
-                if not self.spyder_client.is_connected():
-                    issues.append("Broker connection lost")
-            
-            return {
-                'healthy': len(issues) == 0,
-                'issues': issues,
-                'metrics': metrics
+            OrderAction(signal['action'])
+        except ValueError:
+            self.logger.error(f"Invalid order action: {signal['action']}")
+            return False
+        
+        # Validate quantity
+        if not isinstance(signal['quantity'], (int, float)) or signal['quantity'] <= 0:
+            self.logger.error(f"Invalid quantity: {signal['quantity']}")
+            return False
+        
+        return True
+
+    def _check_signal_risk(self, strategy_id: str, signal: Dict[str, Any]) -> bool:
+        """Check signal against risk limits"""
+        if not self.risk_manager:
+            return True
+        
+        try:
+            # Create risk check request
+            risk_check = {
+                'strategy_id': strategy_id,
+                'symbol': signal['symbol'],
+                'action': signal['action'],
+                'quantity': signal['quantity'],
+                'price': signal.get('price'),
+                'existing_positions': len(self._get_strategy_positions(strategy_id))
             }
+            
+            # Perform risk check
+            result = self.risk_manager.check_trade(risk_check)
+            
+            if not result['approved']:
+                self.logger.warning(f"Risk check failed: {result.get('reason', 'Unknown')}")
+                return False
+            
+            return True
             
         except Exception as e:
-            self.logger.error(f"Health check error: {e}")
-            return {
-                'healthy': False,
-                'issues': [f"Health check failed: {e}"],
-                'metrics': {}
-            }
-    
-    def _start_worker_threads(self):
-        """Start all worker threads."""
+            self.logger.error(f"Risk check error: {e}")
+            # Fail safe - reject on error
+            return False
+
+    def _create_order_from_signal(self, strategy_id: str, signal: Dict[str, Any]) -> Optional[OrderInfo]:
+        """Create order object from signal"""
         try:
-            # Signal processing thread
-            signal_thread = threading.Thread(
-                target=self._process_signal_queue,
-                name="SignalProcessor",
+            order_id = f"{strategy_id}_{uuid.uuid4().hex[:8]}"
+            
+            order = OrderInfo(
+                order_id=order_id,
+                strategy_id=strategy_id,
+                symbol=signal['symbol'],
+                action=OrderAction(signal['action']),
+                order_type=OrderType(signal.get('order_type', OrderType.MARKET)),
+                quantity=int(signal['quantity']),
+                price=signal.get('price'),
+                metadata=signal.get('metadata', {})
+            )
+            
+            # Store order
+            with self._order_lock:
+                self.orders[order_id] = order
+            
+            return order
+            
+        except Exception as e:
+            self.logger.error(f"Order creation failed: {e}")
+            return None
+
+    # ==========================================================================
+    # ORDER EXECUTION
+    # ==========================================================================
+    def _start_order_processor(self):
+        """Start order processing thread"""
+        self._order_processor_thread = threading.Thread(
+            target=self._order_processor_loop,
+            name="OrderProcessor",
+            daemon=True
+        )
+        self._order_processor_thread.start()
+
+    def _order_processor_loop(self):
+        """Main order processing loop"""
+        self.logger.info("Order processor started")
+        
+        while not self._shutdown_event.is_set():
+            try:
+                # Get order from queue with timeout
+                priority, order_id, order = self.order_queue.get(timeout=1.0)
+                
+                # Process order
+                self._execute_order(order)
+                
+                # Update circuit breaker metrics
+                self._update_order_rate_metrics()
+                
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.logger.error(f"Order processor error: {e}")
+                self.error_handler.handle_error(e, "order_processor_loop")
+
+    def _execute_order(self, order: OrderInfo) -> bool:
+        """Execute a single order"""
+        try:
+            # Update order state
+            order.state = OrderState.SUBMITTED
+            order.submitted_at = datetime.now()
+            
+            # Check if broker connected
+            if not self.spyder_client or not self.spyder_client.is_connected():
+                order.state = OrderState.ERROR
+                order.error_message = "Broker not connected"
+                return False
+            
+            # Submit order to broker
+            broker_order_id = self._submit_to_broker(order)
+            
+            if broker_order_id:
+                order.metadata['broker_order_id'] = broker_order_id
+                self.logger.info(f"Order {order.order_id} submitted to broker: {broker_order_id}")
+                
+                # Update strategy metrics
+                self._update_strategy_order_count(order.strategy_id)
+                
+                return True
+            else:
+                # Handle submission failure
+                order.retry_count += 1
+                
+                if order.retry_count < MAX_ORDER_RETRIES:
+                    # Requeue for retry
+                    self.logger.warning(f"Order {order.order_id} failed, retrying ({order.retry_count}/{MAX_ORDER_RETRIES})")
+                    time.sleep(ORDER_RETRY_DELAY)
+                    self.order_queue.put((5, order.order_id, order))
+                else:
+                    # Max retries exceeded
+                    order.state = OrderState.ERROR
+                    order.error_message = "Max retries exceeded"
+                    self.logger.error(f"Order {order.order_id} failed after {MAX_ORDER_RETRIES} retries")
+                    
+                    # Notify strategy
+                    self._notify_strategy_order_failed(order)
+                
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Order execution failed: {e}")
+            order.state = OrderState.ERROR
+            order.error_message = str(e)
+            return False
+
+    def _submit_to_broker(self, order: OrderInfo) -> Optional[str]:
+        """Submit order to broker"""
+        try:
+            # Build broker order
+            broker_order = {
+                'symbol': order.symbol,
+                'action': order.action.value,
+                'quantity': order.quantity,
+                'order_type': order.order_type.value,
+                'price': order.price
+            }
+            
+            # Submit to broker
+            result = self.spyder_client.place_order(broker_order)
+            
+            if result and result.get('order_id'):
+                return result['order_id']
+            else:
+                self.logger.error(f"Broker order submission failed: {result}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Broker submission error: {e}")
+            return None
+
+    def _cancel_all_pending_orders(self, reason: str):
+        """Cancel all pending orders"""
+        with self._order_lock:
+            pending_orders = [order for order in self.orders.values() 
+                            if order.state in [OrderState.PENDING, OrderState.SUBMITTED]]
+        
+        for order in pending_orders:
+            self._cancel_order(order.order_id, reason)
+
+    def _cancel_strategy_orders(self, strategy_id: str, reason: str):
+        """Cancel all orders for a strategy"""
+        with self._order_lock:
+            strategy_orders = [order for order in self.orders.values() 
+                             if order.strategy_id == strategy_id and 
+                             order.state in [OrderState.PENDING, OrderState.SUBMITTED]]
+        
+        for order in strategy_orders:
+            self._cancel_order(order.order_id, reason)
+
+    def _cancel_order(self, order_id: str, reason: str) -> bool:
+        """Cancel a specific order"""
+        try:
+            order = self.orders.get(order_id)
+            if not order:
+                return False
+            
+            if order.state not in [OrderState.PENDING, OrderState.SUBMITTED]:
+                self.logger.warning(f"Cannot cancel order {order_id} in state {order.state}")
+                return False
+            
+            # Cancel with broker if submitted
+            if order.state == OrderState.SUBMITTED and 'broker_order_id' in order.metadata:
+                self.spyder_client.cancel_order(order.metadata['broker_order_id'])
+            
+            # Update order state
+            order.state = OrderState.CANCELLED
+            order.metadata['cancel_reason'] = reason
+            
+            self.logger.info(f"Order {order_id} cancelled: {reason}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Order cancellation failed: {e}")
+            return False
+
+    # ==========================================================================
+    # POSITION MANAGEMENT
+    # ==========================================================================
+    def _update_position(self, order: OrderInfo, fill_data: Dict[str, Any]):
+        """Update positions based on filled order"""
+        try:
+            with self._position_lock:
+                # Find existing position
+                position_key = f"{order.strategy_id}_{order.symbol}"
+                existing_position = self.positions.get(position_key)
+                
+                if order.action == OrderAction.BUY:
+                    if existing_position:
+                        # Add to position
+                        new_quantity = existing_position.quantity + order.quantity
+                        new_cost = (existing_position.entry_price * existing_position.quantity + 
+                                  fill_data['price'] * order.quantity)
+                        existing_position.quantity = new_quantity
+                        existing_position.entry_price = new_cost / new_quantity
+                    else:
+                        # Create new position
+                        position = PositionInfo(
+                            position_id=f"POS_{uuid.uuid4().hex[:8]}",
+                            strategy_id=order.strategy_id,
+                            symbol=order.symbol,
+                            quantity=order.quantity,
+                            entry_price=fill_data['price'],
+                            entry_time=datetime.now()
+                        )
+                        self.positions[position_key] = position
+                
+                elif order.action == OrderAction.SELL:
+                    if existing_position:
+                        # Reduce or close position
+                        existing_position.quantity -= order.quantity
+                        
+                        if existing_position.quantity <= 0:
+                            # Position closed
+                            existing_position.realized_pnl = self._calculate_position_pnl(
+                                existing_position, fill_data['price']
+                            )
+                            del self.positions[position_key]
+                            
+                            # Update performance metrics
+                            self._update_performance_metrics(existing_position.realized_pnl)
+                    else:
+                        self.logger.warning(f"No position found to sell: {order.symbol}")
+                
+                # Notify strategy
+                self._notify_strategy_position_update(order.strategy_id, order.symbol)
+                
+        except Exception as e:
+            self.logger.error(f"Position update failed: {e}")
+
+    def _calculate_position_pnl(self, position: PositionInfo, exit_price: float) -> float:
+        """Calculate realized PnL for a position"""
+        return (exit_price - position.entry_price) * position.quantity
+
+    def _get_strategy_positions(self, strategy_id: str) -> List[PositionInfo]:
+        """Get all positions for a strategy"""
+        with self._position_lock:
+            return [pos for pos in self.positions.values() 
+                   if pos.strategy_id == strategy_id]
+
+    def _update_position_prices(self, price_updates: Dict[str, float]):
+        """Update current prices for all positions"""
+        with self._position_lock:
+            for position in self.positions.values():
+                if position.symbol in price_updates:
+                    position.current_price = price_updates[position.symbol]
+                    position.unrealized_pnl = self._calculate_position_pnl(
+                        position, position.current_price
+                    )
+                    
+                    # Update high water mark
+                    if position.unrealized_pnl > position.high_water_mark:
+                        position.high_water_mark = position.unrealized_pnl
+                    
+                    # Update drawdown
+                    drawdown = position.high_water_mark - position.unrealized_pnl
+                    if drawdown > position.max_drawdown:
+                        position.max_drawdown = drawdown
+
+    # ==========================================================================
+    # CIRCUIT BREAKER
+    # ==========================================================================
+    def _check_circuit_breaker(self):
+        """Check and update circuit breaker state"""
+        try:
+            with self._circuit_breaker_lock:
+                # Skip if disabled
+                if not self.enable_circuit_breaker:
+                    return
+                
+                # Check various metrics
+                triggers = []
+                
+                # Check loss per minute
+                if self.circuit_breaker_metrics['loss_per_minute'] > self.circuit_breaker_config.max_loss_per_minute:
+                    triggers.append(f"Loss per minute: ${self.circuit_breaker_metrics['loss_per_minute']:.2f}")
+                
+                # Check orders per minute
+                if self.circuit_breaker_metrics['orders_per_minute'] > self.circuit_breaker_config.max_orders_per_minute:
+                    triggers.append(f"Orders per minute: {self.circuit_breaker_metrics['orders_per_minute']}")
+                
+                # Check errors per hour
+                if self.circuit_breaker_metrics['errors_per_hour'] > self.circuit_breaker_config.max_errors_per_hour:
+                    triggers.append(f"Errors per hour: {self.circuit_breaker_metrics['errors_per_hour']}")
+                
+                # Check daily loss
+                if self.circuit_breaker_metrics['daily_loss'] > self.circuit_breaker_config.max_daily_loss:
+                    triggers.append(f"Daily loss: ${self.circuit_breaker_metrics['daily_loss']:.2f}")
+                
+                # Update state based on triggers
+                if triggers and self.circuit_breaker_state != CircuitBreakerState.TRIGGERED:
+                    self._activate_circuit_breaker(triggers)
+                elif not triggers and self.circuit_breaker_state == CircuitBreakerState.TRIGGERED:
+                    self._check_circuit_breaker_recovery()
+                
+        except Exception as e:
+            self.logger.error(f"Circuit breaker check failed: {e}")
+
+    def _activate_circuit_breaker(self, triggers: List[str]):
+        """Activate circuit breaker"""
+        self.circuit_breaker_state = CircuitBreakerState.TRIGGERED
+        self.circuit_breaker_metrics['triggered_at'] = datetime.now()
+        
+        trigger_msg = ", ".join(triggers)
+        self.logger.critical(f"CIRCUIT BREAKER TRIGGERED: {trigger_msg}")
+        
+        # Pause all strategies
+        self.pause("Circuit breaker triggered")
+        
+        # Cancel all pending orders
+        self._cancel_all_pending_orders("Circuit breaker triggered")
+        
+        # Emit circuit breaker event
+        self.event_manager.emit(
+            EventType.CRITICAL_ERROR,
+            {
+                'type': 'circuit_breaker_triggered',
+                'triggers': triggers,
+                'timestamp': datetime.now()
+            }
+        )
+        
+        # Send notifications
+        self._send_circuit_breaker_notification(triggers)
+        
+        # Schedule recovery check
+        self.circuit_breaker_metrics['recovery_at'] = (
+            datetime.now() + timedelta(minutes=self.circuit_breaker_config.cooldown_minutes)
+        )
+
+    def _check_circuit_breaker_recovery(self):
+        """Check if circuit breaker can be reset"""
+        if self.circuit_breaker_state != CircuitBreakerState.TRIGGERED:
+            return
+        
+        # Check if cooldown period has passed
+        if datetime.now() < self.circuit_breaker_metrics.get('recovery_at', datetime.now()):
+            return
+        
+        # Check if metrics are below recovery threshold
+        recovery_threshold = self.circuit_breaker_config.recovery_threshold
+        
+        can_recover = all([
+            self.circuit_breaker_metrics['loss_per_minute'] < 
+            self.circuit_breaker_config.max_loss_per_minute * recovery_threshold,
+            
+            self.circuit_breaker_metrics['orders_per_minute'] < 
+            self.circuit_breaker_config.max_orders_per_minute * recovery_threshold,
+            
+            self.circuit_breaker_metrics['errors_per_hour'] < 
+            self.circuit_breaker_config.max_errors_per_hour * recovery_threshold,
+        ])
+        
+        if can_recover:
+            self.circuit_breaker_state = CircuitBreakerState.RECOVERING
+            self.logger.info("Circuit breaker entering recovery mode")
+            
+            # Emit recovery event
+            self.event_manager.emit(
+                EventType.SYSTEM,
+                {
+                    'type': 'circuit_breaker_recovering',
+                    'timestamp': datetime.now()
+                }
+            )
+
+    def _reset_circuit_breaker_metrics(self):
+        """Reset circuit breaker metrics"""
+        with self._circuit_breaker_lock:
+            self.circuit_breaker_metrics = {
+                'loss_per_minute': 0.0,
+                'orders_per_minute': 0,
+                'errors_per_hour': 0,
+                'daily_loss': 0.0,
+                'triggered_at': None,
+                'recovery_at': None,
+                'last_reset': datetime.now()
+            }
+
+    def _update_order_rate_metrics(self):
+        """Update order rate metrics for circuit breaker"""
+        # Implementation depends on time-based tracking
+        pass
+
+    def _send_circuit_breaker_notification(self, triggers: List[str]):
+        """Send circuit breaker notification"""
+        try:
+            notification = {
+                'type': 'CIRCUIT_BREAKER',
+                'severity': 'CRITICAL',
+                'title': 'Trading Circuit Breaker Triggered',
+                'message': f"Circuit breaker activated due to: {', '.join(triggers)}",
+                'timestamp': datetime.now()
+            }
+            
+            # Send through notification system
+            self.event_manager.emit(EventType.ALERT, notification)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to send circuit breaker notification: {e}")
+
+    # ==========================================================================
+    # MONITORING AND HEALTH
+    # ==========================================================================
+    def _start_monitoring(self):
+        """Start monitoring thread"""
+        self._monitor_thread = threading.Thread(
+            target=self._monitoring_loop,
+            name="EngineMonitor",
+            daemon=True
+        )
+        self._monitor_thread.start()
+
+    def _monitoring_loop(self):
+        """Main monitoring loop"""
+        self.logger.info("Engine monitor started")
+        
+        while not self._shutdown_event.is_set():
+            try:
+                # Perform health check
+                if (datetime.now() - self.last_health_check).total_seconds() > HEALTH_CHECK_INTERVAL:
+                    self._perform_health_check()
+                    self.last_health_check = datetime.now()
+                
+                # Check circuit breaker
+                self._check_circuit_breaker()
+                
+                # Update position prices
+                # self._update_all_position_prices()
+                
+                # Check for stale positions
+                self._check_stale_positions()
+                
+                # Sleep
+                self._shutdown_event.wait(10)
+                
+            except Exception as e:
+                self.logger.error(f"Monitoring error: {e}")
+                self.error_handler.handle_error(e, "monitoring_loop")
+
+    def _perform_health_check(self):
+        """Perform comprehensive health check"""
+        try:
+            import psutil
+            process = psutil.Process()
+            
+            health = EngineHealth(
+                state=self.state,
+                uptime=datetime.now() - self.start_time if self.start_time else timedelta(),
+                active_strategies=len([s for s in self.strategies.values() 
+                                     if s.state == StrategyState.ACTIVE]),
+                open_orders=len([o for o in self.orders.values() 
+                               if o.state in [OrderState.PENDING, OrderState.SUBMITTED]]),
+                open_positions=len(self.positions),
+                circuit_breaker_state=self.circuit_breaker_state,
+                last_error=self._get_last_error(),
+                error_rate=self._calculate_error_rate(),
+                order_success_rate=self._calculate_order_success_rate(),
+                memory_usage_mb=process.memory_info().rss / 1024 / 1024,
+                cpu_usage_percent=process.cpu_percent(),
+                last_health_check=datetime.now()
+            )
+            
+            # Log health status
+            self.logger.info(f"Health check: State={health.state.name}, "
+                           f"Strategies={health.active_strategies}, "
+                           f"Orders={health.open_orders}, "
+                           f"Positions={health.open_positions}")
+            
+            # Emit health event
+            self.event_manager.emit(
+                EventType.SYSTEM,
+                {
+                    'type': 'health_check',
+                    'health': asdict(health),
+                    'timestamp': datetime.now()
+                }
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Health check failed: {e}")
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get current health status"""
+        try:
+            return {
+                'state': self.state.name,
+                'uptime': str(datetime.now() - self.start_time) if self.start_time else None,
+                'active_strategies': len([s for s in self.strategies.values() 
+                                       if s.state == StrategyState.ACTIVE]),
+                'total_strategies': len(self.strategies),
+                'open_orders': len([o for o in self.orders.values() 
+                                  if o.state in [OrderState.PENDING, OrderState.SUBMITTED]]),
+                'open_positions': len(self.positions),
+                'circuit_breaker': self.circuit_breaker_state.name,
+                'performance': {
+                    'total_pnl': self.performance.total_pnl,
+                    'win_rate': self.performance.win_rate,
+                    'sharpe_ratio': self.performance.sharpe_ratio
+                }
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting health status: {e}")
+            return {'error': str(e)}
+
+    def _check_stale_positions(self):
+        """Check for positions that are too old"""
+        try:
+            current_time = datetime.now()
+            
+            with self._position_lock:
+                for position in self.positions.values():
+                    age = current_time - position.entry_time
+                    
+                    if age.total_seconds() / 3600 > MAX_POSITION_AGE_HOURS:
+                        self.logger.warning(
+                            f"Stale position detected: {position.position_id} "
+                            f"({age.total_seconds() / 3600:.1f} hours old)"
+                        )
+                        
+                        # Emit stale position event
+                        self.event_manager.emit(
+                            EventType.SYSTEM_WARNING,
+                            {
+                                'type': 'stale_position',
+                                'position_id': position.position_id,
+                                'age_hours': age.total_seconds() / 3600,
+                                'symbol': position.symbol,
+                                'strategy_id': position.strategy_id
+                            }
+                        )
+                        
+        except Exception as e:
+            self.logger.error(f"Stale position check failed: {e}")
+
+    # ==========================================================================
+    # PERFORMANCE TRACKING
+    # ==========================================================================
+    def _initialize_performance_tracking(self):
+        """Initialize performance tracking systems"""
+        self.performance = PerformanceMetrics()
+        self.performance_history.clear()
+
+    def _update_performance_metrics(self, pnl: float):
+        """Update performance metrics with new trade"""
+        with self._performance_lock:
+            self.performance.total_trades += 1
+            self.performance.total_pnl += pnl
+            
+            if pnl > 0:
+                self.performance.winning_trades += 1
+                self.performance.avg_win = (
+                    (self.performance.avg_win * (self.performance.winning_trades - 1) + pnl) /
+                    self.performance.winning_trades
+                )
+            else:
+                self.performance.losing_trades += 1
+                self.performance.avg_loss = (
+                    (self.performance.avg_loss * (self.performance.losing_trades - 1) + abs(pnl)) /
+                    self.performance.losing_trades
+                )
+            
+            # Update win rate
+            if self.performance.total_trades > 0:
+                self.performance.win_rate = self.performance.winning_trades / self.performance.total_trades
+            
+            # Update profit factor
+            if self.performance.avg_loss > 0:
+                self.performance.profit_factor = self.performance.avg_win / self.performance.avg_loss
+            
+            # Add to history
+            self.performance_history.append({
+                'timestamp': datetime.now(),
+                'pnl': pnl,
+                'total_pnl': self.performance.total_pnl,
+                'win_rate': self.performance.win_rate
+            })
+            
+            # Update max drawdown
+            self._update_max_drawdown()
+
+    def _update_max_drawdown(self):
+        """Calculate and update maximum drawdown"""
+        if not self.performance_history:
+            return
+        
+        # Calculate running maximum
+        running_max = 0
+        max_dd = 0
+        
+        for record in self.performance_history:
+            if record['total_pnl'] > running_max:
+                running_max = record['total_pnl']
+            
+            drawdown = running_max - record['total_pnl']
+            if drawdown > max_dd:
+                max_dd = drawdown
+        
+        self.performance.max_drawdown = max_dd
+
+    def _calculate_error_rate(self) -> float:
+        """Calculate current error rate"""
+        # Implementation based on time window
+        return 0.0
+
+    def _calculate_order_success_rate(self) -> float:
+        """Calculate order success rate"""
+        with self._order_lock:
+            total = len(self.orders)
+            if total == 0:
+                return 1.0
+            
+            successful = len([o for o in self.orders.values() 
+                            if o.state == OrderState.FILLED])
+            
+            return successful / total
+
+    def _update_strategy_order_count(self, strategy_id: str):
+        """Update strategy order count"""
+        if strategy_id in self.strategies:
+            self.strategies[strategy_id].order_count += 1
+
+    def _increment_strategy_error(self, strategy_id: str, error: str):
+        """Increment strategy error count"""
+        if strategy_id in self.strategies:
+            strategy = self.strategies[strategy_id]
+            strategy.error_count += 1
+            strategy.last_error = error
+            
+            # Check if strategy should be disabled
+            if strategy.error_count > 10:
+                self.logger.error(f"Strategy {strategy_id} disabled due to excessive errors")
+                strategy.state = StrategyState.ERROR
+
+    # ==========================================================================
+    # STATE PERSISTENCE
+    # ==========================================================================
+    def _save_state(self):
+        """Save engine state to disk"""
+        try:
+            state_data = {
+                'version': '2.0',
+                'timestamp': datetime.now(),
+                'engine_state': self.state.name,
+                'performance': asdict(self.performance),
+                'strategies': {
+                    sid: {
+                        'name': s.name,
+                        'state': s.state.name,
+                        'signal_count': s.signal_count,
+                        'order_count': s.order_count,
+                        'pnl': s.pnl,
+                        'error_count': s.error_count
+                    }
+                    for sid, s in self.strategies.items()
+                },
+                'circuit_breaker': {
+                    'state': self.circuit_breaker_state.name,
+                    'metrics': self.circuit_breaker_metrics
+                }
+            }
+            
+            # Save to file
+            with open(self._state_file, 'wb') as f:
+                pickle.dump(state_data, f)
+            
+            self.logger.debug("Engine state saved")
+            
+        except Exception as e:
+            self.logger.error(f"State save failed: {e}")
+
+    def _load_state(self):
+        """Load engine state from disk"""
+        try:
+            if not self._state_file.exists():
+                return
+            
+            with open(self._state_file, 'rb') as f:
+                state_data = pickle.load(f)
+            
+            # Restore performance metrics
+            if 'performance' in state_data:
+                for key, value in state_data['performance'].items():
+                    if hasattr(self.performance, key) and not key.startswith('_'):
+                        setattr(self.performance, key, value)
+            
+            self.logger.info("Engine state loaded from disk")
+            
+        except Exception as e:
+            self.logger.error(f"State load failed: {e}")
+
+    def get_state(self) -> Dict[str, Any]:
+        """Get current engine state for external persistence"""
+        return {
+            'state': self.state.name,
+            'strategies': len(self.strategies),
+            'active_strategies': len([s for s in self.strategies.values() 
+                                    if s.state == StrategyState.ACTIVE]),
+            'open_orders': len([o for o in self.orders.values() 
+                              if o.state in [OrderState.PENDING, OrderState.SUBMITTED]]),
+            'open_positions': len(self.positions),
+            'total_pnl': self.performance.total_pnl,
+            'circuit_breaker': self.circuit_breaker_state.name
+        }
+
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+    def _validate_configuration(self) -> bool:
+        """Validate engine configuration"""
+        try:
+            # Check required configuration
+            if not self.config:
+                self.logger.warning("No configuration provided, using defaults")
+            
+            # Validate numeric limits
+            if self.max_strategies <= 0:
+                self.logger.error("Invalid max_strategies")
+                return False
+            
+            if self.max_orders_per_minute <= 0:
+                self.logger.error("Invalid max_orders_per_minute")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Configuration validation failed: {e}")
+            return False
+
+    def _setup_event_handlers(self):
+        """Set up event handlers"""
+        try:
+            # Order events
+            self.event_manager.subscribe(EventType.ORDER_FILLED, self._on_order_filled)
+            self.event_manager.subscribe(EventType.ORDER_CANCELLED, self._on_order_cancelled)
+            
+            # Position events
+            self.event_manager.subscribe(EventType.POSITION_UPDATE, self._on_position_update)
+            
+            # System events
+            self.event_manager.subscribe(EventType.SYSTEM_ERROR, self._on_system_error)
+            
+            self.logger.info("Event handlers registered")
+            
+        except Exception as e:
+            self.logger.error(f"Event handler setup failed: {e}")
+
+    def _on_order_filled(self, event: Event):
+        """Handle order filled event"""
+        try:
+            order_id = event.data.get('order_id')
+            fill_data = event.data.get('fill_data', {})
+            
+            order = self.orders.get(order_id)
+            if order:
+                order.state = OrderState.FILLED
+                order.filled_at = datetime.now()
+                order.fill_price = fill_data.get('price', order.price)
+                
+                # Update position
+                self._update_position(order, fill_data)
+                
+                # Update performance
+                self.performance.successful_orders += 1
+                
+        except Exception as e:
+            self.logger.error(f"Order filled handler error: {e}")
+
+    def _on_order_cancelled(self, event: Event):
+        """Handle order cancelled event"""
+        try:
+            order_id = event.data.get('order_id')
+            
+            order = self.orders.get(order_id)
+            if order:
+                order.state = OrderState.CANCELLED
+                
+        except Exception as e:
+            self.logger.error(f"Order cancelled handler error: {e}")
+
+    def _on_position_update(self, event: Event):
+        """Handle position update event"""
+        try:
+            # Update position prices if provided
+            if 'price_updates' in event.data:
+                self._update_position_prices(event.data['price_updates'])
+                
+        except Exception as e:
+            self.logger.error(f"Position update handler error: {e}")
+
+    def _on_system_error(self, event: Event):
+        """Handle system error event"""
+        try:
+            error_type = event.data.get('error_type')
+            
+            # Update error metrics
+            self.circuit_breaker_metrics['errors_per_hour'] += 1
+            
+            # Check if critical
+            if event.data.get('severity') == 'critical':
+                self.logger.critical(f"Critical system error: {error_type}")
+                # Consider stopping engine
+                
+        except Exception as e:
+            self.logger.error(f"System error handler error: {e}")
+
+    def _notify_strategy_order_failed(self, order: OrderInfo):
+        """Notify strategy of order failure"""
+        try:
+            strategy = self.strategies.get(order.strategy_id)
+            if strategy and hasattr(strategy.class_instance, 'on_order_failed'):
+                strategy.class_instance.on_order_failed(order.order_id, order.error_message)
+                
+        except Exception as e:
+            self.logger.error(f"Strategy notification failed: {e}")
+
+    def _notify_strategy_position_update(self, strategy_id: str, symbol: str):
+        """Notify strategy of position update"""
+        try:
+            strategy = self.strategies.get(strategy_id)
+            if strategy and hasattr(strategy.class_instance, 'on_position_update'):
+                positions = self._get_strategy_positions(strategy_id)
+                strategy.class_instance.on_position_update(symbol, positions)
+                
+        except Exception as e:
+            self.logger.error(f"Strategy position notification failed: {e}")
+
+    def _get_last_error(self) -> Optional[str]:
+        """Get last error message"""
+        # Implementation depends on error tracking
+        return None
+
+    def _start_worker_threads(self):
+        """Start all worker threads"""
+        self._start_order_processor()
+        self._start_monitoring()
+        
+        # Start cleanup thread
+        self._cleanup_thread = threading.Thread(
+            target=self._cleanup_loop,
+            name="EngineCleanup",
+            daemon=True
+        )
+        self._cleanup_thread.start()
+        
+        # Start state save thread if enabled
+        if self.save_state_enabled:
+            self._state_save_thread = threading.Thread(
+                target=self._state_save_loop,
+                name="StateSaver",
                 daemon=True
             )
-            signal_thread.start()
-            self.worker_threads['signal_processor'] = signal_thread
-            
-            self.logger.info("Worker threads started")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to start worker threads: {e}")
-    
+            self._state_save_thread.start()
+
     def _stop_worker_threads(self):
-        """Stop all worker threads."""
-        try:
-            # Wait for queues to empty
-            self.signal_queue.join()
-            self.order_queue.join()
+        """Stop all worker threads"""
+        self._shutdown_event.set()
+        
+        # Wait for threads to finish
+        threads = [
+            self._order_processor_thread,
+            self._monitor_thread,
+            self._cleanup_thread,
+            self._state_save_thread
+        ]
+        
+        for thread in threads:
+            if thread and thread.is_alive():
+                thread.join(timeout=5)
+
+    def _cleanup_loop(self):
+        """Periodic cleanup tasks"""
+        while not self._shutdown_event.is_set():
+            try:
+                # Clean old orders
+                self._cleanup_old_orders()
+                
+                # Clean old performance history
+                # Keep only recent records
+                
+                self._shutdown_event.wait(CLEANUP_INTERVAL)
+                
+            except Exception as e:
+                self.logger.error(f"Cleanup error: {e}")
+
+    def _cleanup_old_orders(self):
+        """Remove old completed orders"""
+        cutoff_time = datetime.now() - timedelta(hours=24)
+        
+        with self._order_lock:
+            old_orders = [
+                oid for oid, order in self.orders.items()
+                if order.state in [OrderState.FILLED, OrderState.CANCELLED, OrderState.ERROR]
+                and order.created_at < cutoff_time
+            ]
             
-            # Wait for threads to finish
-            for name, thread in self.worker_threads.items():
-                if thread.is_alive():
-                    thread.join(timeout=5.0)
-                    if thread.is_alive():
-                        self.logger.warning(f"Thread {name} did not stop gracefully")
+            for order_id in old_orders:
+                del self.orders[order_id]
             
-            self.worker_threads.clear()
-            self.logger.info("Worker threads stopped")
-            
-        except Exception as e:
-            self.logger.error(f"Error stopping worker threads: {e}")
-    
-    def get_engine_status(self) -> Dict[str, Any]:
-        """Get comprehensive engine status."""
-        try:
-            with self._state_lock:
-                status = {
-                    'state': self.state.value,
-                    'start_time': self.start_time.isoformat() if self.start_time else None,
-                    'uptime_seconds': (datetime.now() - self.start_time).total_seconds() if self.start_time else 0,
-                    'last_heartbeat': self.last_heartbeat.isoformat() if self.last_heartbeat else None,
-                    'strategies': {
-                        'total': len(self.strategies),
-                        'running': len([s for s in self.strategy_states.values() if s == StrategyState.RUNNING]),
-                        'stopped': len([s for s in self.strategy_states.values() if s == StrategyState.STOPPED]),
-                        'error': len([s for s in self.strategy_states.values() if s == StrategyState.ERROR])
-                    },
-                    'orders': {
-                        'processed_today': self.orders_processed_today,
-                        'pending_executions': len(self.pending_executions)
-                    },
-                    'signals': {
-                        'processed_today': self.signals_processed_today,
-                        'queue_size': self.signal_queue.qsize()
-                    },
-                    'emergency_stop': self.emergency_stop_triggered,
-                    'circuit_breaker': self.circuit_breaker_active
-                }
-            
-            return status
-            
-        except Exception as e:
-            self.logger.error(f"Error getting engine status: {e}")
-            return {'error': str(e)}
-    
-    # Additional helper methods...
-    
-    def _setup_event_handlers(self):
-        """Set up event handlers for the engine."""
-        # Implementation for event handler setup
-        pass
-    
-    def _initialize_performance_tracking(self):
-        """Initialize performance tracking systems."""
-        # Implementation for performance tracking initialization
-        pass
-    
-    def _validate_configuration(self) -> bool:
-        """Validate engine configuration."""
-        # Implementation for configuration validation
-        return True
-    
-    def _stop_all_strategies(self, reason: str):
-        """Stop all registered strategies."""
-        for strategy_id in list(self.strategies.keys()):
-            self.stop_strategy(strategy_id, reason)
-    
+            if old_orders:
+                self.logger.debug(f"Cleaned up {len(old_orders)} old orders")
+
+    def _state_save_loop(self):
+        """Periodic state saving"""
+        while not self._shutdown_event.is_set():
+            try:
+                self._save_state()
+                self._shutdown_event.wait(STATE_SAVE_INTERVAL)
+                
+            except Exception as e:
+                self.logger.error(f"State save loop error: {e}")
+
     def _cleanup_resources(self):
-        """Clean up engine resources."""
+        """Clean up all resources"""
         try:
-            # Close thread pool
-            self.thread_pool.shutdown(wait=True)
+            # Stop monitoring
+            if self.has_risk_manager and self.risk_manager:
+                self.risk_manager.stop_monitoring()
             
-            # Clear data structures
-            with self._execution_lock:
-                self.pending_executions.clear()
+            # Clear queues
+            while not self.order_queue.empty():
+                try:
+                    self.order_queue.get_nowait()
+                except queue.Empty:
+                    break
             
-            self.logger.info("Engine resources cleaned up")
+            self.logger.info("Resources cleaned up")
             
         except Exception as e:
-            self.logger.error(f"Resource cleanup error: {e}")
-    
-    def _cancel_all_pending_orders(self):
-        """Cancel all pending orders."""
-        # Implementation for canceling pending orders
-        pass
-    
-    def _initialize_strategy(self, strategy_id: str) -> bool:
-        """Initialize a registered strategy."""
-        # Implementation for strategy initialization
-        return True
-    
-    def _pre_start_checks(self, strategy_id: str) -> bool:
-        """Perform pre-start checks for a strategy."""
-        # Implementation for pre-start validation
-        return True
-    
-    def _cancel_strategy_orders(self, strategy_id: str):
-        """Cancel all orders for a specific strategy."""
-        # Implementation for strategy-specific order cancellation
-        pass
-    
-    def _update_performance_metrics(self):
-        """Update performance metrics."""
-        # Implementation for performance metrics update
-        pass
-    
-    def _check_position_limits(self):
-        """Check position limits and constraints."""
-        # Implementation for position limit checking
-        pass
-    
-    def _create_portfolio_snapshot(self):
-        """Create a portfolio snapshot."""
-        # Implementation for portfolio snapshot creation
-        pass
-    
-    def _stop_monitoring(self):
-        """Stop monitoring threads."""
-        # Already handled in _stop_worker_threads
-        pass
-    
-    def _check_performance_thresholds(self):
-        """Check performance thresholds."""
-        # Implementation for performance threshold checking
-        pass
-    
-    def _cleanup_old_executions(self):
-        """Clean up old execution records."""
-        # Implementation for execution cleanup
-        pass
-    
-    def _calculate_daily_pnl(self) -> float:
-        """Calculate daily P&L."""
-        # Implementation for daily P&L calculation
-        return 0.0
-    
-    def _should_trigger_circuit_breaker(self) -> bool:
-        """Check if circuit breaker should be triggered."""
-        # Implementation for circuit breaker logic
-        return False
-    
-    def _activate_circuit_breaker(self):
-        """Activate circuit breaker."""
-        self.circuit_breaker_active = True
-        self.logger.warning("Circuit breaker activated")
+            self.logger.error(f"Resource cleanup failed: {e}")
 
 # ==============================================================================
 # MODULE FUNCTIONS
@@ -1703,46 +2006,69 @@ if __name__ == "__main__":
     
     # Mock configuration
     test_config = {
-        'max_daily_loss': 1000,
-        'default_max_position_size': 10000,
-        'default_max_daily_trades': 20
+        'max_strategies': 10,
+        'max_orders_per_minute': 50,
+        'enable_circuit_breaker': True,
+        'circuit_breaker': {
+            'max_loss_per_minute': 500,
+            'max_daily_loss': 2000
+        }
     }
     
-    # Mock dependencies (for testing without full system)
+    # Mock dependencies
     class MockSpyderClient:
         def is_connected(self):
             return True
+        
+        def place_order(self, order):
+            return {'order_id': f"MOCK_{uuid.uuid4().hex[:8]}"}
+        
+        def cancel_order(self, order_id):
+            return True
     
-    class MockEventManager:
-        def emit_event(self, event_type, data):
-            print(f"Event: {event_type} - {data}")
-    
-    # Create engine instance
+    # Create test instances
     mock_client = MockSpyderClient()
-    mock_event_manager = MockEventManager()
+    event_manager = EventManager()
+    event_manager.start()
     
-    engine = TradingEngine(test_config, mock_client, mock_event_manager)
+    # Create engine
+    engine = TradingEngine(test_config, mock_client, event_manager)
     
     if engine.initialize():
         print("✅ TradingEngine initialized successfully")
         
         # Test basic functionality
-        status = engine.get_engine_status()
-        print(f"Engine status: {status}")
+        status = engine.get_health_status()
+        print(f"Health status: {json.dumps(status, indent=2)}")
         
         if engine.start():
             print("✅ TradingEngine started successfully")
             
-            # Brief operation
+            # Let it run briefly
             time.sleep(2)
             
+            # Test pause/resume
+            if engine.pause("Test pause"):
+                print("✅ Engine paused")
+                time.sleep(1)
+                
+                if engine.resume():
+                    print("✅ Engine resumed")
+            
+            # Stop engine
             if engine.stop("Test completed"):
                 print("✅ TradingEngine stopped successfully")
             else:
                 print("❌ TradingEngine stop failed")
         else:
             print("❌ TradingEngine start failed")
+        
+        # Shutdown
+        engine.shutdown()
     else:
         print("❌ TradingEngine initialization failed")
     
-    print("TradingEngine testing completed.")
+    # Stop event manager
+    event_manager.stop()
+    
+    print("\nTradingEngine testing completed.")

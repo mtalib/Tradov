@@ -2,89 +2,127 @@
 # -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System
+
 Module: SpyderX02_FlowAgent.py
 Group: X (AI Agents)
-Purpose: AI-Enhanced Options Flow Analysis Agent
+Purpose: AI-Enhanced Options Flow Analysis and Smart Money Detection
 
 Description:
-    This agent analyzes unusual options activity, volume spikes, and order flow
-    to detect smart money movements and institutional positioning. It provides
-    AI-powered interpretation of flow data, identifying potential opportunities
-    and risks based on large trades, sweep orders, and unusual activity patterns.
+    This agent analyzes options order flow using AI to detect unusual activity,
+    institutional trades, and smart money movements. It identifies sweeps, blocks,
+    and split trades while providing natural language insights about market
+    positioning. The agent learns from historical patterns to improve detection
+    accuracy and generates actionable trade ideas based on flow analysis.
 
 Spyder Version: 1.0
 Architect: Mohamed Talib
-Date Created: 2025-01-27
-Last Updated: 2025-01-27 Time: 19:30
+Date Created: 2025-01-17
+Last Updated: 2025-01-28 Time: 17:30
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
-import json
 import asyncio
-from typing import Dict, List, Optional, Tuple, Any, Union
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
+import json
+import logging
 import time
-import numpy as np
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple, Any, Union, Set
+from dataclasses import dataclass, field
+from enum import Enum
+from collections import defaultdict, deque
+import hashlib
+import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
 import pandas as pd
-from functools import lru_cache
+from scipy import stats
+
+# Ollama imports (with graceful fallback)
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    print("Warning: Ollama not installed. AI features will be limited.")
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderU_Utilities import SpyderLogger, get_logger
+from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled, SPYDERX_FEATURE_FLAGS
+from SpyderM_Monitoring.SpyderM02_MigrationMonitor import get_migration_monitor
+from SpyderN_OptionsAnalytics.SpyderN10_OptionsFlowAnalyzer import OptionsFlowAnalyzer
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# AI Model Configuration
-DEFAULT_LLM_MODEL = "llama3.2:3b-instruct-q4_K_M"
-DEFAULT_TEMPERATURE = 0.7
-MAX_TOKENS = 2048
+# Model configuration
+DEFAULT_MODEL = "llama3" if OLLAMA_AVAILABLE else None
+DEFAULT_TEMPERATURE = 0.4  # Balanced for pattern recognition
 
-# Flow Analysis Thresholds
-UNUSUAL_VOLUME_MULTIPLIER = 2.5  # 2.5x average volume
-LARGE_TRADE_THRESHOLD = 100  # contracts
-SWEEP_TIME_WINDOW = 60  # seconds
-BLOCK_TRADE_MIN = 500  # contracts
+# Flow detection thresholds
+MIN_PREMIUM_THRESHOLD = 25000  # $25k minimum for significant flow
+BLOCK_SIZE_THRESHOLD = 100  # 100 contracts for block trades
+SWEEP_TIME_WINDOW = 5  # 5 seconds for sweep detection
+UNUSUAL_VOLUME_MULTIPLIER = 3  # 3x average volume
+INSTITUTIONAL_SIZE_PERCENTILE = 90  # Top 10% by size
 
-# Sentiment Indicators
-BULLISH_INDICATORS = ['sweep', 'aggressive call buying', 'call walls']
-BEARISH_INDICATORS = ['put buying', 'protective puts', 'put walls']
+# Pattern detection
+MOMENTUM_WINDOW = 20  # Number of flows for momentum calculation
+SENTIMENT_DECAY_RATE = 0.95  # Decay rate for flow sentiment
+PATTERN_CONFIDENCE_THRESHOLD = 0.7
+
+# AI configuration
+AI_BATCH_SIZE = 50  # Process flows in batches
+FLOW_CACHE_TTL = 300  # 5 minutes cache
+
+# Flow types
+AGGRESSIVE_FLOW_TYPES = ['SWEEP', 'ISO', 'CROSS']
+NEUTRAL_FLOW_TYPES = ['BLOCK', 'SPREAD']
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class FlowType(Enum):
-    """Types of options flow"""
+    """Options flow types"""
     SWEEP = "sweep"
     BLOCK = "block"
     SPLIT = "split"
+    SPREAD = "spread"
+    ISO = "intermarket_sweep"
+    CROSS = "cross"
     REGULAR = "regular"
-    UNUSUAL = "unusual"
 
-class Sentiment(Enum):
-    """Market sentiment from flow"""
-    VERY_BULLISH = "very_bullish"
+class FlowSentiment(Enum):
+    """Flow sentiment classification"""
     BULLISH = "bullish"
-    NEUTRAL = "neutral"
     BEARISH = "bearish"
-    VERY_BEARISH = "very_bearish"
+    NEUTRAL = "neutral"
+    MIXED = "mixed"
 
-class FlowSignificance(Enum):
-    """Significance of flow activity"""
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
+class InstitutionalType(Enum):
+    """Institutional trader types"""
+    MARKET_MAKER = "market_maker"
+    HEDGE_FUND = "hedge_fund"
+    PROPRIETARY = "proprietary"
+    RETAIL_AGGREGATOR = "retail_aggregator"
+    UNKNOWN = "unknown"
+
+class FlowPattern(Enum):
+    """Detected flow patterns"""
+    ACCUMULATION = "accumulation"
+    DISTRIBUTION = "distribution"
+    SHORT_SQUEEZE = "short_squeeze"
+    HEDGING = "hedging"
+    ROLLING = "rolling"
+    CLOSING = "closing"
+    OPENING = "opening"
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -97,44 +135,70 @@ class OptionsFlow:
     strike: float
     expiry: datetime
     option_type: str  # 'call' or 'put'
-    volume: int
-    open_interest: int
+    side: str  # 'buy' or 'sell'
+    quantity: int
     price: float
-    bid_ask_spread: float
-    trade_size: int
+    premium: float
+    iv: float
+    underlying_price: float
+    flow_type: FlowType
     exchange: str
-    is_sweep: bool = False
-    is_block: bool = False
-    implied_volatility: float = 0.0
-    delta: float = 0.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class FlowAnalysis:
-    """AI-enhanced flow analysis result"""
-    flows: List[OptionsFlow]
-    sentiment: Sentiment
-    significance: FlowSignificance
-    smart_money_detected: bool
-    key_levels: List[float]  # Important strikes
-    interpretation: str
-    trade_ideas: List[str]
-    risk_factors: List[str]
-    confidence_score: float
-    analysis_timestamp: datetime = field(default_factory=datetime.now)
+    """Comprehensive flow analysis result"""
+    total_flows: int
+    bullish_flows: int
+    bearish_flows: int
+    net_premium: float
+    sentiment: FlowSentiment
+    sentiment_score: float  # -1 to 1
+    unusual_flows: List[OptionsFlow]
+    institutional_flows: List[OptionsFlow]
+    detected_patterns: List[Dict[str, Any]]
+    momentum_score: float
+    smart_money_confidence: float
+    natural_language_summary: str
+    trade_ideas: List[Dict[str, Any]]
+    confidence: float
 
 @dataclass
-class AggregatedFlow:
-    """Aggregated flow metrics"""
-    total_volume: int
-    call_volume: int
-    put_volume: int
-    put_call_ratio: float
-    avg_trade_size: float
-    large_trades_count: int
-    sweep_count: int
+class InstitutionalActivity:
+    """Institutional activity detection"""
+    trader_type: InstitutionalType
+    flows: List[OptionsFlow]
+    total_premium: float
+    avg_size: float
+    preferred_strikes: List[float]
+    time_pattern: str
+    confidence: float
+
+@dataclass
+class FlowPattern:
+    """Detected flow pattern"""
+    pattern_type: str
+    flows: List[OptionsFlow]
+    start_time: datetime
+    end_time: datetime
+    strikes_involved: List[float]
     net_premium: float
-    bullish_flow_score: float
-    bearish_flow_score: float
+    direction: str
+    confidence: float
+    description: str
+
+@dataclass
+class TradeIdea:
+    """AI-generated trade idea from flow"""
+    strategy: str
+    symbol: str
+    strikes: List[float]
+    expiry: datetime
+    rationale: str
+    entry_conditions: List[str]
+    risk_reward: Dict[str, float]
+    confidence: float
+    based_on_flows: List[str]  # Flow IDs
 
 # ==============================================================================
 # MAIN CLASS
@@ -143,800 +207,1038 @@ class SpyderX02_FlowAgent:
     """
     AI-Enhanced Options Flow Analysis Agent.
     
-    This agent provides intelligent analysis of options order flow to detect
-    institutional activity and smart money movements.
+    This agent provides sophisticated flow analysis by detecting patterns,
+    identifying institutional activity, and generating trade ideas. It uses
+    AI to understand complex flow relationships and provide actionable insights.
     
     Attributes:
-        logger: Module logger instance
-        config: Agent configuration
-        analysis_history: History of flow analyses
-        
-    Example:
-        >>> agent = SpyderX02_FlowAgent()
-        >>> analysis = await agent.analyze_flow(flow_data)
-        >>> print(analysis.interpretation)
+        model_name: Ollama model for AI analysis
+        temperature: Temperature setting for AI responses
+        flow_buffer: Recent flows for pattern detection
+        pattern_detector: Pattern detection engine
+        performance_metrics: Agent performance tracking
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """
-        Initialize the Flow Agent.
-        
-        Args:
-            config: Optional configuration dictionary
-        """
-        self.logger = get_logger(__name__)
-        self.config = config or self._get_default_config()
+    def __init__(self, model_name: str = DEFAULT_MODEL, temperature: float = DEFAULT_TEMPERATURE):
+        """Initialize the Flow Agent"""
+        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
+        self.error_handler = SpyderErrorHandler()
+        self.model_name = model_name
+        self.temperature = temperature
         
         # Initialize components
-        self.model_name = self.config.get('llm_model', DEFAULT_LLM_MODEL)
-        self.temperature = self.config.get('temperature', DEFAULT_TEMPERATURE)
+        self.traditional_analyzer = OptionsFlowAnalyzer()
+        self.migration_monitor = get_migration_monitor()
         
-        # Analysis tracking
-        self.analysis_history: List[FlowAnalysis] = []
+        # Flow tracking
+        self.flow_buffer = deque(maxlen=1000)
+        self.pattern_history = defaultdict(list)
+        self.institutional_tracker = defaultdict(list)
+        
+        # Caching
+        self.analysis_cache = {}
+        self.cache_timestamps = {}
+        
+        # Performance metrics
         self.performance_metrics = {
-            'total_analyses': 0,
-            'avg_response_time': 0,
-            'smart_money_detected': 0
+            'flows_analyzed': 0,
+            'patterns_detected': 0,
+            'institutional_detected': 0,
+            'trade_ideas_generated': 0,
+            'ai_queries': 0,
+            'avg_confidence': 0.0,
+            'successful_patterns': 0
         }
         
-        # Cache for repeated analyses
-        self._analysis_cache = {}
+        # Volume tracking for unusual detection
+        self.volume_history = defaultdict(lambda: deque(maxlen=20))
+        self.average_sizes = defaultdict(float)
         
-        # Historical data for comparison
-        self.historical_averages = {
-            'daily_volume': 50000,
-            'avg_trade_size': 25,
-            'typical_spread': 0.05
-        }
-        
-        self.logger.info(f"{self.__class__.__name__} initialized with model: {self.model_name}")
+        self.logger.info(f"Flow Agent initialized with model: {model_name}")
     
     # ==========================================================================
-    # PUBLIC METHODS
+    # PUBLIC METHODS - MAIN FUNCTIONALITY
     # ==========================================================================
-    
-    async def analyze_flow(
+    async def analyze_flow_batch(
         self,
         flows: List[OptionsFlow],
-        market_context: Optional[Dict[str, Any]] = None
+        market_conditions: Optional[Dict[str, Any]] = None
     ) -> FlowAnalysis:
         """
-        Analyze options flow with AI enhancement.
+        Analyze a batch of options flows with AI enhancement.
         
         Args:
-            flows: List of options flow data
-            market_context: Optional market context
+            flows: List of options flows to analyze
+            market_conditions: Current market conditions
             
         Returns:
-            AI-enhanced flow analysis
+            FlowAnalysis with comprehensive insights
         """
-        start_time = time.time()
-        
         try:
-            # Aggregate flow metrics
-            aggregated = self._aggregate_flow(flows)
+            if not flows:
+                return self._create_empty_analysis()
             
-            # Detect unusual activity
-            unusual_flows = self._detect_unusual_activity(flows)
+            # Update flow buffer
+            self.flow_buffer.extend(flows)
             
-            # Identify smart money
-            smart_money_detected = self._detect_smart_money(flows, aggregated)
+            # Basic flow metrics
+            flow_metrics = self._calculate_flow_metrics(flows)
             
-            # Find key levels
-            key_levels = self._identify_key_levels(flows)
+            # Detect unusual flows
+            unusual_flows = self._detect_unusual_flows(flows)
             
-            # Determine sentiment
-            sentiment = self._calculate_sentiment(aggregated, unusual_flows)
+            # Identify institutional activity
+            institutional_flows = await self._identify_institutional_flows(flows)
             
-            # Calculate significance
-            significance = self._calculate_significance(aggregated, unusual_flows)
+            # Detect patterns
+            patterns = await self._detect_flow_patterns(flows, market_conditions)
             
-            # Generate AI interpretation
-            interpretation = await self._generate_interpretation(
-                flows, aggregated, unusual_flows, smart_money_detected, market_context
-            )
+            # Calculate momentum
+            momentum = self._calculate_flow_momentum(flows)
             
-            # Generate trade ideas
-            trade_ideas = await self._generate_trade_ideas(
-                sentiment, key_levels, unusual_flows, market_context
-            )
+            # Get AI analysis if enabled
+            if is_spyderx_enabled("USE_AI_FLOW") and OLLAMA_AVAILABLE:
+                analysis = await self._enhance_with_ai_analysis(
+                    flows, flow_metrics, patterns, institutional_flows, market_conditions
+                )
+            else:
+                # Fallback to rule-based analysis
+                analysis = self._create_rule_based_analysis(
+                    flows, flow_metrics, unusual_flows, institutional_flows, patterns, momentum
+                )
             
-            # Identify risk factors
-            risk_factors = await self._identify_risk_factors(
-                flows, aggregated, market_context
-            )
+            # Update performance metrics
+            self._update_performance_metrics(analysis)
             
-            # Calculate confidence score
-            confidence_score = self._calculate_confidence_score(
-                aggregated, unusual_flows, smart_money_detected
-            )
-            
-            # Create analysis result
-            analysis = FlowAnalysis(
-                flows=flows,
-                sentiment=sentiment,
-                significance=significance,
-                smart_money_detected=smart_money_detected,
-                key_levels=key_levels,
-                interpretation=interpretation,
-                trade_ideas=trade_ideas,
-                risk_factors=risk_factors,
-                confidence_score=confidence_score
-            )
-            
-            # Update history and metrics
-            self.analysis_history.append(analysis)
-            self._update_metrics(time.time() - start_time, smart_money_detected)
+            # Log in shadow mode
+            if is_spyderx_enabled("ENABLE_SPYDERX_SHADOW"):
+                await self._log_shadow_analysis(analysis)
             
             return analysis
             
         except Exception as e:
-            self.logger.error(f"Error analyzing flow: {str(e)}")
-            raise
+            self.logger.error(f"Flow analysis failed: {e}")
+            return self._create_error_analysis(str(e))
     
-    async def analyze_sweep_activity(
+    async def detect_smart_money(
         self,
         flows: List[OptionsFlow],
-        time_window: int = SWEEP_TIME_WINDOW
+        lookback_periods: int = 5
     ) -> Dict[str, Any]:
         """
-        Analyze sweep order activity.
+        Detect smart money movements with AI pattern recognition.
         
         Args:
-            flows: Flow data
-            time_window: Time window for sweep detection
+            flows: Recent options flows
+            lookback_periods: Number of periods to analyze
             
         Returns:
-            Sweep analysis results
+            Smart money analysis results
         """
-        sweeps = [f for f in flows if f.is_sweep]
-        
-        if not sweeps:
-            return {
-                'sweep_count': 0,
-                'interpretation': 'No sweep activity detected',
-                'urgency': 'low'
+        try:
+            # Get historical flows for comparison
+            historical_flows = list(self.flow_buffer)[-lookback_periods * 100:]
+            
+            # Identify characteristics of smart money
+            smart_money_indicators = {
+                'large_blocks': self._identify_large_blocks(flows),
+                'perfect_timing': await self._analyze_timing_precision(flows),
+                'complex_strategies': self._detect_complex_strategies(flows),
+                'consistent_direction': self._analyze_directional_consistency(flows),
+                'unusual_strikes': self._find_unusual_strike_selection(flows)
             }
-        
-        # Group sweeps by strike and time
-        sweep_clusters = self._cluster_sweeps(sweeps, time_window)
-        
-        # AI interpretation of sweep activity
-        interpretation = await self._interpret_sweeps(sweep_clusters)
-        
-        return {
-            'sweep_count': len(sweeps),
-            'clusters': len(sweep_clusters),
-            'total_volume': sum(s.volume for s in sweeps),
-            'interpretation': interpretation,
-            'urgency': 'high' if len(sweep_clusters) > 2 else 'medium'
-        }
+            
+            # AI enhancement for pattern recognition
+            if is_spyderx_enabled("USE_AI_FLOW") and OLLAMA_AVAILABLE:
+                smart_money_analysis = await self._ai_smart_money_detection(
+                    flows, smart_money_indicators, historical_flows
+                )
+            else:
+                smart_money_analysis = self._rule_based_smart_money(smart_money_indicators)
+            
+            return smart_money_analysis
+            
+        except Exception as e:
+            self.logger.error(f"Smart money detection failed: {e}")
+            return {'error': str(e), 'confidence': 0.0}
     
-    async def detect_institutional_activity(
+    async def generate_trade_ideas(
         self,
-        flows: List[OptionsFlow]
-    ) -> Dict[str, Any]:
+        flow_analysis: FlowAnalysis,
+        portfolio_context: Optional[Dict[str, Any]] = None
+    ) -> List[TradeIdea]:
         """
-        Detect potential institutional activity.
+        Generate actionable trade ideas from flow analysis.
         
         Args:
-            flows: Flow data
+            flow_analysis: Completed flow analysis
+            portfolio_context: Current portfolio state
             
         Returns:
-            Institutional activity analysis
+            List of trade ideas with confidence scores
         """
-        # Identify block trades
-        block_trades = [f for f in flows if f.is_block or f.trade_size >= BLOCK_TRADE_MIN]
-        
-        # Look for patterns
-        patterns = self._identify_institutional_patterns(flows)
-        
-        # AI interpretation
-        interpretation = await self._interpret_institutional_activity(
-            block_trades, patterns
-        )
-        
-        return {
-            'block_trades': len(block_trades),
-            'total_block_volume': sum(b.volume for b in block_trades),
-            'patterns_detected': patterns,
-            'interpretation': interpretation,
-            'confidence': 'high' if len(block_trades) > 3 else 'medium'
-        }
+        try:
+            trade_ideas = []
+            
+            # Generate ideas from unusual flows
+            if flow_analysis.unusual_flows:
+                unusual_ideas = await self._generate_unusual_flow_ideas(
+                    flow_analysis.unusual_flows,
+                    flow_analysis.sentiment
+                )
+                trade_ideas.extend(unusual_ideas)
+            
+            # Generate ideas from patterns
+            if flow_analysis.detected_patterns:
+                pattern_ideas = await self._generate_pattern_ideas(
+                    flow_analysis.detected_patterns,
+                    portfolio_context
+                )
+                trade_ideas.extend(pattern_ideas)
+            
+            # Generate ideas from institutional activity
+            if flow_analysis.institutional_flows:
+                institutional_ideas = await self._generate_institutional_ideas(
+                    flow_analysis.institutional_flows,
+                    flow_analysis.smart_money_confidence
+                )
+                trade_ideas.extend(institutional_ideas)
+            
+            # AI enhancement for idea generation
+            if is_spyderx_enabled("USE_AI_FLOW") and OLLAMA_AVAILABLE:
+                ai_ideas = await self._generate_ai_trade_ideas(
+                    flow_analysis,
+                    portfolio_context,
+                    trade_ideas
+                )
+                trade_ideas.extend(ai_ideas)
+            
+            # Rank and filter ideas
+            ranked_ideas = self._rank_trade_ideas(trade_ideas, portfolio_context)
+            
+            self.performance_metrics['trade_ideas_generated'] += len(ranked_ideas)
+            
+            return ranked_ideas[:5]  # Return top 5 ideas
+            
+        except Exception as e:
+            self.logger.error(f"Trade idea generation failed: {e}")
+            return []
     
-    def get_performance_metrics(self) -> Dict[str, Any]:
+    async def monitor_real_time_flow(
+        self,
+        flow_stream: asyncio.Queue,
+        alert_callback: callable
+    ) -> None:
         """
-        Get agent performance metrics.
+        Monitor real-time options flow with AI alerts.
         
-        Returns:
-            Performance metrics dictionary
+        Args:
+            flow_stream: Queue of incoming flows
+            alert_callback: Callback for flow alerts
         """
-        return self.performance_metrics.copy()
+        self.logger.info("Starting real-time flow monitoring")
+        
+        batch = []
+        last_analysis = datetime.now()
+        
+        while True:
+            try:
+                # Collect flows for batch processing
+                flow = await asyncio.wait_for(flow_stream.get(), timeout=1.0)
+                batch.append(flow)
+                
+                # Process batch every 10 flows or 5 seconds
+                if len(batch) >= 10 or (datetime.now() - last_analysis).seconds >= 5:
+                    if batch:
+                        # Analyze batch
+                        analysis = await self.analyze_flow_batch(batch)
+                        
+                        # Generate alerts for significant flows
+                        alerts = self._generate_flow_alerts(analysis)
+                        for alert in alerts:
+                            await alert_callback(alert)
+                        
+                        # Reset batch
+                        batch = []
+                        last_analysis = datetime.now()
+                
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                self.logger.error(f"Real-time flow monitoring error: {e}")
     
     # ==========================================================================
     # PRIVATE METHODS - FLOW ANALYSIS
     # ==========================================================================
-    
-    def _aggregate_flow(self, flows: List[OptionsFlow]) -> AggregatedFlow:
-        """Aggregate flow metrics."""
+    def _calculate_flow_metrics(self, flows: List[OptionsFlow]) -> Dict[str, Any]:
+        """Calculate basic flow metrics"""
         if not flows:
-            return AggregatedFlow(
-                total_volume=0, call_volume=0, put_volume=0,
-                put_call_ratio=0, avg_trade_size=0, large_trades_count=0,
-                sweep_count=0, net_premium=0, bullish_flow_score=0,
-                bearish_flow_score=0
-            )
+            return {}
         
-        call_volume = sum(f.volume for f in flows if f.option_type == 'call')
-        put_volume = sum(f.volume for f in flows if f.option_type == 'put')
+        call_flows = [f for f in flows if f.option_type == 'call']
+        put_flows = [f for f in flows if f.option_type == 'put']
         
-        return AggregatedFlow(
-            total_volume=sum(f.volume for f in flows),
-            call_volume=call_volume,
-            put_volume=put_volume,
-            put_call_ratio=put_volume / max(call_volume, 1),
-            avg_trade_size=np.mean([f.trade_size for f in flows]),
-            large_trades_count=sum(1 for f in flows if f.trade_size >= LARGE_TRADE_THRESHOLD),
-            sweep_count=sum(1 for f in flows if f.is_sweep),
-            net_premium=sum(f.volume * f.price * 100 for f in flows),
-            bullish_flow_score=self._calculate_bullish_score(flows),
-            bearish_flow_score=self._calculate_bearish_score(flows)
-        )
+        call_premium = sum(f.premium for f in call_flows if f.side == 'buy') - \
+                      sum(f.premium for f in call_flows if f.side == 'sell')
+        put_premium = sum(f.premium for f in put_flows if f.side == 'buy') - \
+                     sum(f.premium for f in put_flows if f.side == 'sell')
+        
+        return {
+            'total_flows': len(flows),
+            'call_flows': len(call_flows),
+            'put_flows': len(put_flows),
+            'call_premium': call_premium,
+            'put_premium': put_premium,
+            'net_premium': call_premium + put_premium,
+            'put_call_ratio': len(put_flows) / len(call_flows) if call_flows else 0,
+            'avg_size': statistics.mean([f.quantity for f in flows]),
+            'total_volume': sum(f.quantity for f in flows)
+        }
     
-    def _detect_unusual_activity(self, flows: List[OptionsFlow]) -> List[OptionsFlow]:
-        """Detect unusual flow activity."""
+    def _detect_unusual_flows(self, flows: List[OptionsFlow]) -> List[OptionsFlow]:
+        """Detect unusual flow activity"""
         unusual = []
         
         for flow in flows:
-            # Check various unusual criteria
-            if any([
-                flow.volume > self.historical_averages['daily_volume'] * UNUSUAL_VOLUME_MULTIPLIER,
-                flow.trade_size > self.historical_averages['avg_trade_size'] * 10,
-                flow.is_sweep and flow.trade_size > LARGE_TRADE_THRESHOLD,
-                flow.bid_ask_spread > self.historical_averages['typical_spread'] * 3
-            ]):
+            # Check premium threshold
+            if flow.premium < MIN_PREMIUM_THRESHOLD:
+                continue
+            
+            # Check against historical average
+            avg_size = self.average_sizes.get(flow.symbol, 0)
+            if avg_size > 0 and flow.quantity > avg_size * UNUSUAL_VOLUME_MULTIPLIER:
+                unusual.append(flow)
+                continue
+            
+            # Check for sweep activity
+            if flow.flow_type in [FlowType.SWEEP, FlowType.ISO]:
+                unusual.append(flow)
+                continue
+            
+            # Check for aggressive positioning
+            if self._is_aggressive_positioning(flow):
                 unusual.append(flow)
         
         return unusual
     
-    def _detect_smart_money(self, flows: List[OptionsFlow], aggregated: AggregatedFlow) -> bool:
-        """Detect potential smart money activity."""
-        indicators = 0
+    async def _identify_institutional_flows(
+        self,
+        flows: List[OptionsFlow]
+    ) -> List[OptionsFlow]:
+        """Identify potential institutional flows"""
+        institutional = []
         
-        # Multiple sweep orders
-        if aggregated.sweep_count >= 3:
-            indicators += 1
-        
-        # Large block trades
-        if aggregated.large_trades_count >= 2:
-            indicators += 1
-        
-        # Unusual put/call ratio
-        if aggregated.put_call_ratio > 2 or aggregated.put_call_ratio < 0.3:
-            indicators += 1
-        
-        # High average trade size
-        if aggregated.avg_trade_size > self.historical_averages['avg_trade_size'] * 5:
-            indicators += 1
-        
-        return indicators >= 2
-    
-    def _identify_key_levels(self, flows: List[OptionsFlow]) -> List[float]:
-        """Identify key strike levels from flow."""
-        # Group by strike and sum volume
-        strike_volume = {}
-        for flow in flows:
-            strike_volume[flow.strike] = strike_volume.get(flow.strike, 0) + flow.volume
-        
-        # Sort by volume and get top strikes
-        sorted_strikes = sorted(strike_volume.items(), key=lambda x: x[1], reverse=True)
-        
-        # Return top 5 strikes
-        return [strike for strike, _ in sorted_strikes[:5]]
-    
-    def _calculate_sentiment(self, aggregated: AggregatedFlow, unusual_flows: List[OptionsFlow]) -> Sentiment:
-        """Calculate market sentiment from flow."""
-        # Base sentiment on put/call ratio
-        if aggregated.put_call_ratio < 0.5:
-            base_sentiment = 2  # Bullish
-        elif aggregated.put_call_ratio > 1.5:
-            base_sentiment = -2  # Bearish
-        else:
-            base_sentiment = 0  # Neutral
-        
-        # Adjust for flow scores
-        sentiment_score = base_sentiment + (aggregated.bullish_flow_score - aggregated.bearish_flow_score)
-        
-        # Map to sentiment enum
-        if sentiment_score >= 3:
-            return Sentiment.VERY_BULLISH
-        elif sentiment_score >= 1:
-            return Sentiment.BULLISH
-        elif sentiment_score <= -3:
-            return Sentiment.VERY_BEARISH
-        elif sentiment_score <= -1:
-            return Sentiment.BEARISH
-        else:
-            return Sentiment.NEUTRAL
-    
-    def _calculate_significance(self, aggregated: AggregatedFlow, unusual_flows: List[OptionsFlow]) -> FlowSignificance:
-        """Calculate significance of flow activity."""
-        if aggregated.sweep_count >= 5 or len(unusual_flows) >= 10:
-            return FlowSignificance.HIGH
-        elif aggregated.sweep_count >= 2 or len(unusual_flows) >= 5:
-            return FlowSignificance.MEDIUM
-        else:
-            return FlowSignificance.LOW
-    
-    def _calculate_bullish_score(self, flows: List[OptionsFlow]) -> float:
-        """Calculate bullish flow score."""
-        score = 0.0
-        
-        for flow in flows:
-            if flow.option_type == 'call':
-                # Weight by size and aggressiveness
-                weight = min(flow.trade_size / LARGE_TRADE_THRESHOLD, 2.0)
-                if flow.is_sweep:
-                    weight *= 1.5
-                score += weight
-        
-        return score
-    
-    def _calculate_bearish_score(self, flows: List[OptionsFlow]) -> float:
-        """Calculate bearish flow score."""
-        score = 0.0
-        
-        for flow in flows:
-            if flow.option_type == 'put':
-                # Weight by size and aggressiveness
-                weight = min(flow.trade_size / LARGE_TRADE_THRESHOLD, 2.0)
-                if flow.is_sweep:
-                    weight *= 1.5
-                score += weight
-        
-        return score
-    
-    def _calculate_confidence_score(self, aggregated: AggregatedFlow, unusual_flows: List[OptionsFlow], smart_money: bool) -> float:
-        """Calculate confidence score for analysis."""
-        confidence = 0.7  # Base confidence
-        
-        # Increase for smart money detection
-        if smart_money:
-            confidence += 0.15
-        
-        # Increase for significant activity
-        if aggregated.sweep_count >= 3:
-            confidence += 0.1
-        
-        # Decrease for low volume
-        if aggregated.total_volume < 1000:
-            confidence -= 0.2
-        
-        return max(0.3, min(0.95, confidence))
-    
-    def _cluster_sweeps(self, sweeps: List[OptionsFlow], time_window: int) -> List[List[OptionsFlow]]:
-        """Cluster sweep orders by time and strike."""
-        if not sweeps:
-            return []
-        
-        # Sort by timestamp
-        sorted_sweeps = sorted(sweeps, key=lambda x: x.timestamp)
-        
-        clusters = []
-        current_cluster = [sorted_sweeps[0]]
-        
-        for sweep in sorted_sweeps[1:]:
-            # Check if within time window of last sweep in cluster
-            time_diff = (sweep.timestamp - current_cluster[-1].timestamp).seconds
+        # Size-based detection
+        flow_sizes = [f.quantity for f in flows]
+        if flow_sizes:
+            size_threshold = np.percentile(flow_sizes, INSTITUTIONAL_SIZE_PERCENTILE)
             
-            if time_diff <= time_window and sweep.strike == current_cluster[0].strike:
-                current_cluster.append(sweep)
-            else:
-                clusters.append(current_cluster)
-                current_cluster = [sweep]
+            for flow in flows:
+                if flow.quantity >= size_threshold:
+                    # Additional checks for institutional characteristics
+                    if self._has_institutional_characteristics(flow):
+                        institutional.append(flow)
+                        self.institutional_tracker[flow.symbol].append(flow)
         
-        if current_cluster:
-            clusters.append(current_cluster)
-        
-        return clusters
+        return institutional
     
-    def _identify_institutional_patterns(self, flows: List[OptionsFlow]) -> List[str]:
-        """Identify institutional trading patterns."""
+    async def _detect_flow_patterns(
+        self,
+        flows: List[OptionsFlow],
+        market_conditions: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Detect patterns in options flow"""
         patterns = []
         
-        # Check for accumulation pattern
-        strike_accumulation = {}
+        # Group flows by symbol and strike
+        flow_groups = defaultdict(list)
         for flow in flows:
-            key = (flow.strike, flow.option_type)
-            strike_accumulation[key] = strike_accumulation.get(key, 0) + flow.volume
+            key = (flow.symbol, flow.strike, flow.expiry)
+            flow_groups[key].append(flow)
         
-        # Find strikes with heavy accumulation
-        for (strike, opt_type), volume in strike_accumulation.items():
-            if volume > self.historical_averages['daily_volume']:
-                patterns.append(f"Heavy {opt_type} accumulation at ${strike}")
+        # Detect accumulation/distribution
+        for key, group_flows in flow_groups.items():
+            if len(group_flows) >= 3:
+                pattern = self._analyze_accumulation_pattern(group_flows)
+                if pattern:
+                    patterns.append(pattern)
         
-        # Check for spread trades
-        # Simplified - would need more sophisticated logic in production
-        if len(set(f.strike for f in flows)) >= 3:
-            patterns.append("Possible spread positioning detected")
+        # Detect rolling activity
+        rolling_patterns = self._detect_rolling_patterns(flows)
+        patterns.extend(rolling_patterns)
+        
+        # Detect hedging patterns
+        hedging_patterns = self._detect_hedging_patterns(flows)
+        patterns.extend(hedging_patterns)
+        
+        self.performance_metrics['patterns_detected'] += len(patterns)
         
         return patterns
     
     # ==========================================================================
-    # PRIVATE METHODS - AI GENERATION
+    # PRIVATE METHODS - AI ENHANCEMENT
     # ==========================================================================
-    
-    async def _generate_interpretation(
+    async def _enhance_with_ai_analysis(
         self,
         flows: List[OptionsFlow],
-        aggregated: AggregatedFlow,
-        unusual_flows: List[OptionsFlow],
-        smart_money_detected: bool,
-        market_context: Optional[Dict[str, Any]]
-    ) -> str:
-        """Generate AI interpretation of flow activity."""
+        flow_metrics: Dict[str, Any],
+        patterns: List[Dict[str, Any]],
+        institutional_flows: List[OptionsFlow],
+        market_conditions: Optional[Dict[str, Any]] = None
+    ) -> FlowAnalysis:
+        """Enhance flow analysis with AI insights"""
         try:
-            import ollama
-            
-            # Prepare flow summary
-            flow_summary = f"""
-Total Volume: {aggregated.total_volume:,}
-Call Volume: {aggregated.call_volume:,} | Put Volume: {aggregated.put_volume:,}
-Put/Call Ratio: {aggregated.put_call_ratio:.2f}
-Large Trades: {aggregated.large_trades_count} | Sweeps: {aggregated.sweep_count}
-Average Trade Size: {aggregated.avg_trade_size:.0f} contracts
-Smart Money Detected: {'Yes' if smart_money_detected else 'No'}
-
-Top 3 Unusual Flows:
-"""
-            for i, flow in enumerate(unusual_flows[:3], 1):
-                flow_summary += f"{i}. {flow.option_type.upper()} ${flow.strike} - {flow.volume:,} volume, {flow.trade_size} size\n"
-            
-            if market_context:
-                flow_summary += f"\nMarket Context: {market_context}"
-            
-            prompt = f"""You are an expert options flow analyst. Analyze this flow data and provide insights.
-
-{flow_summary}
-
-Provide a concise interpretation focusing on:
-1. What the flow is telling us about market sentiment
-2. Whether this represents institutional/smart money activity
-3. Key levels to watch based on the flow
-4. Potential near-term market direction
-
-Keep it to 4-5 sentences with actionable insights."""
-
-            response = ollama.generate(
-                model=self.model_name,
-                prompt=prompt,
-                options={
-                    'temperature': self.temperature,
-                    'num_predict': 250,
-                    'num_thread': 16
-                }
+            # Prepare context for AI
+            context = self._prepare_ai_context(
+                flows, flow_metrics, patterns, institutional_flows, market_conditions
             )
             
-            return response['response']
+            # Query AI model
+            prompt = self._construct_flow_prompt(context)
+            response = await self._query_ai_model(prompt)
             
-        except Exception as e:
-            self.logger.warning(f"Ollama not available, using fallback: {e}")
-            # Fallback interpretation
-            sentiment = "bullish" if aggregated.put_call_ratio < 0.7 else "bearish" if aggregated.put_call_ratio > 1.3 else "neutral"
+            # Parse AI response
+            ai_insights = self._parse_flow_ai_response(response)
             
-            interpretation = f"Flow analysis shows {sentiment} sentiment with "
-            interpretation += f"{aggregated.total_volume:,} total volume. "
-            
-            if smart_money_detected:
-                interpretation += "Smart money activity detected through multiple sweeps and large trades. "
-            
-            if unusual_flows:
-                interpretation += f"Unusual activity concentrated at strikes: {', '.join([f'${f.strike}' for f in unusual_flows[:3]])}. "
-            
-            interpretation += f"Put/Call ratio of {aggregated.put_call_ratio:.2f} suggests "
-            interpretation += "call buying dominance." if aggregated.put_call_ratio < 1 else "put buying pressure."
-            
-            return interpretation
-    
-    async def _generate_trade_ideas(
-        self,
-        sentiment: Sentiment,
-        key_levels: List[float],
-        unusual_flows: List[OptionsFlow],
-        market_context: Optional[Dict[str, Any]]
-    ) -> List[str]:
-        """Generate trade ideas based on flow analysis."""
-        try:
-            import ollama
-            
-            prompt = f"""Based on options flow analysis, suggest 2-3 specific trade ideas.
-
-Sentiment: {sentiment.value}
-Key Strike Levels: {', '.join([f'${level}' for level in key_levels[:3]])}
-Unusual Activity: {len(unusual_flows)} unusual flows detected
-{f"Market Context: {market_context}" if market_context else ""}
-
-Provide specific, actionable trade ideas with strikes and strategies.
-Format each on a new line starting with a number."""
-
-            response = ollama.generate(
-                model=self.model_name,
-                prompt=prompt,
-                options={
-                    'temperature': 0.8,
-                    'num_predict': 200
-                }
+            # Generate trade ideas
+            trade_ideas = await self._generate_ai_trade_ideas_from_insights(
+                ai_insights, flows, patterns
             )
             
-            # Parse trade ideas
-            ideas = []
-            for line in response['response'].split('\n'):
-                line = line.strip()
-                if line and (line[0].isdigit() or line.startswith('-')):
-                    idea = line.lstrip('0123456789.- ').strip()
-                    if len(idea) > 10:
-                        ideas.append(idea)
+            # Calculate sentiment
+            sentiment, sentiment_score = self._calculate_ai_sentiment(
+                ai_insights, flow_metrics
+            )
             
-            return ideas[:3]
+            # Build analysis
+            analysis = FlowAnalysis(
+                total_flows=len(flows),
+                bullish_flows=len([f for f in flows if self._is_bullish_flow(f)]),
+                bearish_flows=len([f for f in flows if self._is_bearish_flow(f)]),
+                net_premium=flow_metrics.get('net_premium', 0),
+                sentiment=sentiment,
+                sentiment_score=sentiment_score,
+                unusual_flows=self._detect_unusual_flows(flows),
+                institutional_flows=institutional_flows,
+                detected_patterns=patterns,
+                momentum_score=self._calculate_flow_momentum(flows),
+                smart_money_confidence=ai_insights.get('smart_money_confidence', 0.5),
+                natural_language_summary=ai_insights.get('summary', ''),
+                trade_ideas=trade_ideas,
+                confidence=ai_insights.get('confidence', 0.7)
+            )
+            
+            self.performance_metrics['ai_queries'] += 1
+            
+            return analysis
             
         except Exception as e:
-            self.logger.warning(f"Ollama not available for trade ideas: {e}")
-            # Fallback trade ideas
-            ideas = []
+            self.logger.error(f"AI flow analysis failed: {e}")
+            # Fallback to rule-based
+            return self._create_rule_based_analysis(
+                flows, flow_metrics, self._detect_unusual_flows(flows),
+                institutional_flows, patterns, self._calculate_flow_momentum(flows)
+            )
+    
+    async def _query_ai_model(self, prompt: str) -> str:
+        """Query the AI model for flow analysis"""
+        if not OLLAMA_AVAILABLE:
+            return ""
             
-            if sentiment in [Sentiment.BULLISH, Sentiment.VERY_BULLISH]:
-                if key_levels:
-                    ideas.append(f"Consider call spreads targeting ${key_levels[0]} strike")
-                ideas.append("Look for call calendar spreads on pullbacks")
-            elif sentiment in [Sentiment.BEARISH, Sentiment.VERY_BEARISH]:
-                if key_levels:
-                    ideas.append(f"Consider put spreads with protection at ${key_levels[0]}")
-                ideas.append("Put butterflies for ranged downside")
-            else:
-                ideas.append("Iron condors outside the key strike levels")
-                ideas.append("Straddle sales if IV elevated")
+        try:
+            response = await asyncio.to_thread(
+                ollama.chat,
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """You are an expert options flow analyst.
+                        Analyze flow patterns to identify smart money movements and institutional activity.
+                        Focus on actionable insights and specific trade setups.
+                        Be precise about entry levels, position sizing, and risk management."""
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                options={"temperature": self.temperature}
+            )
             
-            return ideas
+            return response['message']['content']
+            
+        except Exception as e:
+            self.logger.error(f"AI model query failed: {e}")
+            return ""
     
-    async def _identify_risk_factors(
-        self,
-        flows: List[OptionsFlow],
-        aggregated: AggregatedFlow,
-        market_context: Optional[Dict[str, Any]]
-    ) -> List[str]:
-        """Identify risk factors from flow analysis."""
-        risks = []
-        
-        # Check for one-sided flow
-        if aggregated.put_call_ratio > 3 or aggregated.put_call_ratio < 0.3:
-            risks.append("Extremely one-sided flow may indicate crowded positioning")
-        
-        # Check for expiry concentration
-        expiry_dates = set(f.expiry.date() for f in flows)
-        if len(expiry_dates) == 1:
-            risks.append("Flow concentrated in single expiry - event risk possible")
-        
-        # Check spread widths
-        high_spreads = [f for f in flows if f.bid_ask_spread > 0.10]
-        if len(high_spreads) > len(flows) * 0.3:
-            risks.append("Wide bid-ask spreads indicate low liquidity")
-        
-        # Check for hedge flow
-        if aggregated.put_volume > aggregated.call_volume * 1.5:
-            risks.append("Heavy put buying may be hedging - underlying could still rise")
-        
-        return risks
-    
-    async def _interpret_sweeps(self, sweep_clusters: List[List[OptionsFlow]]) -> str:
-        """Interpret sweep order activity."""
-        if not sweep_clusters:
-            return "No significant sweep activity"
-        
-        # Analyze the clusters
-        cluster_summary = f"Detected {len(sweep_clusters)} sweep clusters. "
-        
-        for cluster in sweep_clusters[:2]:  # Top 2 clusters
-            strike = cluster[0].strike
-            opt_type = cluster[0].option_type
-            total_vol = sum(s.volume for s in cluster)
-            cluster_summary += f"{opt_type.upper()} ${strike}: {total_vol:,} contracts swept. "
-        
-        cluster_summary += "This aggressive buying suggests urgent positioning for expected move."
-        
-        return cluster_summary
-    
-    async def _interpret_institutional_activity(
-        self,
-        block_trades: List[OptionsFlow],
-        patterns: List[str]
-    ) -> str:
-        """Interpret institutional activity."""
-        if not block_trades and not patterns:
-            return "No clear institutional footprints detected"
-        
-        interpretation = f"Detected {len(block_trades)} block trades"
-        
-        if block_trades:
-            total_block_vol = sum(b.volume for b in block_trades)
-            interpretation += f" totaling {total_block_vol:,} contracts. "
-        
-        if patterns:
-            interpretation += f"Patterns observed: {'; '.join(patterns[:2])}. "
-        
-        interpretation += "This suggests institutional positioning or hedging activity."
-        
-        return interpretation
+    def _construct_flow_prompt(self, context: Dict[str, Any]) -> str:
+        """Construct prompt for AI flow analysis"""
+        return f"""Analyze the following options flow data and provide insights:
+
+Flow Summary:
+- Total Flows: {context['metrics']['total_flows']}
+- Call/Put Ratio: {context['metrics'].get('put_call_ratio', 0):.2f}
+- Net Premium: ${context['metrics']['net_premium']:,.0f}
+- Average Size: {context['metrics']['avg_size']:.0f} contracts
+
+Unusual Activity:
+- Large Blocks: {context['unusual_count']}
+- Sweeps Detected: {context['sweep_count']}
+- Institutional Flows: {context['institutional_count']}
+
+Detected Patterns:
+{json.dumps(context['patterns'], indent=2)}
+
+Recent Notable Flows:
+{context['notable_flows']}
+
+Market Context:
+- SPY Price: ${context.get('spy_price', 450):.2f}
+- VIX: {context.get('vix', 15):.1f}
+- Trend: {context.get('trend', 'neutral')}
+
+Provide:
+1. Overall flow sentiment (bullish/bearish/neutral)
+2. Smart money positioning assessment
+3. Key observations about institutional activity
+4. Specific actionable trade setups based on flow
+5. Risk levels and position sizing recommendations
+6. Confidence level (0-1) in your analysis
+
+Format as JSON with keys: sentiment, smart_money_confidence, summary, 
+key_observations, trade_setups, risk_assessment, confidence"""
     
     # ==========================================================================
-    # UTILITY METHODS
+    # PRIVATE METHODS - PATTERN DETECTION
     # ==========================================================================
-    
-    def _update_metrics(self, response_time: float, smart_money: bool) -> None:
-        """Update performance metrics."""
-        self.performance_metrics['total_analyses'] += 1
+    def _analyze_accumulation_pattern(self, flows: List[OptionsFlow]) -> Optional[Dict[str, Any]]:
+        """Analyze flows for accumulation/distribution patterns"""
+        if len(flows) < 3:
+            return None
         
-        # Update average response time
-        total = self.performance_metrics['total_analyses']
-        current_avg = self.performance_metrics['avg_response_time']
-        new_avg = ((current_avg * (total - 1)) + response_time) / total
-        self.performance_metrics['avg_response_time'] = new_avg
+        # Calculate net positioning
+        buy_volume = sum(f.quantity for f in flows if f.side == 'buy')
+        sell_volume = sum(f.quantity for f in flows if f.side == 'sell')
+        net_volume = buy_volume - sell_volume
         
-        # Track smart money detection
-        if smart_money:
-            self.performance_metrics['smart_money_detected'] += 1
-    
-    def _get_default_config(self) -> Dict[str, Any]:
-        """Get default configuration."""
+        # Check for consistent direction
+        if abs(net_volume) < 0.6 * (buy_volume + sell_volume):
+            return None  # Not strong enough
+        
+        pattern_type = 'accumulation' if net_volume > 0 else 'distribution'
+        
         return {
-            'llm_model': DEFAULT_LLM_MODEL,
-            'temperature': DEFAULT_TEMPERATURE,
-            'max_tokens': MAX_TOKENS,
-            'thresholds': {
-                'unusual_volume': UNUSUAL_VOLUME_MULTIPLIER,
-                'large_trade': LARGE_TRADE_THRESHOLD,
-                'sweep_window': SWEEP_TIME_WINDOW,
-                'block_min': BLOCK_TRADE_MIN
-            }
+            'type': pattern_type,
+            'symbol': flows[0].symbol,
+            'strike': flows[0].strike,
+            'expiry': flows[0].expiry.isoformat(),
+            'net_volume': net_volume,
+            'flow_count': len(flows),
+            'avg_price': statistics.mean([f.price for f in flows]),
+            'confidence': min(0.9, abs(net_volume) / (buy_volume + sell_volume))
         }
+    
+    def _detect_rolling_patterns(self, flows: List[OptionsFlow]) -> List[Dict[str, Any]]:
+        """Detect option rolling patterns"""
+        patterns = []
+        
+        # Group by symbol
+        symbol_flows = defaultdict(list)
+        for flow in flows:
+            symbol_flows[flow.symbol].append(flow)
+        
+        for symbol, s_flows in symbol_flows.items():
+            # Look for simultaneous buy/sell at different strikes/expiries
+            sells = [f for f in s_flows if f.side == 'sell']
+            buys = [f for f in s_flows if f.side == 'buy']
+            
+            for sell in sells:
+                for buy in buys:
+                    if self._is_roll_candidate(sell, buy):
+                        patterns.append({
+                            'type': 'rolling',
+                            'symbol': symbol,
+                            'from_strike': sell.strike,
+                            'to_strike': buy.strike,
+                            'from_expiry': sell.expiry.isoformat(),
+                            'to_expiry': buy.expiry.isoformat(),
+                            'size': min(sell.quantity, buy.quantity),
+                            'confidence': 0.8
+                        })
+        
+        return patterns
+    
+    def _detect_hedging_patterns(self, flows: List[OptionsFlow]) -> List[Dict[str, Any]]:
+        """Detect hedging patterns in flows"""
+        patterns = []
+        
+        # Look for put buying with call selling (collar)
+        # Or large put purchases (protective puts)
+        put_buys = [f for f in flows if f.option_type == 'put' and f.side == 'buy']
+        
+        for put in put_buys:
+            if put.quantity >= BLOCK_SIZE_THRESHOLD:
+                # Check if it's likely hedging
+                if self._is_hedge_characteristics(put):
+                    patterns.append({
+                        'type': 'hedging',
+                        'symbol': put.symbol,
+                        'strike': put.strike,
+                        'expiry': put.expiry.isoformat(),
+                        'size': put.quantity,
+                        'premium': put.premium,
+                        'hedge_type': 'protective_put',
+                        'confidence': 0.75
+                    })
+        
+        return patterns
+    
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+    def _is_aggressive_positioning(self, flow: OptionsFlow) -> bool:
+        """Check if flow represents aggressive positioning"""
+        # Check for aggressive flow types
+        if flow.flow_type in [FlowType.SWEEP, FlowType.ISO]:
+            return True
+        
+        # Check for far OTM options with high premium
+        moneyness = flow.strike / flow.underlying_price
+        if flow.option_type == 'call' and moneyness > 1.05:  # 5% OTM calls
+            return flow.premium > MIN_PREMIUM_THRESHOLD * 2
+        elif flow.option_type == 'put' and moneyness < 0.95:  # 5% OTM puts
+            return flow.premium > MIN_PREMIUM_THRESHOLD * 2
+        
+        return False
+    
+    def _has_institutional_characteristics(self, flow: OptionsFlow) -> bool:
+        """Check if flow has institutional characteristics"""
+        # Large size
+        if flow.quantity < BLOCK_SIZE_THRESHOLD:
+            return False
+        
+        # Clean execution (round lots)
+        if flow.quantity % 100 != 0:
+            return False
+        
+        # Execution timing (market hours)
+        hour = flow.timestamp.hour
+        if hour < 9 or hour > 16:
+            return False
+        
+        return True
+    
+    def _is_bullish_flow(self, flow: OptionsFlow) -> bool:
+        """Determine if flow is bullish"""
+        if flow.option_type == 'call' and flow.side == 'buy':
+            return True
+        if flow.option_type == 'put' and flow.side == 'sell':
+            return True
+        return False
+    
+    def _is_bearish_flow(self, flow: OptionsFlow) -> bool:
+        """Determine if flow is bearish"""
+        if flow.option_type == 'put' and flow.side == 'buy':
+            return True
+        if flow.option_type == 'call' and flow.side == 'sell':
+            return True
+        return False
+    
+    def _calculate_flow_momentum(self, flows: List[OptionsFlow]) -> float:
+        """Calculate momentum score from recent flows"""
+        if len(flows) < 5:
+            return 0.0
+        
+        # Calculate directional flow over time
+        time_buckets = defaultdict(float)
+        for flow in flows:
+            bucket = flow.timestamp.minute // 5  # 5-minute buckets
+            value = flow.premium if self._is_bullish_flow(flow) else -flow.premium
+            time_buckets[bucket] += value
+        
+        # Calculate momentum as trend in buckets
+        if len(time_buckets) < 2:
+            return 0.0
+        
+        values = list(time_buckets.values())
+        momentum = (values[-1] - values[0]) / (abs(values[0]) + 1)
+        return max(-1, min(1, momentum))  # Normalize to [-1, 1]
+    
+    def _is_roll_candidate(self, sell: OptionsFlow, buy: OptionsFlow) -> bool:
+        """Check if two flows represent a roll"""
+        # Same type
+        if sell.option_type != buy.option_type:
+            return False
+        
+        # Within reasonable time window
+        time_diff = abs((sell.timestamp - buy.timestamp).total_seconds())
+        if time_diff > 60:  # More than 1 minute apart
+            return False
+        
+        # Similar size
+        size_ratio = min(sell.quantity, buy.quantity) / max(sell.quantity, buy.quantity)
+        if size_ratio < 0.8:
+            return False
+        
+        # Different strikes or expiries
+        return sell.strike != buy.strike or sell.expiry != buy.expiry
+    
+    def _is_hedge_characteristics(self, flow: OptionsFlow) -> bool:
+        """Check if flow has hedge characteristics"""
+        # Usually puts for hedging
+        if flow.option_type != 'put':
+            return False
+        
+        # Near the money or slightly OTM
+        moneyness = flow.strike / flow.underlying_price
+        if moneyness < 0.90 or moneyness > 1.00:
+            return False
+        
+        # Reasonable expiry (1-3 months)
+        days_to_expiry = (flow.expiry - flow.timestamp).days
+        if days_to_expiry < 30 or days_to_expiry > 90:
+            return False
+        
+        return True
+    
+    def _prepare_ai_context(
+        self,
+        flows: List[OptionsFlow],
+        flow_metrics: Dict[str, Any],
+        patterns: List[Dict[str, Any]],
+        institutional_flows: List[OptionsFlow],
+        market_conditions: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Prepare context for AI analysis"""
+        # Get notable flows
+        notable_flows = sorted(
+            flows,
+            key=lambda x: x.premium,
+            reverse=True
+        )[:10]
+        
+        notable_flows_str = "\n".join([
+            f"{f.timestamp.strftime('%H:%M')} - {f.symbol} {f.strike} {f.option_type} "
+            f"{f.side} {f.quantity} @ ${f.price:.2f} (${f.premium:,.0f})"
+            for f in notable_flows
+        ])
+        
+        # Count flow types
+        sweep_count = len([f for f in flows if f.flow_type in [FlowType.SWEEP, FlowType.ISO]])
+        unusual_count = len(self._detect_unusual_flows(flows))
+        
+        context = {
+            'metrics': flow_metrics,
+            'patterns': patterns[:5],  # Top 5 patterns
+            'unusual_count': unusual_count,
+            'sweep_count': sweep_count,
+            'institutional_count': len(institutional_flows),
+            'notable_flows': notable_flows_str,
+            'spy_price': market_conditions.get('spy_price', 450) if market_conditions else 450,
+            'vix': market_conditions.get('vix', 15) if market_conditions else 15,
+            'trend': market_conditions.get('trend', 'neutral') if market_conditions else 'neutral'
+        }
+        
+        return context
+    
+    def _parse_flow_ai_response(self, response: str) -> Dict[str, Any]:
+        """Parse AI response for flow analysis"""
+        try:
+            # Try to parse as JSON
+            if '{' in response and '}' in response:
+                json_start = response.find('{')
+                json_end = response.rfind('}') + 1
+                json_str = response[json_start:json_end]
+                return json.loads(json_str)
+        except:
+            pass
+        
+        # Fallback parsing
+        return {
+            'sentiment': 'neutral',
+            'smart_money_confidence': 0.5,
+            'summary': response[:200] if response else 'No analysis available',
+            'confidence': 0.5
+        }
+    
+    def _calculate_ai_sentiment(
+        self,
+        ai_insights: Dict[str, Any],
+        flow_metrics: Dict[str, Any]
+    ) -> Tuple[FlowSentiment, float]:
+        """Calculate sentiment from AI insights and metrics"""
+        # Get AI sentiment
+        ai_sentiment = ai_insights.get('sentiment', 'neutral').lower()
+        
+        # Calculate metric-based sentiment
+        call_premium = flow_metrics.get('call_premium', 0)
+        put_premium = flow_metrics.get('put_premium', 0)
+        
+        if call_premium > put_premium * 1.5:
+            metric_sentiment = 'bullish'
+            sentiment_score = min(1.0, (call_premium - put_premium) / (call_premium + put_premium + 1))
+        elif put_premium > call_premium * 1.5:
+            metric_sentiment = 'bearish'
+            sentiment_score = max(-1.0, (call_premium - put_premium) / (call_premium + put_premium + 1))
+        else:
+            metric_sentiment = 'neutral'
+            sentiment_score = (call_premium - put_premium) / (call_premium + put_premium + 1)
+        
+        # Combine AI and metric sentiment
+        if ai_sentiment == metric_sentiment:
+            final_sentiment = FlowSentiment(ai_sentiment.upper())
+        else:
+            final_sentiment = FlowSentiment.MIXED
+        
+        return final_sentiment, sentiment_score
+    
+    async def _generate_ai_trade_ideas_from_insights(
+        self,
+        ai_insights: Dict[str, Any],
+        flows: List[OptionsFlow],
+        patterns: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Generate trade ideas from AI insights"""
+        trade_setups = ai_insights.get('trade_setups', [])
+        ideas = []
+        
+        if isinstance(trade_setups, list):
+            for setup in trade_setups[:3]:  # Max 3 AI ideas
+                if isinstance(setup, dict):
+                    ideas.append({
+                        'strategy': setup.get('strategy', 'Unknown'),
+                        'strikes': setup.get('strikes', []),
+                        'rationale': setup.get('rationale', ''),
+                        'entry_conditions': setup.get('entry_conditions', []),
+                        'risk_reward': setup.get('risk_reward', {}),
+                        'confidence': setup.get('confidence', 0.5)
+                    })
+        
+        return ideas
+    
+    def _create_rule_based_analysis(
+        self,
+        flows: List[OptionsFlow],
+        flow_metrics: Dict[str, Any],
+        unusual_flows: List[OptionsFlow],
+        institutional_flows: List[OptionsFlow],
+        patterns: List[Dict[str, Any]],
+        momentum: float
+    ) -> FlowAnalysis:
+        """Create rule-based flow analysis"""
+        # Calculate sentiment
+        call_premium = flow_metrics.get('call_premium', 0)
+        put_premium = flow_metrics.get('put_premium', 0)
+        
+        if call_premium > put_premium * 1.5:
+            sentiment = FlowSentiment.BULLISH
+            sentiment_score = 0.7
+        elif put_premium > call_premium * 1.5:
+            sentiment = FlowSentiment.BEARISH
+            sentiment_score = -0.7
+        else:
+            sentiment = FlowSentiment.NEUTRAL
+            sentiment_score = 0.0
+        
+        # Generate summary
+        summary = f"Analyzed {len(flows)} flows with "
+        if unusual_flows:
+            summary += f"{len(unusual_flows)} unusual flows detected. "
+        if institutional_flows:
+            summary += f"{len(institutional_flows)} potential institutional trades. "
+        summary += f"Net premium flow: ${flow_metrics.get('net_premium', 0):,.0f}"
+        
+        return FlowAnalysis(
+            total_flows=len(flows),
+            bullish_flows=len([f for f in flows if self._is_bullish_flow(f)]),
+            bearish_flows=len([f for f in flows if self._is_bearish_flow(f)]),
+            net_premium=flow_metrics.get('net_premium', 0),
+            sentiment=sentiment,
+            sentiment_score=sentiment_score,
+            unusual_flows=unusual_flows,
+            institutional_flows=institutional_flows,
+            detected_patterns=patterns,
+            momentum_score=momentum,
+            smart_money_confidence=0.5,
+            natural_language_summary=summary,
+            trade_ideas=[],
+            confidence=0.6
+        )
+    
+    def _rank_trade_ideas(
+        self,
+        ideas: List[TradeIdea],
+        portfolio_context: Optional[Dict[str, Any]] = None
+    ) -> List[TradeIdea]:
+        """Rank trade ideas by quality and fit"""
+        if not ideas:
+            return []
+        
+        # Score each idea
+        scored_ideas = []
+        for idea in ideas:
+            score = idea.confidence
+            
+            # Adjust for portfolio context
+            if portfolio_context:
+                # Reduce score if similar position exists
+                existing_positions = portfolio_context.get('positions', [])
+                for pos in existing_positions:
+                    if pos.get('symbol') == idea.symbol:
+                        score *= 0.7  # Reduce score for duplicate exposure
+            
+            scored_ideas.append((score, idea))
+        
+        # Sort by score
+        scored_ideas.sort(key=lambda x: x[0], reverse=True)
+        
+        return [idea for score, idea in scored_ideas]
+    
+    def _generate_flow_alerts(self, analysis: FlowAnalysis) -> List[Dict[str, Any]]:
+        """Generate alerts from flow analysis"""
+        alerts = []
+        
+        # Alert for strong directional flow
+        if abs(analysis.sentiment_score) > 0.8:
+            direction = "bullish" if analysis.sentiment_score > 0 else "bearish"
+            alerts.append({
+                'type': 'strong_directional_flow',
+                'message': f"Strong {direction} flow detected",
+                'severity': 'high',
+                'data': {
+                    'sentiment_score': analysis.sentiment_score,
+                    'net_premium': analysis.net_premium
+                }
+            })
+        
+        # Alert for unusual activity
+        if len(analysis.unusual_flows) >= 5:
+            alerts.append({
+                'type': 'unusual_activity',
+                'message': f"{len(analysis.unusual_flows)} unusual flows detected",
+                'severity': 'medium',
+                'data': {
+                    'count': len(analysis.unusual_flows),
+                    'total_premium': sum(f.premium for f in analysis.unusual_flows)
+                }
+            })
+        
+        # Alert for institutional activity
+        if analysis.smart_money_confidence > 0.8:
+            alerts.append({
+                'type': 'smart_money',
+                'message': "High confidence smart money activity detected",
+                'severity': 'high',
+                'data': {
+                    'confidence': analysis.smart_money_confidence,
+                    'institutional_count': len(analysis.institutional_flows)
+                }
+            })
+        
+        return alerts
+    
+    def _update_performance_metrics(self, analysis: FlowAnalysis) -> None:
+        """Update agent performance metrics"""
+        self.performance_metrics['flows_analyzed'] += analysis.total_flows
+        
+        # Update average confidence
+        total_analyses = self.performance_metrics.get('total_analyses', 0) + 1
+        self.performance_metrics['total_analyses'] = total_analyses
+        
+        avg_conf = self.performance_metrics['avg_confidence']
+        self.performance_metrics['avg_confidence'] = (
+            (avg_conf * (total_analyses - 1) + analysis.confidence) / total_analyses
+        )
+        
+        # Track institutional detection
+        if analysis.institutional_flows:
+            self.performance_metrics['institutional_detected'] += len(analysis.institutional_flows)
+    
+    async def _log_shadow_analysis(self, analysis: FlowAnalysis) -> None:
+        """Log analysis for shadow mode comparison"""
+        if hasattr(self, 'migration_monitor'):
+            try:
+                comparison_data = {
+                    'total_flows': analysis.total_flows,
+                    'sentiment': analysis.sentiment.value,
+                    'unusual_count': len(analysis.unusual_flows),
+                    'patterns': len(analysis.detected_patterns),
+                    'confidence': analysis.confidence
+                }
+                
+                # Log to migration monitor
+                await self.migration_monitor.log_ai_analysis(
+                    'FlowAgent',
+                    comparison_data
+                )
+            except Exception as e:
+                self.logger.error(f"Shadow logging failed: {e}")
+    
+    def _create_empty_analysis(self) -> FlowAnalysis:
+        """Create empty analysis result"""
+        return FlowAnalysis(
+            total_flows=0,
+            bullish_flows=0,
+            bearish_flows=0,
+            net_premium=0.0,
+            sentiment=FlowSentiment.NEUTRAL,
+            sentiment_score=0.0,
+            unusual_flows=[],
+            institutional_flows=[],
+            detected_patterns=[],
+            momentum_score=0.0,
+            smart_money_confidence=0.0,
+            natural_language_summary="No flows to analyze",
+            trade_ideas=[],
+            confidence=0.0
+        )
+    
+    def _create_error_analysis(self, error: str) -> FlowAnalysis:
+        """Create error analysis result"""
+        return FlowAnalysis(
+            total_flows=0,
+            bullish_flows=0,
+            bearish_flows=0,
+            net_premium=0.0,
+            sentiment=FlowSentiment.NEUTRAL,
+            sentiment_score=0.0,
+            unusual_flows=[],
+            institutional_flows=[],
+            detected_patterns=[],
+            momentum_score=0.0,
+            smart_money_confidence=0.0,
+            natural_language_summary=f"Analysis error: {error}",
+            trade_ideas=[],
+            confidence=0.0
+        )
+    
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """Get agent performance metrics"""
+        return self.performance_metrics.copy()
 
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-
-def create_flow_agent(config: Optional[Dict[str, Any]] = None) -> SpyderX02_FlowAgent:
+def create_flow_agent(
+    model_name: str = DEFAULT_MODEL,
+    temperature: float = DEFAULT_TEMPERATURE
+) -> SpyderX02_FlowAgent:
     """
-    Factory function to create Flow Agent.
+    Factory function to create Flow Agent instance.
     
     Args:
-        config: Agent configuration
+        model_name: Ollama model to use
+        temperature: Temperature for AI responses
         
     Returns:
-        Configured SpyderX02_FlowAgent instance
+        SpyderX02_FlowAgent instance
     """
-    return SpyderX02_FlowAgent(config)
+    return SpyderX02_FlowAgent(model_name, temperature)
 
-# ==============================================================================
-# MODULE INITIALIZATION
-# ==============================================================================
+# Singleton instance
+_module_instance = None
 
-# Module-level initialization code
-_module_instance: Optional[SpyderX02_FlowAgent] = None
-
-def get_module_instance(config: Optional[Dict[str, Any]] = None) -> SpyderX02_FlowAgent:
-    """
-    Get singleton instance of the module.
-    
-    Args:
-        config: Configuration if creating new instance
-        
-    Returns:
-        Module instance
-    """
+def get_module_instance() -> SpyderX02_FlowAgent:
+    """Get or create singleton instance of the agent."""
     global _module_instance
     if _module_instance is None:
-        _module_instance = SpyderX02_FlowAgent(config)
+        _module_instance = create_flow_agent()
     return _module_instance
-
-# ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
-
-if __name__ == "__main__":
-    # Module testing code
-    import asyncio
-    
-    async def test_agent():
-        """Test the Flow Agent functionality."""
-        print("Testing SpyderX02_FlowAgent...")
-        print("=" * 60)
         
-        # Create agent
-        agent = create_flow_agent()
-        
-        # Create test flow data
-        test_flows = [
-            OptionsFlow(
-                timestamp=datetime.now(),
-                symbol="SPY_240201C550",
-                strike=550.0,
-                expiry=datetime.now() + timedelta(days=10),
-                option_type='call',
-                volume=5000,
-                open_interest=10000,
-                price=2.50,
-                bid_ask_spread=0.05,
-                trade_size=500,  # Large trade
-                exchange="CBOE",
-                is_sweep=True,
-                implied_volatility=0.25,
-                delta=0.45
-            ),
-            OptionsFlow(
-                timestamp=datetime.now() - timedelta(seconds=30),
-                symbol="SPY_240201C550",
-                strike=550.0,
-                expiry=datetime.now() + timedelta(days=10),
-                option_type='call',
-                volume=3000,
-                open_interest=10000,
-                price=2.48,
-                bid_ask_spread=0.05,
-                trade_size=300,
-                exchange="ISE",
-                is_sweep=True,
-                implied_volatility=0.25,
-                delta=0.45
-            ),
-            OptionsFlow(
-                timestamp=datetime.now(),
-                symbol="SPY_240201P540",
-                strike=540.0,
-                expiry=datetime.now() + timedelta(days=10),
-                option_type='put',
-                volume=2000,
-                open_interest=8000,
-                price=1.80,
-                bid_ask_spread=0.04,
-                trade_size=100,
-                exchange="PHLX",
-                is_sweep=False,
-                implied_volatility=0.22,
-                delta=-0.30
-            )
-        ]
-        
-        # Test flow analysis
-        print("\n1. Testing flow analysis...")
-        analysis = await agent.analyze_flow(test_flows, {'vix': 15, 'trend': 'bullish'})
-        
-        print(f"\nSentiment: {analysis.sentiment.value}")
-        print(f"Significance: {analysis.significance.value}")
-        print(f"Smart Money: {'Detected' if analysis.smart_money_detected else 'Not detected'}")
-        print(f"Key Levels: {analysis.key_levels}")
-        print(f"\nInterpretation:\n{analysis.interpretation}")
-        
-        print(f"\nTrade Ideas:")
-        for i, idea in enumerate(analysis.trade_ideas, 1):
-            print(f"  {i}. {idea}")
-        
-        # Test sweep analysis
-        print("\n2. Testing sweep analysis...")
-        sweep_analysis = await agent.analyze_sweep_activity(test_flows)
-        print(f"Sweep Activity: {sweep_analysis}")
-        
-        # Test institutional detection
-        print("\n3. Testing institutional detection...")
-        inst_analysis = await agent.detect_institutional_activity(test_flows)
-        print(f"Institutional Activity: {inst_analysis}")
-        
-        # Show performance metrics
-        print("\n4. Performance Metrics:")
-        metrics = agent.get_performance_metrics()
-        for key, value in metrics.items():
-            print(f"  {key}: {value}")
-        
-        print("\n" + "=" * 60)
-        print("Test completed successfully!")
-    
-    # Run the test
-    asyncio.run(test_agent())

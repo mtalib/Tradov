@@ -15,1026 +15,679 @@ Description:
     while limiting risk through the protective long put.
 
 Author: Mohamed Talib
-Date: 2025-01-27
-Version: 1.4
+Date: 2025-01-10
+Version: 2.0 (Production-Ready)
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import json
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta, time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, auto
 import uuid
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
 import pandas as pd
+import numpy as np
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
-from SpyderC_MarketData.SpyderC04_MarketInternals import MarketInternals
-from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
-from SpyderE_Risk.SpyderE02_PositionSizer import get_position_sizer
+from SpyderD_Strategies.SpyderD03_CreditSpread import (
+    CreditSpreadStrategy, CreditSpread, SpreadType, SpreadState,
+    MarketCondition, OptionLeg
+)
+from SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    TradingSignal, SignalType, SignalStrength,
+    EventManager, RiskProfile, Event, EventType
+)
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from SpyderU_Utilities.SpyderU07_Constants import (
     BULL_PUT_SPREAD_PROFIT_TARGET,
-    BULL_PUT_SPREAD_STOP_LOSS,
-    MIN_IVR_FOR_SPREADS,
-    MAX_SPREAD_WIDTH,
-    MIN_CREDIT_RATIO,
     OPTIMAL_ENTRY_START,
     OPTIMAL_ENTRY_END,
-    TIME_BASED_EXIT
+    SPY_CONTRACT_MULTIPLIER
 )
-from SpyderU_Utilities.SpyderU11_FeatureFlags import get_feature_flags
-from SpyderB_Broker.SpyderB01_SpyderClient import get_ib_client
-from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
-from SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
+from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
-from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-from SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters
-from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-STRATEGY_NAME = "BullPutSpread"
-DEFAULT_DELTA_SHORT = -0.30  # Short put delta
-DEFAULT_DELTA_LONG = -0.20   # Long put delta
-MIN_DAYS_TO_EXPIRY = 0       # Allow 0DTE
-MAX_DAYS_TO_EXPIRY = 7       # Max 7 DTE
-MIN_PREMIUM_COLLECTED = 0.50  # Minimum $0.50 credit per spread
-MAX_CONTRACTS = 10           # Maximum contracts per trade
+# Bull put spread specific parameters
+MIN_TREND_STRENGTH = 0.3  # Minimum bullish trend strength
+MAX_RSI = 70  # Maximum RSI (avoid overbought)
+MIN_RSI = 30  # Minimum RSI (prefer oversold bounce)
+MIN_VOLUME_RATIO = 1.0  # Minimum volume vs average
 
-# Bull market indicators
-BULL_TREND_MA_DAYS = 10     # Moving average period
-BULL_RSI_THRESHOLD = 40      # RSI above this for bull signal
-BULL_VWAP_TOLERANCE = 0.002  # Price above VWAP - 0.2%
+# Strike selection
+SHORT_PUT_DELTA_TARGET = -0.25  # Target delta for short put
+LONG_PUT_DELTA_TARGET = -0.10   # Target delta for long put
+PREFERRED_SPREAD_WIDTH = 5.0    # Preferred $5 wide spreads
+MAX_SPREAD_WIDTH = 10.0        # Maximum spread width
 
-# Position management
-MAX_POSITIONS = 5            # Maximum concurrent positions
-ADJUSTMENT_THRESHOLD = 0.80  # Adjust if short strike touched
-MIN_PROFIT_TO_CLOSE = 0.10  # Close if 10% profit available
+# Entry filters
+MIN_SUPPORT_DISTANCE = 0.01   # Minimum 1% above support
+MAX_VOLATILITY_RANK = 70      # Maximum IV rank
+PREFERRED_DTE = 30            # Preferred days to expiry
+
+# Risk management
+MAX_PORTFOLIO_DELTA = -100    # Maximum negative delta exposure
+PROFIT_TARGET = 0.35          # 35% of max profit
+STOP_LOSS = 2.0              # 200% of credit received
+DELTA_HEDGE_THRESHOLD = -30  # Delta threshold for hedging
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
-class MarketRegime(Enum):
-    """Market regime classification for strategy selection."""
-    STRONG_BULL = "strong_bull"
-    BULL = "bull"
-    NEUTRAL = "neutral"
-    BEAR = "bear"
-    STRONG_BEAR = "strong_bear"
+class BullishSignalType(Enum):
+    """Types of bullish signals"""
+    OVERSOLD_BOUNCE = auto()
+    TREND_CONTINUATION = auto()
+    SUPPORT_BOUNCE = auto()
+    VOLATILITY_CRUSH = auto()
+    BREAKOUT = auto()
 
-class SpreadState(Enum):
-    """Bull put spread position state"""
-    PENDING = "pending"
-    ACTIVE = "active"
-    ADJUSTING = "adjusting"
-    CLOSING = "closing"
-    CLOSED = "closed"
+class TrendStrength(Enum):
+    """Bullish trend strength classification"""
+    WEAK = auto()
+    MODERATE = auto()
+    STRONG = auto()
+    VERY_STRONG = auto()
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class BullPutSpreadSignal:
-    """Signal data for bull put spread entry."""
-    signal_id: str
-    timestamp: datetime
-    underlying_price: float
-    short_strike: float
-    long_strike: float
-    expiration: str
-    credit_received: float
-    spread_width: float
-    probability_profit: float
-    implied_volatility: float
-    delta_short: float
-    delta_long: float
-    contracts: int
-    max_profit: float
-    max_loss: float
-    breakeven: float
-    score: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+class BullishAnalysis:
+    """Bullish market analysis"""
+    trend_strength: TrendStrength
+    trend_score: float
+    support_levels: List[float]
+    nearest_support: float
+    distance_to_support: float
+    rsi: float
+    volume_ratio: float
+    momentum: float
+    bullish_signals: List[BullishSignalType]
+    confidence: float
+    entry_score: float
 
 @dataclass
-class BullPutSpreadPosition:
-    """Active bull put spread position"""
-    position_id: str
-    signal: BullPutSpreadSignal
-    entry_time: datetime
-    state: SpreadState = SpreadState.PENDING
+class DeltaHedge:
+    """Delta hedge information"""
+    hedge_id: str
+    parent_position_id: str
+    hedge_type: str  # 'long_call', 'long_stock'
+    quantity: int
+    entry_price: float
+    current_delta: float
+    target_delta: float
+    cost: float
     current_value: float = 0.0
     pnl: float = 0.0
-    days_held: int = 0
-    order_ids: Dict[str, int] = field(default_factory=dict)
 
 # ==============================================================================
-# BULL PUT SPREAD STRATEGY
+# BULL PUT SPREAD STRATEGY CLASS
 # ==============================================================================
-class BullPutSpreadStrategy(BaseStrategy):
+class BullPutSpreadStrategy(CreditSpreadStrategy):
     """
     Bull put spread strategy implementation.
     
-    This strategy sells out-of-the-money put spreads when:
-    - Market shows bullish characteristics
-    - Volatility regime is favorable
-    - Entry timing is optimal (10:15-11:40 AM)
-    - Risk/reward meets minimum thresholds
+    Specializes the credit spread base class for bullish directional trades
+    using put spreads with enhanced trend analysis and delta hedging.
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize bull put spread strategy."""
-        super().__init__(STRATEGY_NAME, config)
+    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+                 config: Dict[str, Any]):
+        """Initialize bull put spread strategy"""
+        # Override config for bull puts only
+        config['use_bull_puts'] = True
+        config['use_bear_calls'] = False
         
-        # Initialize components
-        self.logger = SpyderLogger.get_logger(__name__)
-        self.error_handler = SpyderErrorHandler()
-        self.event_manager = get_event_manager()
-        self.ib_client = get_ib_client()
+        super().__init__(event_manager, risk_profile, config)
         
-        # Strategy configuration
-        self.delta_short = config.get('delta_short', DEFAULT_DELTA_SHORT)
-        self.delta_long = config.get('delta_long', DEFAULT_DELTA_LONG)
-        self.min_credit_ratio = config.get('min_credit_ratio', MIN_CREDIT_RATIO)
-        self.profit_target = config.get('profit_target', BULL_PUT_SPREAD_PROFIT_TARGET)
-        self.stop_loss = config.get('stop_loss', BULL_PUT_SPREAD_STOP_LOSS)
-        self.max_positions = config.get('max_positions', MAX_POSITIONS)
+        # Update strategy name
+        self.name = "BullPutSpread"
         
-        # Risk management
-        self.risk_manager = get_risk_manager()
-        self.position_sizer = get_position_sizer()
-        
-        # Market analysis
-        self.market_internals = MarketInternals()
-        self.indicators = TechnicalIndicators()
+        # Additional components
         self.trend_detector = TrendDetector()
-        self.vol_analyzer = VolatilityRegimeAnalyzer()
-        self.entry_filters = EntryFilters()
-        self.option_chain_manager = OptionChainManager()
+        self.greeks_calculator = GreeksCalculator()
         
-        # Feature flags
-        self.feature_flags = get_feature_flags()
+        # Bull put specific configuration
+        self.min_trend_strength = config.get('min_trend_strength', MIN_TREND_STRENGTH)
+        self.profit_target = config.get('profit_target', PROFIT_TARGET)
+        self.stop_loss = config.get('stop_loss', STOP_LOSS)
+        self.enable_delta_hedging = config.get('enable_delta_hedging', True)
+        
+        # Delta hedging tracking
+        self.active_hedges: Dict[str, DeltaHedge] = {}
+        self.portfolio_delta = 0.0
+        
+        # Enhanced bullish analysis
+        self.bullish_analysis: Optional[BullishAnalysis] = None
         
         # Performance tracking
-        self.trades_today = 0
-        self.daily_pnl = 0.0
-        self.open_positions: Dict[str, BullPutSpreadPosition] = {}
-        self.win_count = 0
-        self.loss_count = 0
+        self.bull_put_metrics = {
+            'total_spreads': 0,
+            'winning_spreads': 0,
+            'avg_credit': 0.0,
+            'avg_days_held': 0.0,
+            'support_bounces': 0,
+            'trend_trades': 0,
+            'hedged_positions': 0,
+            'total_hedge_cost': 0.0
+        }
         
-        self.logger.info(f"Bull put spread strategy initialized with delta {self.delta_short}/{self.delta_long}")
+        self.logger.info("BullPutSpreadStrategy initialized with enhanced bullish analysis")
     
-    def analyze_market_regime(self, market_data: Dict[str, Any]) -> MarketRegime:
-        """
-        Analyze current market regime for bull put spread suitability.
+    # ==========================================================================
+    # OVERRIDDEN METHODS
+    # ==========================================================================
+    
+    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Generate bull put spread signals with enhanced analysis"""
+        signals = []
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            MarketRegime classification
-        """
         try:
-            price = market_data.get('last_price', 0)
+            # Perform bullish analysis
+            self._analyze_bullish_conditions(market_data)
             
-            # Get technical indicators
-            sma_10 = market_data.get('sma_10', price)
-            sma_20 = market_data.get('sma_20', price)
-            rsi = market_data.get('rsi', 50)
-            vwap = market_data.get('vwap', price)
+            # Check if we should open bull puts
+            if not self._should_open_bull_put_enhanced():
+                return signals
             
-            # Bull market scoring
-            bull_score = 0
+            # Call parent method to check basic conditions
+            parent_signals = super().generate_signals(market_data)
             
-            # Price above moving averages
-            if price > sma_10:
-                bull_score += 2
-            if price > sma_20:
-                bull_score += 1
+            # Filter and enhance signals
+            for signal in parent_signals:
+                if self._validate_bullish_signal(signal):
+                    enhanced_signal = self._enhance_bull_put_signal(signal)
+                    if enhanced_signal:
+                        signals.append(enhanced_signal)
             
-            # RSI not oversold
-            if rsi > BULL_RSI_THRESHOLD:
-                bull_score += 2
-            if rsi > 60:
-                bull_score += 1
+            # Check for delta hedging needs
+            self._check_delta_hedging_needs()
             
-            # Price near or above VWAP
-            vwap_diff = (price - vwap) / vwap
-            if vwap_diff > -BULL_VWAP_TOLERANCE:
-                bull_score += 2
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'generate_signals',
+                'market_data_shape': market_data.shape
+            })
+        
+        return signals
+    
+    def should_exit_position(self, position: StrategyPosition,
+                           market_data: pd.DataFrame) -> Tuple[bool, str]:
+        """Enhanced exit logic for bull puts"""
+        try:
+            # First check parent exit conditions
+            should_exit, reason = super().should_exit_position(position, market_data)
+            if should_exit:
+                return should_exit, reason
             
-            # Trend strength
-            trend_strength = (sma_10 - sma_20) / sma_20
-            if trend_strength > 0.002:  # 0.2% above
-                bull_score += 2
+            # Get spread position
+            spread = self.active_spreads.get(position.position_id)
+            if not spread:
+                return False, ""
             
-            # Market internals
-            internals = self.market_internals.get_current_snapshot()
-            if internals and internals.nyse_tick > 0:
-                bull_score += 1
+            # Check if trend has reversed
+            if self.bullish_analysis and self.bullish_analysis.trend_strength == TrendStrength.WEAK:
+                if self.bullish_analysis.trend_score < 0:
+                    return True, "Trend reversal detected"
             
-            # Classify regime
-            if bull_score >= 8:
-                return MarketRegime.STRONG_BULL
-            elif bull_score >= 6:
-                return MarketRegime.BULL
-            elif bull_score >= 4:
-                return MarketRegime.NEUTRAL
-            elif bull_score >= 2:
-                return MarketRegime.BEAR
+            # Check if support has been broken
+            current_price = market_data['close'].iloc[-1]
+            if self.bullish_analysis and self.bullish_analysis.nearest_support > 0:
+                if current_price < self.bullish_analysis.nearest_support * 0.99:
+                    return True, "Support level broken"
+            
+            # Check delta exposure
+            if spread.net_delta < -50:  # Too negative
+                return True, "Delta exposure too high"
+            
+            # Check profit target (tighter for bull puts)
+            profit_pct = spread.profit_percentage
+            if profit_pct >= self.profit_target:
+                return True, f"Profit target reached: {profit_pct:.1%}"
+            
+            return False, ""
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'should_exit_position',
+                'position_id': position.position_id
+            })
+            return False, ""
+    
+    # ==========================================================================
+    # BULLISH ANALYSIS METHODS
+    # ==========================================================================
+    
+    def _analyze_bullish_conditions(self, market_data: pd.DataFrame) -> None:
+        """Perform comprehensive bullish market analysis"""
+        try:
+            close_prices = market_data['close']
+            current_price = close_prices.iloc[-1]
+            
+            # Trend analysis
+            trend_data = self.trend_detector.detect_trend(market_data)
+            trend_score = trend_data.get('strength', 0)
+            
+            # Classify trend strength
+            if trend_score >= 0.7:
+                trend_strength = TrendStrength.VERY_STRONG
+            elif trend_score >= 0.5:
+                trend_strength = TrendStrength.STRONG
+            elif trend_score >= 0.3:
+                trend_strength = TrendStrength.MODERATE
             else:
-                return MarketRegime.STRONG_BEAR
-                
+                trend_strength = TrendStrength.WEAK
+            
+            # Get support levels from parent
+            support_levels = self.support_resistance.get('support', [])
+            nearest_support = support_levels[0] if support_levels else current_price * 0.97
+            distance_to_support = (current_price - nearest_support) / current_price
+            
+            # Technical indicators
+            rsi = self.tech_indicators.calculate_rsi(close_prices, 14).iloc[-1]
+            
+            # Volume analysis
+            volume = market_data['volume']
+            avg_volume = volume.rolling(20).mean().iloc[-1]
+            current_volume = volume.iloc[-1]
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+            
+            # Momentum
+            momentum = close_prices.pct_change(10).iloc[-1]  # 10-period momentum
+            
+            # Identify bullish signals
+            bullish_signals = []
+            
+            if rsi < 35:
+                bullish_signals.append(BullishSignalType.OVERSOLD_BOUNCE)
+            
+            if trend_score > 0.5 and momentum > 0:
+                bullish_signals.append(BullishSignalType.TREND_CONTINUATION)
+            
+            if distance_to_support < 0.02:  # Within 2% of support
+                bullish_signals.append(BullishSignalType.SUPPORT_BOUNCE)
+            
+            if self.volatility_rank < 30:  # IV coming down
+                bullish_signals.append(BullishSignalType.VOLATILITY_CRUSH)
+            
+            if close_prices.iloc[-1] > close_prices.rolling(20).max().iloc[-2]:
+                bullish_signals.append(BullishSignalType.BREAKOUT)
+            
+            # Calculate confidence
+            confidence = 0.5  # Base confidence
+            confidence += len(bullish_signals) * 0.1
+            confidence += min(0.2, trend_score * 0.3)
+            confidence = min(0.95, confidence)
+            
+            # Calculate entry score
+            entry_score = 0
+            entry_score += trend_score * 30
+            entry_score += (1 - abs(rsi - 50) / 50) * 20  # RSI not extreme
+            entry_score += min(20, distance_to_support * 1000)  # Distance from support
+            entry_score += min(20, volume_ratio * 10)  # Volume confirmation
+            entry_score += len(bullish_signals) * 10
+            
+            # Create analysis object
+            self.bullish_analysis = BullishAnalysis(
+                trend_strength=trend_strength,
+                trend_score=trend_score,
+                support_levels=support_levels,
+                nearest_support=nearest_support,
+                distance_to_support=distance_to_support,
+                rsi=rsi,
+                volume_ratio=volume_ratio,
+                momentum=momentum,
+                bullish_signals=bullish_signals,
+                confidence=confidence,
+                entry_score=entry_score
+            )
+            
         except Exception as e:
-            self.logger.error(f"Error analyzing market regime: {e}")
-            return MarketRegime.NEUTRAL
+            self.error_handler.handle_error(e, {'method': '_analyze_bullish_conditions'})
     
-    def find_optimal_strikes(self, 
-                           options_chain: pd.DataFrame,
-                           underlying_price: float,
-                           expiration: str) -> Optional[Tuple[float, float]]:
-        """
-        Find optimal strike prices for bull put spread.
-        
-        Args:
-            options_chain: Available options
-            underlying_price: Current SPY price
-            expiration: Target expiration
-            
-        Returns:
-            Tuple of (short_strike, long_strike) or None
-        """
-        try:
-            # Filter for puts at target expiration
-            puts = options_chain[
-                (options_chain['type'] == 'PUT') &
-                (options_chain['expiration'] == expiration) &
-                (options_chain['strike'] < underlying_price)
-            ].sort_values('strike', ascending=False)
-            
-            if len(puts) < 2:
-                return None
-            
-            # Find strikes near target deltas
-            short_strike = None
-            long_strike = None
-            
-            for _, option in puts.iterrows():
-                delta = option.get('delta', 0)
-                
-                # Find short strike near target delta
-                if short_strike is None and abs(delta - self.delta_short) < 0.05:
-                    short_strike = option['strike']
-                
-                # Find long strike near target delta
-                elif short_strike and abs(delta - self.delta_long) < 0.05:
-                    long_strike = option['strike']
-                    break
-            
-            if not short_strike or not long_strike:
-                return None
-            
-            # Validate spread width
-            spread_width = short_strike - long_strike
-            if spread_width > MAX_SPREAD_WIDTH or spread_width < 1:
-                return None
-            
-            # Check liquidity
-            short_liquidity = self._check_option_liquidity(puts, short_strike)
-            long_liquidity = self._check_option_liquidity(puts, long_strike)
-            
-            if not (short_liquidity and long_liquidity):
-                return None
-            
-            return (short_strike, long_strike)
-            
-        except Exception as e:
-            self.logger.error(f"Error finding optimal strikes: {e}")
-            return None
-    
-    def _check_option_liquidity(self, options: pd.DataFrame, strike: float) -> bool:
-        """Check if option has sufficient liquidity"""
-        option = options[options['strike'] == strike]
-        if option.empty:
+    def _should_open_bull_put_enhanced(self) -> bool:
+        """Enhanced check for bull put entry conditions"""
+        if not self.bullish_analysis:
             return False
         
-        volume = option['volume'].iloc[0]
-        open_interest = option['open_interest'].iloc[0]
-        bid_ask_spread = option['ask'].iloc[0] - option['bid'].iloc[0]
+        # Check trend strength
+        if self.bullish_analysis.trend_score < self.min_trend_strength:
+            self.logger.debug(f"Trend too weak: {self.bullish_analysis.trend_score:.2f}")
+            return False
         
-        return (volume >= 100 and 
-                open_interest >= 500 and 
-                bid_ask_spread <= 0.10)
+        # Check RSI not overbought
+        if self.bullish_analysis.rsi > MAX_RSI:
+            self.logger.debug(f"RSI overbought: {self.bullish_analysis.rsi:.0f}")
+            return False
+        
+        # Check volume confirmation
+        if self.bullish_analysis.volume_ratio < MIN_VOLUME_RATIO:
+            self.logger.debug(f"Insufficient volume: {self.bullish_analysis.volume_ratio:.2f}")
+            return False
+        
+        # Check distance from support
+        if self.bullish_analysis.distance_to_support < MIN_SUPPORT_DISTANCE:
+            self.logger.debug("Too close to support level")
+            return False
+        
+        # Check volatility rank
+        if self.volatility_rank > MAX_VOLATILITY_RANK:
+            self.logger.debug(f"IV rank too high: {self.volatility_rank:.0f}")
+            return False
+        
+        # Need at least one bullish signal
+        if not self.bullish_analysis.bullish_signals:
+            self.logger.debug("No bullish signals detected")
+            return False
+        
+        # Check entry score
+        if self.bullish_analysis.entry_score < 40:
+            self.logger.debug(f"Entry score too low: {self.bullish_analysis.entry_score:.0f}")
+            return False
+        
+        return True
     
-    def calculate_spread_metrics(self,
-                               short_strike: float,
-                               long_strike: float,
-                               credit: float,
-                               contracts: int = 1) -> Dict[str, float]:
-        """
-        Calculate key metrics for bull put spread.
+    def _validate_bullish_signal(self, signal: TradingSignal) -> bool:
+        """Validate signal is appropriate for bull put spread"""
+        spread_data = signal.metadata.get('spread_data', {})
         
-        Args:
-            short_strike: Short put strike price
-            long_strike: Long put strike price
-            credit: Net credit received
-            contracts: Number of contracts
-            
-        Returns:
-            Dict with spread metrics
-        """
-        spread_width = short_strike - long_strike
+        # Ensure it's a bull put spread
+        if spread_data.get('spread_type') != SpreadType.BULL_PUT:
+            return False
         
-        # Calculate P&L metrics
-        max_profit = credit * contracts * 100
-        max_loss = (spread_width - credit) * contracts * 100
-        breakeven = short_strike - credit
+        # Additional bullish validation
+        if self.bullish_analysis:
+            if self.bullish_analysis.confidence < 0.6:
+                return False
         
-        # Risk/reward ratios
-        risk_reward_ratio = max_loss / max_profit if max_profit > 0 else float('inf')
-        credit_ratio = credit / spread_width if spread_width > 0 else 0
-        
-        # Probability calculations (simplified)
-        # In production, use proper options math
-        probability_profit = 0.65  # Placeholder
-        
-        return {
-            'max_profit': max_profit,
-            'max_loss': max_loss,
-            'breakeven': breakeven,
-            'risk_reward_ratio': risk_reward_ratio,
-            'credit_ratio': credit_ratio,
-            'probability_profit': probability_profit,
-            'spread_width': spread_width
-        }
+        return True
     
-    def generate_entry_signal(self, market_data: Dict[str, Any]) -> Optional[BullPutSpreadSignal]:
-        """
-        Generate entry signal for bull put spread.
-        
-        Args:
-            market_data: Current market data including options chain
-            
-        Returns:
-            BullPutSpreadSignal if conditions met, None otherwise
-        """
+    def _enhance_bull_put_signal(self, signal: TradingSignal) -> Optional[TradingSignal]:
+        """Enhance signal with bull put specific data"""
         try:
-            # Check if strategy is enabled
-            if not self.feature_flags.is_enabled('directional_spreads'):
-                return None
-            
-            # Check maximum positions
-            if len(self.open_positions) >= self.max_positions:
-                return None
-            
-            # Check optimal entry window
-            if not DateTimeUtils.is_within_time_range(OPTIMAL_ENTRY_START, OPTIMAL_ENTRY_END):
-                self.logger.debug("Outside optimal entry window for bull put spread")
-                return None
-            
-            # Analyze market regime
-            regime = self.analyze_market_regime(market_data)
-            if regime not in [MarketRegime.BULL, MarketRegime.STRONG_BULL]:
-                self.logger.debug(f"Market regime {regime.value} not suitable for bull put spread")
-                return None
-            
-            # Run entry filters
-            filter_results = self.entry_filters.check_all_filters(
-                symbol='SPY',
-                strategy='BullPutSpread',
-                market_data=market_data
-            )
-            
-            if not filter_results['passed']:
-                self.logger.debug(f"Entry filters failed: {filter_results['failed_filters']}")
-                return None
-            
-            # Check volatility conditions
-            vol_regime = self.vol_analyzer.analyze_regime(market_data)
-            iv_rank = vol_regime.get('iv_rank', 0)
-            
-            if iv_rank < MIN_IVR_FOR_SPREADS:
-                self.logger.debug(f"IV rank {iv_rank} too low for spread entry")
-                return None
-            
-            # Get options chain
-            options_chain = self.option_chain_manager.get_options_data('SPY')
-            if options_chain is None or options_chain.empty:
-                return None
-            
-            underlying_price = market_data.get('last_price', 0)
-            
-            # Find best expiration (prefer 2-5 DTE)
-            best_signal = None
-            best_score = 0
-            
-            expirations = options_chain['expiration'].unique()
-            for expiry in expirations:
-                dte = self._calculate_dte(expiry)
-                
-                if dte < MIN_DAYS_TO_EXPIRY or dte > MAX_DAYS_TO_EXPIRY:
-                    continue
-                
-                # Find strikes
-                strikes = self.find_optimal_strikes(options_chain, underlying_price, expiry)
-                if not strikes:
-                    continue
-                
-                short_strike, long_strike = strikes
-                
-                # Get option prices
-                short_put = options_chain[
-                    (options_chain['strike'] == short_strike) &
-                    (options_chain['expiration'] == expiry) &
-                    (options_chain['type'] == 'PUT')
-                ].iloc[0]
-                
-                long_put = options_chain[
-                    (options_chain['strike'] == long_strike) &
-                    (options_chain['expiration'] == expiry) &
-                    (options_chain['type'] == 'PUT')
-                ].iloc[0]
-                
-                # Calculate net credit
-                credit = short_put['bid'] - long_put['ask']
-                
-                if credit < MIN_PREMIUM_COLLECTED:
-                    continue
-                
-                # Calculate metrics
-                metrics = self.calculate_spread_metrics(short_strike, long_strike, credit)
-                
-                # Check credit ratio
-                if metrics['credit_ratio'] < self.min_credit_ratio:
-                    continue
-                
-                # Score this opportunity
-                score = self._score_spread_opportunity(market_data, metrics, regime, dte, vol_regime)
-                
-                if score > best_score:
-                    # Determine position size
-                    position_size = self._calculate_position_size(metrics['max_loss'])
-                    
-                    contracts = min(position_size, MAX_CONTRACTS)
-                    
-                    if contracts > 0:
-                        signal_id = f"BPS_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-                        
-                        best_signal = BullPutSpreadSignal(
-                            signal_id=signal_id,
-                            timestamp=datetime.now(),
-                            underlying_price=underlying_price,
-                            short_strike=short_strike,
-                            long_strike=long_strike,
-                            expiration=expiry,
-                            credit_received=credit,
-                            spread_width=short_strike - long_strike,
-                            probability_profit=metrics['probability_profit'],
-                            implied_volatility=short_put.get('implied_volatility', 0),
-                            delta_short=short_put.get('delta', self.delta_short),
-                            delta_long=long_put.get('delta', self.delta_long),
-                            contracts=contracts,
-                            max_profit=metrics['max_profit'] * contracts,
-                            max_loss=metrics['max_loss'] * contracts,
-                            breakeven=metrics['breakeven'],
-                            score=score,
-                            metadata={
-                                'regime': regime.value,
-                                'iv_rank': iv_rank,
-                                'credit_ratio': metrics['credit_ratio'],
-                                'dte': dte,
-                                'filter_results': filter_results
-                            }
-                        )
-                        best_score = score
-            
-            if best_signal:
-                self.logger.info(
-                    f"Bull put spread signal: {best_signal.short_strike}/{best_signal.long_strike} "
-                    f"for ${best_signal.credit_received:.2f} credit, score: {best_signal.score:.1f}"
-                )
-            
-            return best_signal
-            
-        except Exception as e:
-            self.logger.error(f"Error generating bull put spread signal: {e}")
-            self.error_handler.handle_error(e)
-            return None
-    
-    def _calculate_dte(self, expiration: str) -> int:
-        """Calculate days to expiration"""
-        exp_date = datetime.strptime(expiration, "%Y%m%d")
-        return (exp_date.date() - datetime.now().date()).days
-    
-    def _score_spread_opportunity(self,
-                                market_data: Dict[str, Any],
-                                metrics: Dict[str, float],
-                                regime: MarketRegime,
-                                dte: int,
-                                vol_regime: Dict) -> float:
-        """
-        Score a spread opportunity (0-100).
-        
-        Args:
-            market_data: Current market data
-            metrics: Spread metrics
-            regime: Current market regime
-            dte: Days to expiration
-            vol_regime: Volatility regime data
-            
-        Returns:
-            float: Score 0-100
-        """
-        score = 50.0  # Base score
-        
-        # Market regime bonus
-        if regime == MarketRegime.STRONG_BULL:
-            score += 15
-        elif regime == MarketRegime.BULL:
-            score += 10
-        
-        # Credit ratio bonus
-        credit_ratio = metrics['credit_ratio']
-        if credit_ratio > 0.35:
-            score += 15
-        elif credit_ratio > 0.30:
-            score += 10
-        elif credit_ratio > 0.25:
-            score += 5
-        
-        # Probability of profit bonus
-        if metrics['probability_profit'] > 0.70:
-            score += 10
-        elif metrics['probability_profit'] > 0.65:
-            score += 5
-        
-        # IV rank bonus
-        iv_rank = vol_regime.get('iv_rank', 50)
-        if iv_rank > 70:
-            score += 10
-        elif iv_rank > 50:
-            score += 5
-        
-        # DTE preference (2-5 days optimal)
-        if 2 <= dte <= 5:
-            score += 10
-        elif dte == 1:
-            score += 5
-        
-        # Time of day bonus (closer to 10:15 is better)
-        current_time = datetime.now().time()
-        if time(10, 15) <= current_time <= time(10, 45):
-            score += 10
-        elif time(10, 45) <= current_time <= time(11, 15):
-            score += 5
-        
-        # Risk/reward penalty
-        if metrics['risk_reward_ratio'] > 3:
-            score -= 10
-        elif metrics['risk_reward_ratio'] > 2:
-            score -= 5
-        
-        # Trend confirmation
-        trend_data = self.trend_detector.analyze_trend(market_data)
-        if trend_data.get('trend_direction') == 'up':
-            score += 5
-        
-        return max(0, min(100, score))
-    
-    def _calculate_position_size(self, max_loss_per_contract: float) -> int:
-        """Calculate position size based on risk management"""
-        max_risk = self.risk_manager.get_max_position_risk()
-        
-        # Position size based on max loss
-        contracts = int(max_risk / max_loss_per_contract)
-        
-        # Apply position sizing rules
-        size_params = {
-            'strategy': 'BullPutSpread',
-            'max_loss': max_loss_per_contract,
-            'confidence': 0.7
-        }
-        
-        recommended_size = self.position_sizer.calculate_position_size(size_params)
-        
-        return min(contracts, recommended_size, MAX_CONTRACTS)
-    
-    def should_exit_position(self,
-                           position: BullPutSpreadPosition,
-                           market_data: Dict[str, Any]) -> Tuple[bool, str]:
-        """
-        Check if position should be exited.
-        
-        Args:
-            position: Current position
-            market_data: Current market data
-            
-        Returns:
-            Tuple of (should_exit, reason)
-        """
-        try:
-            signal = position.signal
-            
-            # Time-based exit at 12:00 PM
-            if DateTimeUtils.get_current_time() >= TIME_BASED_EXIT:
-                return True, "time_based_exit"
-            
-            # Get current spread value
-            current_value = self._get_spread_value(position, market_data)
-            entry_credit = signal.credit_received
-            
-            # Calculate P&L
-            pnl = entry_credit - current_value
-            pnl_percent = pnl / entry_credit if entry_credit > 0 else 0
-            
-            # Profit target hit
-            if pnl_percent >= self.profit_target:
-                return True, f"profit_target_hit_{pnl_percent:.1%}"
-            
-            # Stop loss hit
-            if pnl_percent <= -self.stop_loss:
-                return True, f"stop_loss_hit_{pnl_percent:.1%}"
-            
-            # Check if spread is threatened
-            underlying_price = market_data.get('last_price', 0)
-            
-            # Exit if underlying approaches short strike
-            if underlying_price <= signal.short_strike * 1.02:  # Within 2% of short strike
-                return True, "defensive_exit_strike_threatened"
-            
-            # DTE-based management
-            dte = self._calculate_dte(signal.expiration)
-            if dte == 0 and pnl_percent > MIN_PROFIT_TO_CLOSE:  # Take small profit on expiration day
-                return True, "expiration_day_profit"
-            
-            # Market regime change
-            current_regime = self.analyze_market_regime(market_data)
-            if current_regime in [MarketRegime.BEAR, MarketRegime.STRONG_BEAR]:
-                return True, "market_regime_bearish"
-            
-            return False, ""
-            
-        except Exception as e:
-            self.logger.error(f"Error checking exit conditions: {e}")
-            return False, ""
-    
-    def _get_spread_value(self,
-                        position: BullPutSpreadPosition,
-                        market_data: Dict[str, Any]) -> float:
-        """Calculate current value of spread position"""
-        try:
-            signal = position.signal
-            options_chain = self.option_chain_manager.get_options_data('SPY')
-            
-            if options_chain is None:
-                return signal.credit_received  # Return entry value if no data
-            
-            # Get current prices for the spread
-            short_put = options_chain[
-                (options_chain['strike'] == signal.short_strike) &
-                (options_chain['expiration'] == signal.expiration) &
-                (options_chain['type'] == 'PUT')
-            ]
-            
-            long_put = options_chain[
-                (options_chain['strike'] == signal.long_strike) &
-                (options_chain['expiration'] == signal.expiration) &
-                (options_chain['type'] == 'PUT')
-            ]
-            
-            if short_put.empty or long_put.empty:
-                return signal.credit_received
-            
-            # Calculate current spread value (cost to close)
-            current_value = short_put.iloc[0]['ask'] - long_put.iloc[0]['bid']
-            return current_value
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating spread value: {e}")
-            return position.signal.credit_received
-    
-    def execute_signal(self, signal: BullPutSpreadSignal) -> bool:
-        """Execute bull put spread signal"""
-        try:
-            # Create position object
-            position = BullPutSpreadPosition(
-                position_id=signal.signal_id,
-                signal=signal,
-                entry_time=datetime.now(),
-                state=SpreadState.PENDING
-            )
-            
-            # Create option contracts
-            short_put = ContractBuilder.create_option_contract(
-                'SPY', signal.expiration, signal.short_strike, 'P'
-            )
-            long_put = ContractBuilder.create_option_contract(
-                'SPY', signal.expiration, signal.long_strike, 'P'
-            )
-            
-            # Place spread order
-            spread_order = self.ib_client.create_spread_order(
-                [(short_put, 'SELL', signal.contracts),
-                 (long_put, 'BUY', signal.contracts)],
-                'LMT',
-                signal.credit_received
-            )
-            
-            order_id = self.ib_client.place_order(spread_order)
-            
-            if order_id:
-                position.order_ids['entry'] = order_id
-                position.state = SpreadState.ACTIVE
-                
-                # Add to open positions
-                self.open_positions[position.position_id] = position
-                
-                # Update daily stats
-                self.trades_today += 1
-                
-                # Emit event
-                self.event_manager.create_event(
-                    EventType.POSITION,
-                    {
-                        'action': 'opened',
-                        'strategy': 'BullPutSpread',
-                        'position_id': position.position_id,
-                        'details': {
-                            'short_strike': signal.short_strike,
-                            'long_strike': signal.long_strike,
-                            'credit': signal.credit_received,
-                            'contracts': signal.contracts,
-                            'expiration': signal.expiration
-                        }
-                    },
-                    source='BullPutSpreadStrategy'
-                )
-                
-                self.logger.info(f"Bull put spread position opened: {position.position_id}")
-                return True
-            
-        except Exception as e:
-            self.logger.error(f"Error executing signal: {e}")
-            self.error_handler.handle_error(e)
-        
-        return False
-    
-    def manage_positions(self) -> None:
-        """Manage active bull put spread positions"""
-        market_data = self._get_current_market_data()
-        
-        for position_id, position in list(self.open_positions.items()):
-            try:
-                if position.state == SpreadState.CLOSED:
-                    continue
-                
-                # Update position metrics
-                self._update_position_metrics(position, market_data)
-                
-                # Check exit conditions
-                should_exit, reason = self.should_exit_position(position, market_data)
-                
-                if should_exit:
-                    self._close_position(position, reason)
-                
-            except Exception as e:
-                self.logger.error(f"Error managing position {position_id}: {e}")
-                self.error_handler.handle_error(e)
-    
-    def _update_position_metrics(self, position: BullPutSpreadPosition, 
-                                market_data: Dict[str, Any]) -> None:
-        """Update position metrics"""
-        try:
-            # Update current value and P&L
-            position.current_value = self._get_spread_value(position, market_data)
-            position.pnl = (position.signal.credit_received - position.current_value) * \
-                          position.signal.contracts * 100
-            
-            # Update days held
-            position.days_held = (datetime.now() - position.entry_time).days
-            
-        except Exception as e:
-            self.logger.error(f"Error updating position metrics: {e}")
-    
-    def _close_position(self, position: BullPutSpreadPosition, reason: str) -> None:
-        """Close bull put spread position"""
-        try:
-            position.state = SpreadState.CLOSING
-            signal = position.signal
-            
-            # Create closing order
-            short_put = ContractBuilder.create_option_contract(
-                'SPY', signal.expiration, signal.short_strike, 'P'
-            )
-            long_put = ContractBuilder.create_option_contract(
-                'SPY', signal.expiration, signal.long_strike, 'P'
-            )
-            
-            # Place closing spread order (opposite of opening)
-            closing_order = self.ib_client.create_spread_order(
-                [(short_put, 'BUY', signal.contracts),
-                 (long_put, 'SELL', signal.contracts)],
-                'MKT',
-                0  # Market order for closing
-            )
-            
-            order_id = self.ib_client.place_order(closing_order)
-            
-            if order_id:
-                position.order_ids['exit'] = order_id
-                position.state = SpreadState.CLOSED
-                
-                # Update performance stats
-                self.daily_pnl += position.pnl
-                if position.pnl > 0:
-                    self.win_count += 1
-                else:
-                    self.loss_count += 1
-                
-                # Emit event
-                self.event_manager.create_event(
-                    EventType.POSITION,
-                    {
-                        'action': 'closed',
-                        'strategy': 'BullPutSpread',
-                        'position_id': position.position_id,
-                        'reason': reason,
-                        'pnl': position.pnl,
-                        'days_held': position.days_held
-                    },
-                    source='BullPutSpreadStrategy'
-                )
-                
-                self.logger.info(
-                    f"Bull put spread position closed: {position.position_id}, "
-                    f"Reason: {reason}, P&L: ${position.pnl:.2f}"
-                )
-                
-                # Remove from open positions
-                del self.open_positions[position.position_id]
-            
-        except Exception as e:
-            self.logger.error(f"Error closing position: {e}")
-            self.error_handler.handle_error(e)
-            position.state = SpreadState.ACTIVE
-    
-    def _get_current_market_data(self) -> Dict[str, Any]:
-        """Get current market data"""
-        try:
-            # Get SPY quote
-            spy_quote = self.ib_client.get_quote('SPY')
-            
-            # Calculate technical indicators
-            price_data = self.ib_client.get_historical_data('SPY', '1 day', '20 D')
-            
-            sma_10 = price_data['close'].rolling(10).mean().iloc[-1]
-            sma_20 = price_data['close'].rolling(20).mean().iloc[-1]
-            rsi = self.indicators.calculate_rsi(price_data['close']).iloc[-1]
-            
-            # Get VWAP
-            vwap = self.indicators.calculate_vwap(price_data).iloc[-1]
-            
-            return {
-                'last_price': spy_quote['last'],
-                'bid': spy_quote['bid'],
-                'ask': spy_quote['ask'],
-                'volume': spy_quote['volume'],
-                'sma_10': sma_10,
-                'sma_20': sma_20,
-                'rsi': rsi,
-                'vwap': vwap,
-                'vix': self.ib_client.get_quote('VIX')['last']
+            # Add bullish analysis to metadata
+            signal.metadata['bullish_analysis'] = {
+                'trend_strength': self.bullish_analysis.trend_strength.name,
+                'trend_score': self.bullish_analysis.trend_score,
+                'support_distance': self.bullish_analysis.distance_to_support,
+                'rsi': self.bullish_analysis.rsi,
+                'momentum': self.bullish_analysis.momentum,
+                'bullish_signals': [s.name for s in self.bullish_analysis.bullish_signals],
+                'confidence': self.bullish_analysis.confidence
             }
             
+            # Adjust signal strength based on bullish analysis
+            if self.bullish_analysis.entry_score >= 80:
+                signal.strength = SignalStrength.VERY_STRONG
+            elif self.bullish_analysis.entry_score >= 60:
+                signal.strength = SignalStrength.STRONG
+            elif self.bullish_analysis.entry_score >= 40:
+                signal.strength = SignalStrength.MODERATE
+            else:
+                signal.strength = SignalStrength.WEAK
+            
+            # Update confidence
+            signal.confidence = self.bullish_analysis.confidence
+            
+            return signal
+            
         except Exception as e:
-            self.logger.error(f"Error getting market data: {e}")
-            return {}
+            self.error_handler.handle_error(e, {'method': '_enhance_bull_put_signal'})
+            return None
     
-    def get_strategy_metrics(self) -> Dict[str, Any]:
-        """Get bull put spread strategy metrics"""
-        total_trades = self.win_count + self.loss_count
-        win_rate = self.win_count / total_trades if total_trades > 0 else 0
-        
-        active_positions = [p for p in self.open_positions.values() 
-                           if p.state == SpreadState.ACTIVE]
-        
-        total_credit = sum(p.signal.credit_received * p.signal.contracts * 100 
-                          for p in active_positions)
-        total_risk = sum(p.signal.max_loss for p in active_positions)
-        
-        return {
-            'strategy': 'BullPutSpread',
-            'active_positions': len(active_positions),
-            'daily_trades': self.trades_today,
-            'daily_pnl': self.daily_pnl,
-            'win_rate': win_rate,
-            'total_trades': total_trades,
-            'total_credit': total_credit,
-            'total_risk': total_risk,
-            'avg_credit': total_credit / len(active_positions) if active_positions else 0,
-            'profit_target': self.profit_target,
-            'stop_loss': self.stop_loss
-        }
+    # ==========================================================================
+    # DELTA HEDGING METHODS
+    # ==========================================================================
     
-    def reset_daily_stats(self) -> None:
-        """Reset daily statistics"""
-        self.trades_today = 0
-        self.daily_pnl = 0.0
-        self.logger.info("Daily stats reset for Bull Put Spread strategy")
-    
-    def shutdown(self) -> None:
-        """Cleanup strategy resources"""
+    def _check_delta_hedging_needs(self) -> None:
+        """Check if delta hedging is needed"""
+        if not self.enable_delta_hedging:
+            return
+        
         try:
-            # Close all positions
-            for position in list(self.open_positions.values()):
-                if position.state != SpreadState.CLOSED:
-                    self._close_position(position, "strategy_shutdown")
+            # Calculate portfolio delta
+            self._update_portfolio_delta()
             
-            self.logger.info("Bull Put Spread strategy shutdown complete")
+            # Check if hedging needed
+            if self.portfolio_delta < MAX_PORTFOLIO_DELTA:
+                self.logger.info(f"Portfolio delta too negative: {self.portfolio_delta:.0f}")
+                self._create_delta_hedge()
+            
+            # Check existing hedges
+            self._manage_existing_hedges()
             
         except Exception as e:
-            self.logger.error(f"Error during shutdown: {e}")
-
-# ==============================================================================
-# MODULE FUNCTIONS
-# ==============================================================================
-def create_bull_put_spread_strategy(config: Dict[str, Any]) -> BullPutSpreadStrategy:
-    """
-    Factory function to create Bull Put Spread strategy instance.
+            self.error_handler.handle_error(e, {'method': '_check_delta_hedging_needs'})
     
-    Args:
-        config: Strategy configuration
+    def _update_portfolio_delta(self) -> None:
+        """Update total portfolio delta"""
+        total_delta = 0.0
         
-    Returns:
-        BullPutSpreadStrategy instance
-    """
-    return BullPutSpreadStrategy(config)
+        # Sum deltas from active spreads
+        for spread in self.active_spreads.values():
+            spread.update_greeks()
+            total_delta += spread.net_delta * spread.quantity * SPY_CONTRACT_MULTIPLIER
+        
+        # Add deltas from hedges
+        for hedge in self.active_hedges.values():
+            total_delta += hedge.current_delta
+        
+        self.portfolio_delta = total_delta
+    
+    def _create_delta_hedge(self) -> Optional[DeltaHedge]:
+        """Create delta hedge position"""
+        try:
+            # Calculate hedge size needed
+            delta_deficit = abs(MAX_PORTFOLIO_DELTA - self.portfolio_delta)
+            
+            # Determine hedge type (prefer calls over stock)
+            current_price = self.market_data['close'].iloc[-1] if hasattr(self, 'market_data') else 450
+            
+            # Create long call hedge
+            hedge = DeltaHedge(
+                hedge_id=str(uuid.uuid4()),
+                parent_position_id="portfolio",
+                hedge_type="long_call",
+                quantity=int(delta_deficit / 50),  # Assuming 0.5 delta per call
+                entry_price=current_price + 5,  # 5 points OTM
+                current_delta=delta_deficit,
+                target_delta=0,
+                cost=delta_deficit * 2  # Simplified cost
+            )
+            
+            self.active_hedges[hedge.hedge_id] = hedge
+            self.bull_put_metrics['hedged_positions'] += 1
+            self.bull_put_metrics['total_hedge_cost'] += hedge.cost
+            
+            self.logger.info(f"Created delta hedge: {hedge.hedge_type} x{hedge.quantity}")
+            return hedge
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_create_delta_hedge'})
+            return None
+    
+    def _manage_existing_hedges(self) -> None:
+        """Manage existing delta hedges"""
+        hedges_to_close = []
+        
+        for hedge_id, hedge in self.active_hedges.items():
+            # Update hedge value
+            hedge.current_value = hedge.quantity * 100 * 2  # Simplified
+            hedge.pnl = hedge.current_value - hedge.cost
+            
+            # Check if hedge still needed
+            if self.portfolio_delta > DELTA_HEDGE_THRESHOLD:
+                hedges_to_close.append(hedge_id)
+        
+        # Close unneeded hedges
+        for hedge_id in hedges_to_close:
+            self._close_hedge(hedge_id)
+    
+    def _close_hedge(self, hedge_id: str) -> bool:
+        """Close delta hedge position"""
+        try:
+            hedge = self.active_hedges.get(hedge_id)
+            if not hedge:
+                return False
+            
+            del self.active_hedges[hedge_id]
+            
+            self.logger.info(f"Closed hedge {hedge_id}: P&L ${hedge.pnl:.2f}")
+            return True
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_close_hedge'})
+            return False
+    
+    # ==========================================================================
+    # POSITION MANAGEMENT OVERRIDES
+    # ==========================================================================
+    
+    def open_credit_spread(self, signal: TradingSignal) -> Optional[CreditSpread]:
+        """Open bull put spread with enhanced tracking"""
+        spread = super().open_credit_spread(signal)
+        
+        if spread:
+            # Update bull put specific metrics
+            self.bull_put_metrics['total_spreads'] += 1
+            
+            # Track signal type
+            bullish_signals = signal.metadata.get('bullish_analysis', {}).get('bullish_signals', [])
+            if BullishSignalType.SUPPORT_BOUNCE.name in bullish_signals:
+                self.bull_put_metrics['support_bounces'] += 1
+            elif BullishSignalType.TREND_CONTINUATION.name in bullish_signals:
+                self.bull_put_metrics['trend_trades'] += 1
+        
+        return spread
+    
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+    
+    def get_strategy_summary(self) -> Dict[str, Any]:
+        """Get comprehensive strategy summary"""
+        # Get parent summary
+        summary = super().get_strategy_summary()
+        
+        # Add bull put specific data
+        summary['bull_put_analysis'] = {
+            'trend_strength': self.bullish_analysis.trend_strength.name if self.bullish_analysis else 'UNKNOWN',
+            'trend_score': self.bullish_analysis.trend_score if self.bullish_analysis else 0,
+            'nearest_support': self.bullish_analysis.nearest_support if self.bullish_analysis else 0,
+            'portfolio_delta': self.portfolio_delta,
+            'active_hedges': len(self.active_hedges),
+            'hedge_pnl': sum(h.pnl for h in self.active_hedges.values())
+        }
+        
+        summary['bull_put_metrics'] = self.bull_put_metrics.copy()
+        
+        return summary
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    # Test the strategy
-    test_config = {
-        'delta_short': -0.30,
-        'delta_long': -0.20,
-        'min_credit_ratio': 0.25,
-        'profit_target': 0.50,
-        'stop_loss': 1.00,
-        'max_positions': 5
+    # Test bull put spread strategy
+    event_manager = EventManager()
+    risk_profile = RiskProfile(
+        account_size=100000,
+        max_position_size=0.02,
+        max_portfolio_risk=0.06,
+        max_loss_per_trade=0.01
+    )
+    
+    config = {
+        'max_spreads': 5,
+        'spread_width': 5.0,
+        'target_premium': 1.0,
+        'min_trend_strength': 0.3,
+        'enable_delta_hedging': True
     }
     
-    strategy = create_bull_put_spread_strategy(test_config)
+    strategy = BullPutSpreadStrategy(event_manager, risk_profile, config)
+    strategy.start()
     
-    # Create test market data
-    test_market_data = {
-        'last_price': 455.00,
-        'bid': 454.95,
-        'ask': 455.05,
-        'volume': 75000000,
-        'sma_10': 453.50,
-        'sma_20': 452.00,
-        'rsi': 58,
-        'vwap': 454.80,
-        'vix': 16.5,
-        'iv_rank': 65
-    }
+    # Create bullish market data
+    dates = pd.date_range(end=datetime.now(), periods=100, freq='5min')
+    base_price = 445
     
-    # Generate signal
-    signal = strategy.generate_entry_signal(test_market_data)
+    # Uptrend with support bounces
+    trend = np.linspace(0, 10, 100)  # Uptrend
+    support_bounce = np.sin(np.linspace(0, 4*np.pi, 100)) * 2  # Oscillation
+    noise = np.random.randn(100) * 0.5
+    prices = base_price + trend + support_bounce + noise
     
-    if signal:
-        print(f"\nBull Put Spread Signal Generated:")
-        print(f"  Signal ID: {signal.signal_id}")
-        print(f"  Strikes: {signal.short_strike}/{signal.long_strike}")
-        print(f"  Credit: ${signal.credit_received:.2f}")
-        print(f"  Contracts: {signal.contracts}")
-        print(f"  Max Profit: ${signal.max_profit:.2f}")
-        print(f"  Max Loss: ${signal.max_loss:.2f}")
-        print(f"  Breakeven: ${signal.breakeven:.2f}")
-        print(f"  Score: {signal.score:.1f}")
-        print(f"  Market Regime: {signal.metadata['regime']}")
-    else:
-        print("No signal generated")
+    # Ensure prices don't go below support
+    support_level = 445
+    prices = np.maximum(prices, support_level)
     
-    # Get metrics
-    metrics = strategy.get_strategy_metrics()
-    print(f"\nStrategy Metrics:")
-    for key, value in metrics.items():
-        print(f"  {key}: {value}")
+    market_data = pd.DataFrame({
+        'timestamp': dates,
+        'open': prices - 0.1,
+        'high': prices + abs(np.random.randn(100) * 0.3),
+        'low': prices - abs(np.random.randn(100) * 0.3),
+        'close': prices,
+        'volume': np.random.randint(50000000, 150000000, 100)
+    })
     
-    strategy.shutdown()
+    # Add volume surge on bounces
+    bounce_points = np.where(np.diff(np.sign(np.diff(prices))) > 0)[0]
+    for point in bounce_points:
+        if 0 < point < len(market_data):
+            market_data.loc[point, 'volume'] *= 2
+    
+    # Process market data
+    signals = strategy.generate_signals(market_data)
+    
+    # Print results
+    print(f"Strategy: {strategy.name}")
+    
+    if strategy.bullish_analysis:
+        print(f"\nBullish Analysis:")
+        print(f"Trend Strength: {strategy.bullish_analysis.trend_strength.name}")
+        print(f"Trend Score: {strategy.bullish_analysis.trend_score:.2f}")
+        print(f"RSI: {strategy.bullish_analysis.rsi:.0f}")
+        print(f"Distance to Support: {strategy.bullish_analysis.distance_to_support:.2%}")
+        print(f"Momentum: {strategy.bullish_analysis.momentum:.3f}")
+        print(f"Bullish Signals: {[s.name for s in strategy.bullish_analysis.bullish_signals]}")
+        print(f"Confidence: {strategy.bullish_analysis.confidence:.2%}")
+    
+    print(f"\nSignals Generated: {len(signals)}")
+    
+    for signal in signals:
+        spread_data = signal.metadata.get('spread_data', {})
+        bullish_data = signal.metadata.get('bullish_analysis', {})
+        
+        print(f"\nBull Put Spread Signal:")
+        print(f"Strength: {signal.strength.name}")
+        print(f"Short Strike: ${spread_data.get('short_strike', 0)}")
+        print(f"Long Strike: ${spread_data.get('long_strike', 0)}")
+        print(f"Credit: ${spread_data.get('credit', 0):.2f}")
+        print(f"Max Loss: ${spread_data.get('max_loss', 0):.2f}")
+        print(f"Probability: {spread_data.get('probability_profit', 0):.2%}")
+        print(f"Bullish Signals: {bullish_data.get('bullish_signals', [])}")
+    
+    # Get strategy summary
+    summary = strategy.get_strategy_summary()
+    print(f"\nStrategy Summary:")
+    print(f"Portfolio Delta: {summary['bull_put_analysis']['portfolio_delta']:.0f}")
+    print(f"Active Hedges: {summary['bull_put_analysis']['active_hedges']}")
+    print(f"Total Spreads: {summary['bull_put_metrics']['total_spreads']}")
+    print(f"Support Bounces: {summary['bull_put_metrics']['support_bounces']}")
+    print(f"Trend Trades: {summary['bull_put_metrics']['trend_trades']}")
+    
+    strategy.stop()
+    print("\nBullPutSpreadStrategy test completed!")

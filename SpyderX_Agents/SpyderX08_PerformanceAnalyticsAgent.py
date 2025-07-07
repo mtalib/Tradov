@@ -4,37 +4,42 @@
 SPYDER - Automated SPY Options Trading System
 
 Module: SpyderX08_PerformanceAnalyticsAgent.py
-Purpose: AI-Enhanced Performance Analytics and Trading Insights
 Group: X (AI Agents)
+Purpose: AI-Enhanced Performance Analytics and Reporting
 
-This module implements an intelligent performance analytics agent that tracks,
-analyzes, and provides AI-driven insights on trading performance, identifying
-patterns and suggesting optimizations using Ollama AI integration.
+Description:
+    This agent provides deep performance insights using AI to analyze trading
+    results, identify patterns in wins/losses, and generate natural language
+    reports. It goes beyond traditional metrics to provide actionable insights
+    for strategy improvement, risk adjustment, and portfolio optimization.
 
 Spyder Version: 1.0
 Architect: Mohamed Talib
-Date Created: 2025-06-16
-Last Updated: 2025-06-19 Time: 13:50
+Date Created: 2025-01-17
+Last Updated: 2025-01-28 Time: 18:00
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
-
-# Standard library imports
 import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
-import statistics
-import numpy as np
-from collections import defaultdict, deque
+from collections import defaultdict
+import hashlib
 
-# Third-party imports
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
 import pandas as pd
+from scipy import stats
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Ollama imports (with graceful fallback)
 try:
@@ -45,875 +50,775 @@ except ImportError:
     print("Warning: Ollama not installed. AI features will be limited.")
 
 # ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled, SPYDERX_FEATURE_FLAGS
+from SpyderM_Monitoring.SpyderM04_TradingMetrics import TradingMetrics
+from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
+
+# ==============================================================================
 # CONSTANTS
 # ==============================================================================
-
-# Performance metrics
-PERFORMANCE_METRICS = [
-    'total_return',
-    'sharpe_ratio',
-    'sortino_ratio',
-    'max_drawdown',
-    'win_rate',
-    'profit_factor',
-    'average_win',
-    'average_loss',
-    'expectancy',
-    'kelly_criterion'
-]
-
-# Time periods for analysis
-class TimePeriod(Enum):
-    """Time period enumeration."""
-    DAILY = "DAILY"
-    WEEKLY = "WEEKLY"
-    MONTHLY = "MONTHLY"
-    QUARTERLY = "QUARTERLY"
-    YEARLY = "YEARLY"
-    ALL_TIME = "ALL_TIME"
-
-# Performance categories
-class PerformanceCategory(Enum):
-    """Performance category enumeration."""
-    EXCELLENT = "EXCELLENT"
-    GOOD = "GOOD"
-    AVERAGE = "AVERAGE"
-    BELOW_AVERAGE = "BELOW_AVERAGE"
-    POOR = "POOR"
-
-# Risk metrics thresholds
-RISK_THRESHOLDS = {
-    'max_drawdown_warning': 0.10,  # 10%
-    'max_drawdown_critical': 0.20,  # 20%
-    'sharpe_ratio_good': 1.5,
-    'sharpe_ratio_excellent': 2.0,
-    'win_rate_minimum': 0.45,
-    'profit_factor_minimum': 1.2
-}
-
 # Model configuration
-DEFAULT_MODEL = "llama3.2:3b-instruct-q4_K_M"
-DEFAULT_TEMPERATURE = 0.4
+DEFAULT_MODEL = "llama3" if OLLAMA_AVAILABLE else None
+DEFAULT_TEMPERATURE = 0.3  # Low temperature for accurate analysis
+
+# Performance thresholds
+MIN_SHARPE_RATIO = 1.0
+MIN_WIN_RATE = 0.45
+MAX_DRAWDOWN_ACCEPTABLE = 0.15
+MIN_PROFIT_FACTOR = 1.2
+
+# Analysis periods
+ANALYSIS_WINDOWS = [5, 20, 60, 252]  # Days: Week, Month, Quarter, Year
+ROLLING_WINDOW = 20  # Default rolling window
+
+# Report configuration
+MAX_REPORT_LENGTH = 5000  # Characters
+INSIGHT_CONFIDENCE_THRESHOLD = 0.7
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+class PerformanceMetric(Enum):
+    """Performance metric types"""
+    RETURN = "return"
+    SHARPE_RATIO = "sharpe_ratio"
+    SORTINO_RATIO = "sortino_ratio"
+    MAX_DRAWDOWN = "max_drawdown"
+    WIN_RATE = "win_rate"
+    PROFIT_FACTOR = "profit_factor"
+    CALMAR_RATIO = "calmar_ratio"
+    INFORMATION_RATIO = "information_ratio"
+
+class AnalysisType(Enum):
+    """Types of performance analysis"""
+    ATTRIBUTION = "attribution"
+    REGIME = "regime"
+    FACTOR = "factor"
+    BEHAVIORAL = "behavioral"
+    RISK_ADJUSTED = "risk_adjusted"
+
+class ReportFormat(Enum):
+    """Report format types"""
+    EXECUTIVE_SUMMARY = "executive_summary"
+    DETAILED_ANALYSIS = "detailed_analysis"
+    TECHNICAL_REPORT = "technical_report"
+    VISUAL_DASHBOARD = "visual_dashboard"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
-
 @dataclass
-class Trade:
-    """Trade data structure."""
-    id: str
-    symbol: str
-    entry_time: datetime
-    exit_time: Optional[datetime]
-    entry_price: float
-    exit_price: Optional[float]
-    quantity: int
-    side: str  # 'LONG' or 'SHORT'
-    pnl: Optional[float]
-    strategy: str
+class PerformanceData:
+    """Container for performance data"""
+    returns: pd.Series
+    trades: List[Dict[str, Any]]
+    positions: pd.DataFrame
+    equity_curve: pd.Series
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
-class PerformanceMetrics:
-    """Performance metrics data structure."""
-    period: TimePeriod
-    start_date: datetime
-    end_date: datetime
-    total_trades: int
-    winning_trades: int
-    losing_trades: int
-    total_return: float
-    sharpe_ratio: float
-    sortino_ratio: float
-    max_drawdown: float
-    win_rate: float
-    profit_factor: float
-    average_win: float
-    average_loss: float
-    expectancy: float
-    kelly_criterion: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-@dataclass
-class PerformanceReport:
-    """Performance report data structure."""
-    metrics: PerformanceMetrics
-    category: PerformanceCategory
+class PerformanceAnalysis:
+    """Comprehensive performance analysis result"""
+    metrics: Dict[str, float]
+    attribution: Dict[str, Any]
+    regime_analysis: Dict[str, Any]
+    factor_analysis: Dict[str, Any]
     strengths: List[str]
     weaknesses: List[str]
-    recommendations: List[str]
-    ai_insights: Dict[str, Any]
-    risk_assessment: Dict[str, Any]
+    opportunities: List[str]
+    recommendations: List[Dict[str, Any]]
+    natural_language_summary: str
+    confidence_scores: Dict[str, float]
 
 @dataclass
-class OptimizationSuggestion:
-    """Optimization suggestion data structure."""
+class AttributionResult:
+    """Performance attribution analysis"""
+    strategy_attribution: Dict[str, float]
+    timeframe_attribution: Dict[str, float]
+    asset_attribution: Dict[str, float]
+    factor_attribution: Dict[str, float]
+    residual: float
+
+@dataclass
+class RegimePerformance:
+    """Performance by market regime"""
+    regime_name: str
+    period_count: int
+    total_return: float
+    avg_return: float
+    sharpe_ratio: float
+    win_rate: float
+    max_drawdown: float
+
+@dataclass
+class AIInsight:
+    """AI-generated performance insight"""
     category: str
-    priority: str  # 'HIGH', 'MEDIUM', 'LOW'
-    suggestion: str
-    expected_impact: str
-    implementation_steps: List[str]
+    finding: str
+    impact: str
+    recommendation: str
     confidence: float
+    supporting_data: Dict[str, Any]
 
 # ==============================================================================
-# PERFORMANCE ANALYTICS AGENT CLASS
+# MAIN CLASS
 # ==============================================================================
-
 class SpyderX08_PerformanceAnalyticsAgent:
     """
     AI-Enhanced Performance Analytics Agent.
     
-    This agent analyzes trading performance using AI to identify patterns,
-    provide insights, and suggest optimizations for the SPY options trading system.
+    This agent provides deep performance analysis using AI to identify patterns,
+    generate insights, and create actionable recommendations. It combines
+    traditional performance metrics with advanced AI analysis for comprehensive
+    portfolio evaluation.
+    
+    Attributes:
+        model_name: Ollama model for AI analysis
+        temperature: Temperature setting for AI responses
+        metrics_calculator: Traditional metrics calculator
+        analysis_cache: Cache for analysis results
     """
     
-    def __init__(self, model_name: str = DEFAULT_MODEL,
-                 temperature: float = DEFAULT_TEMPERATURE):
-        """
-        Initialize the Performance Analytics Agent.
-        
-        Args:
-            model_name: Ollama model to use
-            temperature: Temperature for AI responses
-        """
+    def __init__(self, model_name: str = DEFAULT_MODEL, temperature: float = DEFAULT_TEMPERATURE):
+        """Initialize the Performance Analytics Agent"""
+        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
+        self.error_handler = SpyderErrorHandler()
         self.model_name = model_name
         self.temperature = temperature
-        self.logger = self._setup_logger()
         
-        # Initialize Ollama if available
-        self.ollama_client = None
-        if OLLAMA_AVAILABLE:
-            try:
-                ollama.list()  # Test connection
-                self.ollama_client = ollama
-                self.logger.info("Ollama connection established")
-            except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}")
+        # Initialize components
+        self.metrics_calculator = PerformanceMetrics()
+        self.trading_metrics = TradingMetrics()
         
-        # Data storage
-        self.trades = []
-        self.daily_equity = {}
-        self.performance_cache = {}
+        # Analysis cache
+        self.analysis_cache = {}
+        self.cache_timestamps = {}
         
-        # Analysis state
-        self.last_analysis_time = None
-        self.pattern_memory = deque(maxlen=100)
-    
-    def _setup_logger(self) -> logging.Logger:
-        """Set up module logger."""
-        logger = logging.getLogger(__name__)
-        logger.setLevel(logging.INFO)
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-        return logger
+        # Historical analyses for trend detection
+        self.analysis_history = deque(maxlen=100)
+        
+        # Performance tracking
+        self.agent_metrics = {
+            'analyses_performed': 0,
+            'reports_generated': 0,
+            'ai_queries': 0,
+            'insights_generated': 0,
+            'avg_confidence': 0.0
+        }
+        
+        self.logger.info(f"Performance Analytics Agent initialized with model: {model_name}")
     
     # ==========================================================================
-    # MAIN ANALYSIS METHODS
+    # PUBLIC METHODS - MAIN FUNCTIONALITY
     # ==========================================================================
-    
-    async def analyze_performance(self, trades: List[Trade],
-                                period: TimePeriod = TimePeriod.ALL_TIME,
-                                end_date: Optional[datetime] = None) -> PerformanceReport:
+    async def analyze_performance(
+        self,
+        performance_data: PerformanceData,
+        benchmark_data: Optional[pd.Series] = None,
+        analysis_types: Optional[List[AnalysisType]] = None
+    ) -> PerformanceAnalysis:
         """
-        Analyze trading performance with AI insights.
+        Perform comprehensive AI-enhanced performance analysis.
         
         Args:
-            trades: List of trades to analyze
-            period: Time period for analysis
-            end_date: End date for analysis (default: now)
+            performance_data: Trading performance data
+            benchmark_data: Benchmark returns for comparison
+            analysis_types: Specific analyses to perform
             
         Returns:
-            PerformanceReport object
+            PerformanceAnalysis with AI insights
         """
-        self.logger.info(f"Analyzing performance for {period.value} period")
-        
         try:
-            # Filter trades by period
-            filtered_trades = self._filter_trades_by_period(trades, period, end_date)
+            # Default to all analysis types
+            if analysis_types is None:
+                analysis_types = list(AnalysisType)
             
-            if not filtered_trades:
-                return self._create_empty_report(period)
-            
-            # Calculate metrics
-            metrics = self._calculate_performance_metrics(filtered_trades, period)
-            
-            # Get AI insights
-            ai_insights = await self._get_ai_performance_insights(metrics, filtered_trades)
-            
-            # Categorize performance
-            category = self._categorize_performance(metrics)
-            
-            # Identify strengths and weaknesses
-            strengths, weaknesses = self._identify_strengths_weaknesses(metrics)
-            
-            # Generate recommendations
-            recommendations = self._generate_recommendations(metrics, ai_insights)
-            
-            # Risk assessment
-            risk_assessment = self._assess_risk(metrics, filtered_trades)
-            
-            # Cache results
-            cache_key = f"{period.value}_{end_date or 'latest'}"
-            self.performance_cache[cache_key] = metrics
-            
-            return PerformanceReport(
-                metrics=metrics,
-                category=category,
-                strengths=strengths,
-                weaknesses=weaknesses,
-                recommendations=recommendations,
-                ai_insights=ai_insights,
-                risk_assessment=risk_assessment
+            # Calculate base metrics
+            metrics = self._calculate_comprehensive_metrics(
+                performance_data, benchmark_data
             )
+            
+            # Perform attribution analysis
+            attribution = None
+            if AnalysisType.ATTRIBUTION in analysis_types:
+                attribution = await self._perform_attribution_analysis(
+                    performance_data
+                )
+            
+            # Perform regime analysis
+            regime_analysis = None
+            if AnalysisType.REGIME in analysis_types:
+                regime_analysis = await self._perform_regime_analysis(
+                    performance_data
+                )
+            
+            # Perform factor analysis
+            factor_analysis = None
+            if AnalysisType.FACTOR in analysis_types:
+                factor_analysis = await self._perform_factor_analysis(
+                    performance_data
+                )
+            
+            # Get AI-enhanced insights
+            if is_spyderx_enabled("USE_AI_ANALYTICS") and OLLAMA_AVAILABLE:
+                analysis = await self._enhance_with_ai_analysis(
+                    metrics, attribution, regime_analysis, 
+                    factor_analysis, performance_data
+                )
+            else:
+                # Fallback to rule-based analysis
+                analysis = self._create_rule_based_analysis(
+                    metrics, attribution, regime_analysis, factor_analysis
+                )
+            
+            # Store in history
+            self.analysis_history.append({
+                'timestamp': datetime.now(),
+                'metrics': metrics,
+                'analysis': analysis
+            })
+            
+            # Update agent metrics
+            self._update_agent_metrics(analysis)
+            
+            return analysis
             
         except Exception as e:
             self.logger.error(f"Performance analysis failed: {e}")
-            return self._create_empty_report(period)
+            return self._create_error_analysis(str(e))
     
-    async def get_optimization_suggestions(self, 
-                                         recent_performance: PerformanceMetrics,
-                                         historical_trades: List[Trade]) -> List[OptimizationSuggestion]:
+    async def generate_performance_report(
+        self,
+        analysis: PerformanceAnalysis,
+        report_format: ReportFormat = ReportFormat.EXECUTIVE_SUMMARY,
+        custom_sections: Optional[List[str]] = None
+    ) -> str:
         """
-        Get AI-powered optimization suggestions.
+        Generate natural language performance report.
         
         Args:
-            recent_performance: Recent performance metrics
-            historical_trades: Historical trade data
+            analysis: Completed performance analysis
+            report_format: Type of report to generate
+            custom_sections: Additional sections to include
             
         Returns:
-            List of optimization suggestions
+            Formatted performance report
         """
-        self.logger.info("Generating optimization suggestions")
-        
-        # Get AI suggestions
-        ai_suggestions = await self._get_ai_optimization_suggestions(
-            recent_performance, historical_trades
-        )
-        
-        # Combine with rule-based suggestions
-        rule_suggestions = self._get_rule_based_suggestions(recent_performance)
-        
-        # Merge and prioritize
-        all_suggestions = self._merge_and_prioritize_suggestions(
-            ai_suggestions, rule_suggestions
-        )
-        
-        return all_suggestions
-    
-    # ==========================================================================
-    # METRICS CALCULATION METHODS
-    # ==========================================================================
-    
-    def _calculate_performance_metrics(self, trades: List[Trade],
-                                     period: TimePeriod) -> PerformanceMetrics:
-        """Calculate comprehensive performance metrics."""
-        if not trades:
-            return self._create_empty_metrics(period)
-        
-        # Basic statistics
-        total_trades = len(trades)
-        winning_trades = [t for t in trades if t.pnl and t.pnl > 0]
-        losing_trades = [t for t in trades if t.pnl and t.pnl < 0]
-        
-        # Returns
-        returns = [t.pnl for t in trades if t.pnl is not None]
-        total_return = sum(returns) if returns else 0
-        
-        # Win/Loss statistics
-        win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0
-        
-        avg_win = (sum(t.pnl for t in winning_trades) / len(winning_trades) 
-                  if winning_trades else 0)
-        avg_loss = (sum(abs(t.pnl) for t in losing_trades) / len(losing_trades)
-                   if losing_trades else 0)
-        
-        # Profit factor
-        gross_profit = sum(t.pnl for t in winning_trades)
-        gross_loss = sum(abs(t.pnl) for t in losing_trades)
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
-        
-        # Expectancy
-        expectancy = (win_rate * avg_win - (1 - win_rate) * avg_loss) if total_trades > 0 else 0
-        
-        # Risk-adjusted returns
-        sharpe_ratio = self._calculate_sharpe_ratio(returns)
-        sortino_ratio = self._calculate_sortino_ratio(returns)
-        max_drawdown = self._calculate_max_drawdown(trades)
-        
-        # Kelly Criterion
-        kelly_criterion = self._calculate_kelly_criterion(win_rate, avg_win, avg_loss)
-        
-        # Date range
-        start_date = min(t.entry_time for t in trades)
-        end_date = max(t.exit_time or t.entry_time for t in trades)
-        
-        return PerformanceMetrics(
-            period=period,
-            start_date=start_date,
-            end_date=end_date,
-            total_trades=total_trades,
-            winning_trades=len(winning_trades),
-            losing_trades=len(losing_trades),
-            total_return=total_return,
-            sharpe_ratio=sharpe_ratio,
-            sortino_ratio=sortino_ratio,
-            max_drawdown=max_drawdown,
-            win_rate=win_rate,
-            profit_factor=profit_factor,
-            average_win=avg_win,
-            average_loss=avg_loss,
-            expectancy=expectancy,
-            kelly_criterion=kelly_criterion
-        )
-    
-    def _calculate_sharpe_ratio(self, returns: List[float],
-                              risk_free_rate: float = 0.02) -> float:
-        """Calculate Sharpe ratio."""
-        if not returns or len(returns) < 2:
-            return 0.0
-        
-        avg_return = statistics.mean(returns)
-        std_dev = statistics.stdev(returns)
-        
-        if std_dev == 0:
-            return 0.0
-        
-        # Annualized Sharpe ratio (assuming daily returns)
-        return (avg_return - risk_free_rate/252) / std_dev * np.sqrt(252)
-    
-    def _calculate_sortino_ratio(self, returns: List[float],
-                               risk_free_rate: float = 0.02) -> float:
-        """Calculate Sortino ratio."""
-        if not returns:
-            return 0.0
-        
-        avg_return = statistics.mean(returns)
-        downside_returns = [r for r in returns if r < 0]
-        
-        if not downside_returns:
-            return float('inf') if avg_return > risk_free_rate else 0.0
-        
-        downside_std = statistics.stdev(downside_returns) if len(downside_returns) > 1 else 0
-        
-        if downside_std == 0:
-            return 0.0
-        
-        # Annualized Sortino ratio
-        return (avg_return - risk_free_rate/252) / downside_std * np.sqrt(252)
-    
-    def _calculate_max_drawdown(self, trades: List[Trade]) -> float:
-        """Calculate maximum drawdown."""
-        if not trades:
-            return 0.0
-        
-        # Build equity curve
-        equity = 0
-        peak = 0
-        max_dd = 0
-        
-        sorted_trades = sorted(trades, key=lambda t: t.exit_time or t.entry_time)
-        
-        for trade in sorted_trades:
-            if trade.pnl is not None:
-                equity += trade.pnl
-                if equity > peak:
-                    peak = equity
-                drawdown = (peak - equity) / peak if peak > 0 else 0
-                max_dd = max(max_dd, drawdown)
-        
-        return max_dd
-    
-    def _calculate_kelly_criterion(self, win_rate: float,
-                                 avg_win: float, avg_loss: float) -> float:
-        """Calculate Kelly Criterion for position sizing."""
-        if avg_loss == 0 or win_rate == 0:
-            return 0.0
-        
-        win_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0
-        kelly = (win_rate * win_loss_ratio - (1 - win_rate)) / win_loss_ratio
-        
-        # Cap at 25% for safety
-        return min(0.25, max(0, kelly))
-    
-    # ==========================================================================
-    # AI INTEGRATION METHODS
-    # ==========================================================================
-    
-    async def _get_ai_performance_insights(self, metrics: PerformanceMetrics,
-                                         trades: List[Trade]) -> Dict[str, Any]:
-        """Get AI insights on performance."""
-        if not self.ollama_client:
-            return self._get_fallback_insights(metrics)
-        
-        # Prepare trade summary
-        strategy_performance = self._summarize_strategy_performance(trades)
-        
-        prompt = f"""Analyze this trading performance and provide insights:
-
-Performance Metrics:
-- Total Trades: {metrics.total_trades}
-- Win Rate: {metrics.win_rate:.1%}
-- Profit Factor: {metrics.profit_factor:.2f}
-- Sharpe Ratio: {metrics.sharpe_ratio:.2f}
-- Max Drawdown: {metrics.max_drawdown:.1%}
-- Total Return: ${metrics.total_return:.2f}
-- Expectancy: ${metrics.expectancy:.2f}
-
-Strategy Performance:
-{json.dumps(strategy_performance, indent=2)}
-
-Provide a JSON response with:
-{{
-    "performance_summary": "overall assessment",
-    "key_patterns": ["pattern1", "pattern2", ...],
-    "risk_concerns": ["concern1", "concern2", ...],
-    "improvement_areas": ["area1", "area2", ...],
-    "market_adaptation": "how well strategies adapt to market",
-    "psychological_factors": "trading discipline assessment",
-    "confidence": 0.0-1.0
-}}"""
-        
         try:
-            response = await asyncio.to_thread(
-                self.ollama_client.generate,
-                model=self.model_name,
-                prompt=prompt,
-                options={'temperature': self.temperature}
-            )
+            # Base report sections
+            report_sections = []
             
-            # Extract JSON from response
-            text = response['response']
-            start = text.find('{')
-            end = text.rfind('}') + 1
+            # Executive summary
+            if report_format == ReportFormat.EXECUTIVE_SUMMARY:
+                summary = await self._generate_executive_summary(analysis)
+                report_sections.append(summary)
             
-            if start >= 0 and end > start:
-                return json.loads(text[start:end])
-            else:
-                return self._get_fallback_insights(metrics)
-                
+            # Detailed sections
+            elif report_format == ReportFormat.DETAILED_ANALYSIS:
+                report_sections.extend([
+                    await self._generate_metrics_section(analysis),
+                    await self._generate_attribution_section(analysis),
+                    await self._generate_regime_section(analysis),
+                    await self._generate_recommendations_section(analysis)
+                ])
+            
+            # Technical report
+            elif report_format == ReportFormat.TECHNICAL_REPORT:
+                report_sections.extend([
+                    await self._generate_technical_summary(analysis),
+                    await self._generate_statistical_analysis(analysis),
+                    await self._generate_risk_analysis(analysis)
+                ])
+            
+            # Add custom sections
+            if custom_sections:
+                for section in custom_sections:
+                    custom_content = await self._generate_custom_section(
+                        section, analysis
+                    )
+                    report_sections.append(custom_content)
+            
+            # Combine sections
+            report = "\n\n".join(report_sections)
+            
+            # Ensure report length
+            if len(report) > MAX_REPORT_LENGTH:
+                report = await self._summarize_report(report)
+            
+            self.agent_metrics['reports_generated'] += 1
+            
+            return report
+            
         except Exception as e:
-            self.logger.error(f"AI performance insights failed: {e}")
-            return self._get_fallback_insights(metrics)
+            self.logger.error(f"Report generation failed: {e}")
+            return f"Error generating report: {str(e)}"
     
-    async def _get_ai_optimization_suggestions(self,
-                                             performance: PerformanceMetrics,
-                                             trades: List[Trade]) -> List[OptimizationSuggestion]:
-        """Get AI-powered optimization suggestions."""
-        if not self.ollama_client:
-            return []
+    async def identify_performance_patterns(
+        self,
+        performance_history: List[PerformanceData],
+        pattern_types: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Identify patterns in historical performance using AI.
         
-        prompt = f"""Based on this trading performance, suggest optimizations:
-
-Current Performance:
-- Win Rate: {performance.win_rate:.1%}
-- Sharpe Ratio: {performance.sharpe_ratio:.2f}
-- Max Drawdown: {performance.max_drawdown:.1%}
-- Profit Factor: {performance.profit_factor:.2f}
-
-Weaknesses Identified:
-{self._identify_weaknesses_for_prompt(performance)}
-
-Provide a JSON response with optimization suggestions:
-{{
-    "suggestions": [
-        {{
-            "category": "risk_management/entry_timing/exit_strategy/position_sizing",
-            "priority": "HIGH/MEDIUM/LOW",
-            "suggestion": "specific suggestion",
-            "expected_impact": "expected improvement",
-            "implementation_steps": ["step1", "step2", ...],
-            "confidence": 0.0-1.0
-        }}
-    ]
-}}"""
-        
+        Args:
+            performance_history: Historical performance data
+            pattern_types: Specific patterns to look for
+            
+        Returns:
+            List of identified patterns with insights
+        """
         try:
-            response = await asyncio.to_thread(
-                self.ollama_client.generate,
-                model=self.model_name,
-                prompt=prompt,
-                options={'temperature': self.temperature}
-            )
+            patterns = []
             
-            # Extract JSON from response
-            text = response['response']
-            start = text.find('{')
-            end = text.rfind('}') + 1
+            # Time-based patterns
+            time_patterns = self._identify_time_patterns(performance_history)
+            patterns.extend(time_patterns)
             
-            if start >= 0 and end > start:
-                data = json.loads(text[start:end])
-                suggestions = []
-                
-                for item in data.get('suggestions', []):
-                    suggestions.append(OptimizationSuggestion(
-                        category=item.get('category', 'general'),
-                        priority=item.get('priority', 'MEDIUM'),
-                        suggestion=item.get('suggestion', ''),
-                        expected_impact=item.get('expected_impact', ''),
-                        implementation_steps=item.get('implementation_steps', []),
-                        confidence=item.get('confidence', 0.5)
-                    ))
-                
-                return suggestions
-            else:
-                return []
-                
+            # Strategy patterns
+            strategy_patterns = self._identify_strategy_patterns(performance_history)
+            patterns.extend(strategy_patterns)
+            
+            # Market condition patterns
+            market_patterns = await self._identify_market_patterns(performance_history)
+            patterns.extend(market_patterns)
+            
+            # AI pattern enhancement
+            if is_spyderx_enabled("USE_AI_ANALYTICS") and OLLAMA_AVAILABLE:
+                ai_patterns = await self._ai_pattern_discovery(
+                    performance_history, patterns
+                )
+                patterns.extend(ai_patterns)
+            
+            # Filter by requested types
+            if pattern_types:
+                patterns = [p for p in patterns if p['type'] in pattern_types]
+            
+            return patterns
+            
         except Exception as e:
-            self.logger.error(f"AI optimization suggestions failed: {e}")
+            self.logger.error(f"Pattern identification failed: {e}")
             return []
     
-    def _get_fallback_insights(self, metrics: PerformanceMetrics) -> Dict[str, Any]:
-        """Fallback insights when AI is unavailable."""
-        patterns = []
-        concerns = []
-        improvements = []
+    async def generate_improvement_recommendations(
+        self,
+        current_performance: PerformanceAnalysis,
+        historical_analyses: Optional[List[PerformanceAnalysis]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate AI-powered improvement recommendations.
         
-        # Identify patterns
-        if metrics.win_rate > 0.6:
-            patterns.append("High win rate strategy")
-        if metrics.profit_factor > 2:
-            patterns.append("Strong profit factor")
-        
-        # Risk concerns
-        if metrics.max_drawdown > 0.15:
-            concerns.append("High maximum drawdown")
-        if metrics.sharpe_ratio < 1:
-            concerns.append("Low risk-adjusted returns")
-        
-        # Improvements
-        if metrics.win_rate < 0.5:
-            improvements.append("Improve trade selection")
-        if metrics.expectancy < 0:
-            improvements.append("Review risk-reward ratios")
-        
-        return {
-            'performance_summary': 'Rule-based analysis',
-            'key_patterns': patterns,
-            'risk_concerns': concerns,
-            'improvement_areas': improvements,
-            'market_adaptation': 'Requires AI analysis',
-            'psychological_factors': 'Requires AI analysis',
-            'confidence': 0.5
-        }
+        Args:
+            current_performance: Current performance analysis
+            historical_analyses: Historical analyses for trend detection
+            
+        Returns:
+            List of actionable recommendations
+        """
+        try:
+            recommendations = []
+            
+            # Analyze weaknesses
+            for weakness in current_performance.weaknesses:
+                rec = await self._generate_weakness_recommendation(
+                    weakness, current_performance
+                )
+                if rec:
+                    recommendations.append(rec)
+            
+            # Identify optimization opportunities
+            opportunities = await self._identify_optimization_opportunities(
+                current_performance, historical_analyses
+            )
+            recommendations.extend(opportunities)
+            
+            # AI-enhanced recommendations
+            if is_spyderx_enabled("USE_AI_ANALYTICS") and OLLAMA_AVAILABLE:
+                ai_recommendations = await self._generate_ai_recommendations(
+                    current_performance, historical_analyses
+                )
+                recommendations.extend(ai_recommendations)
+            
+            # Prioritize recommendations
+            prioritized = self._prioritize_recommendations(
+                recommendations, current_performance
+            )
+            
+            return prioritized[:10]  # Top 10 recommendations
+            
+        except Exception as e:
+            self.logger.error(f"Recommendation generation failed: {e}")
+            return []
     
     # ==========================================================================
-    # ANALYSIS METHODS
+    # PRIVATE METHODS - METRICS CALCULATION
     # ==========================================================================
-    
-    def _categorize_performance(self, metrics: PerformanceMetrics) -> PerformanceCategory:
-        """Categorize overall performance."""
-        score = 0
+    def _calculate_comprehensive_metrics(
+        self,
+        performance_data: PerformanceData,
+        benchmark_data: Optional[pd.Series] = None
+    ) -> Dict[str, float]:
+        """Calculate all performance metrics"""
+        returns = performance_data.returns
         
-        # Score based on key metrics
-        if metrics.sharpe_ratio >= RISK_THRESHOLDS['sharpe_ratio_excellent']:
-            score += 3
-        elif metrics.sharpe_ratio >= RISK_THRESHOLDS['sharpe_ratio_good']:
-            score += 2
-        elif metrics.sharpe_ratio >= 1:
-            score += 1
-        
-        if metrics.win_rate >= 0.6:
-            score += 2
-        elif metrics.win_rate >= RISK_THRESHOLDS['win_rate_minimum']:
-            score += 1
-        
-        if metrics.profit_factor >= 2:
-            score += 2
-        elif metrics.profit_factor >= RISK_THRESHOLDS['profit_factor_minimum']:
-            score += 1
-        
-        if metrics.max_drawdown <= RISK_THRESHOLDS['max_drawdown_warning']:
-            score += 2
-        elif metrics.max_drawdown <= RISK_THRESHOLDS['max_drawdown_critical']:
-            score += 1
-        
-        # Categorize based on score
-        if score >= 8:
-            return PerformanceCategory.EXCELLENT
-        elif score >= 6:
-            return PerformanceCategory.GOOD
-        elif score >= 4:
-            return PerformanceCategory.AVERAGE
-        elif score >= 2:
-            return PerformanceCategory.BELOW_AVERAGE
-        else:
-            return PerformanceCategory.POOR
-    
-    def _identify_strengths_weaknesses(self, 
-                                     metrics: PerformanceMetrics) -> Tuple[List[str], List[str]]:
-        """Identify performance strengths and weaknesses."""
-        strengths = []
-        weaknesses = []
-        
-        # Strengths
-        if metrics.sharpe_ratio >= RISK_THRESHOLDS['sharpe_ratio_excellent']:
-            strengths.append("Excellent risk-adjusted returns")
-        elif metrics.sharpe_ratio >= RISK_THRESHOLDS['sharpe_ratio_good']:
-            strengths.append("Good risk-adjusted returns")
-        
-        if metrics.win_rate >= 0.6:
-            strengths.append(f"High win rate ({metrics.win_rate:.1%})")
-        
-        if metrics.profit_factor >= 2:
-            strengths.append(f"Strong profit factor ({metrics.profit_factor:.1f})")
-        
-        if metrics.max_drawdown <= RISK_THRESHOLDS['max_drawdown_warning']:
-            strengths.append(f"Low drawdown risk ({metrics.max_drawdown:.1%})")
-        
-        if metrics.expectancy > 0:
-            strengths.append(f"Positive expectancy (${metrics.expectancy:.2f})")
-        
-        # Weaknesses
-        if metrics.sharpe_ratio < 1:
-            weaknesses.append("Low risk-adjusted returns")
-        
-        if metrics.win_rate < RISK_THRESHOLDS['win_rate_minimum']:
-            weaknesses.append(f"Low win rate ({metrics.win_rate:.1%})")
-        
-        if metrics.profit_factor < RISK_THRESHOLDS['profit_factor_minimum']:
-            weaknesses.append(f"Weak profit factor ({metrics.profit_factor:.1f})")
-        
-        if metrics.max_drawdown > RISK_THRESHOLDS['max_drawdown_critical']:
-            weaknesses.append(f"High drawdown risk ({metrics.max_drawdown:.1%})")
-        
-        if metrics.expectancy <= 0:
-            weaknesses.append("Negative or zero expectancy")
-        
-        return strengths, weaknesses
-    
-    def _generate_recommendations(self, metrics: PerformanceMetrics,
-                                ai_insights: Dict[str, Any]) -> List[str]:
-        """Generate performance improvement recommendations."""
-        recommendations = []
-        
-        # Risk management recommendations
-        if metrics.max_drawdown > RISK_THRESHOLDS['max_drawdown_critical']:
-            recommendations.append("Implement stricter position sizing to reduce drawdown risk")
-        
-        if metrics.sharpe_ratio < 1:
-            recommendations.append("Focus on improving risk-reward ratios")
-        
-        # Win rate recommendations
-        if metrics.win_rate < RISK_THRESHOLDS['win_rate_minimum']:
-            recommendations.append("Improve trade entry criteria for better win rate")
-        
-        # Profit optimization
-        if metrics.average_win < metrics.average_loss * 2:
-            recommendations.append("Target higher profit targets relative to stop losses")
-        
-        # Add AI recommendations if available
-        ai_improvements = ai_insights.get('improvement_areas', [])
-        recommendations.extend(ai_improvements[:3])  # Top 3 AI suggestions
-        
-        return recommendations
-    
-    def _assess_risk(self, metrics: PerformanceMetrics,
-                    trades: List[Trade]) -> Dict[str, Any]:
-        """Assess trading risk profile."""
-        risk_score = 0
-        risk_factors = []
-        
-        # Drawdown risk
-        if metrics.max_drawdown > RISK_THRESHOLDS['max_drawdown_critical']:
-            risk_score += 3
-            risk_factors.append("Critical drawdown levels")
-        elif metrics.max_drawdown > RISK_THRESHOLDS['max_drawdown_warning']:
-            risk_score += 2
-            risk_factors.append("Elevated drawdown risk")
-        
-        # Consistency risk
-        if metrics.win_rate < RISK_THRESHOLDS['win_rate_minimum']:
-            risk_score += 2
-            risk_factors.append("Low win rate")
-        
-        # Profit factor risk
-        if metrics.profit_factor < RISK_THRESHOLDS['profit_factor_minimum']:
-            risk_score += 2
-            risk_factors.append("Weak profit factor")
-        
-        # Risk level
-        if risk_score >= 5:
-            risk_level = "HIGH"
-        elif risk_score >= 3:
-            risk_level = "MEDIUM"
-        else:
-            risk_level = "LOW"
-        
-        return {
-            'risk_level': risk_level,
-            'risk_score': risk_score,
-            'risk_factors': risk_factors,
-            'var_95': self._calculate_var(trades, 0.95),
-            'recommended_position_size': min(0.25, metrics.kelly_criterion)
-        }
-    
-    # ==========================================================================
-    # UTILITY METHODS
-    # ==========================================================================
-    
-    def _filter_trades_by_period(self, trades: List[Trade],
-                               period: TimePeriod,
-                               end_date: Optional[datetime]) -> List[Trade]:
-        """Filter trades by time period."""
-        if period == TimePeriod.ALL_TIME:
-            return trades
-        
-        end = end_date or datetime.now()
-        
-        period_days = {
-            TimePeriod.DAILY: 1,
-            TimePeriod.WEEKLY: 7,
-            TimePeriod.MONTHLY: 30,
-            TimePeriod.QUARTERLY: 90,
-            TimePeriod.YEARLY: 365
+        metrics = {
+            # Basic metrics
+            'total_return': self.metrics_calculator.total_return(returns),
+            'annual_return': self.metrics_calculator.annual_return(returns),
+            'volatility': self.metrics_calculator.volatility(returns),
+            
+            # Risk-adjusted metrics
+            'sharpe_ratio': self.metrics_calculator.sharpe_ratio(returns),
+            'sortino_ratio': self.metrics_calculator.sortino_ratio(returns),
+            'calmar_ratio': self.metrics_calculator.calmar_ratio(returns),
+            
+            # Drawdown metrics
+            'max_drawdown': self.metrics_calculator.max_drawdown(returns),
+            'avg_drawdown': self._calculate_average_drawdown(returns),
+            'drawdown_duration': self._calculate_max_drawdown_duration(returns),
+            
+            # Trade metrics
+            'win_rate': self._calculate_win_rate(performance_data.trades),
+            'profit_factor': self._calculate_profit_factor(performance_data.trades),
+            'avg_win_loss_ratio': self._calculate_win_loss_ratio(performance_data.trades),
+            
+            # Risk metrics
+            'var_95': self._calculate_var(returns, 0.95),
+            'cvar_95': self._calculate_cvar(returns, 0.95),
+            'downside_deviation': self._calculate_downside_deviation(returns),
+            
+            # Consistency metrics
+            'positive_months': self._calculate_positive_periods(returns, 'M'),
+            'longest_winning_streak': self._calculate_longest_streak(performance_data.trades, True),
+            'longest_losing_streak': self._calculate_longest_streak(performance_data.trades, False)
         }
         
-        start = end - timedelta(days=period_days.get(period, 30))
+        # Benchmark relative metrics
+        if benchmark_data is not None:
+            metrics.update({
+                'alpha': self._calculate_alpha(returns, benchmark_data),
+                'beta': self._calculate_beta(returns, benchmark_data),
+                'information_ratio': self._calculate_information_ratio(returns, benchmark_data),
+                'tracking_error': self._calculate_tracking_error(returns, benchmark_data)
+            })
         
-        return [t for t in trades if start <= (t.exit_time or t.entry_time) <= end]
+        return metrics
     
-    def _summarize_strategy_performance(self, trades: List[Trade]) -> Dict[str, Any]:
-        """Summarize performance by strategy."""
-        strategy_stats = defaultdict(lambda: {
-            'trades': 0, 'wins': 0, 'pnl': 0, 'avg_pnl': 0
-        })
+    # ==========================================================================
+    # PRIVATE METHODS - ATTRIBUTION ANALYSIS
+    # ==========================================================================
+    async def _perform_attribution_analysis(
+        self,
+        performance_data: PerformanceData
+    ) -> AttributionResult:
+        """Perform performance attribution analysis"""
+        trades = performance_data.trades
         
+        # Strategy attribution
+        strategy_attribution = defaultdict(float)
         for trade in trades:
-            strategy = trade.strategy
-            strategy_stats[strategy]['trades'] += 1
-            if trade.pnl:
-                strategy_stats[strategy]['pnl'] += trade.pnl
-                if trade.pnl > 0:
-                    strategy_stats[strategy]['wins'] += 1
+            strategy = trade.get('strategy', 'unknown')
+            pnl = trade.get('pnl', 0)
+            strategy_attribution[strategy] += pnl
         
-        # Calculate averages and win rates
-        for strategy, stats in strategy_stats.items():
-            if stats['trades'] > 0:
-                stats['avg_pnl'] = stats['pnl'] / stats['trades']
-                stats['win_rate'] = stats['wins'] / stats['trades']
+        # Normalize to percentages
+        total_pnl = sum(strategy_attribution.values())
+        if total_pnl != 0:
+            strategy_attribution = {
+                k: v/total_pnl for k, v in strategy_attribution.items()
+            }
         
-        return dict(strategy_stats)
-    
-    def _identify_weaknesses_for_prompt(self, metrics: PerformanceMetrics) -> str:
-        """Format weaknesses for AI prompt."""
-        _, weaknesses = self._identify_strengths_weaknesses(metrics)
-        return '\n'.join(f"- {w}" for w in weaknesses) if weaknesses else "None identified"
-    
-    def _get_rule_based_suggestions(self, 
-                                  metrics: PerformanceMetrics) -> List[OptimizationSuggestion]:
-        """Generate rule-based optimization suggestions."""
-        suggestions = []
+        # Time-based attribution
+        timeframe_attribution = self._calculate_timeframe_attribution(trades)
         
-        # Position sizing suggestion
-        if metrics.kelly_criterion < 0.05:
-            suggestions.append(OptimizationSuggestion(
-                category="position_sizing",
-                priority="HIGH",
-                suggestion="Increase position sizes based on Kelly Criterion",
-                expected_impact="Higher returns with controlled risk",
-                implementation_steps=[
-                    "Calculate Kelly percentage for each trade",
-                    "Start with 50% of Kelly for safety",
-                    "Gradually increase as confidence grows"
-                ],
-                confidence=0.7
-            ))
+        # Asset attribution (for multi-asset portfolios)
+        asset_attribution = self._calculate_asset_attribution(trades)
         
-        # Risk management suggestion
-        if metrics.max_drawdown > RISK_THRESHOLDS['max_drawdown_critical']:
-            suggestions.append(OptimizationSuggestion(
-                category="risk_management",
-                priority="HIGH",
-                suggestion="Implement dynamic position sizing based on drawdown",
-                expected_impact="Reduced maximum drawdown by 30-40%",
-                implementation_steps=[
-                    "Reduce position size by 50% after 10% drawdown",
-                    "Further reduce by 25% after 15% drawdown",
-                    "Return to normal sizing after recovery"
-                ],
-                confidence=0.8
-            ))
-        
-        return suggestions
-    
-    def _merge_and_prioritize_suggestions(self,
-                                        ai_suggestions: List[OptimizationSuggestion],
-                                        rule_suggestions: List[OptimizationSuggestion]) -> List[OptimizationSuggestion]:
-        """Merge and prioritize all suggestions."""
-        all_suggestions = ai_suggestions + rule_suggestions
-        
-        # Sort by priority and confidence
-        priority_order = {'HIGH': 0, 'MEDIUM': 1, 'LOW': 2}
-        all_suggestions.sort(
-            key=lambda s: (priority_order.get(s.priority, 3), -s.confidence)
+        # Factor attribution (if factor data available)
+        factor_attribution = await self._calculate_factor_attribution(
+            performance_data
         )
         
-        # Remove duplicates (keep highest confidence)
-        seen = set()
-        unique_suggestions = []
-        for suggestion in all_suggestions:
-            key = (suggestion.category, suggestion.suggestion[:50])
-            if key not in seen:
-                seen.add(key)
-                unique_suggestions.append(suggestion)
+        # Calculate residual
+        residual = 1.0 - sum([
+            sum(strategy_attribution.values()),
+            sum(timeframe_attribution.values()),
+            sum(asset_attribution.values()),
+            sum(factor_attribution.values())
+        ]) / 4  # Average of attributions
         
-        return unique_suggestions[:10]  # Top 10 suggestions
+        return AttributionResult(
+            strategy_attribution=dict(strategy_attribution),
+            timeframe_attribution=timeframe_attribution,
+            asset_attribution=asset_attribution,
+            factor_attribution=factor_attribution,
+            residual=residual
+        )
     
-    def _calculate_var(self, trades: List[Trade], confidence: float = 0.95) -> float:
-        """Calculate Value at Risk."""
-        returns = [t.pnl for t in trades if t.pnl is not None]
-        if not returns:
+    # ==========================================================================
+    # PRIVATE METHODS - AI ENHANCEMENT
+    # ==========================================================================
+    async def _enhance_with_ai_analysis(
+        self,
+        metrics: Dict[str, float],
+        attribution: Optional[AttributionResult],
+        regime_analysis: Optional[Dict[str, Any]],
+        factor_analysis: Optional[Dict[str, Any]],
+        performance_data: PerformanceData
+    ) -> PerformanceAnalysis:
+        """Enhance analysis with AI insights"""
+        try:
+            # Prepare context for AI
+            context = {
+                'metrics': metrics,
+                'attribution': attribution.__dict__ if attribution else {},
+                'regime_analysis': regime_analysis or {},
+                'factor_analysis': factor_analysis or {},
+                'trade_count': len(performance_data.trades),
+                'period': f"{performance_data.returns.index[0]} to {performance_data.returns.index[-1]}"
+            }
+            
+            # Query AI for insights
+            prompt = self._construct_analysis_prompt(context)
+            response = await self._query_ai_model(prompt)
+            
+            # Parse AI response
+            ai_insights = self._parse_ai_analysis(response)
+            
+            # Extract key findings
+            strengths = ai_insights.get('strengths', [])
+            weaknesses = ai_insights.get('weaknesses', [])
+            opportunities = ai_insights.get('opportunities', [])
+            
+            # Generate recommendations
+            recommendations = await self._generate_ai_recommendations_from_insights(
+                ai_insights, metrics, performance_data
+            )
+            
+            # Build confidence scores
+            confidence_scores = self._calculate_confidence_scores(
+                ai_insights, metrics
+            )
+            
+            analysis = PerformanceAnalysis(
+                metrics=metrics,
+                attribution=attribution.__dict__ if attribution else {},
+                regime_analysis=regime_analysis or {},
+                factor_analysis=factor_analysis or {},
+                strengths=strengths[:5],  # Top 5
+                weaknesses=weaknesses[:5],
+                opportunities=opportunities[:5],
+                recommendations=recommendations,
+                natural_language_summary=ai_insights.get('summary', ''),
+                confidence_scores=confidence_scores
+            )
+            
+            self.agent_metrics['ai_queries'] += 1
+            self.agent_metrics['insights_generated'] += len(strengths) + len(weaknesses)
+            
+            return analysis
+            
+        except Exception as e:
+            self.logger.error(f"AI analysis enhancement failed: {e}")
+            # Fallback to rule-based
+            return self._create_rule_based_analysis(
+                metrics, attribution, regime_analysis, factor_analysis
+            )
+    
+    async def _query_ai_model(self, prompt: str) -> str:
+        """Query the AI model for analysis"""
+        if not OLLAMA_AVAILABLE:
+            return ""
+            
+        try:
+            response = await asyncio.to_thread(
+                ollama.chat,
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """You are an expert quantitative analyst and portfolio manager.
+                        Analyze performance data to provide actionable insights.
+                        Focus on identifying patterns, strengths, weaknesses, and specific improvements.
+                        Be precise with numbers and provide concrete recommendations."""
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                options={"temperature": self.temperature}
+            )
+            
+            return response['message']['content']
+            
+        except Exception as e:
+            self.logger.error(f"AI model query failed: {e}")
+            return ""
+    
+    def _construct_analysis_prompt(self, context: Dict[str, Any]) -> str:
+        """Construct prompt for AI performance analysis"""
+        metrics = context['metrics']
+        
+        return f"""Analyze the following trading performance data:
+
+Key Metrics:
+- Total Return: {metrics.get('total_return', 0):.2%}
+- Sharpe Ratio: {metrics.get('sharpe_ratio', 0):.2f}
+- Max Drawdown: {metrics.get('max_drawdown', 0):.2%}
+- Win Rate: {metrics.get('win_rate', 0):.2%}
+- Profit Factor: {metrics.get('profit_factor', 0):.2f}
+
+Attribution Analysis:
+{json.dumps(context.get('attribution', {}), indent=2)}
+
+Trading Period: {context.get('period', 'Unknown')}
+Total Trades: {context.get('trade_count', 0)}
+
+Provide:
+1. Top 5 performance strengths
+2. Top 5 weaknesses or areas of concern
+3. Top 5 opportunities for improvement
+4. Specific actionable recommendations
+5. Overall assessment summary (100-150 words)
+6. Confidence level in each finding (0-1)
+
+Format response as JSON with keys: strengths, weaknesses, opportunities, 
+recommendations, summary, confidence_scores"""
+    
+    # ==========================================================================
+    # PRIVATE METHODS - REPORT GENERATION
+    # ==========================================================================
+    async def _generate_executive_summary(
+        self,
+        analysis: PerformanceAnalysis
+    ) -> str:
+        """Generate executive summary report"""
+        metrics = analysis.metrics
+        
+        summary = f"""# PERFORMANCE EXECUTIVE SUMMARY
+
+## Overview
+{analysis.natural_language_summary}
+
+## Key Performance Indicators
+- **Total Return**: {metrics.get('total_return', 0):.2%}
+- **Sharpe Ratio**: {metrics.get('sharpe_ratio', 0):.2f}
+- **Maximum Drawdown**: {metrics.get('max_drawdown', 0):.2%}
+- **Win Rate**: {metrics.get('win_rate', 0):.2%}
+
+## Strengths
+{self._format_list(analysis.strengths)}
+
+## Areas for Improvement
+{self._format_list(analysis.weaknesses)}
+
+## Recommendations
+{self._format_recommendations(analysis.recommendations[:3])}
+
+## Risk Assessment
+- Value at Risk (95%): {metrics.get('var_95', 0):.2%}
+- Downside Deviation: {metrics.get('downside_deviation', 0):.2%}
+- Longest Losing Streak: {metrics.get('longest_losing_streak', 0)} trades
+
+*Generated by AI Performance Analytics on {datetime.now().strftime('%Y-%m-%d %H:%M')}*
+"""
+        return summary
+    
+    def _format_list(self, items: List[str]) -> str:
+        """Format list items for report"""
+        if not items:
+            return "- No items identified"
+        return "\n".join([f"- {item}" for item in items])
+    
+    def _format_recommendations(self, recommendations: List[Dict[str, Any]]) -> str:
+        """Format recommendations for report"""
+        if not recommendations:
+            return "No recommendations at this time."
+        
+        formatted = []
+        for i, rec in enumerate(recommendations, 1):
+            formatted.append(
+                f"{i}. **{rec.get('title', 'Recommendation')}**\n"
+                f"   {rec.get('description', '')}\n"
+                f"   *Expected Impact*: {rec.get('impact', 'Moderate')}\n"
+            )
+        
+        return "\n".join(formatted)
+    
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+    def _calculate_win_rate(self, trades: List[Dict[str, Any]]) -> float:
+        """Calculate win rate from trades"""
+        if not trades:
             return 0.0
         
-        sorted_returns = sorted(returns)
-        index = int((1 - confidence) * len(sorted_returns))
-        return sorted_returns[index] if index < len(sorted_returns) else sorted_returns[0]
+        wins = sum(1 for t in trades if t.get('pnl', 0) > 0)
+        return wins / len(trades)
     
-    def _create_empty_metrics(self, period: TimePeriod) -> PerformanceMetrics:
-        """Create empty metrics object."""
-        return PerformanceMetrics(
-            period=period,
-            start_date=datetime.now(),
-            end_date=datetime.now(),
-            total_trades=0,
-            winning_trades=0,
-            losing_trades=0,
-            total_return=0,
-            sharpe_ratio=0,
-            sortino_ratio=0,
-            max_drawdown=0,
-            win_rate=0,
-            profit_factor=0,
-            average_win=0,
-            average_loss=0,
-            expectancy=0,
-            kelly_criterion=0
+    def _calculate_profit_factor(self, trades: List[Dict[str, Any]]) -> float:
+        """Calculate profit factor"""
+        gross_profit = sum(t.get('pnl', 0) for t in trades if t.get('pnl', 0) > 0)
+        gross_loss = abs(sum(t.get('pnl', 0) for t in trades if t.get('pnl', 0) < 0))
+        
+        if gross_loss == 0:
+            return float('inf') if gross_profit > 0 else 0.0
+        
+        return gross_profit / gross_loss
+    
+    def _calculate_confidence_scores(
+        self,
+        ai_insights: Dict[str, Any],
+        metrics: Dict[str, float]
+    ) -> Dict[str, float]:
+        """Calculate confidence scores for various aspects"""
+        confidence_scores = ai_insights.get('confidence_scores', {})
+        
+        # Add metric-based confidence
+        if metrics.get('trade_count', 0) < 30:
+            confidence_scores['statistical_significance'] = 0.5
+        else:
+            confidence_scores['statistical_significance'] = min(
+                0.95, 0.5 + metrics.get('trade_count', 0) / 200
+            )
+        
+        # Data quality confidence
+        confidence_scores['data_quality'] = 0.9  # Assume good quality
+        
+        # Overall confidence
+        if confidence_scores:
+            confidence_scores['overall'] = np.mean(list(confidence_scores.values()))
+        else:
+            confidence_scores['overall'] = 0.7
+        
+        return confidence_scores
+    
+    def _update_agent_metrics(self, analysis: PerformanceAnalysis) -> None:
+        """Update agent performance metrics"""
+        self.agent_metrics['analyses_performed'] += 1
+        
+        # Update average confidence
+        avg_conf = self.agent_metrics['avg_confidence']
+        new_conf = analysis.confidence_scores.get('overall', 0.7)
+        n = self.agent_metrics['analyses_performed']
+        
+        self.agent_metrics['avg_confidence'] = (
+            (avg_conf * (n - 1) + new_conf) / n
         )
     
-    def _create_empty_report(self, period: TimePeriod) -> PerformanceReport:
-        """Create empty performance report."""
-        return PerformanceReport(
-            metrics=self._create_empty_metrics(period),
-            category=PerformanceCategory.POOR,
-            strengths=[],
-            weaknesses=["No trades to analyze"],
-            recommendations=["Start trading to generate performance data"],
-            ai_insights={},
-            risk_assessment={'risk_level': 'UNKNOWN', 'risk_score': 0}
-        )
+    def get_agent_metrics(self) -> Dict[str, Any]:
+        """Get agent performance metrics"""
+        return self.agent_metrics.copy()
 
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
-
-def create_performance_analytics_agent(model_name: str = DEFAULT_MODEL,
-                                     temperature: float = DEFAULT_TEMPERATURE) -> SpyderX08_PerformanceAnalyticsAgent:
+def create_performance_analytics_agent(
+    model_name: str = DEFAULT_MODEL,
+    temperature: float = DEFAULT_TEMPERATURE
+) -> SpyderX08_PerformanceAnalyticsAgent:
     """
     Factory function to create Performance Analytics Agent instance.
     
@@ -935,149 +840,3 @@ def get_module_instance() -> SpyderX08_PerformanceAnalyticsAgent:
     if _module_instance is None:
         _module_instance = create_performance_analytics_agent()
     return _module_instance
-
-# ==============================================================================
-# TEST EXECUTION
-# ==============================================================================
-
-async def test_performance_agent():
-    """Test the Performance Analytics Agent functionality."""
-    print("="*80)
-    print("Testing SpyderX08_PerformanceAnalyticsAgent")
-    print("="*80)
-    
-    agent = create_performance_analytics_agent()
-    
-    # Create sample trades
-    sample_trades = [
-        Trade(
-            id="T001",
-            symbol="SPY",
-            entry_time=datetime.now() - timedelta(days=30),
-            exit_time=datetime.now() - timedelta(days=29),
-            entry_price=450.00,
-            exit_price=452.50,
-            quantity=10,
-            side="LONG",
-            pnl=250.00,
-            strategy="Momentum"
-        ),
-        Trade(
-            id="T002",
-            symbol="SPY",
-            entry_time=datetime.now() - timedelta(days=25),
-            exit_time=datetime.now() - timedelta(days=24),
-            entry_price=451.00,
-            exit_price=449.50,
-            quantity=10,
-            side="LONG",
-            pnl=-150.00,
-            strategy="Momentum"
-        ),
-        Trade(
-            id="T003",
-            symbol="SPY",
-            entry_time=datetime.now() - timedelta(days=20),
-            exit_time=datetime.now() - timedelta(days=19),
-            entry_price=448.00,
-            exit_price=451.00,
-            quantity=15,
-            side="LONG",
-            pnl=450.00,
-            strategy="MeanReversion"
-        ),
-        Trade(
-            id="T004",
-            symbol="SPY",
-            entry_time=datetime.now() - timedelta(days=15),
-            exit_time=datetime.now() - timedelta(days=14),
-            entry_price=452.00,
-            exit_price=451.00,
-            quantity=10,
-            side="SHORT",
-            pnl=100.00,
-            strategy="MeanReversion"
-        ),
-        Trade(
-            id="T005",
-            symbol="SPY",
-            entry_time=datetime.now() - timedelta(days=10),
-            exit_time=datetime.now() - timedelta(days=9),
-            entry_price=450.00,
-            exit_price=448.00,
-            quantity=20,
-            side="LONG",
-            pnl=-400.00,
-            strategy="Breakout"
-        )
-    ]
-    
-    # Test performance analysis
-    print("\nTest 1: Overall Performance Analysis")
-    print("-"*40)
-    
-    report = await agent.analyze_performance(sample_trades, TimePeriod.ALL_TIME)
-    
-    print(f"Performance Category: {report.category.value}")
-    print(f"\nMetrics:")
-    print(f"  Total Trades: {report.metrics.total_trades}")
-    print(f"  Win Rate: {report.metrics.win_rate:.1%}")
-    print(f"  Total Return: ${report.metrics.total_return:.2f}")
-    print(f"  Sharpe Ratio: {report.metrics.sharpe_ratio:.2f}")
-    print(f"  Max Drawdown: {report.metrics.max_drawdown:.1%}")
-    print(f"  Profit Factor: {report.metrics.profit_factor:.2f}")
-    
-    print(f"\nStrengths:")
-    for strength in report.strengths:
-        print(f"  - {strength}")
-    
-    print(f"\nWeaknesses:")
-    for weakness in report.weaknesses:
-        print(f"  - {weakness}")
-    
-    print(f"\nRecommendations:")
-    for rec in report.recommendations[:3]:
-        print(f"  - {rec}")
-    
-    # Test optimization suggestions
-    print("\n\nTest 2: Optimization Suggestions")
-    print("-"*40)
-    
-    suggestions = await agent.get_optimization_suggestions(
-        report.metrics, sample_trades
-    )
-    
-    for i, suggestion in enumerate(suggestions[:3], 1):
-        print(f"\nSuggestion {i}:")
-        print(f"  Category: {suggestion.category}")
-        print(f"  Priority: {suggestion.priority}")
-        print(f"  Suggestion: {suggestion.suggestion}")
-        print(f"  Expected Impact: {suggestion.expected_impact}")
-        print(f"  Confidence: {suggestion.confidence:.1%}")
-    
-    # Test risk assessment
-    print("\n\nTest 3: Risk Assessment")
-    print("-"*40)
-    
-    risk = report.risk_assessment
-    print(f"Risk Level: {risk['risk_level']}")
-    print(f"Risk Score: {risk['risk_score']}")
-    print(f"Risk Factors:")
-    for factor in risk.get('risk_factors', []):
-        print(f"  - {factor}")
-    print(f"Recommended Position Size: {risk.get('recommended_position_size', 0):.1%}")
-
-# ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
-
-if __name__ == "__main__":
-    print(f"Initializing {__name__}")
-    print(f"Ollama Available: {OLLAMA_AVAILABLE}")
-    
-    # Run async tests
-    asyncio.run(test_performance_agent())
-    
-    print("\n" + "="*80)
-    print("SpyderX08_PerformanceAnalyticsAgent module loaded successfully!")
-    print("="*80)

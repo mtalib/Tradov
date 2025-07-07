@@ -10,21 +10,31 @@ Purpose: Stop loss and trailing stop management
 Description:
     This module manages stop loss orders including initial stops, trailing stops,
     breakeven stops, and time-based stops. It provides dynamic stop adjustment
-    based on market conditions and position performance.
+    based on market conditions and position performance. Integrates with broker
+    API for automated stop order management and provides real-time monitoring
+    of stop levels with comprehensive risk protection.
 
-Author: Mohamed Talib
-Date: 2025-05-29
-Version: 1.4
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-05-29
+Last Updated: 2025-07-06 Time: 15:00:00
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import os
+import sys
+import json
+import uuid
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, Tuple, Union
+from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 import math
+import threading
+from collections import defaultdict, deque
+from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -33,19 +43,45 @@ import pandas as pd
 import numpy as np
 
 # ==============================================================================
-# LOCAL IMPORTS
+# LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
-from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+except ImportError:
+    import logging
+    SpyderLogger = type('SpyderLogger', (), {
+        'get_logger': lambda name: logging.getLogger(name)
+    })()
+
+try:
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+except ImportError:
+    SpyderErrorHandler = type('SpyderErrorHandler', (), {
+        'handle_error': lambda self, e, context: print(f"Error in {context}: {e}")
+    })
+
+try:
+    from SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
+except ImportError:
+    # Define minimal enums if not available
+    class OrderType(Enum):
+        MARKET = "MARKET"
+        LIMIT = "LIMIT"
+        STOP = "STOP"
+        STOP_LIMIT = "STOP_LIMIT"
+    
+    class OrderAction(Enum):
+        BUY = "BUY"
+        SELL = "SELL"
+    
+    class PositionSide(Enum):
+        LONG = "LONG"
+        SHORT = "SHORT"
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Stop loss types
+# Stop loss parameters
 INITIAL_STOP_BUFFER = 0.002  # 0.2% buffer for initial stops
 TRAILING_ACTIVATION = 0.01   # 1% profit to activate trailing
 TRAILING_DISTANCE = 0.005    # 0.5% trailing distance
@@ -72,7 +108,7 @@ SCALE_OUT_PERCENTAGES = [0.33, 0.50, 1.00]  # Scale out levels
 # ENUMS
 # ==============================================================================
 class StopType(Enum):
-    """Types of stop losses"""
+    """Types of stop losses."""
     FIXED = auto()
     TRAILING = auto()
     BREAKEVEN = auto()
@@ -82,15 +118,17 @@ class StopType(Enum):
     PARTIAL = auto()
 
 class StopStatus(Enum):
-    """Stop order status"""
+    """Stop order status."""
     PENDING = auto()
     ACTIVE = auto()
     TRIGGERED = auto()
     CANCELLED = auto()
     MODIFIED = auto()
+    SUBMITTED = auto()  # Sent to broker
+    REJECTED = auto()   # Broker rejected
 
 class TrailingMethod(Enum):
-    """Trailing stop methods"""
+    """Trailing stop methods."""
     PERCENTAGE = auto()
     ATR = auto()
     PARABOLIC_SAR = auto()
@@ -100,9 +138,10 @@ class TrailingMethod(Enum):
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
+@dataclass
 class StopLossConfig:
-    """Stop loss configuration"""
-    stop_type: StopType
+    """Stop loss configuration."""
+    stop_type: StopType = StopType.TRAILING
     initial_stop_method: str = "atr"  # 'atr', 'percentage', 'technical'
     trailing_method: TrailingMethod = TrailingMethod.PERCENTAGE
     use_breakeven: bool = True
@@ -113,9 +152,12 @@ class StopLossConfig:
     trailing_distance_pct: float = TRAILING_DISTANCE
     breakeven_threshold_pct: float = BREAKEVEN_THRESHOLD
     max_stop_width_pct: float = 0.05  # 5% maximum stop width
-    
+    partial_exit_levels: List[float] = field(default_factory=lambda: [0.02, 0.04, 0.06])
+    scale_out_percentages: List[float] = field(default_factory=lambda: SCALE_OUT_PERCENTAGES.copy())
+
+@dataclass
 class StopOrder:
-    """Stop order details"""
+    """Stop order details."""
     order_id: str
     position_id: str
     stop_type: StopType
@@ -127,22 +169,27 @@ class StopOrder:
     status: StopStatus
     created_at: datetime
     last_updated: datetime
+    broker_order_id: Optional[str] = None
     triggered_at: Optional[datetime] = None
     trigger_reason: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+@dataclass
 class PositionStops:
-    """All stops for a position"""
+    """All stops for a position."""
     position_id: str
     entry_price: float
     current_price: float
     position_side: PositionSide
+    quantity: int
     initial_stop: StopOrder
     trailing_stop: Optional[StopOrder] = None
     breakeven_stop: Optional[StopOrder] = None
     time_stop: Optional[StopOrder] = None
     partial_stops: List[StopOrder] = field(default_factory=list)
     stop_history: List[Dict[str, Any]] = field(default_factory=list)
+    created_at: datetime = field(default_factory=datetime.now)
+    last_checked: datetime = field(default_factory=datetime.now)
 
 # ==============================================================================
 # STOP LOSS MANAGER CLASS
@@ -152,51 +199,78 @@ class StopLossManager:
     Manages stop loss orders and trailing stops.
     
     Provides comprehensive stop loss management including dynamic adjustment,
-    multiple stop types, and position-specific stop strategies.
+    multiple stop types, position-specific stop strategies, and broker integration.
+    Thread-safe implementation with real-time monitoring.
+    
+    Attributes:
+        logger: Module logger instance
+        error_handler: Error handling instance
+        position_stops: Active stops by position ID
+        
+    Example:
+        >>> manager = StopLossManager()
+        >>> stops = manager.create_position_stops(
+        ...     position_id="POS001",
+        ...     entry_price=400.0,
+        ...     position_side=PositionSide.LONG,
+        ...     market_data=df,
+        ...     strategy="momentum"
+        ... )
+        >>> manager.update_stops("POS001", 405.0, df)
     """
     
-    def __init__(self, event_manager: EventManager):
+    def __init__(self, broker_client=None, event_manager=None):
         """
         Initialize stop loss manager.
         
         Args:
-            event_manager: Event manager for stop events
+            broker_client: Optional broker client for order placement
+            event_manager: Optional event manager for notifications
         """
-        self.event_manager = event_manager
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
-        # Components
-        self.indicators = TechnicalIndicators()
-        self.volatility_analyzer = VolatilityAnalyzer()
+        # External integrations
+        self.broker_client = broker_client
+        self.event_manager = event_manager
         
         # Configuration
         self.default_config = StopLossConfig()
         self.strategy_configs: Dict[str, StopLossConfig] = {}
         
+        # State management with thread safety
+        self._lock = threading.RLock()
+        
         # Active stops
         self.position_stops: Dict[str, PositionStops] = {}
         self.stop_orders: Dict[str, StopOrder] = {}
+        self.broker_order_map: Dict[str, str] = {}  # broker_id -> our_id
         
         # Tracking
-        self.triggered_stops: List[StopOrder] = []
+        self.triggered_stops: deque = deque(maxlen=1000)
         self.stop_performance: Dict[str, List[float]] = {
             stop_type: [] for stop_type in StopType
         }
         
-        # Register event handlers
-        self._register_event_handlers()
+        # Market data cache
+        self.market_data_cache: Dict[str, pd.DataFrame] = {}
+        self.atr_cache: Dict[str, float] = {}
+        
+        # Monitoring
+        self._monitoring_active = False
+        self._monitor_thread: Optional[threading.Thread] = None
         
         self.logger.info("StopLossManager initialized")
     
     # ==========================================================================
-    # STOP CREATION
+    # PUBLIC METHODS - STOP CREATION
     # ==========================================================================
     def create_position_stops(
         self,
         position_id: str,
         entry_price: float,
         position_side: PositionSide,
+        quantity: int,
         market_data: pd.DataFrame,
         strategy: str,
         config: Optional[StopLossConfig] = None
@@ -205,180 +279,96 @@ class StopLossManager:
         Create all stops for a new position.
         
         Args:
-            position_id: Position identifier
-            entry_price: Entry price
-            position_side: Long or short
-            market_data: Current market data
-            strategy: Strategy name
-            config: Optional stop configuration
+            position_id: Unique position identifier
+            entry_price: Position entry price
+            position_side: LONG or SHORT
+            quantity: Position size
+            market_data: Recent market data
+            strategy: Strategy name for configuration
+            config: Optional custom configuration
             
         Returns:
-            Position stops object
+            PositionStops object with all configured stops
         """
         try:
-            # Use strategy config or default
-            config = config or self.strategy_configs.get(strategy, self.default_config)
-            
-            # Calculate initial stop
-            initial_stop_price = self._calculate_initial_stop(
-                entry_price,
-                position_side,
-                market_data,
-                config
-            )
-            
-            # Create initial stop order
-            initial_stop = StopOrder(
-                order_id=f"{position_id}_initial_stop",
-                position_id=position_id,
-                stop_type=StopType.FIXED,
-                stop_price=initial_stop_price,
-                original_stop=initial_stop_price,
-                activation_price=None,
-                quantity=0,  # Will be set by order manager
-                side=position_side,
-                status=StopStatus.ACTIVE,
-                created_at=datetime.now(),
-                last_updated=datetime.now(),
-                metadata={'method': config.initial_stop_method}
-            )
-            
-            # Create position stops object
-            position_stops = PositionStops(
-                position_id=position_id,
-                entry_price=entry_price,
-                current_price=market_data['close'].iloc[-1],
-                position_side=position_side,
-                initial_stop=initial_stop
-            )
-            
-            # Set up additional stops if configured
-            if config.use_breakeven:
-                self._setup_breakeven_stop(position_stops, config)
-            
-            if config.use_time_stops:
-                self._setup_time_stop(position_stops, config)
-            
-            # Store position stops
-            self.position_stops[position_id] = position_stops
-            self.stop_orders[initial_stop.order_id] = initial_stop
-            
-            # Emit stop created event
-            self._emit_stop_event('created', initial_stop, position_stops)
-            
-            self.logger.info(f"Created stops for position {position_id}: initial stop at {initial_stop_price:.2f}")
-            
-            return position_stops
-            
+            with self._lock:
+                # Use strategy config or default
+                config = config or self.strategy_configs.get(strategy, self.default_config)
+                
+                # Calculate initial stop
+                initial_stop_price = self._calculate_initial_stop(
+                    entry_price, position_side, market_data, config
+                )
+                
+                # Validate stop price
+                if not self._validate_stop_price(initial_stop_price, entry_price, position_side):
+                    self.logger.error(f"Invalid stop price calculated: {initial_stop_price}")
+                    initial_stop_price = self._calculate_emergency_stop(entry_price, position_side)
+                
+                # Create initial stop order
+                initial_stop = StopOrder(
+                    order_id=f"{position_id}_initial_{uuid.uuid4().hex[:8]}",
+                    position_id=position_id,
+                    stop_type=StopType.FIXED,
+                    stop_price=initial_stop_price,
+                    original_stop=initial_stop_price,
+                    activation_price=entry_price,
+                    quantity=quantity,
+                    side=position_side,
+                    status=StopStatus.PENDING,
+                    created_at=datetime.now(),
+                    last_updated=datetime.now(),
+                    metadata={
+                        'strategy': strategy,
+                        'method': config.initial_stop_method,
+                        'atr_multiplier': config.atr_multiplier if config.initial_stop_method == 'atr' else None
+                    }
+                )
+                
+                # Create position stops object
+                position_stops = PositionStops(
+                    position_id=position_id,
+                    entry_price=entry_price,
+                    current_price=entry_price,
+                    position_side=position_side,
+                    quantity=quantity,
+                    initial_stop=initial_stop
+                )
+                
+                # Set up additional stops if configured
+                if config.use_breakeven:
+                    self._setup_breakeven_stop(position_stops, config)
+                
+                if config.use_time_stops:
+                    self._setup_time_stop(position_stops, config, strategy)
+                
+                if config.use_partial_exits:
+                    self._setup_partial_exits(position_stops, config)
+                
+                # Store position stops
+                self.position_stops[position_id] = position_stops
+                self.stop_orders[initial_stop.order_id] = initial_stop
+                
+                # Submit initial stop to broker
+                self._submit_stop_to_broker(initial_stop)
+                
+                # Log creation
+                self.logger.info(
+                    f"Created stops for position {position_id}: "
+                    f"initial stop at {initial_stop_price:.2f}"
+                )
+                
+                return position_stops
+                
         except Exception as e:
             self.logger.error(f"Error creating position stops: {e}")
-            self.error_handler.handle_error(e, f"create_stops_{position_id}")
+            self.error_handler.handle_error(e, {"method": "create_position_stops"})
             
             # Return minimal stop setup
-            return self._create_emergency_stops(position_id, entry_price, position_side)
-    
-    def _calculate_initial_stop(
-        self,
-        entry_price: float,
-        position_side: PositionSide,
-        market_data: pd.DataFrame,
-        config: StopLossConfig
-    ) -> float:
-        """Calculate initial stop price"""
-        if config.initial_stop_method == "atr":
-            stop_price = self._calculate_atr_stop(
-                entry_price,
-                position_side,
-                market_data,
-                config.atr_multiplier
+            return self._create_emergency_position_stops(
+                position_id, entry_price, position_side, quantity
             )
-        
-        elif config.initial_stop_method == "percentage":
-            if position_side == PositionSide.LONG:
-                stop_price = entry_price * (1 - config.max_stop_width_pct)
-            else:
-                stop_price = entry_price * (1 + config.max_stop_width_pct)
-        
-        elif config.initial_stop_method == "technical":
-            stop_price = self._calculate_technical_stop(
-                entry_price,
-                position_side,
-                market_data
-            )
-        
-        else:
-            # Default percentage stop
-            if position_side == PositionSide.LONG:
-                stop_price = entry_price * 0.98  # 2% stop
-            else:
-                stop_price = entry_price * 1.02
-        
-        # Apply maximum stop width
-        max_distance = entry_price * config.max_stop_width_pct
-        if position_side == PositionSide.LONG:
-            stop_price = max(stop_price, entry_price - max_distance)
-        else:
-            stop_price = min(stop_price, entry_price + max_distance)
-        
-        return stop_price
     
-    def _calculate_atr_stop(
-        self,
-        entry_price: float,
-        position_side: PositionSide,
-        market_data: pd.DataFrame,
-        multiplier: float
-    ) -> float:
-        """Calculate ATR-based stop"""
-        atr = self.indicators.atr(
-            market_data['high'],
-            market_data['low'],
-            market_data['close'],
-            period=14
-        ).iloc[-1]
-        
-        # Adjust for volatility regime
-        volatility = self.volatility_analyzer.calculate_volatility(market_data)
-        current_vol = volatility.get('current_volatility', 0.15)
-        
-        if current_vol > 0.25:  # High volatility
-            multiplier *= HIGH_VOL_STOP_WIDENING
-        elif current_vol < 0.10:  # Low volatility
-            multiplier *= LOW_VOL_STOP_TIGHTENING
-        
-        # Calculate stop
-        stop_distance = atr * multiplier
-        
-        if position_side == PositionSide.LONG:
-            return entry_price - stop_distance
-        else:
-            return entry_price + stop_distance
-    
-    def _calculate_technical_stop(
-        self,
-        entry_price: float,
-        position_side: PositionSide,
-        market_data: pd.DataFrame
-    ) -> float:
-        """Calculate stop based on technical levels"""
-        # Find recent swing points
-        highs = market_data['high'].rolling(5).max()
-        lows = market_data['low'].rolling(5).min()
-        
-        if position_side == PositionSide.LONG:
-            # Use recent swing low
-            recent_lows = lows.iloc[-20:]
-            stop_price = recent_lows.min() * (1 - INITIAL_STOP_BUFFER)
-        else:
-            # Use recent swing high
-            recent_highs = highs.iloc[-20:]
-            stop_price = recent_highs.max() * (1 + INITIAL_STOP_BUFFER)
-        
-        return stop_price
-    
-    # ==========================================================================
-    # STOP UPDATES
-    # ==========================================================================
     def update_stops(
         self,
         position_id: str,
@@ -386,12 +376,12 @@ class StopLossManager:
         market_data: pd.DataFrame
     ) -> List[StopOrder]:
         """
-        Update all stops for a position.
+        Update stops for a position based on current price.
         
         Args:
             position_id: Position identifier
             current_price: Current market price
-            market_data: Current market data
+            market_data: Recent market data
             
         Returns:
             List of updated stop orders
@@ -399,115 +389,337 @@ class StopLossManager:
         if position_id not in self.position_stops:
             return []
         
-        position_stops = self.position_stops[position_id]
-        position_stops.current_price = current_price
+        with self._lock:
+            position_stops = self.position_stops[position_id]
+            position_stops.current_price = current_price
+            position_stops.last_checked = datetime.now()
+            
+            updated_stops = []
+            
+            try:
+                # Cache market data
+                self.market_data_cache[position_id] = market_data
+                
+                # Check for trailing stop activation
+                if self._should_activate_trailing(position_stops):
+                    trailing_stop = self._activate_trailing_stop(position_stops, market_data)
+                    if trailing_stop:
+                        updated_stops.append(trailing_stop)
+                
+                # Update trailing stop if active
+                if position_stops.trailing_stop and position_stops.trailing_stop.status == StopStatus.ACTIVE:
+                    if self._update_trailing_stop(position_stops, market_data):
+                        updated_stops.append(position_stops.trailing_stop)
+                
+                # Check for breakeven stop
+                if self._should_move_to_breakeven(position_stops):
+                    breakeven_stop = self._move_to_breakeven(position_stops)
+                    if breakeven_stop:
+                        updated_stops.append(breakeven_stop)
+                
+                # Check time-based stops
+                if position_stops.time_stop:
+                    if self._check_time_stop(position_stops):
+                        updated_stops.append(position_stops.time_stop)
+                
+                # Check for partial exit opportunities
+                partial_exits = self._check_partial_exits(position_stops, current_price)
+                updated_stops.extend(partial_exits)
+                
+                # Update stop history
+                if updated_stops:
+                    self._update_stop_history(position_stops, updated_stops)
+                
+                return updated_stops
+                
+            except Exception as e:
+                self.logger.error(f"Error updating stops: {e}")
+                self.error_handler.handle_error(e, {"method": "update_stops"})
+                return []
+    
+    def check_stop_hit(self, position_id: str, current_price: float) -> Optional[StopOrder]:
+        """
+        Check if any stop has been hit.
         
-        updated_stops = []
+        Args:
+            position_id: Position identifier
+            current_price: Current market price
+            
+        Returns:
+            Triggered stop order if hit, None otherwise
+        """
+        if position_id not in self.position_stops:
+            return None
         
+        with self._lock:
+            position_stops = self.position_stops[position_id]
+            active_stop = self._get_active_stop(position_stops)
+            
+            if not active_stop:
+                return None
+            
+            # Check if stop hit based on position side
+            stop_hit = False
+            if position_stops.position_side == PositionSide.LONG:
+                stop_hit = current_price <= active_stop.stop_price
+            else:  # SHORT
+                stop_hit = current_price >= active_stop.stop_price
+            
+            if stop_hit:
+                # Mark as triggered
+                active_stop.status = StopStatus.TRIGGERED
+                active_stop.triggered_at = datetime.now()
+                active_stop.trigger_reason = f"Stop hit at {current_price:.2f}"
+                
+                # Add to triggered history
+                self.triggered_stops.append({
+                    'stop_order': asdict(active_stop),
+                    'position_stops': {
+                        'position_id': position_stops.position_id,
+                        'entry_price': position_stops.entry_price,
+                        'exit_price': current_price
+                    },
+                    'timestamp': datetime.now()
+                })
+                
+                # Record performance
+                self._record_stop_performance(position_stops, active_stop, current_price)
+                
+                # Notify
+                if self.event_manager:
+                    self._emit_stop_event('triggered', active_stop, position_stops)
+                
+                self.logger.warning(
+                    f"Stop triggered for {position_id}: "
+                    f"{active_stop.stop_type.name} at {current_price:.2f}"
+                )
+                
+                return active_stop
+            
+            return None
+    
+    # ==========================================================================
+    # PRIVATE METHODS - STOP CALCULATIONS
+    # ==========================================================================
+    def _calculate_initial_stop(
+        self,
+        entry_price: float,
+        position_side: PositionSide,
+        market_data: pd.DataFrame,
+        config: StopLossConfig
+    ) -> float:
+        """Calculate initial stop price."""
+        if config.initial_stop_method == "atr":
+            return self._calculate_atr_stop(
+                entry_price, position_side, market_data, config.atr_multiplier
+            )
+        elif config.initial_stop_method == "percentage":
+            return self._calculate_percentage_stop(
+                entry_price, position_side, config.max_stop_width_pct
+            )
+        elif config.initial_stop_method == "technical":
+            return self._calculate_technical_stop(
+                entry_price, position_side, market_data
+            )
+        else:
+            # Default to percentage
+            return self._calculate_percentage_stop(
+                entry_price, position_side, 0.02  # 2% default
+            )
+    
+    def _calculate_atr_stop(
+        self,
+        entry_price: float,
+        position_side: PositionSide,
+        market_data: pd.DataFrame,
+        atr_multiplier: float
+    ) -> float:
+        """Calculate ATR-based stop price."""
         try:
-            # Check for trailing stop activation
-            if self._should_activate_trailing(position_stops):
-                trailing_stop = self._activate_trailing_stop(position_stops, market_data)
-                if trailing_stop:
-                    updated_stops.append(trailing_stop)
+            # Calculate ATR
+            if len(market_data) < 14:
+                # Not enough data, use percentage fallback
+                return self._calculate_percentage_stop(entry_price, position_side, 0.02)
             
-            # Update trailing stop if active
-            if position_stops.trailing_stop and position_stops.trailing_stop.status == StopStatus.ACTIVE:
-                updated = self._update_trailing_stop(position_stops, market_data)
-                if updated:
-                    updated_stops.append(position_stops.trailing_stop)
+            # Calculate ATR
+            high = market_data['high'].values
+            low = market_data['low'].values
+            close = market_data['close'].values
             
-            # Check for breakeven stop
-            if self._should_move_to_breakeven(position_stops):
-                breakeven_stop = self._move_to_breakeven(position_stops)
-                if breakeven_stop:
-                    updated_stops.append(breakeven_stop)
+            # True Range
+            tr = np.maximum(
+                high - low,
+                np.maximum(
+                    np.abs(high - np.roll(close, 1)),
+                    np.abs(low - np.roll(close, 1))
+                )
+            )
             
-            # Check time-based stops
-            if position_stops.time_stop:
-                time_check = self._check_time_stop(position_stops)
-                if time_check:
-                    updated_stops.append(position_stops.time_stop)
+            # ATR (14-period)
+            atr = np.mean(tr[-14:])
             
-            # Check for partial exit opportunities
-            partial_exits = self._check_partial_exits(position_stops, current_price)
-            updated_stops.extend(partial_exits)
+            # Cache ATR
+            self.atr_cache[f"{entry_price}_{datetime.now().date()}"] = atr
             
-            # Update stop history
-            if updated_stops:
-                self._update_stop_history(position_stops, updated_stops)
+            # Calculate stop
+            stop_distance = atr * atr_multiplier
+            
+            if position_side == PositionSide.LONG:
+                stop_price = entry_price - stop_distance
+            else:  # SHORT
+                stop_price = entry_price + stop_distance
+            
+            # Apply buffer
+            if position_side == PositionSide.LONG:
+                stop_price *= (1 - INITIAL_STOP_BUFFER)
+            else:
+                stop_price *= (1 + INITIAL_STOP_BUFFER)
+            
+            return round(stop_price, 2)
             
         except Exception as e:
-            self.logger.error(f"Error updating stops for {position_id}: {e}")
-            self.error_handler.handle_error(e, f"update_stops_{position_id}")
-        
-        return updated_stops
+            self.logger.error(f"ATR calculation error: {e}")
+            return self._calculate_percentage_stop(entry_price, position_side, 0.02)
     
+    def _calculate_percentage_stop(
+        self,
+        entry_price: float,
+        position_side: PositionSide,
+        percentage: float
+    ) -> float:
+        """Calculate percentage-based stop price."""
+        if position_side == PositionSide.LONG:
+            stop_price = entry_price * (1 - percentage)
+        else:  # SHORT
+            stop_price = entry_price * (1 + percentage)
+        
+        return round(stop_price, 2)
+    
+    def _calculate_technical_stop(
+        self,
+        entry_price: float,
+        position_side: PositionSide,
+        market_data: pd.DataFrame
+    ) -> float:
+        """Calculate stop based on technical levels."""
+        try:
+            # Find recent support/resistance
+            if len(market_data) < 20:
+                return self._calculate_percentage_stop(entry_price, position_side, 0.02)
+            
+            # Simple support/resistance: recent lows/highs
+            recent_lows = market_data['low'].rolling(5).min()
+            recent_highs = market_data['high'].rolling(5).max()
+            
+            if position_side == PositionSide.LONG:
+                # Use recent support
+                support_levels = recent_lows.dropna().values
+                if len(support_levels) > 0:
+                    stop_price = support_levels[-1] * (1 - INITIAL_STOP_BUFFER)
+                else:
+                    stop_price = entry_price * 0.98
+            else:  # SHORT
+                # Use recent resistance
+                resistance_levels = recent_highs.dropna().values
+                if len(resistance_levels) > 0:
+                    stop_price = resistance_levels[-1] * (1 + INITIAL_STOP_BUFFER)
+                else:
+                    stop_price = entry_price * 1.02
+            
+            return round(stop_price, 2)
+            
+        except Exception as e:
+            self.logger.error(f"Technical stop calculation error: {e}")
+            return self._calculate_percentage_stop(entry_price, position_side, 0.02)
+    
+    def _calculate_emergency_stop(self, entry_price: float, position_side: PositionSide) -> float:
+        """Calculate emergency stop when normal calculations fail."""
+        # Use conservative 3% stop
+        return self._calculate_percentage_stop(entry_price, position_side, 0.03)
+    
+    # ==========================================================================
+    # PRIVATE METHODS - STOP MANAGEMENT
+    # ==========================================================================
     def _should_activate_trailing(self, position_stops: PositionStops) -> bool:
-        """Check if trailing stop should be activated"""
+        """Check if trailing stop should be activated."""
+        # Already has trailing stop
         if position_stops.trailing_stop:
-            return False  # Already active
+            return False
         
-        # Calculate profit
+        # Check profit threshold
+        entry_price = position_stops.entry_price
+        current_price = position_stops.current_price
+        
         if position_stops.position_side == PositionSide.LONG:
-            profit_pct = (position_stops.current_price - position_stops.entry_price) / position_stops.entry_price
-        else:
-            profit_pct = (position_stops.entry_price - position_stops.current_price) / position_stops.entry_price
+            profit_pct = (current_price - entry_price) / entry_price
+        else:  # SHORT
+            profit_pct = (entry_price - current_price) / entry_price
         
-        return profit_pct >= TRAILING_ACTIVATION
+        config = self._get_position_config(position_stops)
+        return profit_pct >= config.trailing_activation_pct
     
     def _activate_trailing_stop(
         self,
         position_stops: PositionStops,
         market_data: pd.DataFrame
     ) -> Optional[StopOrder]:
-        """Activate trailing stop"""
-        config = self.default_config  # Or get position-specific config
+        """Activate trailing stop."""
+        config = self._get_position_config(position_stops)
         
-        # Calculate initial trailing stop price
+        # Calculate trailing stop price
         if config.trailing_method == TrailingMethod.PERCENTAGE:
+            if position_stops.position_side == PositionSide.LONG:
+                stop_price = position_stops.current_price * (1 - config.trailing_distance_pct)
+            else:  # SHORT
+                stop_price = position_stops.current_price * (1 + config.trailing_distance_pct)
+        elif config.trailing_method == TrailingMethod.ATR:
+            stop_price = self._calculate_atr_stop(
+                position_stops.current_price,
+                position_stops.position_side,
+                market_data,
+                config.atr_multiplier * 0.75  # Tighter for trailing
+            )
+        else:
+            # Default to percentage
             if position_stops.position_side == PositionSide.LONG:
                 stop_price = position_stops.current_price * (1 - config.trailing_distance_pct)
             else:
                 stop_price = position_stops.current_price * (1 + config.trailing_distance_pct)
         
-        elif config.trailing_method == TrailingMethod.ATR:
-            stop_price = self._calculate_atr_trailing_stop(
-                position_stops.current_price,
-                position_stops.position_side,
-                market_data
-            )
-        
-        else:
-            # Default percentage
-            if position_stops.position_side == PositionSide.LONG:
-                stop_price = position_stops.current_price * 0.995
-            else:
-                stop_price = position_stops.current_price * 1.005
+        stop_price = round(stop_price, 2)
         
         # Create trailing stop
         trailing_stop = StopOrder(
-            order_id=f"{position_stops.position_id}_trailing",
+            order_id=f"{position_stops.position_id}_trailing_{uuid.uuid4().hex[:8]}",
             position_id=position_stops.position_id,
             stop_type=StopType.TRAILING,
             stop_price=stop_price,
             original_stop=stop_price,
             activation_price=position_stops.current_price,
-            quantity=0,
+            quantity=position_stops.quantity,
             side=position_stops.position_side,
-            status=StopStatus.ACTIVE,
+            status=StopStatus.PENDING,
             created_at=datetime.now(),
             last_updated=datetime.now(),
-            metadata={'method': config.trailing_method.name}
+            metadata={
+                'method': config.trailing_method.name,
+                'distance': config.trailing_distance_pct
+            }
         )
         
         # Cancel initial stop and activate trailing
-        position_stops.initial_stop.status = StopStatus.CANCELLED
+        if position_stops.initial_stop.status == StopStatus.ACTIVE:
+            self._cancel_stop_order(position_stops.initial_stop)
+        
         position_stops.trailing_stop = trailing_stop
         self.stop_orders[trailing_stop.order_id] = trailing_stop
         
-        self._emit_stop_event('trailing_activated', trailing_stop, position_stops)
-        self.logger.info(f"Activated trailing stop for {position_stops.position_id} at {stop_price:.2f}")
+        # Submit to broker
+        self._submit_stop_to_broker(trailing_stop)
+        
+        self.logger.info(
+            f"Activated trailing stop for {position_stops.position_id} at {stop_price:.2f}"
+        )
         
         return trailing_stop
     
@@ -516,12 +728,12 @@ class StopLossManager:
         position_stops: PositionStops,
         market_data: pd.DataFrame
     ) -> bool:
-        """Update trailing stop price"""
+        """Update trailing stop price if needed."""
         trailing_stop = position_stops.trailing_stop
-        if not trailing_stop:
+        if not trailing_stop or trailing_stop.status != StopStatus.ACTIVE:
             return False
         
-        config = self.default_config
+        config = self._get_position_config(position_stops)
         old_stop = trailing_stop.stop_price
         
         # Calculate new stop price based on method
@@ -530,157 +742,318 @@ class StopLossManager:
                 new_stop = position_stops.current_price * (1 - config.trailing_distance_pct)
                 # Only move up for longs
                 if new_stop > old_stop:
-                    trailing_stop.stop_price = new_stop
-            else:
+                    trailing_stop.stop_price = round(new_stop, 2)
+            else:  # SHORT
                 new_stop = position_stops.current_price * (1 + config.trailing_distance_pct)
                 # Only move down for shorts
                 if new_stop < old_stop:
-                    trailing_stop.stop_price = new_stop
+                    trailing_stop.stop_price = round(new_stop, 2)
         
-        elif config.trailing_method == TrailingMethod.ATR:
-            new_stop = self._calculate_atr_trailing_stop(
-                position_stops.current_price,
-                position_stops.position_side,
-                market_data
-            )
-            
-            if position_stops.position_side == PositionSide.LONG and new_stop > old_stop:
-                trailing_stop.stop_price = new_stop
-            elif position_stops.position_side == PositionSide.SHORT and new_stop < old_stop:
-                trailing_stop.stop_price = new_stop
-        
-        elif config.trailing_method == TrailingMethod.PARABOLIC_SAR:
-            sar = self._calculate_parabolic_sar(market_data)
-            if sar is not None:
-                trailing_stop.stop_price = sar
-        
-        # Update if changed
+        # Check if stop was updated
         if trailing_stop.stop_price != old_stop:
             trailing_stop.last_updated = datetime.now()
-            self._emit_stop_event('updated', trailing_stop, position_stops)
+            
+            # Update with broker
+            self._modify_stop_with_broker(trailing_stop)
+            
+            self.logger.debug(
+                f"Updated trailing stop for {position_stops.position_id}: "
+                f"{old_stop:.2f} -> {trailing_stop.stop_price:.2f}"
+            )
+            
             return True
         
         return False
     
     def _should_move_to_breakeven(self, position_stops: PositionStops) -> bool:
-        """Check if should move stop to breakeven"""
+        """Check if stop should move to breakeven."""
+        # Already has breakeven stop or not configured
         if position_stops.breakeven_stop:
-            return False  # Already at breakeven
+            return False
         
-        # Calculate profit
+        config = self._get_position_config(position_stops)
+        if not config.use_breakeven:
+            return False
+        
+        # Check profit threshold
+        entry_price = position_stops.entry_price
+        current_price = position_stops.current_price
+        
         if position_stops.position_side == PositionSide.LONG:
-            profit_pct = (position_stops.current_price - position_stops.entry_price) / position_stops.entry_price
-        else:
-            profit_pct = (position_stops.entry_price - position_stops.current_price) / position_stops.entry_price
+            profit_pct = (current_price - entry_price) / entry_price
+        else:  # SHORT
+            profit_pct = (entry_price - current_price) / entry_price
         
-        return profit_pct >= BREAKEVEN_THRESHOLD
+        return profit_pct >= config.breakeven_threshold_pct
     
     def _move_to_breakeven(self, position_stops: PositionStops) -> Optional[StopOrder]:
-        """Move stop to breakeven"""
-        # Set stop at entry price plus small buffer for fees
-        buffer = position_stops.entry_price * 0.001  # 0.1% buffer
-        
+        """Move stop to breakeven."""
+        # Calculate breakeven price (entry + small buffer for costs)
         if position_stops.position_side == PositionSide.LONG:
-            stop_price = position_stops.entry_price + buffer
-        else:
-            stop_price = position_stops.entry_price - buffer
+            breakeven_price = position_stops.entry_price * 1.001  # 0.1% buffer
+        else:  # SHORT
+            breakeven_price = position_stops.entry_price * 0.999
+        
+        breakeven_price = round(breakeven_price, 2)
         
         # Create breakeven stop
         breakeven_stop = StopOrder(
-            order_id=f"{position_stops.position_id}_breakeven",
+            order_id=f"{position_stops.position_id}_breakeven_{uuid.uuid4().hex[:8]}",
             position_id=position_stops.position_id,
             stop_type=StopType.BREAKEVEN,
-            stop_price=stop_price,
-            original_stop=position_stops.initial_stop.original_stop,
+            stop_price=breakeven_price,
+            original_stop=breakeven_price,
             activation_price=position_stops.current_price,
-            quantity=0,
+            quantity=position_stops.quantity,
             side=position_stops.position_side,
-            status=StopStatus.ACTIVE,
+            status=StopStatus.PENDING,
             created_at=datetime.now(),
-            last_updated=datetime.now()
+            last_updated=datetime.now(),
+            metadata={'moved_at_price': position_stops.current_price}
         )
         
         # Update active stop
-        if position_stops.trailing_stop:
-            # Update trailing stop if it's worse than breakeven
-            if (position_stops.position_side == PositionSide.LONG and 
-                position_stops.trailing_stop.stop_price < stop_price):
-                position_stops.trailing_stop.stop_price = stop_price
-        else:
-            # Update initial stop
-            position_stops.initial_stop.stop_price = stop_price
+        active_stop = self._get_active_stop(position_stops)
+        if active_stop:
+            self._cancel_stop_order(active_stop)
         
         position_stops.breakeven_stop = breakeven_stop
         self.stop_orders[breakeven_stop.order_id] = breakeven_stop
         
-        self._emit_stop_event('breakeven', breakeven_stop, position_stops)
-        self.logger.info(f"Moved stop to breakeven for {position_stops.position_id}")
+        # Submit to broker
+        self._submit_stop_to_broker(breakeven_stop)
+        
+        self.logger.info(
+            f"Moved stop to breakeven for {position_stops.position_id} at {breakeven_price:.2f}"
+        )
         
         return breakeven_stop
     
     # ==========================================================================
-    # STOP CHECKING
+    # PRIVATE METHODS - BROKER INTEGRATION
     # ==========================================================================
-    def check_stops(
-        self,
-        position_id: str,
-        current_price: float,
-        high_price: float,
-        low_price: float
-    ) -> Optional[StopOrder]:
-        """
-        Check if any stops are triggered.
+    def _submit_stop_to_broker(self, stop_order: StopOrder) -> bool:
+        """Submit stop order to broker."""
+        if not self.broker_client:
+            stop_order.status = StopStatus.ACTIVE  # Simulate activation
+            return True
         
-        Args:
-            position_id: Position identifier
-            current_price: Current price
-            high_price: High price since last check
-            low_price: Low price since last check
+        try:
+            # Prepare broker order
+            broker_order = {
+                'action': OrderAction.SELL if stop_order.side == PositionSide.LONG else OrderAction.BUY,
+                'quantity': stop_order.quantity,
+                'order_type': OrderType.STOP,
+                'stop_price': stop_order.stop_price,
+                'time_in_force': 'GTC',  # Good Till Cancelled
+                'order_ref': stop_order.order_id
+            }
             
-        Returns:
-            Triggered stop order if any
-        """
-        if position_id not in self.position_stops:
-            return None
-        
-        position_stops = self.position_stops[position_id]
-        
-        # Get active stop
-        active_stop = self._get_active_stop(position_stops)
-        if not active_stop:
-            return None
-        
-        # Check if stop is triggered
-        triggered = False
-        trigger_reason = ""
-        
-        if position_stops.position_side == PositionSide.LONG:
-            if low_price <= active_stop.stop_price:
-                triggered = True
-                trigger_reason = f"Price hit stop at {active_stop.stop_price:.2f}"
-        else:
-            if high_price >= active_stop.stop_price:
-                triggered = True
-                trigger_reason = f"Price hit stop at {active_stop.stop_price:.2f}"
-        
-        if triggered:
-            active_stop.status = StopStatus.TRIGGERED
-            active_stop.triggered_at = datetime.now()
-            active_stop.trigger_reason = trigger_reason
+            # Submit to broker
+            broker_order_id = self.broker_client.place_order(broker_order)
             
-            self.triggered_stops.append(active_stop)
-            self._track_stop_performance(active_stop, position_stops)
-            self._emit_stop_event('triggered', active_stop, position_stops)
-            
-            self.logger.info(f"Stop triggered for {position_id}: {trigger_reason}")
-            
-            return active_stop
-        
-        return None
+            if broker_order_id:
+                stop_order.broker_order_id = broker_order_id
+                stop_order.status = StopStatus.SUBMITTED
+                self.broker_order_map[broker_order_id] = stop_order.order_id
+                
+                self.logger.info(f"Stop order submitted to broker: {stop_order.order_id}")
+                return True
+            else:
+                stop_order.status = StopStatus.REJECTED
+                self.logger.error(f"Broker rejected stop order: {stop_order.order_id}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error submitting stop to broker: {e}")
+            stop_order.status = StopStatus.ACTIVE  # Fallback to manual monitoring
+            return False
     
+    def _modify_stop_with_broker(self, stop_order: StopOrder) -> bool:
+        """Modify existing stop order with broker."""
+        if not self.broker_client or not stop_order.broker_order_id:
+            return True  # Simulated success
+        
+        try:
+            # Modify order
+            success = self.broker_client.modify_order(
+                stop_order.broker_order_id,
+                {'stop_price': stop_order.stop_price}
+            )
+            
+            if success:
+                self.logger.debug(f"Stop order modified with broker: {stop_order.order_id}")
+                return True
+            else:
+                self.logger.error(f"Failed to modify stop order: {stop_order.order_id}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error modifying stop with broker: {e}")
+            return False
+    
+    def _cancel_stop_order(self, stop_order: StopOrder) -> bool:
+        """Cancel stop order."""
+        stop_order.status = StopStatus.CANCELLED
+        
+        if self.broker_client and stop_order.broker_order_id:
+            try:
+                self.broker_client.cancel_order(stop_order.broker_order_id)
+                self.logger.debug(f"Stop order cancelled with broker: {stop_order.order_id}")
+            except Exception as e:
+                self.logger.error(f"Error cancelling stop with broker: {e}")
+        
+        return True
+    
+    # ==========================================================================
+    # PRIVATE METHODS - PARTIAL EXITS
+    # ==========================================================================
+    def _setup_partial_exits(self, position_stops: PositionStops, config: StopLossConfig) -> None:
+        """Set up partial exit levels."""
+        if not config.use_partial_exits or not config.partial_exit_levels:
+            return
+        
+        for i, exit_level in enumerate(config.partial_exit_levels):
+            scale_pct = config.scale_out_percentages[i] if i < len(config.scale_out_percentages) else 1.0
+            quantity = int(position_stops.quantity * scale_pct)
+            
+            if quantity > 0:
+                partial_stop = StopOrder(
+                    order_id=f"{position_stops.position_id}_partial_{i}_{uuid.uuid4().hex[:8]}",
+                    position_id=position_stops.position_id,
+                    stop_type=StopType.PARTIAL,
+                    stop_price=0,  # Will be calculated when profit reached
+                    original_stop=0,
+                    activation_price=None,
+                    quantity=quantity,
+                    side=position_stops.position_side,
+                    status=StopStatus.PENDING,
+                    created_at=datetime.now(),
+                    last_updated=datetime.now(),
+                    metadata={
+                        'exit_level': exit_level,
+                        'scale_percentage': scale_pct,
+                        'level_index': i
+                    }
+                )
+                
+                position_stops.partial_stops.append(partial_stop)
+                self.stop_orders[partial_stop.order_id] = partial_stop
+    
+    def _check_partial_exits(self, position_stops: PositionStops, current_price: float) -> List[StopOrder]:
+        """Check if any partial exit levels have been reached."""
+        triggered_partials = []
+        
+        for partial_stop in position_stops.partial_stops:
+            if partial_stop.status != StopStatus.PENDING:
+                continue
+            
+            # Calculate profit percentage
+            if position_stops.position_side == PositionSide.LONG:
+                profit_pct = (current_price - position_stops.entry_price) / position_stops.entry_price
+            else:
+                profit_pct = (position_stops.entry_price - current_price) / position_stops.entry_price
+            
+            exit_level = partial_stop.metadata.get('exit_level', 0)
+            
+            if profit_pct >= exit_level:
+                # Activate partial exit
+                partial_stop.status = StopStatus.TRIGGERED
+                partial_stop.triggered_at = datetime.now()
+                partial_stop.stop_price = current_price
+                partial_stop.trigger_reason = f"Partial exit at {profit_pct:.1%} profit"
+                
+                triggered_partials.append(partial_stop)
+                
+                self.logger.info(
+                    f"Partial exit triggered for {position_stops.position_id}: "
+                    f"{partial_stop.metadata['scale_percentage']:.0%} at {current_price:.2f}"
+                )
+        
+        return triggered_partials
+    
+    # ==========================================================================
+    # PRIVATE METHODS - TIME STOPS
+    # ==========================================================================
+    def _setup_time_stop(self, position_stops: PositionStops, config: StopLossConfig, strategy: str) -> None:
+        """Set up time-based stop."""
+        if not config.use_time_stops:
+            return
+        
+        # Get expected hold time for strategy (would come from strategy config)
+        expected_hold_hours = self._get_expected_hold_time(strategy)
+        
+        if expected_hold_hours <= 0:
+            return
+        
+        # Calculate time stop trigger
+        max_hold_time = timedelta(hours=expected_hold_hours * MAX_HOLD_TIME_MULTIPLIER)
+        trigger_time = position_stops.created_at + max_hold_time
+        
+        time_stop = StopOrder(
+            order_id=f"{position_stops.position_id}_time_{uuid.uuid4().hex[:8]}",
+            position_id=position_stops.position_id,
+            stop_type=StopType.TIME_BASED,
+            stop_price=0,  # Will use market price when triggered
+            original_stop=0,
+            activation_price=None,
+            quantity=position_stops.quantity,
+            side=position_stops.position_side,
+            status=StopStatus.PENDING,
+            created_at=datetime.now(),
+            last_updated=datetime.now(),
+            metadata={
+                'trigger_time': trigger_time.isoformat(),
+                'expected_hold_hours': expected_hold_hours,
+                'max_hold_hours': expected_hold_hours * MAX_HOLD_TIME_MULTIPLIER
+            }
+        )
+        
+        position_stops.time_stop = time_stop
+        self.stop_orders[time_stop.order_id] = time_stop
+    
+    def _check_time_stop(self, position_stops: PositionStops) -> bool:
+        """Check if time stop should be triggered."""
+        time_stop = position_stops.time_stop
+        if not time_stop or time_stop.status != StopStatus.PENDING:
+            return False
+        
+        trigger_time = datetime.fromisoformat(time_stop.metadata['trigger_time'])
+        
+        if datetime.now() >= trigger_time:
+            time_stop.status = StopStatus.TRIGGERED
+            time_stop.triggered_at = datetime.now()
+            time_stop.stop_price = position_stops.current_price
+            time_stop.trigger_reason = "Maximum hold time exceeded"
+            
+            self.logger.warning(
+                f"Time stop triggered for {position_stops.position_id} after "
+                f"{time_stop.metadata['max_hold_hours']:.1f} hours"
+            )
+            
+            return True
+        
+        return False
+    
+    def _get_expected_hold_time(self, strategy: str) -> float:
+        """Get expected hold time for strategy in hours."""
+        # Would come from strategy configuration
+        strategy_hold_times = {
+            'scalping': 0.5,      # 30 minutes
+            'daytrading': 2.0,    # 2 hours
+            'momentum': 4.0,      # 4 hours
+            'swing': 48.0,        # 2 days
+            'position': 168.0     # 1 week
+        }
+        
+        return strategy_hold_times.get(strategy, 24.0)  # Default 1 day
+    
+    # ==========================================================================
+    # PRIVATE METHODS - UTILITIES
+    # ==========================================================================
     def _get_active_stop(self, position_stops: PositionStops) -> Optional[StopOrder]:
-        """Get currently active stop order"""
-        # Priority: trailing > breakeven > initial
+        """Get the currently active stop order."""
+        # Priority: Trailing > Breakeven > Initial
         if position_stops.trailing_stop and position_stops.trailing_stop.status == StopStatus.ACTIVE:
             return position_stops.trailing_stop
         elif position_stops.breakeven_stop and position_stops.breakeven_stop.status == StopStatus.ACTIVE:
@@ -690,147 +1063,42 @@ class StopLossManager:
         
         return None
     
-    # ==========================================================================
-    # PARTIAL EXITS
-    # ==========================================================================
-    def _check_partial_exits(
-        self,
-        position_stops: PositionStops,
-        current_price: float
-    ) -> List[StopOrder]:
-        """Check for partial exit opportunities"""
-        if not self.default_config.use_partial_exits:
-            return []
-        
-        partial_exits = []
-        
-        # Calculate profit
-        if position_stops.position_side == PositionSide.LONG:
-            profit_pct = (current_price - position_stops.entry_price) / position_stops.entry_price
-        else:
-            profit_pct = (position_stops.entry_price - current_price) / position_stops.entry_price
-        
-        # Check scale-out levels
-        for i, (scale_pct, exit_pct) in enumerate(zip(
-            [0.01, 0.02, 0.03],  # Profit thresholds
-            SCALE_OUT_PERCENTAGES
-        )):
-            if profit_pct >= scale_pct:
-                # Check if this level already has a partial exit
-                existing = any(
-                    stop for stop in position_stops.partial_stops
-                    if stop.metadata.get('level') == i
-                )
-                
-                if not existing:
-                    partial_stop = StopOrder(
-                        order_id=f"{position_stops.position_id}_partial_{i}",
-                        position_id=position_stops.position_id,
-                        stop_type=StopType.PARTIAL,
-                        stop_price=current_price * 0.999,  # Immediate exit
-                        original_stop=current_price,
-                        activation_price=current_price,
-                        quantity=int(exit_pct * 100),  # Percentage as int
-                        side=position_stops.position_side,
-                        status=StopStatus.ACTIVE,
-                        created_at=datetime.now(),
-                        last_updated=datetime.now(),
-                        metadata={'level': i, 'exit_percentage': exit_pct}
-                    )
-                    
-                    position_stops.partial_stops.append(partial_stop)
-                    self.stop_orders[partial_stop.order_id] = partial_stop
-                    partial_exits.append(partial_stop)
-        
-        return partial_exits
+    def _get_position_config(self, position_stops: PositionStops) -> StopLossConfig:
+        """Get configuration for position."""
+        strategy = position_stops.initial_stop.metadata.get('strategy', 'default')
+        return self.strategy_configs.get(strategy, self.default_config)
     
-    # ==========================================================================
-    # UTILITIES
-    # ==========================================================================
-    def _calculate_atr_trailing_stop(
-        self,
-        current_price: float,
-        position_side: PositionSide,
-        market_data: pd.DataFrame
-    ) -> float:
-        """Calculate ATR-based trailing stop"""
-        atr = self.indicators.atr(
-            market_data['high'],
-            market_data['low'],
-            market_data['close'],
-            period=14
-        ).iloc[-1]
+    def _validate_stop_price(self, stop_price: float, entry_price: float, 
+                           position_side: PositionSide) -> bool:
+        """Validate stop price is logical."""
+        if stop_price <= 0:
+            return False
         
-        # Tighter stop for trailing
-        multiplier = 1.5
-        
+        # Check stop is on correct side
         if position_side == PositionSide.LONG:
-            return current_price - (atr * multiplier)
-        else:
-            return current_price + (atr * multiplier)
+            return stop_price < entry_price
+        else:  # SHORT
+            return stop_price > entry_price
     
-    def _calculate_parabolic_sar(self, market_data: pd.DataFrame) -> Optional[float]:
-        """Calculate Parabolic SAR stop"""
-        # Simplified SAR calculation
-        high = market_data['high']
-        low = market_data['low']
-        
-        # Would implement full SAR calculation
-        # For now, return None
-        return None
-    
-    def _setup_breakeven_stop(
-        self,
-        position_stops: PositionStops,
-        config: StopLossConfig
-    ) -> None:
-        """Set up breakeven stop configuration"""
-        # Breakeven stop will be created when profit threshold is reached
-        position_stops.stop_history.append({
-            'timestamp': datetime.now(),
-            'event': 'breakeven_configured',
-            'threshold': config.breakeven_threshold_pct
-        })
-    
-    def _setup_time_stop(
-        self,
-        position_stops: PositionStops,
-        config: StopLossConfig
-    ) -> None:
-        """Set up time-based stop"""
-        # Time stop will be activated based on expected hold time
-        position_stops.stop_history.append({
-            'timestamp': datetime.now(),
-            'event': 'time_stop_configured',
-            'max_hold_time': 'strategy_dependent'
-        })
-    
-    def _check_time_stop(self, position_stops: PositionStops) -> Optional[StopOrder]:
-        """Check time-based stop conditions"""
-        # Would implement based on strategy-specific hold times
-        return None
-    
-    def _create_emergency_stops(
+    def _create_emergency_position_stops(
         self,
         position_id: str,
         entry_price: float,
-        position_side: PositionSide
+        position_side: PositionSide,
+        quantity: int
     ) -> PositionStops:
-        """Create emergency stop configuration"""
-        # Simple percentage-based stop
-        if position_side == PositionSide.LONG:
-            stop_price = entry_price * 0.95  # 5% stop
-        else:
-            stop_price = entry_price * 1.05
+        """Create emergency stops when normal creation fails."""
+        # Simple 3% stop
+        stop_price = self._calculate_emergency_stop(entry_price, position_side)
         
         emergency_stop = StopOrder(
-            order_id=f"{position_id}_emergency",
+            order_id=f"{position_id}_emergency_{uuid.uuid4().hex[:8]}",
             position_id=position_id,
             stop_type=StopType.FIXED,
             stop_price=stop_price,
             original_stop=stop_price,
-            activation_price=None,
-            quantity=0,
+            activation_price=entry_price,
+            quantity=quantity,
             side=position_side,
             status=StopStatus.ACTIVE,
             created_at=datetime.now(),
@@ -843,141 +1111,58 @@ class StopLossManager:
             entry_price=entry_price,
             current_price=entry_price,
             position_side=position_side,
+            quantity=quantity,
             initial_stop=emergency_stop
         )
     
-    def _update_stop_history(
-        self,
-        position_stops: PositionStops,
-        updated_stops: List[StopOrder]
-    ) -> None:
-        """Update stop history"""
+    def _update_stop_history(self, position_stops: PositionStops, updated_stops: List[StopOrder]) -> None:
+        """Update stop history for position."""
         for stop in updated_stops:
             position_stops.stop_history.append({
-                'timestamp': datetime.now(),
-                'event': 'stop_updated',
+                'timestamp': datetime.now().isoformat(),
                 'stop_type': stop.stop_type.name,
-                'old_price': stop.original_stop,
-                'new_price': stop.stop_price,
-                'reason': stop.metadata.get('reason', 'price_movement')
+                'stop_price': stop.stop_price,
+                'action': 'updated' if stop.status == StopStatus.ACTIVE else stop.status.name,
+                'metadata': stop.metadata
             })
     
-    def _track_stop_performance(
-        self,
-        triggered_stop: StopOrder,
-        position_stops: PositionStops
-    ) -> None:
-        """Track stop performance for analysis"""
-        # Calculate performance metrics
+    def _record_stop_performance(self, position_stops: PositionStops, 
+                               stop_order: StopOrder, exit_price: float) -> None:
+        """Record stop performance for analysis."""
+        # Calculate performance
+        entry_price = position_stops.entry_price
+        
         if position_stops.position_side == PositionSide.LONG:
-            stop_performance = (triggered_stop.stop_price - position_stops.entry_price) / position_stops.entry_price
-        else:
-            stop_performance = (position_stops.entry_price - triggered_stop.stop_price) / position_stops.entry_price
+            performance = (exit_price - entry_price) / entry_price
+        else:  # SHORT
+            performance = (entry_price - exit_price) / entry_price
         
-        self.stop_performance[triggered_stop.stop_type].append(stop_performance)
-        
-        # Limit history
-        if len(self.stop_performance[triggered_stop.stop_type]) > 100:
-            self.stop_performance[triggered_stop.stop_type] = self.stop_performance[triggered_stop.stop_type][-100:]
+        # Record by stop type
+        self.stop_performance[stop_order.stop_type.name].append(performance)
     
-    # ==========================================================================
-    # EVENT HANDLING
-    # ==========================================================================
-    def _register_event_handlers(self) -> None:
-        """Register event handlers"""
-        self.event_manager.subscribe(
-            self._handle_price_event,
-            event_filter=lambda e: e.type == EventType.MARKET_DATA,
-            subscriber_id="stop_loss_manager"
-        )
-        
-        self.event_manager.subscribe(
-            self._handle_position_event,
-            event_filter=lambda e: e.type == EventType.POSITION,
-            subscriber_id="stop_loss_manager_positions"
-        )
-    
-    def _handle_price_event(self, event: Event) -> None:
-        """Handle price update events"""
-        data = event.data
-        symbol = data.get('symbol')
-        
-        if symbol != 'SPY':
+    def _emit_stop_event(self, action: str, stop_order: StopOrder, position_stops: PositionStops) -> None:
+        """Emit stop-related event."""
+        if not self.event_manager:
             return
         
-        # Check all positions for stop triggers
-        for position_id, position_stops in self.position_stops.items():
-            triggered = self.check_stops(
-                position_id,
-                data.get('close', 0),
-                data.get('high', 0),
-                data.get('low', 0)
-            )
-            
-            if triggered:
-                # Stop was triggered, handle accordingly
-                pass
-    
-    def _handle_position_event(self, event: Event) -> None:
-        """Handle position events"""
-        action = event.data.get('action')
-        position_id = event.data.get('position_id')
+        event_data = {
+            'action': f'stop_{action}',
+            'stop_order': asdict(stop_order),
+            'position': {
+                'position_id': position_stops.position_id,
+                'entry_price': position_stops.entry_price,
+                'current_price': position_stops.current_price,
+                'side': position_stops.position_side.name
+            },
+            'timestamp': datetime.now().isoformat()
+        }
         
-        if action == 'closed' and position_id in self.position_stops:
-            # Clean up stops for closed position
-            self._cleanup_position_stops(position_id)
-    
-    def _emit_stop_event(
-        self,
-        action: str,
-        stop_order: StopOrder,
-        position_stops: PositionStops
-    ) -> None:
-        """Emit stop-related event"""
-        self.event_manager.emit(Event(
-            EventType.RISK,
-            {
-                'action': f'stop_{action}',
-                'stop_order': {
-                    'order_id': stop_order.order_id,
-                    'position_id': stop_order.position_id,
-                    'stop_type': stop_order.stop_type.name,
-                    'stop_price': stop_order.stop_price,
-                    'status': stop_order.status.name
-                },
-                'position': {
-                    'position_id': position_stops.position_id,
-                    'entry_price': position_stops.entry_price,
-                    'current_price': position_stops.current_price,
-                    'side': position_stops.position_side.name
-                }
-            }
-        ))
-    
-    def _cleanup_position_stops(self, position_id: str) -> None:
-        """Clean up stops for closed position"""
-        if position_id in self.position_stops:
-            position_stops = self.position_stops[position_id]
-            
-            # Cancel all active stops
-            for stop in [position_stops.initial_stop, position_stops.trailing_stop, 
-                        position_stops.breakeven_stop, position_stops.time_stop]:
-                if stop and stop.status == StopStatus.ACTIVE:
-                    stop.status = StopStatus.CANCELLED
-            
-            # Remove from active tracking
-            del self.position_stops[position_id]
-            
-            self.logger.info(f"Cleaned up stops for closed position {position_id}")
+        self.event_manager.emit('STOP_EVENT', event_data)
     
     # ==========================================================================
-    # PUBLIC INTERFACE
+    # PUBLIC METHODS - CONFIGURATION
     # ==========================================================================
-    def configure_strategy_stops(
-        self,
-        strategy: str,
-        config: StopLossConfig
-    ) -> None:
+    def configure_strategy_stops(self, strategy: str, config: StopLossConfig) -> None:
         """
         Configure stop loss settings for a strategy.
         
@@ -985,148 +1170,308 @@ class StopLossManager:
             strategy: Strategy name
             config: Stop loss configuration
         """
-        self.strategy_configs[strategy] = config
-        self.logger.info(f"Configured stops for strategy {strategy}")
+        with self._lock:
+            self.strategy_configs[strategy] = config
+            self.logger.info(f"Configured stops for strategy {strategy}")
     
     def get_position_stops(self, position_id: str) -> Optional[PositionStops]:
-        """Get stops for a position"""
-        return self.position_stops.get(position_id)
+        """Get stops for a position."""
+        with self._lock:
+            return self.position_stops.get(position_id)
     
     def get_active_stop_price(self, position_id: str) -> Optional[float]:
-        """Get current active stop price for position"""
-        position_stops = self.position_stops.get(position_id)
-        if not position_stops:
-            return None
-        
-        active_stop = self._get_active_stop(position_stops)
-        return active_stop.stop_price if active_stop else None
+        """Get current active stop price for position."""
+        with self._lock:
+            position_stops = self.position_stops.get(position_id)
+            if not position_stops:
+                return None
+            
+            active_stop = self._get_active_stop(position_stops)
+            return active_stop.stop_price if active_stop else None
     
     def cancel_stops(self, position_id: str) -> None:
-        """Cancel all stops for a position"""
-        if position_id in self.position_stops:
+        """Cancel all stops for a position."""
+        with self._lock:
+            if position_id not in self.position_stops:
+                return
+            
             position_stops = self.position_stops[position_id]
             
+            # Cancel all stops
             for stop in [position_stops.initial_stop, position_stops.trailing_stop,
                         position_stops.breakeven_stop, position_stops.time_stop]:
-                if stop and stop.status == StopStatus.ACTIVE:
-                    stop.status = StopStatus.CANCELLED
-                    self._emit_stop_event('cancelled', stop, position_stops)
+                if stop and stop.status in [StopStatus.ACTIVE, StopStatus.PENDING]:
+                    self._cancel_stop_order(stop)
+            
+            # Cancel partial stops
+            for partial_stop in position_stops.partial_stops:
+                if partial_stop.status in [StopStatus.ACTIVE, StopStatus.PENDING]:
+                    self._cancel_stop_order(partial_stop)
             
             self.logger.info(f"Cancelled all stops for position {position_id}")
     
+    def cleanup_position(self, position_id: str) -> None:
+        """Clean up stops for closed position."""
+        with self._lock:
+            if position_id in self.position_stops:
+                # Cancel any remaining stops
+                self.cancel_stops(position_id)
+                
+                # Remove from tracking
+                del self.position_stops[position_id]
+                
+                # Clean up stop orders
+                self.stop_orders = {
+                    oid: stop for oid, stop in self.stop_orders.items()
+                    if stop.position_id != position_id
+                }
+                
+                self.logger.info(f"Cleaned up stops for position {position_id}")
+    
+    # ==========================================================================
+    # PUBLIC METHODS - ANALYSIS
+    # ==========================================================================
     def get_stop_performance_stats(self) -> Dict[str, Dict[str, float]]:
-        """Get stop performance statistics"""
+        """Get stop performance statistics."""
         stats = {}
         
-        for stop_type, performances in self.stop_performance.items():
-            if performances:
-                stats[stop_type.name] = {
-                    'count': len(performances),
-                    'avg_performance': sum(performances) / len(performances),
-                    'best': max(performances),
-                    'worst': min(performances),
-                    'positive_rate': sum(1 for p in performances if p > 0) / len(performances)
-                }
+        with self._lock:
+            for stop_type, performances in self.stop_performance.items():
+                if performances:
+                    stats[stop_type] = {
+                        'count': len(performances),
+                        'avg_performance': np.mean(performances),
+                        'median_performance': np.median(performances),
+                        'best': max(performances),
+                        'worst': min(performances),
+                        'positive_rate': sum(1 for p in performances if p > 0) / len(performances),
+                        'std_dev': np.std(performances)
+                    }
         
         return stats
+    
+    def get_active_stops_summary(self) -> Dict[str, Any]:
+        """Get summary of all active stops."""
+        with self._lock:
+            active_positions = len(self.position_stops)
+            
+            stop_types = defaultdict(int)
+            total_risk = 0
+            
+            for position_stops in self.position_stops.values():
+                active_stop = self._get_active_stop(position_stops)
+                if active_stop:
+                    stop_types[active_stop.stop_type.name] += 1
+                    
+                    # Calculate risk
+                    if position_stops.position_side == PositionSide.LONG:
+                        risk = position_stops.entry_price - active_stop.stop_price
+                    else:
+                        risk = active_stop.stop_price - position_stops.entry_price
+                    
+                    total_risk += risk * position_stops.quantity
+            
+            return {
+                'active_positions': active_positions,
+                'stop_type_distribution': dict(stop_types),
+                'total_risk_amount': total_risk,
+                'triggered_stops_24h': sum(
+                    1 for stop in self.triggered_stops
+                    if datetime.now() - stop['timestamp'] <= timedelta(hours=24)
+                )
+            }
+    
+    # ==========================================================================
+    # PUBLIC METHODS - MONITORING
+    # ==========================================================================
+    def start_monitoring(self) -> None:
+        """Start stop monitoring thread."""
+        if not self._monitoring_active:
+            self._monitoring_active = True
+            self._monitor_thread = threading.Thread(
+                target=self._monitoring_loop,
+                name="StopMonitor",
+                daemon=True
+            )
+            self._monitor_thread.start()
+            self.logger.info("Stop monitoring started")
+    
+    def stop_monitoring(self) -> None:
+        """Stop monitoring thread."""
+        if self._monitoring_active:
+            self._monitoring_active = False
+            if self._monitor_thread:
+                self._monitor_thread.join(timeout=5)
+            self.logger.info("Stop monitoring stopped")
+    
+    def _monitoring_loop(self) -> None:
+        """Main monitoring loop."""
+        while self._monitoring_active:
+            try:
+                with self._lock:
+                    # Check all positions
+                    for position_id, position_stops in list(self.position_stops.items()):
+                        # Check time stops
+                        if position_stops.time_stop:
+                            self._check_time_stop(position_stops)
+                        
+                        # Check stop status with broker
+                        if self.broker_client:
+                            self._sync_broker_status(position_stops)
+                
+                # Sleep
+                threading.Event().wait(10)  # Check every 10 seconds
+                
+            except Exception as e:
+                self.logger.error(f"Monitoring error: {e}")
+                self.error_handler.handle_error(e, {"method": "_monitoring_loop"})
+    
+    def _sync_broker_status(self, position_stops: PositionStops) -> None:
+        """Sync stop status with broker."""
+        active_stop = self._get_active_stop(position_stops)
+        if not active_stop or not active_stop.broker_order_id:
+            return
+        
+        try:
+            # Check order status with broker
+            broker_status = self.broker_client.get_order_status(active_stop.broker_order_id)
+            
+            if broker_status == 'FILLED':
+                active_stop.status = StopStatus.TRIGGERED
+                active_stop.triggered_at = datetime.now()
+                active_stop.trigger_reason = "Broker execution"
+                
+                self.logger.info(f"Stop executed by broker: {active_stop.order_id}")
+                
+        except Exception as e:
+            self.logger.error(f"Error syncing broker status: {e}")
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# MODULE FUNCTIONS
+# ==============================================================================
+# Singleton instance
+_stop_manager_instance: Optional[StopLossManager] = None
+_instance_lock = threading.Lock()
+
+def get_stop_loss_manager(broker_client=None, event_manager=None) -> StopLossManager:
+    """
+    Get or create stop loss manager instance (singleton).
+    
+    Args:
+        broker_client: Optional broker client
+        event_manager: Optional event manager
+        
+    Returns:
+        StopLossManager instance
+    """
+    global _stop_manager_instance
+    
+    if _stop_manager_instance is None:
+        with _instance_lock:
+            if _stop_manager_instance is None:
+                _stop_manager_instance = StopLossManager(broker_client, event_manager)
+    
+    return _stop_manager_instance
+
+# ==============================================================================
+# MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Test stop loss manager
-    from SpyderA_Core.SpyderA05_EventManager import EventManager
+    print("="*80)
+    print("SPYDER E03 - Stop Loss Manager Test")
+    print("="*80)
     
-    # Initialize
-    event_manager = EventManager()
-    stop_manager = StopLossManager(event_manager)
+    # Initialize stop manager
+    stop_mgr = get_stop_loss_manager()
     
     # Configure strategy stops
     momentum_config = StopLossConfig(
         stop_type=StopType.TRAILING,
         initial_stop_method="atr",
-        trailing_method=TrailingMethod.ATR,
+        trailing_method=TrailingMethod.PERCENTAGE,
         use_breakeven=True,
         use_partial_exits=True,
         atr_multiplier=2.0,
         trailing_activation_pct=0.01,
-        trailing_distance_pct=0.005
+        trailing_distance_pct=0.005,
+        partial_exit_levels=[0.02, 0.04, 0.06],
+        scale_out_percentages=[0.33, 0.50, 1.00]
     )
     
-    stop_manager.configure_strategy_stops("momentum", momentum_config)
+    stop_mgr.configure_strategy_stops("momentum", momentum_config)
     
     # Create sample market data
-    dates = pd.date_range(end=datetime.now(), periods=100, freq='5min')
-    prices = 450 + np.cumsum(np.random.randn(100) * 0.5)
-    
+    dates = pd.date_range(end=datetime.now(), periods=50, freq='5min')
     market_data = pd.DataFrame({
         'timestamp': dates,
-        'open': prices + np.random.randn(100) * 0.1,
-        'high': prices + abs(np.random.randn(100) * 0.3),
-        'low': prices - abs(np.random.randn(100) * 0.3),
-        'close': prices,
-        'volume': np.random.randint(50000000, 150000000, 100)
+        'open': 400 + np.random.randn(50).cumsum(),
+        'high': 401 + np.random.randn(50).cumsum(),
+        'low': 399 + np.random.randn(50).cumsum(),
+        'close': 400 + np.random.randn(50).cumsum(),
+        'volume': np.random.randint(1000000, 5000000, 50)
     })
     
-    # Test stop creation
-    print("STOP LOSS MANAGER TEST")
-    print("=" * 50)
-    
     # Create position stops
-    position_stops = stop_manager.create_position_stops(
-        position_id="TEST_001",
-        entry_price=450.00,
+    position_stops = stop_mgr.create_position_stops(
+        position_id="TEST001",
+        entry_price=400.0,
         position_side=PositionSide.LONG,
+        quantity=100,
         market_data=market_data,
         strategy="momentum"
     )
     
-    print(f"Position: {position_stops.position_id}")
-    print(f"Entry Price: ${position_stops.entry_price:.2f}")
-    print(f"Initial Stop: ${position_stops.initial_stop.stop_price:.2f}")
-    print(f"Stop Distance: {abs(position_stops.initial_stop.stop_price - position_stops.entry_price):.2f}")
-    print(f"Risk: {abs(position_stops.initial_stop.stop_price - position_stops.entry_price) / position_stops.entry_price:.1%}")
+    print(f"\nPosition Stops Created:")
+    print(f"  Position ID: {position_stops.position_id}")
+    print(f"  Entry Price: ${position_stops.entry_price:.2f}")
+    print(f"  Initial Stop: ${position_stops.initial_stop.stop_price:.2f}")
+    print(f"  Stop Type: {position_stops.initial_stop.stop_type.name}")
+    print(f"  Partial Exits: {len(position_stops.partial_stops)}")
     
-    # Simulate price movement and update stops
+    # Simulate price movement
     print("\nSimulating price movement...")
     
-    # Price moves up 2%
-    new_price = 459.00  # 2% profit
-    market_data.loc[market_data.index[-1], 'close'] = new_price
+    # Price goes up (profit)
+    prices = [400, 402, 404, 403, 405, 407, 406, 408, 410]
     
-    updated_stops = stop_manager.update_stops(
-        "TEST_001",
-        new_price,
-        market_data
-    )
-    
-    print(f"\nPrice moved to ${new_price:.2f} (+2%)")
-    for stop in updated_stops:
-        print(f"Updated {stop.stop_type.name} stop to ${stop.stop_price:.2f}")
-    
-    # Check if trailing activated
-    position_stops = stop_manager.get_position_stops("TEST_001")
-    if position_stops.trailing_stop:
-        print(f"Trailing stop activated at ${position_stops.trailing_stop.stop_price:.2f}")
-    
-    # Check stop trigger
-    print("\nChecking stop trigger...")
-    triggered = stop_manager.check_stops(
-        "TEST_001",
-        current_price=455.00,
-        high_price=459.00,
-        low_price=455.00  # Hit trailing stop
-    )
-    
-    if triggered:
-        print(f"Stop triggered: {triggered.trigger_reason}")
-    else:
-        print("No stops triggered")
+    for i, price in enumerate(prices):
+        print(f"\nUpdate {i+1}: Price = ${price:.2f}")
+        
+        # Update market data
+        new_data = market_data.copy()
+        new_data.loc[len(new_data)-1, 'close'] = price
+        
+        # Update stops
+        updated_stops = stop_mgr.update_stops("TEST001", price, new_data)
+        
+        # Get active stop
+        active_stop_price = stop_mgr.get_active_stop_price("TEST001")
+        print(f"  Active Stop: ${active_stop_price:.2f}")
+        
+        if updated_stops:
+            for stop in updated_stops:
+                print(f"  Updated: {stop.stop_type.name} to ${stop.stop_price:.2f}")
+        
+        # Check if stop hit
+        triggered = stop_mgr.check_stop_hit("TEST001", price - 10)  # Simulate drop
+        if triggered:
+            print(f"  ⚠️ STOP TRIGGERED: {triggered.stop_type.name}")
     
     # Get performance stats
-    print("\nStop Performance Stats:")
-    stats = stop_manager.get_stop_performance_stats()
+    print("\nStop Performance Statistics:")
+    stats = stop_mgr.get_stop_performance_stats()
     for stop_type, perf in stats.items():
         print(f"\n{stop_type}:")
-        for metric, value in perf.items():
-            print(f"  {metric}: {value:.3f}")
+        for key, value in perf.items():
+            print(f"  {key}: {value:.3f}")
+    
+    # Get active stops summary
+    summary = stop_mgr.get_active_stops_summary()
+    print(f"\nActive Stops Summary:")
+    print(f"  Active Positions: {summary['active_positions']}")
+    print(f"  Stop Types: {summary['stop_type_distribution']}")
+    print(f"  Total Risk: ${summary['total_risk_amount']:.2f}")
+    
+    # Cleanup
+    stop_mgr.cleanup_position("TEST001")
+    print("\n✅ Stop Loss Manager test completed successfully!")

@@ -4,1109 +4,1107 @@
 SPYDER - Automated SPY Options Trading System
 
 Module: SpyderF09_EntryFilters.py
-Group: F (Analysis)
-Purpose: Consolidated entry criteria checking
+Group: F (Technical Analysis)
+Purpose: Entry filters with adaptive thresholds from paper trading
 
 Description:
-    This module consolidates all entry filters and criteria from the research
-    into a single, easy-to-use interface. It checks market conditions, technical
-    indicators, volatility levels, and timing constraints to determine if
-    conditions are favorable for entering trades.
+    This module provides a comprehensive filtering system for trade entries
+    with adaptive thresholds that learn from paper trading results. Filters
+    can be dynamically adjusted based on performance.
 
-Author: Mohamed Talib
-Date: 2025-06-06
-Version: 1.4
+Author: Claude AI (Enhanced by Maestro)
+Date: 2024-01-07
+Version: 2.0 - Added adaptive thresholds and paper trade learning
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, time, date
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple, Any, Set
 from enum import Enum
+from datetime import datetime, timedelta, time
+from dataclasses import dataclass, field
 import numpy as np
+import pandas as pd
+import json
+from collections import defaultdict, deque
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderF_Analysis.SpyderF08_VolatilityRegime import (
-    VolatilityRegimeAnalyzer, VolatilityRegime
-)
-from SpyderF_Analysis.SpyderF07_GapAnalyzer import GapAnalyzer, GapType
-from SpyderC_MarketData.SpyderC04_MarketInternals import MarketInternals
-from SpyderF_Analysis.SpyderF01_Indicators import TechnicalIndicators
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Time windows (ET)
-OPTIMAL_ENTRY_START = time(10, 15)
-OPTIMAL_ENTRY_END = time(11, 40)
-TIME_BASED_EXIT = time(12, 0)
-EARLY_CLOSE_TIME = time(15, 30)  # 30 minutes before close
-
-# Research-based thresholds
-IV_PERCENTILE_MIN = 50          # Minimum IV percentile at 9:35 AM
-OVERNIGHT_GAP_MAX = 0.003       # 0.3% maximum gap
-RSI_MIN = 30
-RSI_MAX = 70
-PRICE_TO_MA_MAX = 0.005         # 0.5% from 10-day MA
-VIX_MIN = 15
-VIX_MAX = 30
-
-# Day quality scores (from research)
-DAY_QUALITY_SCORES = {
-    0: 1.0,   # Monday - highest
-    1: 0.4,   # Tuesday
-    2: 0.5,   # Wednesday
-    3: 0.4,   # Thursday
-    4: 0.3    # Friday - lowest
-}
+from SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
+from SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
+from SpyderU_Utilities.SpyderU11_FeatureFlags import FeatureFlags
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class FilterResult(Enum):
-    """Filter check results"""
+    """Filter result status."""
     PASS = "pass"
     FAIL = "fail"
     WARNING = "warning"
     SKIP = "skip"
 
 class EntryQuality(Enum):
-    """Overall entry quality assessment"""
-    EXCELLENT = "excellent"
-    GOOD = "good"
-    ACCEPTABLE = "acceptable"
-    POOR = "poor"
-    REJECT = "reject"
+    """Overall entry quality rating."""
+    EXCELLENT = 5
+    GOOD = 4
+    FAIR = 3
+    POOR = 2
+    AVOID = 1
+
+class FilterType(Enum):
+    """Types of entry filters."""
+    # Market condition filters
+    VOLATILITY = "volatility"
+    TREND = "trend"
+    MOMENTUM = "momentum"
+    VOLUME = "volume"
+    
+    # Technical filters
+    SUPPORT_RESISTANCE = "support_resistance"
+    OVERBOUGHT_OVERSOLD = "overbought_oversold"
+    PATTERN = "pattern"
+    
+    # Risk filters
+    PORTFOLIO_EXPOSURE = "portfolio_exposure"
+    CORRELATION = "correlation"
+    MAX_LOSS = "max_loss"
+    
+    # Time filters
+    TIME_OF_DAY = "time_of_day"
+    DAY_OF_WEEK = "day_of_week"
+    EARNINGS = "earnings"
+    ECONOMIC_EVENTS = "economic_events"
+    
+    # Greeks filters
+    IMPLIED_VOLATILITY = "implied_volatility"
+    SKEW = "skew"
+    TERM_STRUCTURE = "term_structure"
 
 # ==============================================================================
-# DATA STRUCTURES
+# DATA CLASSES
 # ==============================================================================
+@dataclass
+class FilterThreshold:
+    """Adaptive filter threshold."""
+    base_value: float
+    current_value: float
+    min_value: float
+    max_value: float
+    adaptation_rate: float = 0.1
+    last_update: datetime = field(default_factory=datetime.now)
+    performance_history: List[float] = field(default_factory=list)
+    
+    def adapt(self, performance_score: float):
+        """Adapt threshold based on performance."""
+        # Calculate adjustment
+        if performance_score > 0.7:
+            # Good performance - can be slightly more aggressive
+            adjustment = self.adaptation_rate * (performance_score - 0.7)
+            self.current_value *= (1 + adjustment)
+        elif performance_score < 0.5:
+            # Poor performance - be more conservative
+            adjustment = self.adaptation_rate * (0.5 - performance_score)
+            self.current_value *= (1 - adjustment)
+        
+        # Enforce bounds
+        self.current_value = max(self.min_value, min(self.max_value, self.current_value))
+        
+        # Update history
+        self.performance_history.append(performance_score)
+        if len(self.performance_history) > 100:
+            self.performance_history.pop(0)
+        
+        self.last_update = datetime.now()
+
 @dataclass
 class FilterCheck:
-    """Individual filter check result"""
-    name: str
+    """Individual filter check result."""
+    filter_type: FilterType
     result: FilterResult
-    value: Any
-    threshold: Any
-    reason: str
+    value: float
+    threshold: float
+    message: str
     weight: float = 1.0
+    
+    @property
+    def passed(self) -> bool:
+        return self.result in [FilterResult.PASS, FilterResult.WARNING]
 
 @dataclass
-class EntryAssessment:
-    """Complete entry assessment results"""
-    timestamp: datetime
-    symbol: str
-    strategy: str
-    overall_quality: EntryQuality
-    overall_score: float
-    can_enter: bool
-    filter_results: List[FilterCheck]
-    passed_filters: int
-    total_filters: int
+class EntryFilterResult:
+    """Complete entry filter analysis."""
+    overall_result: FilterResult
+    quality_rating: EntryQuality
+    total_score: float
+    checks: List[FilterCheck]
     warnings: List[str]
     recommendations: List[str]
-    position_size_adjustment: float
+    timestamp: datetime = field(default_factory=datetime.now)
     
     def get_failed_filters(self) -> List[FilterCheck]:
-        """Get list of failed filters"""
-        return [f for f in self.filter_results if f.result == FilterResult.FAIL]
+        """Get all failed filter checks."""
+        return [c for c in self.checks if c.result == FilterResult.FAIL]
     
     def get_warning_filters(self) -> List[FilterCheck]:
-        """Get list of warning filters"""
-        return [f for f in self.filter_results if f.result == FilterResult.WARNING]
-
-@dataclass
-class MarketConditions:
-    """Current market conditions snapshot"""
-    timestamp: datetime
-    spy_price: float
-    vix_level: float
-    spy_rsi: float
-    spy_ma_10: float
-    overnight_gap: float
-    iv_percentile: float
-    market_internals_score: float
-    volatility_regime: VolatilityRegime
-    is_trending: bool
-    trend_strength: float
+        """Get all warning filter checks."""
+        return [c for c in self.checks if c.result == FilterResult.WARNING]
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for storage."""
+        return {
+            'overall_result': self.overall_result.value,
+            'quality_rating': self.quality_rating.value,
+            'total_score': self.total_score,
+            'passed_filters': len([c for c in self.checks if c.passed]),
+            'failed_filters': len(self.get_failed_filters()),
+            'warnings': len(self.warnings),
+            'timestamp': self.timestamp.isoformat()
+        }
 
 # ==============================================================================
-# ENTRY FILTERS CLASS
+# MAIN CLASS
 # ==============================================================================
 class EntryFilters:
     """
-    Consolidated entry criteria checking system.
+    Entry filter system with adaptive thresholds.
     
-    Implements all research-based entry filters including:
-    - Day of week quality
-    - Optimal entry time windows
-    - IV percentile requirements
-    - Overnight gap limits
-    - RSI boundaries
-    - Price relative to moving average
-    - VIX range requirements
-    - Market internals confirmation
+    Features:
+    - Multiple filter categories
+    - Adaptive thresholds based on paper trading
+    - Weighted scoring system
+    - Real-time filter updates
+    - Performance tracking
     """
     
     def __init__(self, 
-                 volatility_analyzer: Optional[VolatilityRegimeAnalyzer] = None,
-                 gap_analyzer: Optional[GapAnalyzer] = None,
-                 market_internals: Optional[MarketInternals] = None,
-                 indicators: Optional[TechnicalIndicators] = None):
-        """
-        Initialize entry filters.
-        
-        Args:
-            volatility_analyzer: Volatility regime analyzer
-            gap_analyzer: Gap analyzer
-            market_internals: Market internals tracker
-            indicators: Technical indicators calculator
-        """
-        self.volatility_analyzer = volatility_analyzer
-        self.gap_analyzer = gap_analyzer
-        self.market_internals = market_internals
-        self.indicators = indicators
-        
+                 config_manager: ConfigManager,
+                 paper_trade_learner: Optional[Any] = None):
+        """Initialize with adaptive learning."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
+        self.config_manager = config_manager
+        self.paper_trade_learner = paper_trade_learner
+        self.feature_flags = FeatureFlags()
+        self.monitor = SystemMonitor()
         
-        # Filter weights for scoring
-        self.filter_weights = {
-            'day_of_week': 2.0,      # Double weight for day
-            'entry_time': 1.5,       # Important timing
-            'iv_percentile': 1.5,    # Critical filter
-            'overnight_gap': 1.0,
-            'rsi_range': 1.0,
-            'price_ma_distance': 0.8,
-            'vix_range': 1.0,
-            'market_internals': 0.8,
-            'volatility_regime': 1.2,
-            'trend_alignment': 0.6
+        # Load configuration
+        self._load_config()
+        
+        # Initialize thresholds
+        self.thresholds = self._initialize_thresholds()
+        self.base_thresholds = self._initialize_thresholds()  # Keep original values
+        
+        # Performance tracking
+        self.filter_performance = defaultdict(lambda: deque(maxlen=100))
+        self.last_adaptation_time = None
+        
+        # Filter weights
+        self.filter_weights = self._load_filter_weights()
+        
+        self.logger.info("EntryFilters initialized with adaptive thresholds")
+    
+    def _load_config(self):
+        """Load configuration."""
+        config = self.config_manager.get_config('entry_filters', {})
+        
+        # Adaptive settings
+        self.use_adaptive_thresholds = self.config_manager.is_feature_enabled('adaptive_entry_filters')
+        self.adaptation_interval_hours = config.get('adaptation_interval_hours', 24)
+        self.min_trades_for_adaptation = config.get('min_trades_for_adaptation', 20)
+        self.adaptation_blend_factor = config.get('adaptation_blend_factor', 0.2)  # 80% base, 20% adapted
+        
+        # Filter settings
+        self.enable_all_filters = config.get('enable_all_filters', True)
+        self.min_quality_rating = EntryQuality(config.get('min_quality_rating', 3))
+        self.strict_mode = config.get('strict_mode', False)
+        
+        # Time filters
+        self.restricted_hours = config.get('restricted_hours', {
+            'start': time(9, 30),
+            'end': time(15, 30)  # No entries in last 30 min
+        })
+        self.restricted_days = config.get('restricted_days', [5, 6])  # Saturday, Sunday
+    
+    def _initialize_thresholds(self) -> Dict[str, FilterThreshold]:
+        """Initialize filter thresholds."""
+        config = self.config_manager.get_config('entry_filter_thresholds', {})
+        
+        thresholds = {
+            # Volatility filters
+            'min_volatility': FilterThreshold(
+                base_value=config.get('min_volatility', 0.10),
+                current_value=config.get('min_volatility', 0.10),
+                min_value=0.05,
+                max_value=0.20
+            ),
+            'max_volatility': FilterThreshold(
+                base_value=config.get('max_volatility', 0.40),
+                current_value=config.get('max_volatility', 0.40),
+                min_value=0.30,
+                max_value=0.60
+            ),
+            
+            # Trend filters
+            'min_trend_strength': FilterThreshold(
+                base_value=config.get('min_trend_strength', 0.3),
+                current_value=config.get('min_trend_strength', 0.3),
+                min_value=0.1,
+                max_value=0.5
+            ),
+            
+            # Volume filters
+            'min_volume_ratio': FilterThreshold(
+                base_value=config.get('min_volume_ratio', 0.8),
+                current_value=config.get('min_volume_ratio', 0.8),
+                min_value=0.5,
+                max_value=1.5
+            ),
+            
+            # Technical filters
+            'rsi_oversold': FilterThreshold(
+                base_value=config.get('rsi_oversold', 30),
+                current_value=config.get('rsi_oversold', 30),
+                min_value=20,
+                max_value=40
+            ),
+            'rsi_overbought': FilterThreshold(
+                base_value=config.get('rsi_overbought', 70),
+                current_value=config.get('rsi_overbought', 70),
+                min_value=60,
+                max_value=80
+            ),
+            
+            # Risk filters
+            'max_portfolio_delta': FilterThreshold(
+                base_value=config.get('max_portfolio_delta', 100),
+                current_value=config.get('max_portfolio_delta', 100),
+                min_value=50,
+                max_value=200
+            ),
+            'max_position_size': FilterThreshold(
+                base_value=config.get('max_position_size', 0.1),
+                current_value=config.get('max_position_size', 0.1),
+                min_value=0.05,
+                max_value=0.20
+            ),
+            
+            # Greeks filters
+            'min_iv_percentile': FilterThreshold(
+                base_value=config.get('min_iv_percentile', 20),
+                current_value=config.get('min_iv_percentile', 20),
+                min_value=10,
+                max_value=40
+            ),
+            'max_iv_skew': FilterThreshold(
+                base_value=config.get('max_iv_skew', 0.15),
+                current_value=config.get('max_iv_skew', 0.15),
+                min_value=0.10,
+                max_value=0.25
+            )
         }
         
-        self.logger.info("EntryFilters initialized")
+        return thresholds
+    
+    def _load_filter_weights(self) -> Dict[FilterType, float]:
+        """Load filter importance weights."""
+        config = self.config_manager.get_config('filter_weights', {})
+        
+        default_weights = {
+            FilterType.VOLATILITY: 1.5,
+            FilterType.TREND: 1.2,
+            FilterType.MOMENTUM: 1.0,
+            FilterType.VOLUME: 0.8,
+            FilterType.SUPPORT_RESISTANCE: 1.1,
+            FilterType.OVERBOUGHT_OVERSOLD: 0.9,
+            FilterType.PATTERN: 0.7,
+            FilterType.PORTFOLIO_EXPOSURE: 1.3,
+            FilterType.CORRELATION: 1.0,
+            FilterType.MAX_LOSS: 1.5,
+            FilterType.TIME_OF_DAY: 0.6,
+            FilterType.DAY_OF_WEEK: 0.5,
+            FilterType.EARNINGS: 1.2,
+            FilterType.ECONOMIC_EVENTS: 1.1,
+            FilterType.IMPLIED_VOLATILITY: 1.4,
+            FilterType.SKEW: 1.0,
+            FilterType.TERM_STRUCTURE: 0.9
+        }
+        
+        # Override with config values
+        for filter_type in FilterType:
+            if filter_type.value in config:
+                default_weights[filter_type] = config[filter_type.value]
+        
+        return default_weights
     
     # ==========================================================================
-    # MAIN ASSESSMENT METHOD
+    # PUBLIC METHODS
     # ==========================================================================
-    def assess_entry(self, symbol: str = 'SPY', strategy: str = 'iron_condor',
-                    custom_filters: Optional[Dict[str, Any]] = None) -> EntryAssessment:
+    
+    def assess_entry(self, entry_params: Dict[str, Any]) -> EntryFilterResult:
         """
-        Perform complete entry assessment.
+        Assess entry with adaptive thresholds.
         
         Args:
-            symbol: Symbol to assess (default SPY)
-            strategy: Strategy being considered
-            custom_filters: Optional custom filter overrides
+            entry_params: Dictionary with entry parameters
             
         Returns:
-            EntryAssessment with complete results
+            Complete filter assessment
         """
+        start_time = datetime.now()
+        
         try:
-            # Get current market conditions
-            conditions = self._get_market_conditions(symbol)
+            # Update thresholds if needed
+            if self.use_adaptive_thresholds:
+                self._update_adaptive_thresholds()
             
             # Run all filters
-            filter_results = []
+            checks = self._run_all_filters(entry_params)
             
-            # 1. Day of week filter
-            filter_results.append(self._check_day_of_week())
+            # Calculate overall result
+            overall_result, quality_rating, total_score = self._calculate_overall_result(checks)
             
-            # 2. Entry time window
-            filter_results.append(self._check_entry_time())
+            # Generate warnings and recommendations
+            warnings = self._generate_warnings(checks, entry_params)
+            recommendations = self._generate_recommendations(checks, entry_params)
             
-            # 3. IV percentile
-            filter_results.append(self._check_iv_percentile(symbol, conditions))
-            
-            # 4. Overnight gap
-            filter_results.append(self._check_overnight_gap(symbol, conditions))
-            
-            # 5. RSI range
-            filter_results.append(self._check_rsi_range(symbol, conditions))
-            
-            # 6. Price to MA distance
-            filter_results.append(self._check_price_ma_distance(symbol, conditions))
-            
-            # 7. VIX range
-            filter_results.append(self._check_vix_range(conditions))
-            
-            # 8. Market internals (if available)
-            if self.market_internals:
-                filter_results.append(self._check_market_internals())
-            
-            # 9. Volatility regime
-            if self.volatility_analyzer:
-                filter_results.append(self._check_volatility_regime(strategy))
-            
-            # 10. Trend alignment
-            filter_results.append(self._check_trend_alignment(symbol, conditions))
-            
-            # Apply custom filters if provided
-            if custom_filters:
-                for name, config in custom_filters.items():
-                    filter_results.append(self._apply_custom_filter(name, config))
-            
-            # Calculate overall assessment
-            assessment = self._calculate_overall_assessment(
-                symbol, strategy, conditions, filter_results
+            # Create result
+            result = EntryFilterResult(
+                overall_result=overall_result,
+                quality_rating=quality_rating,
+                total_score=total_score,
+                checks=checks,
+                warnings=warnings,
+                recommendations=recommendations
             )
             
-            return assessment
+            # Record metrics
+            elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+            self.monitor.record_metric('entry_filters.execution_ms', elapsed_ms)
+            self.monitor.record_metric('entry_filters.quality_score', quality_rating.value)
+            
+            # Track filter performance
+            self._track_filter_performance(result)
+            
+            return result
             
         except Exception as e:
-            self.logger.error(f"Error in entry assessment: {e}")
-            self.error_handler.handle_error(e, "assess_entry")
-            return self._get_error_assessment(symbol, strategy, str(e))
+            self.error_handler.handle_error(e, "Entry filter assessment failed")
+            return self._create_error_result()
+    
+    def get_filter_statistics(self) -> Dict[str, Any]:
+        """Get filter performance statistics."""
+        stats = {
+            'total_assessments': sum(len(perf) for perf in self.filter_performance.values()),
+            'filter_pass_rates': {},
+            'average_quality_scores': {},
+            'threshold_adaptations': {}
+        }
+        
+        # Calculate pass rates by filter
+        for filter_type in FilterType:
+            perfs = self.filter_performance.get(filter_type, [])
+            if perfs:
+                stats['filter_pass_rates'][filter_type.value] = np.mean(perfs)
+        
+        # Threshold adaptations
+        for name, threshold in self.thresholds.items():
+            stats['threshold_adaptations'][name] = {
+                'base': threshold.base_value,
+                'current': threshold.current_value,
+                'change_pct': (threshold.current_value - threshold.base_value) / threshold.base_value * 100
+            }
+        
+        return stats
+    
+    def reset_adaptations(self):
+        """Reset all thresholds to base values."""
+        for name, threshold in self.thresholds.items():
+            threshold.current_value = threshold.base_value
+            threshold.performance_history.clear()
+        
+        self.filter_performance.clear()
+        self.last_adaptation_time = None
+        
+        self.logger.info("Filter adaptations reset to base values")
     
     # ==========================================================================
-    # INDIVIDUAL FILTER CHECKS
+    # ADAPTIVE THRESHOLD MANAGEMENT
     # ==========================================================================
-    def _check_day_of_week(self) -> FilterCheck:
-        """Check day of week quality"""
-        current_day = datetime.now().weekday()
-        quality_score = DAY_QUALITY_SCORES.get(current_day, 0.5)
-        
-        if current_day == 0:  # Monday
-            result = FilterResult.PASS
-            reason = "Monday - optimal trading day"
-        elif quality_score >= 0.4:
-            result = FilterResult.WARNING
-            reason = f"{self._get_day_name(current_day)} - reduced opportunity"
-        else:
-            result = FilterResult.WARNING
-            reason = f"{self._get_day_name(current_day)} - lowest quality day"
-        
-        return FilterCheck(
-            name="day_of_week",
-            result=result,
-            value=self._get_day_name(current_day),
-            threshold="Monday preferred",
-            reason=reason,
-            weight=self.filter_weights['day_of_week']
-        )
     
-    def _check_entry_time(self) -> FilterCheck:
-        """Check if within optimal entry time window"""
-        current_time = datetime.now().time()
+    def _update_adaptive_thresholds(self):
+        """Update thresholds based on paper trading results."""
+        if not self.paper_trade_learner:
+            return
         
-        if OPTIMAL_ENTRY_START <= current_time <= OPTIMAL_ENTRY_END:
-            result = FilterResult.PASS
-            reason = "Within optimal entry window"
-        elif current_time < OPTIMAL_ENTRY_START:
-            result = FilterResult.WARNING
-            reason = "Before optimal window - consider waiting"
-        elif current_time > TIME_BASED_EXIT:
-            result = FilterResult.FAIL
-            reason = "Past recommended entry time"
-        else:
-            result = FilterResult.WARNING
-            reason = "Outside optimal window but acceptable"
+        # Check if it's time to adapt
+        if self.last_adaptation_time:
+            hours_since = (datetime.now() - self.last_adaptation_time).total_seconds() / 3600
+            if hours_since < self.adaptation_interval_hours:
+                return
         
-        return FilterCheck(
-            name="entry_time",
-            result=result,
-            value=current_time.strftime("%H:%M"),
-            threshold=f"{OPTIMAL_ENTRY_START.strftime('%H:%M')}-{OPTIMAL_ENTRY_END.strftime('%H:%M')}",
-            reason=reason,
-            weight=self.filter_weights['entry_time']
-        )
-    
-    def _check_iv_percentile(self, symbol: str, conditions: MarketConditions) -> FilterCheck:
-        """Check IV percentile requirement"""
-        iv_percentile = conditions.iv_percentile
-        
-        # Special check for 9:35 AM
-        current_time = datetime.now().time()
-        if time(9, 30) <= current_time <= time(9, 40):
-            threshold = IV_PERCENTILE_MIN
-        else:
-            threshold = 40  # More lenient later
-        
-        if iv_percentile >= threshold:
-            result = FilterResult.PASS
-            reason = f"IV percentile {iv_percentile:.1f}% above threshold"
-        elif iv_percentile >= threshold - 10:
-            result = FilterResult.WARNING
-            reason = f"IV percentile {iv_percentile:.1f}% slightly below threshold"
-        else:
-            result = FilterResult.FAIL
-            reason = f"IV percentile {iv_percentile:.1f}% too low"
-        
-        return FilterCheck(
-            name="iv_percentile",
-            result=result,
-            value=f"{iv_percentile:.1f}%",
-            threshold=f"{threshold}%",
-            reason=reason,
-            weight=self.filter_weights['iv_percentile']
-        )
-    
-    def _check_overnight_gap(self, symbol: str, conditions: MarketConditions) -> FilterCheck:
-        """Check overnight gap size"""
-        gap = abs(conditions.overnight_gap)
-        
-        if gap <= OVERNIGHT_GAP_MAX:
-            result = FilterResult.PASS
-            reason = f"Gap {gap:.2%} within limits"
-        elif gap <= OVERNIGHT_GAP_MAX * 1.5:
-            result = FilterResult.WARNING
-            reason = f"Gap {gap:.2%} elevated"
-        else:
-            result = FilterResult.FAIL
-            reason = f"Gap {gap:.2%} too large"
-        
-        return FilterCheck(
-            name="overnight_gap",
-            result=result,
-            value=f"{conditions.overnight_gap:+.2%}",
-            threshold=f"±{OVERNIGHT_GAP_MAX:.1%}",
-            reason=reason,
-            weight=self.filter_weights['overnight_gap']
-        )
-    
-    def _check_rsi_range(self, symbol: str, conditions: MarketConditions) -> FilterCheck:
-        """Check RSI boundaries"""
-        rsi = conditions.spy_rsi
-        
-        if RSI_MIN <= rsi <= RSI_MAX:
-            result = FilterResult.PASS
-            reason = f"RSI {rsi:.1f} in neutral range"
-        elif rsi < RSI_MIN - 5 or rsi > RSI_MAX + 5:
-            result = FilterResult.FAIL
-            reason = f"RSI {rsi:.1f} in extreme zone"
-        else:
-            result = FilterResult.WARNING
-            reason = f"RSI {rsi:.1f} approaching extreme"
-        
-        return FilterCheck(
-            name="rsi_range",
-            result=result,
-            value=f"{rsi:.1f}",
-            threshold=f"{RSI_MIN}-{RSI_MAX}",
-            reason=reason,
-            weight=self.filter_weights['rsi_range']
-        )
-    
-    def _check_price_ma_distance(self, symbol: str, conditions: MarketConditions) -> FilterCheck:
-        """Check price distance from 10-day MA"""
-        price = conditions.spy_price
-        ma_10 = conditions.spy_ma_10
-        
-        if ma_10 > 0:
-            distance = abs(price - ma_10) / ma_10
-        else:
-            distance = 0
-        
-        if distance <= PRICE_TO_MA_MAX:
-            result = FilterResult.PASS
-            reason = f"Price {distance:.2%} from MA"
-        elif distance <= PRICE_TO_MA_MAX * 2:
-            result = FilterResult.WARNING
-            reason = f"Price {distance:.2%} extended from MA"
-        else:
-            result = FilterResult.FAIL
-            reason = f"Price {distance:.2%} too far from MA"
-        
-        return FilterCheck(
-            name="price_ma_distance",
-            result=result,
-            value=f"{distance:.2%}",
-            threshold=f"{PRICE_TO_MA_MAX:.1%}",
-            reason=reason,
-            weight=self.filter_weights['price_ma_distance']
-        )
-    
-    def _check_vix_range(self, conditions: MarketConditions) -> FilterCheck:
-        """Check VIX level requirements"""
-        vix = conditions.vix_level
-        
-        if VIX_MIN <= vix <= VIX_MAX:
-            result = FilterResult.PASS
-            reason = f"VIX {vix:.1f} in optimal range"
-        elif vix < VIX_MIN:
-            result = FilterResult.WARNING
-            reason = f"VIX {vix:.1f} low - reduced premiums"
-        elif vix > VIX_MAX:
-            result = FilterResult.WARNING
-            reason = f"VIX {vix:.1f} elevated - higher risk"
-        else:
-            result = FilterResult.FAIL
-            reason = f"VIX {vix:.1f} extreme"
-        
-        return FilterCheck(
-            name="vix_range",
-            result=result,
-            value=f"{vix:.1f}",
-            threshold=f"{VIX_MIN}-{VIX_MAX}",
-            reason=reason,
-            weight=self.filter_weights['vix_range']
-        )
-    
-    def _check_market_internals(self) -> FilterCheck:
-        """Check market internals confirmation"""
-        if not self.market_internals:
-            return FilterCheck(
-                name="market_internals",
-                result=FilterResult.SKIP,
-                value="N/A",
-                threshold="Positive",
-                reason="Market internals not available",
-                weight=self.filter_weights['market_internals']
-            )
-        
-        strength = self.market_internals.get_strength_score()
-        
-        if -20 <= strength <= 20:
-            result = FilterResult.PASS
-            reason = "Market internals neutral"
-        elif abs(strength) <= 40:
-            result = FilterResult.WARNING
-            reason = f"Market internals {strength:.0f} - moderate bias"
-        else:
-            result = FilterResult.FAIL
-            reason = f"Market internals {strength:.0f} - extreme"
-        
-        return FilterCheck(
-            name="market_internals",
-            result=result,
-            value=f"{strength:.0f}",
-            threshold="±20",
-            reason=reason,
-            weight=self.filter_weights['market_internals']
-        )
-    
-    def _check_volatility_regime(self, strategy: str) -> FilterCheck:
-        """Check volatility regime suitability"""
-        if not self.volatility_analyzer:
-            return FilterCheck(
-                name="volatility_regime",
-                result=FilterResult.SKIP,
-                value="N/A",
-                threshold="Suitable",
-                reason="Volatility analyzer not available",
-                weight=self.filter_weights['volatility_regime']
-            )
-        
-        regime = self.volatility_analyzer.get_current_regime()
-        recommended = self.volatility_analyzer.get_recommended_strategies()
-        
-        if strategy.lower() in [s.lower() for s in recommended]:
-            result = FilterResult.PASS
-            reason = f"{regime.value} regime suitable for {strategy}"
-        elif regime == VolatilityRegime.TRANSITIONING:
-            result = FilterResult.WARNING
-            reason = "Regime transitioning - use caution"
-        else:
-            result = FilterResult.WARNING
-            reason = f"{regime.value} regime - consider alternatives"
-        
-        return FilterCheck(
-            name="volatility_regime",
-            result=result,
-            value=regime.value,
-            threshold="Suitable for strategy",
-            reason=reason,
-            weight=self.filter_weights['volatility_regime']
-        )
-    
-    def _check_trend_alignment(self, symbol: str, conditions: MarketConditions) -> FilterCheck:
-        """Check trend alignment"""
-        if conditions.is_trending and conditions.trend_strength > 0.7:
-            result = FilterResult.WARNING
-            reason = f"Strong trend ({conditions.trend_strength:.1%}) - adjust strikes"
-        else:
-            result = FilterResult.PASS
-            reason = "No strong trend - suitable for neutral strategies"
-        
-        return FilterCheck(
-            name="trend_alignment",
-            result=result,
-            value=f"{conditions.trend_strength:.1%}",
-            threshold="< 70%",
-            reason=reason,
-            weight=self.filter_weights['trend_alignment']
-        )
-    
-    def _apply_custom_filter(self, name: str, config: Dict[str, Any]) -> FilterCheck:
-        """Apply custom filter"""
         try:
-            value = config.get('value')
-            threshold = config.get('threshold')
-            operator = config.get('operator', '>=')
+            # Get optimized thresholds from paper trading
+            optimized = self.paper_trade_learner.get_optimized_thresholds('entry_filters')
             
-            # Evaluate condition
-            if operator == '>=':
-                passed = value >= threshold
-            elif operator == '<=':
-                passed = value <= threshold
-            elif operator == '==':
-                passed = value == threshold
-            elif operator == '!=':
-                passed = value != threshold
-            else:
-                passed = False
+            if not optimized:
+                return
             
-            result = FilterResult.PASS if passed else FilterResult.FAIL
-            reason = f"Custom: {name} {operator} {threshold}"
+            # Check if we have enough data
+            trade_count = optimized.get('trade_count', 0)
+            if trade_count < self.min_trades_for_adaptation:
+                self.logger.info(f"Not enough trades for adaptation: {trade_count} < {self.min_trades_for_adaptation}")
+                return
             
-            return FilterCheck(
-                name=f"custom_{name}",
-                result=result,
-                value=value,
-                threshold=threshold,
-                reason=reason,
-                weight=config.get('weight', 1.0)
-            )
+            # Update each threshold
+            for param, opt_value in optimized.items():
+                if param in self.thresholds and param != 'trade_count':
+                    threshold = self.thresholds[param]
+                    base_value = self.base_thresholds[param].current_value
+                    
+                    # Blend base and optimized values
+                    new_value = (1 - self.adaptation_blend_factor) * base_value + self.adaptation_blend_factor * opt_value
+                    
+                    # Apply bounds
+                    new_value = max(threshold.min_value, min(threshold.max_value, new_value))
+                    
+                    # Update threshold
+                    old_value = threshold.current_value
+                    threshold.current_value = new_value
+                    
+                    if abs(new_value - old_value) > 0.01:
+                        self.logger.info(
+                            f"Adapted {param}: {old_value:.3f} -> {new_value:.3f} "
+                            f"(optimized: {opt_value:.3f})"
+                        )
+            
+            self.last_adaptation_time = datetime.now()
+            self.logger.info("Entry filter thresholds adapted from paper trading")
             
         except Exception as e:
-            return FilterCheck(
-                name=f"custom_{name}",
+            self.logger.warning(f"Threshold adaptation failed: {e}")
+    
+    # ==========================================================================
+    # FILTER IMPLEMENTATIONS
+    # ==========================================================================
+    
+    def _run_all_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Run all enabled filters."""
+        checks = []
+        
+        # Market condition filters
+        checks.extend(self._check_volatility_filters(params))
+        checks.extend(self._check_trend_filters(params))
+        checks.extend(self._check_volume_filters(params))
+        
+        # Technical filters
+        checks.extend(self._check_technical_filters(params))
+        checks.extend(self._check_support_resistance_filters(params))
+        
+        # Risk filters
+        checks.extend(self._check_risk_filters(params))
+        
+        # Time filters
+        checks.extend(self._check_time_filters(params))
+        
+        # Greeks filters
+        checks.extend(self._check_greeks_filters(params))
+        
+        return checks
+    
+    def _check_volatility_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Check volatility-based filters."""
+        checks = []
+        
+        current_vol = params.get('current_volatility', 0)
+        
+        # Min volatility check
+        min_vol = self.thresholds['min_volatility'].current_value
+        if current_vol < min_vol:
+            checks.append(FilterCheck(
+                filter_type=FilterType.VOLATILITY,
                 result=FilterResult.FAIL,
-                value="Error",
-                threshold="N/A",
-                reason=f"Custom filter error: {e}",
-                weight=1.0
-            )
-    
-    # ==========================================================================
-    # MARKET CONDITIONS
-    # ==========================================================================
-    def _get_market_conditions(self, symbol: str) -> MarketConditions:
-        """Get current market conditions"""
-        try:
-            # Get SPY price
-            spy_price = self._get_current_price(symbol)
-            
-            # Get VIX
-            vix_level = self._get_vix_level()
-            
-            # Get RSI
-            spy_rsi = self._get_rsi(symbol)
-            
-            # Get MA
-            spy_ma_10 = self._get_ma(symbol, 10)
-            
-            # Get overnight gap
-            overnight_gap = self._get_overnight_gap(symbol)
-            
-            # Get IV percentile
-            iv_percentile = self._get_iv_percentile(symbol)
-            
-            # Get market internals score
-            internals_score = self._get_internals_score()
-            
-            # Get volatility regime
-            vol_regime = self._get_volatility_regime()
-            
-            # Check trend
-            is_trending, trend_strength = self._check_trend(symbol)
-            
-            return MarketConditions(
-                timestamp=datetime.now(),
-                spy_price=spy_price,
-                vix_level=vix_level,
-                spy_rsi=spy_rsi,
-                spy_ma_10=spy_ma_10,
-                overnight_gap=overnight_gap,
-                iv_percentile=iv_percentile,
-                market_internals_score=internals_score,
-                volatility_regime=vol_regime,
-                is_trending=is_trending,
-                trend_strength=trend_strength
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Error getting market conditions: {e}")
-            # Return default conditions
-            return self._get_default_conditions()
-    
-    def _get_current_price(self, symbol: str) -> float:
-        """Get current price"""
-        # In production, would get from data feed
-        # Placeholder for now
-        return 450.0
-    
-    def _get_vix_level(self) -> float:
-        """Get current VIX level"""
-        if self.volatility_analyzer and self.volatility_analyzer.current_analysis:
-            return self.volatility_analyzer.current_analysis.vix_level
-        return 16.0  # Default
-    
-    def _get_rsi(self, symbol: str) -> float:
-        """Get current RSI"""
-        if self.indicators:
-            return self.indicators.get_rsi(symbol)
-        return 50.0  # Default neutral
-   
-    
-    def _get_ma(self, symbol: str, period: int) -> float:
-        """Get moving average"""
-        if self.indicators:
-            return self.indicators.get_sma(symbol, period)
-        return self._get_current_price(symbol)  # Default to current price
-    
-    def _get_overnight_gap(self, symbol: str) -> float:
-        """Get overnight gap percentage"""
-        if self.gap_analyzer:
-            gap_data = self.gap_analyzer.get_latest_gap(symbol)
-            if gap_data:
-                return gap_data.gap_percent
-        return 0.0  # Default no gap
-    
-    def _get_iv_percentile(self, symbol: str) -> float:
-        """Get IV percentile"""
-        if self.volatility_analyzer:
-            return self.volatility_analyzer.get_iv_percentile(symbol)
-        return 50.0  # Default middle
-    
-    def _get_internals_score(self) -> float:
-        """Get market internals strength score"""
-        if self.market_internals:
-            return self.market_internals.get_strength_score()
-        return 0.0  # Default neutral
-    
-    def _get_volatility_regime(self) -> VolatilityRegime:
-        """Get current volatility regime"""
-        if self.volatility_analyzer:
-            return self.volatility_analyzer.get_current_regime()
-        return VolatilityRegime.NORMAL  # Default
-    
-    def _check_trend(self, symbol: str) -> Tuple[bool, float]:
-        """Check if trending and trend strength"""
-        if self.indicators:
-            # Simple trend check using MAs
-            ma_20 = self.indicators.get_sma(symbol, 20)
-            ma_50 = self.indicators.get_sma(symbol, 50)
-            price = self._get_current_price(symbol)
-            
-            if ma_20 > 0 and ma_50 > 0:
-                # Calculate trend strength
-                ma_diff = abs(ma_20 - ma_50) / ma_50
-                price_diff = abs(price - ma_20) / ma_20
-                
-                trend_strength = (ma_diff + price_diff) / 2
-                is_trending = trend_strength > 0.02  # 2% threshold
-                
-                return is_trending, trend_strength
+                value=current_vol,
+                threshold=min_vol,
+                message=f"Volatility too low: {current_vol:.1%} < {min_vol:.1%}",
+                weight=self.filter_weights[FilterType.VOLATILITY]
+            ))
         
-        return False, 0.0
+        # Max volatility check
+        max_vol = self.thresholds['max_volatility'].current_value
+        if current_vol > max_vol:
+            checks.append(FilterCheck(
+                filter_type=FilterType.VOLATILITY,
+                result=FilterResult.FAIL,
+                value=current_vol,
+                threshold=max_vol,
+                message=f"Volatility too high: {current_vol:.1%} > {max_vol:.1%}",
+                weight=self.filter_weights[FilterType.VOLATILITY]
+            ))
+        
+        # If passed
+        if not checks:
+            checks.append(FilterCheck(
+                filter_type=FilterType.VOLATILITY,
+                result=FilterResult.PASS,
+                value=current_vol,
+                threshold=(min_vol + max_vol) / 2,
+                message=f"Volatility acceptable: {current_vol:.1%}",
+                weight=self.filter_weights[FilterType.VOLATILITY]
+            ))
+        
+        return checks
     
-    def _get_default_conditions(self) -> MarketConditions:
-        """Get default market conditions for error cases"""
-        return MarketConditions(
-            timestamp=datetime.now(),
-            spy_price=450.0,
-            vix_level=16.0,
-            spy_rsi=50.0,
-            spy_ma_10=450.0,
-            overnight_gap=0.0,
-            iv_percentile=50.0,
-            market_internals_score=0.0,
-            volatility_regime=VolatilityRegime.NORMAL,
-            is_trending=False,
-            trend_strength=0.0
-        )
+    def _check_trend_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Check trend-based filters."""
+        checks = []
+        
+        trend_strength = params.get('trend_strength', 0)
+        trend_direction = params.get('trend_direction', 'neutral')
+        strategy_type = params.get('strategy_type', '')
+        
+        # Check trend alignment with strategy
+        if strategy_type in ['bull_put_spread', 'call'] and trend_direction == 'down':
+            checks.append(FilterCheck(
+                filter_type=FilterType.TREND,
+                result=FilterResult.FAIL,
+                value=0,
+                threshold=1,
+                message=f"Trend mismatch: {trend_direction} trend for bullish strategy",
+                weight=self.filter_weights[FilterType.TREND]
+            ))
+        elif strategy_type in ['bear_call_spread', 'put'] and trend_direction == 'up':
+            checks.append(FilterCheck(
+                filter_type=FilterType.TREND,
+                result=FilterResult.FAIL,
+                value=0,
+                threshold=1,
+                message=f"Trend mismatch: {trend_direction} trend for bearish strategy",
+                weight=self.filter_weights[FilterType.TREND]
+            ))
+        
+        # Check trend strength
+        min_strength = self.thresholds['min_trend_strength'].current_value
+        if abs(trend_strength) < min_strength and strategy_type not in ['iron_condor', 'butterfly']:
+            checks.append(FilterCheck(
+                filter_type=FilterType.TREND,
+                result=FilterResult.WARNING,
+                value=abs(trend_strength),
+                threshold=min_strength,
+                message=f"Weak trend: {abs(trend_strength):.2f} < {min_strength:.2f}",
+                weight=self.filter_weights[FilterType.TREND] * 0.5
+            ))
+        
+        # If all passed
+        if not checks:
+            checks.append(FilterCheck(
+                filter_type=FilterType.TREND,
+                result=FilterResult.PASS,
+                value=abs(trend_strength),
+                threshold=min_strength,
+                message=f"Trend alignment good: {trend_direction} ({abs(trend_strength):.2f})",
+                weight=self.filter_weights[FilterType.TREND]
+            ))
+        
+        return checks
+    
+    def _check_volume_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Check volume-based filters."""
+        checks = []
+        
+        volume_ratio = params.get('volume_ratio', 1.0)  # Current vs average
+        min_ratio = self.thresholds['min_volume_ratio'].current_value
+        
+        if volume_ratio < min_ratio:
+            checks.append(FilterCheck(
+                filter_type=FilterType.VOLUME,
+                result=FilterResult.WARNING,
+                value=volume_ratio,
+                threshold=min_ratio,
+                message=f"Low volume: {volume_ratio:.1f}x average",
+                weight=self.filter_weights[FilterType.VOLUME]
+            ))
+        else:
+            checks.append(FilterCheck(
+                filter_type=FilterType.VOLUME,
+                result=FilterResult.PASS,
+                value=volume_ratio,
+                threshold=min_ratio,
+                message=f"Volume adequate: {volume_ratio:.1f}x average",
+                weight=self.filter_weights[FilterType.VOLUME]
+            ))
+        
+        return checks
+    
+    def _check_technical_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Check technical indicator filters."""
+        checks = []
+        
+        rsi = params.get('rsi', 50)
+        
+        # Overbought/oversold check
+        if rsi < self.thresholds['rsi_oversold'].current_value:
+            checks.append(FilterCheck(
+                filter_type=FilterType.OVERBOUGHT_OVERSOLD,
+                result=FilterResult.WARNING,
+                value=rsi,
+                threshold=self.thresholds['rsi_oversold'].current_value,
+                message=f"RSI oversold: {rsi:.0f}",
+                weight=self.filter_weights[FilterType.OVERBOUGHT_OVERSOLD]
+            ))
+        elif rsi > self.thresholds['rsi_overbought'].current_value:
+            checks.append(FilterCheck(
+                filter_type=FilterType.OVERBOUGHT_OVERSOLD,
+                result=FilterResult.WARNING,
+                value=rsi,
+                threshold=self.thresholds['rsi_overbought'].current_value,
+                message=f"RSI overbought: {rsi:.0f}",
+                weight=self.filter_weights[FilterType.OVERBOUGHT_OVERSOLD]
+            ))
+        else:
+            checks.append(FilterCheck(
+                filter_type=FilterType.OVERBOUGHT_OVERSOLD,
+                result=FilterResult.PASS,
+                value=rsi,
+                threshold=50,
+                message=f"RSI neutral: {rsi:.0f}",
+                weight=self.filter_weights[FilterType.OVERBOUGHT_OVERSOLD]
+            ))
+        
+        return checks
+    
+    def _check_support_resistance_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Check support/resistance filters."""
+        checks = []
+        
+        current_price = params.get('current_price', 0)
+        nearest_resistance = params.get('nearest_resistance', float('inf'))
+        nearest_support = params.get('nearest_support', 0)
+        
+        # Check distance to levels
+        resistance_distance = (nearest_resistance - current_price) / current_price
+        support_distance = (current_price - nearest_support) / current_price
+        
+        # Too close to resistance for long positions
+        if params.get('position_type') == 'long' and resistance_distance < 0.005:
+            checks.append(FilterCheck(
+                filter_type=FilterType.SUPPORT_RESISTANCE,
+                result=FilterResult.WARNING,
+                value=resistance_distance,
+                threshold=0.005,
+                message=f"Close to resistance: {resistance_distance:.1%} away",
+                weight=self.filter_weights[FilterType.SUPPORT_RESISTANCE]
+            ))
+        
+        # Too close to support for short positions
+        elif params.get('position_type') == 'short' and support_distance < 0.005:
+            checks.append(FilterCheck(
+                filter_type=FilterType.SUPPORT_RESISTANCE,
+                result=FilterResult.WARNING,
+                value=support_distance,
+                threshold=0.005,
+                message=f"Close to support: {support_distance:.1%} away",
+                weight=self.filter_weights[FilterType.SUPPORT_RESISTANCE]
+            ))
+        else:
+            checks.append(FilterCheck(
+                filter_type=FilterType.SUPPORT_RESISTANCE,
+                result=FilterResult.PASS,
+                value=min(resistance_distance, support_distance),
+                threshold=0.005,
+                message="Good distance from S/R levels",
+                weight=self.filter_weights[FilterType.SUPPORT_RESISTANCE]
+            ))
+        
+        return checks
+    
+    def _check_risk_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Check risk management filters."""
+        checks = []
+        
+        # Portfolio exposure check
+        portfolio_delta = params.get('portfolio_delta', 0)
+        max_delta = self.thresholds['max_portfolio_delta'].current_value
+        
+        if abs(portfolio_delta) > max_delta:
+            checks.append(FilterCheck(
+                filter_type=FilterType.PORTFOLIO_EXPOSURE,
+                result=FilterResult.FAIL,
+                value=abs(portfolio_delta),
+                threshold=max_delta,
+                message=f"Portfolio delta too high: {abs(portfolio_delta):.0f} > {max_delta:.0f}",
+                weight=self.filter_weights[FilterType.PORTFOLIO_EXPOSURE]
+            ))
+        
+        # Position size check
+        position_size_pct = params.get('position_size_pct', 0)
+        max_size = self.thresholds['max_position_size'].current_value
+        
+        if position_size_pct > max_size:
+            checks.append(FilterCheck(
+                filter_type=FilterType.MAX_LOSS,
+                result=FilterResult.FAIL,
+                value=position_size_pct,
+                threshold=max_size,
+                message=f"Position too large: {position_size_pct:.1%} of portfolio",
+                weight=self.filter_weights[FilterType.MAX_LOSS]
+            ))
+        
+        # If all passed
+        if not checks:
+            checks.append(FilterCheck(
+                filter_type=FilterType.PORTFOLIO_EXPOSURE,
+                result=FilterResult.PASS,
+                value=abs(portfolio_delta),
+                threshold=max_delta,
+                message="Risk parameters acceptable",
+                weight=self.filter_weights[FilterType.PORTFOLIO_EXPOSURE]
+            ))
+        
+        return checks
+    
+    def _check_time_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Check time-based filters."""
+        checks = []
+        
+        current_time = params.get('current_time', datetime.now())
+        
+        # Time of day check
+        if (current_time.time() < self.restricted_hours['start'] or 
+            current_time.time() > self.restricted_hours['end']):
+            checks.append(FilterCheck(
+                filter_type=FilterType.TIME_OF_DAY,
+                result=FilterResult.WARNING,
+                value=current_time.hour + current_time.minute/60,
+                threshold=15.5,  # 3:30 PM
+                message=f"Outside preferred trading hours",
+                weight=self.filter_weights[FilterType.TIME_OF_DAY]
+            ))
+        
+        # Day of week check
+        if current_time.weekday() in self.restricted_days:
+            checks.append(FilterCheck(
+                filter_type=FilterType.DAY_OF_WEEK,
+                result=FilterResult.FAIL,
+                value=current_time.weekday(),
+                threshold=4,  # Friday
+                message="Weekend - markets closed",
+                weight=self.filter_weights[FilterType.DAY_OF_WEEK]
+            ))
+        
+        # Earnings check
+        days_to_earnings = params.get('days_to_earnings', float('inf'))
+        if days_to_earnings < 2:
+            checks.append(FilterCheck(
+                filter_type=FilterType.EARNINGS,
+                result=FilterResult.WARNING,
+                value=days_to_earnings,
+                threshold=2,
+                message=f"Earnings in {days_to_earnings} days",
+                weight=self.filter_weights[FilterType.EARNINGS]
+            ))
+        
+        # If all passed
+        if not checks:
+            checks.append(FilterCheck(
+                filter_type=FilterType.TIME_OF_DAY,
+                result=FilterResult.PASS,
+                value=current_time.hour + current_time.minute/60,
+                threshold=12,  # Noon
+                message="Good trading time",
+                weight=self.filter_weights[FilterType.TIME_OF_DAY]
+            ))
+        
+        return checks
+    
+    def _check_greeks_filters(self, params: Dict[str, Any]) -> List[FilterCheck]:
+        """Check Greeks-based filters."""
+        checks = []
+        
+        # IV percentile check
+        iv_percentile = params.get('iv_percentile', 50)
+        min_iv_pct = self.thresholds['min_iv_percentile'].current_value
+        
+        if params.get('strategy_type') in ['iron_condor', 'credit_spread']:
+            if iv_percentile < min_iv_pct:
+                checks.append(FilterCheck(
+                    filter_type=FilterType.IMPLIED_VOLATILITY,
+                    result=FilterResult.WARNING,
+                    value=iv_percentile,
+                    threshold=min_iv_pct,
+                    message=f"Low IV percentile for credit strategy: {iv_percentile:.0f}%",
+                    weight=self.filter_weights[FilterType.IMPLIED_VOLATILITY]
+                ))
+        
+        # IV skew check
+        iv_skew = params.get('iv_skew', 0)
+        max_skew = self.thresholds['max_iv_skew'].current_value
+        
+        if abs(iv_skew) > max_skew:
+            checks.append(FilterCheck(
+                filter_type=FilterType.SKEW,
+                result=FilterResult.WARNING,
+                value=abs(iv_skew),
+                threshold=max_skew,
+                message=f"High IV skew: {abs(iv_skew):.1%}",
+                weight=self.filter_weights[FilterType.SKEW]
+            ))
+        
+        # If all passed
+        if not checks:
+            checks.append(FilterCheck(
+                filter_type=FilterType.IMPLIED_VOLATILITY,
+                result=FilterResult.PASS,
+                value=iv_percentile,
+                threshold=50,
+                message=f"Greeks parameters acceptable",
+                weight=self.filter_weights[FilterType.IMPLIED_VOLATILITY]
+            ))
+        
+        return checks
     
     # ==========================================================================
-    # ASSESSMENT CALCULATION
+    # RESULT CALCULATION
     # ==========================================================================
-    def _calculate_overall_assessment(self, symbol: str, strategy: str,
-                                    conditions: MarketConditions,
-                                    filter_results: List[FilterCheck]) -> EntryAssessment:
-        """Calculate overall entry assessment"""
-        # Count results
-        passed = sum(1 for f in filter_results if f.result == FilterResult.PASS)
-        failed = sum(1 for f in filter_results if f.result == FilterResult.FAIL)
-        warnings = sum(1 for f in filter_results if f.result == FilterResult.WARNING)
-        total = len([f for f in filter_results if f.result != FilterResult.SKIP])
+    
+    def _calculate_overall_result(self, 
+                                checks: List[FilterCheck]) -> Tuple[FilterResult, EntryQuality, float]:
+        """Calculate overall filter result and quality rating."""
+        if not checks:
+            return FilterResult.SKIP, EntryQuality.POOR, 0.0
+        
+        # Count results by type
+        failed = sum(1 for c in checks if c.result == FilterResult.FAIL)
+        warnings = sum(1 for c in checks if c.result == FilterResult.WARNING)
+        passed = sum(1 for c in checks if c.result == FilterResult.PASS)
         
         # Calculate weighted score
-        total_score = 0.0
-        total_weight = 0.0
+        total_weight = sum(c.weight for c in checks)
+        if total_weight == 0:
+            total_weight = 1
         
-        for filter_check in filter_results:
-            if filter_check.result == FilterResult.SKIP:
-                continue
-            
-            # Score based on result
-            if filter_check.result == FilterResult.PASS:
-                score = 1.0
-            elif filter_check.result == FilterResult.WARNING:
-                score = 0.5
-            else:  # FAIL
-                score = 0.0
-            
-            weighted_score = score * filter_check.weight
-            total_score += weighted_score
-            total_weight += filter_check.weight
+        score = 0
+        for check in checks:
+            if check.result == FilterResult.PASS:
+                score += check.weight
+            elif check.result == FilterResult.WARNING:
+                score += check.weight * 0.5
+            # FAIL adds 0
         
-        # Normalize score
-        overall_score = total_score / total_weight if total_weight > 0 else 0.0
+        normalized_score = score / total_weight
         
-        # Determine quality
+        # Determine overall result
         if failed > 0:
-            overall_quality = EntryQuality.REJECT
-            can_enter = False
-        elif overall_score >= 0.85:
-            overall_quality = EntryQuality.EXCELLENT
-            can_enter = True
-        elif overall_score >= 0.70:
-            overall_quality = EntryQuality.GOOD
-            can_enter = True
-        elif overall_score >= 0.55:
-            overall_quality = EntryQuality.ACCEPTABLE
-            can_enter = True
+            if self.strict_mode or failed >= 2:
+                overall = FilterResult.FAIL
+            else:
+                overall = FilterResult.WARNING
+        elif warnings >= 3:
+            overall = FilterResult.WARNING
         else:
-            overall_quality = EntryQuality.POOR
-            can_enter = False
+            overall = FilterResult.PASS
         
-        # Generate warnings
-        warning_messages = self._generate_warnings(filter_results, conditions)
+        # Determine quality rating
+        if normalized_score >= 0.9 and failed == 0:
+            quality = EntryQuality.EXCELLENT
+        elif normalized_score >= 0.75 and failed == 0:
+            quality = EntryQuality.GOOD
+        elif normalized_score >= 0.6:
+            quality = EntryQuality.FAIR
+        elif normalized_score >= 0.4:
+            quality = EntryQuality.POOR
+        else:
+            quality = EntryQuality.AVOID
         
-        # Generate recommendations
-        recommendations = self._generate_recommendations(
-            filter_results, conditions, strategy
-        )
-        
-        # Calculate position size adjustment
-        position_adjustment = self._calculate_position_adjustment(
-            overall_score, filter_results, conditions
-        )
-        
-        return EntryAssessment(
-            timestamp=datetime.now(),
-            symbol=symbol,
-            strategy=strategy,
-            overall_quality=overall_quality,
-            overall_score=overall_score,
-            can_enter=can_enter,
-            filter_results=filter_results,
-            passed_filters=passed,
-            total_filters=total,
-            warnings=warning_messages,
-            recommendations=recommendations,
-            position_size_adjustment=position_adjustment
-        )
+        return overall, quality, normalized_score
     
-    def _generate_warnings(self, filter_results: List[FilterCheck],
-                          conditions: MarketConditions) -> List[str]:
-        """Generate warning messages"""
+    def _generate_warnings(self, checks: List[FilterCheck], 
+                         params: Dict[str, Any]) -> List[str]:
+        """Generate warning messages."""
         warnings = []
         
-        # Check specific warning conditions
-        for filter_check in filter_results:
-            if filter_check.result == FilterResult.WARNING:
-                if filter_check.name == "day_of_week":
-                    warnings.append(f"Non-Monday trade - consider reduced position size")
-                elif filter_check.name == "entry_time":
-                    warnings.append(f"Outside optimal entry window - monitor closely")
-                elif filter_check.name == "iv_percentile":
-                    warnings.append(f"IV percentile below ideal - premiums may be low")
-                elif filter_check.name == "vix_range":
-                    if conditions.vix_level > VIX_MAX:
-                        warnings.append(f"Elevated VIX - consider wider strikes")
-                    else:
-                        warnings.append(f"Low VIX - expect smaller premiums")
+        # Add warnings from failed/warning checks
+        for check in checks:
+            if check.result in [FilterResult.FAIL, FilterResult.WARNING]:
+                warnings.append(check.message)
         
-        # Add volatility regime warnings
-        if conditions.volatility_regime == VolatilityRegime.TRANSITIONING:
-            warnings.append("Volatility regime transitioning - use extra caution")
+        # Add context-specific warnings
+        if params.get('volatility_regime') == 'extreme':
+            warnings.append("Extreme volatility regime - use extra caution")
         
-        # Market internals warning
-        if abs(conditions.market_internals_score) > 40:
-            direction = "bullish" if conditions.market_internals_score > 0 else "bearish"
-            warnings.append(f"Strong {direction} internals - market bias present")
+        if params.get('near_expiration', False):
+            warnings.append("Near expiration - gamma risk elevated")
         
-        return warnings
+        return warnings[:5]  # Limit to top 5 warnings
     
-    def _generate_recommendations(self, filter_results: List[FilterCheck],
-                                 conditions: MarketConditions,
-                                 strategy: str) -> List[str]:
-        """Generate trading recommendations"""
+    def _generate_recommendations(self, checks: List[FilterCheck], 
+                                params: Dict[str, Any]) -> List[str]:
+        """Generate recommendations based on filter results."""
         recommendations = []
         
-        # Day-based recommendations
-        day_filter = next((f for f in filter_results if f.name == "day_of_week"), None)
-        if day_filter and day_filter.result != FilterResult.PASS:
-            recommendations.append("Consider waiting for Monday for better opportunities")
-            recommendations.append("If entering today, use 50% reduced position size")
+        # Check for specific issues
+        vol_checks = [c for c in checks if c.filter_type == FilterType.VOLATILITY]
+        if any(c.result == FilterResult.FAIL for c in vol_checks):
+            recommendations.append("Wait for volatility to normalize")
         
-        # Time-based recommendations
-        time_filter = next((f for f in filter_results if f.name == "entry_time"), None)
-        if time_filter:
-            current_time = datetime.now().time()
-            if current_time < OPTIMAL_ENTRY_START:
-                wait_minutes = (
-                    datetime.combine(date.today(), OPTIMAL_ENTRY_START) -
-                    datetime.combine(date.today(), current_time)
-                ).seconds // 60
-                recommendations.append(f"Consider waiting {wait_minutes} minutes for optimal window")
-            elif current_time > OPTIMAL_ENTRY_END:
-                recommendations.append("Set exit target for 12:00 PM ET")
+        trend_checks = [c for c in checks if c.filter_type == FilterType.TREND]
+        if any(c.result == FilterResult.FAIL for c in trend_checks):
+            recommendations.append("Consider different strategy aligned with trend")
         
-        # Volatility-based recommendations
-        if conditions.volatility_regime == VolatilityRegime.HIGH:
-            recommendations.append("Widen strikes due to high volatility")
-            recommendations.append("Consider reducing position size by 20%")
-        elif conditions.volatility_regime == VolatilityRegime.LOW:
-            recommendations.append("Consider Iron Butterfly for low volatility")
-            recommendations.append("May need to go closer to the money for premium")
+        risk_checks = [c for c in checks if c.filter_type in [FilterType.PORTFOLIO_EXPOSURE, FilterType.MAX_LOSS]]
+        if any(c.result == FilterResult.FAIL for c in risk_checks):
+            recommendations.append("Reduce position size or hedge existing positions first")
         
-        # RSI-based recommendations
-        if conditions.spy_rsi > 65:
-            recommendations.append("RSI elevated - favor call credit spreads")
-        elif conditions.spy_rsi < 35:
-            recommendations.append("RSI oversold - favor put credit spreads")
+        # General recommendations
+        quality = self._calculate_overall_result(checks)[1]
+        if quality == EntryQuality.FAIR:
+            recommendations.append("Consider waiting for better setup")
+        elif quality in [EntryQuality.POOR, EntryQuality.AVOID]:
+            recommendations.append("Skip this trade - look for better opportunities")
         
-        # Gap-based recommendations
-        if abs(conditions.overnight_gap) > 0.002:
-            recommendations.append("Gap present - wait for first hour to settle")
-        
-        # Strategy-specific recommendations
-        if strategy.lower() == "iron_condor":
-            if conditions.vix_level < 15:
-                recommendations.append("Low VIX - consider Iron Butterfly instead")
-            recommendations.append("Target 50% of credit received (research-based)")
-        elif strategy.lower() == "iron_butterfly":
-            recommendations.append("Target 15% of max profit for quick exit")
-        
-        return recommendations[:5]  # Limit to top 5
+        return recommendations[:3]  # Limit to top 3 recommendations
     
-    def _calculate_position_adjustment(self, overall_score: float,
-                                     filter_results: List[FilterCheck],
-                                     conditions: MarketConditions) -> float:
-        """Calculate position size adjustment factor"""
-        base_adjustment = 1.0
-        
-        # Day of week adjustment (most important)
-        day_filter = next((f for f in filter_results if f.name == "day_of_week"), None)
-        if day_filter:
-            current_day = datetime.now().weekday()
-            if current_day != 0:  # Not Monday
-                base_adjustment *= 0.5  # 50% reduction
-        
-        # Score-based adjustment
-        if overall_score < 0.6:
-            base_adjustment *= 0.7
-        elif overall_score < 0.7:
-            base_adjustment *= 0.85
-        elif overall_score > 0.85:
-            base_adjustment *= 1.1
-        
-        # Volatility regime adjustment
-        if self.volatility_analyzer:
-            vol_adjustment = self.volatility_analyzer.get_position_size_factor()
-            base_adjustment *= vol_adjustment
-        
-        # Time-based adjustment
-        current_time = datetime.now().time()
-        if current_time > TIME_BASED_EXIT:
-            base_adjustment *= 0.5  # Late entry penalty
-        
-        # Cap adjustments
-        return max(0.3, min(1.5, base_adjustment))
+    # ==========================================================================
+    # PERFORMANCE TRACKING
+    # ==========================================================================
     
-    def _get_error_assessment(self, symbol: str, strategy: str, error: str) -> EntryAssessment:
-        """Get error assessment when something fails"""
-        return EntryAssessment(
-            timestamp=datetime.now(),
-            symbol=symbol,
-            strategy=strategy,
-            overall_quality=EntryQuality.REJECT,
-            overall_score=0.0,
-            can_enter=False,
-            filter_results=[
-                FilterCheck(
-                    name="error",
-                    result=FilterResult.FAIL,
-                    value=error,
-                    threshold="N/A",
-                    reason=f"Assessment error: {error}",
-                    weight=1.0
-                )
-            ],
-            passed_filters=0,
-            total_filters=1,
-            warnings=[f"Entry assessment failed: {error}"],
-            recommendations=["Fix errors before attempting entry"],
-            position_size_adjustment=0.0
+    def _track_filter_performance(self, result: EntryFilterResult):
+        """Track performance of individual filters."""
+        for check in result.checks:
+            # Track pass/fail rate
+            self.filter_performance[check.filter_type].append(
+                1.0 if check.passed else 0.0
+            )
+    
+    def _create_error_result(self) -> EntryFilterResult:
+        """Create error result when assessment fails."""
+        return EntryFilterResult(
+            overall_result=FilterResult.FAIL,
+            quality_rating=EntryQuality.AVOID,
+            total_score=0.0,
+            checks=[],
+            warnings=["Filter assessment error - skipping trade"],
+            recommendations=["System error - please check logs"]
         )
-    
-    def _get_day_name(self, weekday: int) -> str:
-        """Get day name from weekday number"""
-        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        return days[weekday] if 0 <= weekday < 7 else 'Unknown'
-    
-    # ==========================================================================
-    # PUBLIC UTILITY METHODS
-    # ==========================================================================
-    def get_quick_check(self, symbol: str = 'SPY') -> Dict[str, bool]:
-        """
-        Perform quick entry check for key filters.
-        
-        Returns:
-            Dict with pass/fail for critical filters
-        """
-        current_time = datetime.now().time()
-        current_day = datetime.now().weekday()
-        
-        return {
-            'is_monday': current_day == 0,
-            'in_time_window': OPTIMAL_ENTRY_START <= current_time <= OPTIMAL_ENTRY_END,
-            'before_exit_time': current_time < TIME_BASED_EXIT,
-            'market_hours': time(9, 30) <= current_time <= time(16, 0)
-        }
-    
-    def should_exit_by_time(self) -> bool:
-        """Check if position should be exited based on time"""
-        return datetime.now().time() >= TIME_BASED_EXIT
-    
-    def get_time_until_optimal_window(self) -> Optional[int]:
-        """Get minutes until optimal entry window opens"""
-        current_time = datetime.now().time()
-        
-        if current_time < OPTIMAL_ENTRY_START:
-            current_dt = datetime.combine(date.today(), current_time)
-            optimal_dt = datetime.combine(date.today(), OPTIMAL_ENTRY_START)
-            return int((optimal_dt - current_dt).total_seconds() / 60)
-        
-        return None
-    
-    def get_position_size_for_day(self) -> float:
-        """Get position size multiplier for current day"""
-        current_day = datetime.now().weekday()
-        
-        if current_day == 0:  # Monday
-            return 1.0
-        else:
-            return 0.5  # 50% for other days
-    
-    def format_assessment_summary(self, assessment: EntryAssessment) -> str:
-        """Format assessment results as readable summary"""
-        lines = [
-            f"Entry Assessment for {assessment.symbol} - {assessment.strategy}",
-            f"{'=' * 50}",
-            f"Overall Quality: {assessment.overall_quality.value.upper()}",
-            f"Score: {assessment.overall_score:.1%}",
-            f"Can Enter: {'YES' if assessment.can_enter else 'NO'}",
-            f"Filters Passed: {assessment.passed_filters}/{assessment.total_filters}",
-            f"Position Size Adjustment: {assessment.position_size_adjustment:.1%}",
-            ""
-        ]
-        
-        # Add failed filters
-        failed = assessment.get_failed_filters()
-        if failed:
-            lines.append("Failed Filters:")
-            for f in failed:
-                lines.append(f"  ❌ {f.name}: {f.reason}")
-            lines.append("")
-        
-        # Add warnings
-        if assessment.warnings:
-            lines.append("Warnings:")
-            for warning in assessment.warnings:
-                lines.append(f"  ⚠️  {warning}")
-            lines.append("")
-        
-        # Add recommendations
-        if assessment.recommendations:
-            lines.append("Recommendations:")
-            for i, rec in enumerate(assessment.recommendations, 1):
-                lines.append(f"  {i}. {rec}")
-        
-        return "\n".join(lines)
+
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# EXAMPLE USAGE
 # ==============================================================================
 if __name__ == "__main__":
-    # Test the entry filters
-    from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-    from SpyderF_Analysis.SpyderF07_GapAnalyzer import GapAnalyzer
-    from SpyderA_Core.SpyderA05_EventManager import EventManager
+    # Mock paper trade learner
+    class MockPaperTradeLearner:
+        def get_optimized_thresholds(self, filter_name):
+            # Simulate optimized thresholds from paper trading
+            return {
+                'min_volatility': 0.12,  # Slightly higher than base
+                'max_volatility': 0.38,  # Slightly lower than base
+                'min_trend_strength': 0.25,  # Lower - more trades
+                'rsi_oversold': 25,  # More extreme
+                'rsi_overbought': 75,
+                'trade_count': 50  # Enough for adaptation
+            }
     
-    # Create components
-    event_manager = EventManager()
-    volatility_analyzer = VolatilityRegimeAnalyzer(event_manager)
-    gap_analyzer = GapAnalyzer(event_manager)
+    # Initialize
+    config_manager = ConfigManager()
+    paper_learner = MockPaperTradeLearner()
+    filters = EntryFilters(config_manager, paper_learner)
     
-    # Start analyzers
-    volatility_analyzer.start()
-    gap_analyzer.start()
-    
-    # Create entry filters
-    filters = EntryFilters(
-        volatility_analyzer=volatility_analyzer,
-        gap_analyzer=gap_analyzer
-    )
-    
-    # Perform assessment
-    print("Performing entry assessment for SPY Iron Condor...")
-    print("=" * 60)
-    
-    assessment = filters.assess_entry('SPY', 'iron_condor')
-    
-    # Print formatted summary
-    print(filters.format_assessment_summary(assessment))
-    
-    # Quick checks
-    print("\nQuick Checks:")
-    quick = filters.get_quick_check()
-    for check, passed in quick.items():
-        status = "✅" if passed else "❌"
-        print(f"  {status} {check}: {passed}")
-    
-    # Time checks
-    minutes_to_window = filters.get_time_until_optimal_window()
-    if minutes_to_window:
-        print(f"\n⏰ {minutes_to_window} minutes until optimal entry window")
-    
-    # Position sizing
-    day_size = filters.get_position_size_for_day()
-    print(f"\n💰 Position size for today: {day_size:.0%}")
-    
-    # Test custom filters
-    print("\nTesting with custom filters...")
-    custom = {
-        'min_volume': {
-            'value': 1000000,
-            'threshold': 500000,
-            'operator': '>=',
-            'weight': 1.0
-        }
+    # Test entry parameters
+    entry_params = {
+        'current_volatility': 0.15,
+        'trend_strength': 0.4,
+        'trend_direction': 'up',
+        'strategy_type': 'bull_put_spread',
+        'volume_ratio': 1.2,
+        'rsi': 45,
+        'current_price': 585.0,
+        'nearest_resistance': 590.0,
+        'nearest_support': 580.0,
+        'position_type': 'long',
+        'portfolio_delta': 75,
+        'position_size_pct': 0.08,
+        'current_time': datetime.now(),
+        'days_to_earnings': 10,
+        'iv_percentile': 65,
+        'iv_skew': 0.08,
+        'volatility_regime': 'normal'
     }
     
-    assessment2 = filters.assess_entry('SPY', 'iron_condor', custom)
-    print(f"With custom filter - Score: {assessment2.overall_score:.1%}")
+    # Run assessment
+    print("=== Entry Filter Assessment ===")
+    result = filters.assess_entry(entry_params)
     
-    # Stop analyzers
-    volatility_analyzer.stop()
-    gap_analyzer.stop()
+    print(f"Overall Result: {result.overall_result.value}")
+    print(f"Quality Rating: {result.quality_rating.name} ({result.quality_rating.value}/5)")
+    print(f"Total Score: {result.total_score:.2f}")
     
+    # Show individual checks
+    print("\n=== Filter Checks ===")
+    for check in result.checks:
+        status = "✓" if check.passed else "✗"
+        print(f"{status} {check.filter_type.value}: {check.message}")
     
+    # Show warnings and recommendations
+    if result.warnings:
+        print("\n=== Warnings ===")
+        for warning in result.warnings:
+            print(f"⚠️  {warning}")
     
+    if result.recommendations:
+        print("\n=== Recommendations ===")
+        for rec in result.recommendations:
+            print(f"💡 {rec}")
     
+    # Test adaptive thresholds
+    print("\n=== Testing Adaptive Thresholds ===")
+    print("\nBase thresholds:")
+    print(f"Min volatility: {filters.base_thresholds['min_volatility'].current_value:.3f}")
+    print(f"Max volatility: {filters.base_thresholds['max_volatility'].current_value:.3f}")
     
+    # Force adaptation
+    filters.use_adaptive_thresholds = True
+    filters._update_adaptive_thresholds()
     
+    print("\nAdapted thresholds:")
+    print(f"Min volatility: {filters.thresholds['min_volatility'].current_value:.3f}")
+    print(f"Max volatility: {filters.thresholds['max_volatility'].current_value:.3f}")
     
+    # Run assessment again with adapted thresholds
+    print("\n=== Re-assessment with Adapted Thresholds ===")
+    result2 = filters.assess_entry(entry_params)
+    print(f"Quality Rating: {result2.quality_rating.name} ({result2.quality_rating.value}/5)")
     
+    # Get statistics
+    print("\n=== Filter Statistics ===")
+    stats = filters.get_filter_statistics()
     
+    print("\nThreshold Adaptations:")
+    for name, adapt in stats['threshold_adaptations'].items():
+        if adapt['change_pct'] != 0:
+            print(f"{name}: {adapt['base']:.3f} → {adapt['current']:.3f} ({adapt['change_pct']:+.1f}%)")
     
+    # Test different scenarios
+    print("\n=== Testing Different Scenarios ===")
     
+    # High volatility scenario
+    high_vol_params = entry_params.copy()
+    high_vol_params['current_volatility'] = 0.45
+    high_vol_params['volatility_regime'] = 'extreme'
     
+    result_high_vol = filters.assess_entry(high_vol_params)
+    print(f"\nHigh Volatility: {result_high_vol.overall_result.value} "
+          f"(Quality: {result_high_vol.quality_rating.value}/5)")
     
+    # Poor risk scenario
+    high_risk_params = entry_params.copy()
+    high_risk_params['portfolio_delta'] = 150
+    high_risk_params['position_size_pct'] = 0.15
     
-    
-    
-    
-    
-    
-    
-    
+    result_high_risk = filters.assess_entry(high_risk_params)
+    print(f"High Risk: {result_high_risk.overall_result.value} "
+          f"(Quality: {result_high_risk.quality_rating.value}/5)")

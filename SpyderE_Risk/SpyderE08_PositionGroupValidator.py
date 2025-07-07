@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderE08_PositionGroupValidator.py
+Module: SpyderE08_PositionGroupValidator.py  
 Group: E (Risk Management)
 Purpose: Universal Position Group Validator with LEAN Algorithm Patterns
 
@@ -12,34 +12,29 @@ Description:
     assert_strategy_position_group patterns across all option strategies.
     Provides institutional-grade validation, error handling, and position
     integrity checking using professional patterns from LEAN algorithms.
+    Ensures all multi-leg strategies maintain proper relationships and
+    risk parameters throughout their lifecycle.
 
-WEEK 3-4 ENHANCEMENT:
-    ✅ Universal validation patterns for all strategy types
-    ✅ LEAN-inspired assert_strategy_position_group implementation
-    ✅ Professional error handling with detailed diagnostics
-    ✅ Strategy-specific validation rules from LEAN algorithms
-    ✅ Comprehensive position integrity checking
-
-Based on: QuantConnect LEAN Position Group Validation Patterns
-- LongAndShortPutCalendarSpreadStrategiesAlgorithm.py
-- LongAndShortCallCalendarSpreadStrategiesAlgorithm.py
-- LongAndShortStrangleStrategiesAlgorithm.py
-- IronCondorStrategyAlgorithm.py (inferred patterns)
-
-Author: Mohamed Talib
-Created: 2025-06-23 (Phase 1 Week 3-4)
-Version: 1.0 (Universal LEAN Validation)
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-06-23
+Last Updated: 2025-07-06 Time: 16:30:00
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import math
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any, Union, Protocol
-from dataclasses import dataclass, field
-from enum import Enum, auto
+import os
+import sys
+import json
 import uuid
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Tuple, Union, Set
+from dataclasses import dataclass, field, asdict
+from enum import Enum, auto
+import math
+from collections import defaultdict
+import threading
 from abc import ABC, abstractmethod
 
 # ==============================================================================
@@ -49,931 +44,1139 @@ import numpy as np
 import pandas as pd
 
 # ==============================================================================
-# LOCAL IMPORTS
+# LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU14_OptionStrategies import OptionStrategy, StrategyType, OptionRight, OptionLeg
-from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
-from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+except ImportError:
+    import logging
+    SpyderLogger = type('SpyderLogger', (), {
+        'get_logger': lambda name: logging.getLogger(name)
+    })()
+
+try:
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, ErrorCategory, ErrorSeverity
+except ImportError:
+    class ErrorCategory(Enum):
+        VALIDATION = "validation"
+        CALCULATION = "calculation"
+        SYSTEM = "system"
+    
+    class ErrorSeverity(Enum):
+        LOW = "low"
+        MEDIUM = "medium"
+        HIGH = "high"
+        CRITICAL = "critical"
+    
+    SpyderErrorHandler = type('SpyderErrorHandler', (), {
+        'handle_error': lambda self, e, context: print(f"Error in {context}: {e}")
+    })
+
+try:
+    from SpyderU_Utilities.SpyderU14_OptionStrategies import OptionStrategy, StrategyType, OptionRight
+except ImportError:
+    # Define minimal enums if not available
+    class StrategyType(Enum):
+        IRON_CONDOR = "iron_condor"
+        CREDIT_SPREAD = "credit_spread"
+        CALENDAR_SPREAD = "calendar_spread"
+        STRADDLE = "straddle"
+        STRANGLE = "strangle"
+        BUTTERFLY = "butterfly"
+        RATIO_SPREAD = "ratio_spread"
+        DIAGONAL_SPREAD = "diagonal_spread"
+    
+    class OptionRight(Enum):
+        CALL = "C"
+        PUT = "P"
 
 # ==============================================================================
-# ENUMS AND CONSTANTS
+# CONSTANTS
+# ==============================================================================
+# Validation thresholds
+PRICE_TOLERANCE = 0.01          # 1 cent tolerance
+STRIKE_SPACING_MIN = 0.50       # Minimum $0.50 between strikes
+TIME_SYNC_TOLERANCE = 1         # 1 second sync tolerance
+MAX_POSITION_AGE = 3600        # 1 hour max age for validation
+
+# Greeks validation limits
+MAX_DELTA_NEUTRAL_DEVIATION = 0.05  # 5% deviation for delta neutral
+MAX_GAMMA_EXPOSURE = 100            # Max gamma per position
+MAX_VEGA_EXPOSURE = 500             # Max vega per position
+MAX_THETA_DECAY = -200              # Max theta decay per day
+
+# Strategy-specific limits
+IRON_CONDOR_MAX_WIDTH = 50         # Max width for iron condor
+CALENDAR_MIN_TIME_SPREAD = 7       # Minimum days between expirations
+RATIO_MAX_RATIO = 3                # Maximum ratio for ratio spreads
+
+# ==============================================================================
+# ENUMS
 # ==============================================================================
 class ValidationResult(Enum):
-    """Validation result status"""
+    """Validation result types."""
     VALID = "valid"
     INVALID = "invalid"
     WARNING = "warning"
-    ERROR = "error"
-    
-class ValidationSeverity(Enum):
-    """Validation error severity levels"""
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
+    NEEDS_ADJUSTMENT = "needs_adjustment"
 
-class LEANPositionGroupType(Enum):
-    """LEAN position group types from algorithms"""
-    IRON_CONDOR = "iron_condor"
-    IRON_BUTTERFLY = "iron_butterfly"
-    PUT_CALENDAR_SPREAD = "put_calendar_spread"
-    CALL_CALENDAR_SPREAD = "call_calendar_spread"
-    STRANGLE = "strangle"
-    STRADDLE = "straddle"
-    BULL_PUT_SPREAD = "bull_put_spread"
-    BEAR_CALL_SPREAD = "bear_call_spread"
-    BUTTERFLY_PUT = "butterfly_put"
-    BUTTERFLY_CALL = "butterfly_call"
-    UNDEFINED = "undefined"
+class ValidationCategory(Enum):
+    """Categories of validation checks."""
+    STRUCTURE = "structure"
+    PRICING = "pricing"
+    GREEKS = "greeks"
+    RISK = "risk"
+    EXECUTION = "execution"
+    COMPLIANCE = "compliance"
 
-# Validation tolerances (from LEAN algorithms)
-POSITION_QUANTITY_TOLERANCE = 1e-6
-STRIKE_TOLERANCE = 0.01
-EXPIRY_TOLERANCE = timedelta(hours=1)
-GREEKS_TOLERANCE = 0.001
+class PositionRelationship(Enum):
+    """Relationships between positions."""
+    LONG_SHORT_PAIR = "long_short_pair"
+    STRIKE_SPREAD = "strike_spread"
+    TIME_SPREAD = "time_spread"
+    RATIO = "ratio"
+    HEDGE = "hedge"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class ValidationError:
-    """Detailed validation error with LEAN-style diagnostics"""
-    error_type: str
-    severity: ValidationSeverity
-    message: str
-    expected_value: Any = None
-    actual_value: Any = None
-    position_index: Optional[int] = None
-    leg_index: Optional[int] = None
-    timestamp: datetime = field(default_factory=datetime.now)
-    
-    def __str__(self) -> str:
-        base = f"[{self.severity.value.upper()}] {self.error_type}: {self.message}"
-        if self.expected_value is not None and self.actual_value is not None:
-            base += f" (Expected: {self.expected_value}, Actual: {self.actual_value})"
-        return base
+class PositionLeg:
+    """Individual position leg."""
+    symbol: str
+    quantity: int
+    side: str  # 'BUY' or 'SELL'
+    option_type: OptionRight
+    strike: float
+    expiration: datetime
+    entry_price: float
+    current_price: float
+    implied_volatility: float
+    # Greeks
+    delta: float = 0.0
+    gamma: float = 0.0
+    vega: float = 0.0
+    theta: float = 0.0
+    rho: float = 0.0
+    # Metadata
+    position_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    entry_time: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=datetime.now)
 
 @dataclass
-class PositionGroupDiagnostics:
-    """Comprehensive position group diagnostics"""
-    position_count: int
-    strategy_type: LEANPositionGroupType
-    validation_errors: List[ValidationError] = field(default_factory=list)
-    validation_warnings: List[ValidationError] = field(default_factory=list)
+class PositionGroup:
+    """Group of related positions forming a strategy."""
+    group_id: str
+    strategy_type: StrategyType
+    legs: List[PositionLeg]
+    underlying_price: float
+    created_at: datetime
+    last_validated: Optional[datetime] = None
+    validation_status: ValidationResult = ValidationResult.VALID
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class ValidationReport:
+    """Detailed validation report."""
+    group_id: str
+    timestamp: datetime
+    overall_result: ValidationResult
+    checks_performed: Dict[ValidationCategory, ValidationResult]
+    errors: List[str]
+    warnings: List[str]
+    recommendations: List[str]
+    metrics: Dict[str, float]
+    adjustments_needed: List[Dict[str, Any]]
+
+@dataclass
+class GreeksLimits:
+    """Greeks exposure limits."""
+    max_delta: float = 100
+    max_gamma: float = 50
+    max_vega: float = 200
+    max_theta: float = -100
+    max_rho: float = 50
+    delta_neutral_tolerance: float = 0.05
+
+@dataclass
+class StrategyConstraints:
+    """Strategy-specific constraints."""
+    strategy_type: StrategyType
+    min_strikes: int
+    max_strikes: int
+    required_relationships: List[PositionRelationship]
+    strike_rules: Dict[str, Any]
+    time_rules: Dict[str, Any]
+    quantity_rules: Dict[str, Any]
+    greeks_limits: GreeksLimits
+
+# ==============================================================================
+# VALIDATION RULES
+# ==============================================================================
+class ValidationRule(ABC):
+    """Abstract base class for validation rules."""
     
-    # Position analysis
-    total_quantity: int = 0
-    net_delta: float = 0.0
-    is_net_neutral: bool = False
-    is_directional: bool = False
+    @abstractmethod
+    def validate(self, position_group: PositionGroup) -> Tuple[ValidationResult, List[str]]:
+        """Validate position group against rule."""
+        pass
     
-    # Strike analysis
-    unique_strikes: List[float] = field(default_factory=list)
-    strike_spacing: List[float] = field(default_factory=list)
+    @abstractmethod
+    def get_category(self) -> ValidationCategory:
+        """Get validation category."""
+        pass
+
+class StructureValidationRule(ValidationRule):
+    """Validates position structure."""
     
-    # Expiry analysis
-    unique_expiries: List[datetime] = field(default_factory=list)
-    expiry_spread: Optional[timedelta] = None
+    def __init__(self, constraints: StrategyConstraints):
+        self.constraints = constraints
     
-    # Validation summary
-    is_valid: bool = True
-    validation_score: float = 1.0
+    def validate(self, position_group: PositionGroup) -> Tuple[ValidationResult, List[str]]:
+        """Validate structure matches strategy requirements."""
+        errors = []
+        
+        # Check number of legs
+        num_legs = len(position_group.legs)
+        if num_legs < self.constraints.min_strikes:
+            errors.append(f"Too few legs: {num_legs} < {self.constraints.min_strikes}")
+        elif num_legs > self.constraints.max_strikes:
+            errors.append(f"Too many legs: {num_legs} > {self.constraints.max_strikes}")
+        
+        # Validate based on strategy type
+        if position_group.strategy_type == StrategyType.IRON_CONDOR:
+            errors.extend(self._validate_iron_condor_structure(position_group))
+        elif position_group.strategy_type == StrategyType.CALENDAR_SPREAD:
+            errors.extend(self._validate_calendar_structure(position_group))
+        elif position_group.strategy_type == StrategyType.CREDIT_SPREAD:
+            errors.extend(self._validate_credit_spread_structure(position_group))
+        
+        result = ValidationResult.INVALID if errors else ValidationResult.VALID
+        return result, errors
     
-    def add_error(self, error: ValidationError):
-        """Add validation error"""
-        if error.severity in [ValidationSeverity.ERROR, ValidationSeverity.CRITICAL]:
-            self.validation_errors.append(error)
-            self.is_valid = False
+    def get_category(self) -> ValidationCategory:
+        return ValidationCategory.STRUCTURE
+    
+    def _validate_iron_condor_structure(self, group: PositionGroup) -> List[str]:
+        """Validate iron condor structure."""
+        errors = []
+        
+        if len(group.legs) != 4:
+            errors.append("Iron condor must have exactly 4 legs")
+            return errors
+        
+        # Sort legs by strike
+        sorted_legs = sorted(group.legs, key=lambda x: x.strike)
+        
+        # Check put spread (lower strikes)
+        if not (sorted_legs[0].option_type == OptionRight.PUT and 
+                sorted_legs[1].option_type == OptionRight.PUT):
+            errors.append("Lower strikes must be puts")
+        
+        # Check call spread (higher strikes)
+        if not (sorted_legs[2].option_type == OptionRight.CALL and 
+                sorted_legs[3].option_type == OptionRight.CALL):
+            errors.append("Higher strikes must be calls")
+        
+        # Check long/short relationships
+        if not (sorted_legs[0].quantity > 0 and sorted_legs[1].quantity < 0):
+            errors.append("Put spread must be long lower, short higher")
+        
+        if not (sorted_legs[2].quantity < 0 and sorted_legs[3].quantity > 0):
+            errors.append("Call spread must be short lower, long higher")
+        
+        # Check strike spacing
+        put_width = sorted_legs[1].strike - sorted_legs[0].strike
+        call_width = sorted_legs[3].strike - sorted_legs[2].strike
+        
+        if abs(put_width - call_width) > PRICE_TOLERANCE:
+            errors.append(f"Spread widths must match: put={put_width}, call={call_width}")
+        
+        return errors
+    
+    def _validate_calendar_structure(self, group: PositionGroup) -> List[str]:
+        """Validate calendar spread structure."""
+        errors = []
+        
+        if len(group.legs) != 2:
+            errors.append("Calendar spread must have exactly 2 legs")
+            return errors
+        
+        # Same strike
+        if abs(group.legs[0].strike - group.legs[1].strike) > PRICE_TOLERANCE:
+            errors.append("Calendar spread legs must have same strike")
+        
+        # Different expirations
+        time_diff = abs((group.legs[0].expiration - group.legs[1].expiration).days)
+        if time_diff < CALENDAR_MIN_TIME_SPREAD:
+            errors.append(f"Insufficient time spread: {time_diff} days")
+        
+        # Opposite quantities
+        if group.legs[0].quantity * group.legs[1].quantity >= 0:
+            errors.append("Calendar legs must have opposite signs")
+        
+        return errors
+    
+    def _validate_credit_spread_structure(self, group: PositionGroup) -> List[str]:
+        """Validate credit spread structure."""
+        errors = []
+        
+        if len(group.legs) != 2:
+            errors.append("Credit spread must have exactly 2 legs")
+            return errors
+        
+        # Same option type
+        if group.legs[0].option_type != group.legs[1].option_type:
+            errors.append("Credit spread legs must be same option type")
+        
+        # Opposite quantities
+        if group.legs[0].quantity * group.legs[1].quantity >= 0:
+            errors.append("Credit spread must have opposite position signs")
+        
+        # Check it's actually a credit spread (short closer to money)
+        if group.legs[0].option_type == OptionRight.CALL:
+            # Bull call spread - short lower strike
+            short_leg = min(group.legs, key=lambda x: x.strike)
+            if short_leg.quantity > 0:
+                errors.append("Call credit spread must be short lower strike")
         else:
-            self.validation_warnings.append(error)
+            # Bear put spread - short higher strike  
+            short_leg = max(group.legs, key=lambda x: x.strike)
+            if short_leg.quantity > 0:
+                errors.append("Put credit spread must be short higher strike")
         
-        # Update validation score
-        severity_weights = {
-            ValidationSeverity.INFO: 0.0,
-            ValidationSeverity.WARNING: 0.1,
-            ValidationSeverity.ERROR: 0.3,
-            ValidationSeverity.CRITICAL: 0.5
-        }
-        self.validation_score -= severity_weights.get(error.severity, 0.0)
-        self.validation_score = max(0.0, self.validation_score)
+        return errors
+
+class GreeksValidationRule(ValidationRule):
+    """Validates Greeks exposure."""
+    
+    def __init__(self, limits: GreeksLimits):
+        self.limits = limits
+    
+    def validate(self, position_group: PositionGroup) -> Tuple[ValidationResult, List[str]]:
+        """Validate Greeks are within limits."""
+        errors = []
+        warnings = []
+        
+        # Calculate aggregate Greeks
+        total_delta = sum(leg.delta * leg.quantity for leg in position_group.legs)
+        total_gamma = sum(leg.gamma * leg.quantity for leg in position_group.legs)
+        total_vega = sum(leg.vega * leg.quantity for leg in position_group.legs)
+        total_theta = sum(leg.theta * leg.quantity for leg in position_group.legs)
+        
+        # Check limits
+        if abs(total_delta) > self.limits.max_delta:
+            errors.append(f"Delta exceeds limit: {total_delta:.1f} > {self.limits.max_delta}")
+        
+        if abs(total_gamma) > self.limits.max_gamma:
+            errors.append(f"Gamma exceeds limit: {total_gamma:.1f} > {self.limits.max_gamma}")
+        
+        if abs(total_vega) > self.limits.max_vega:
+            errors.append(f"Vega exceeds limit: {total_vega:.1f} > {self.limits.max_vega}")
+        
+        if total_theta < -self.limits.max_theta:
+            warnings.append(f"High theta decay: {total_theta:.1f}")
+        
+        # Check delta neutrality if required
+        if position_group.strategy_type in [StrategyType.IRON_CONDOR, StrategyType.BUTTERFLY]:
+            delta_ratio = abs(total_delta) / max(sum(abs(leg.delta * leg.quantity) 
+                                                    for leg in position_group.legs), 1)
+            if delta_ratio > self.limits.delta_neutral_tolerance:
+                warnings.append(f"Position not delta neutral: {delta_ratio:.2%}")
+        
+        if errors:
+            return ValidationResult.INVALID, errors + warnings
+        elif warnings:
+            return ValidationResult.WARNING, warnings
+        else:
+            return ValidationResult.VALID, []
+    
+    def get_category(self) -> ValidationCategory:
+        return ValidationCategory.GREEKS
+
+class PricingValidationRule(ValidationRule):
+    """Validates pricing relationships."""
+    
+    def validate(self, position_group: PositionGroup) -> Tuple[ValidationResult, List[str]]:
+        """Validate pricing is consistent."""
+        errors = []
+        warnings = []
+        
+        # Check bid-ask spreads
+        for leg in position_group.legs:
+            # Simplified check - would use actual bid/ask in production
+            if leg.current_price <= 0:
+                errors.append(f"Invalid price for {leg.symbol}: {leg.current_price}")
+        
+        # Validate option pricing relationships
+        if position_group.strategy_type == StrategyType.CREDIT_SPREAD:
+            errors.extend(self._validate_spread_pricing(position_group))
+        
+        # Check for pricing anomalies
+        for leg in position_group.legs:
+            intrinsic = self._calculate_intrinsic_value(
+                leg, position_group.underlying_price
+            )
+            if leg.current_price < intrinsic - PRICE_TOLERANCE:
+                warnings.append(
+                    f"Option trading below intrinsic: {leg.symbol} "
+                    f"(price={leg.current_price:.2f}, intrinsic={intrinsic:.2f})"
+                )
+        
+        if errors:
+            return ValidationResult.INVALID, errors + warnings
+        elif warnings:
+            return ValidationResult.WARNING, warnings
+        else:
+            return ValidationResult.VALID, []
+    
+    def get_category(self) -> ValidationCategory:
+        return ValidationCategory.PRICING
+    
+    def _validate_spread_pricing(self, group: PositionGroup) -> List[str]:
+        """Validate spread pricing relationships."""
+        errors = []
+        
+        if len(group.legs) < 2:
+            return errors
+        
+        # For vertical spreads, check price relationships
+        if group.legs[0].expiration == group.legs[1].expiration:
+            if group.legs[0].option_type == OptionRight.CALL:
+                # Calls: lower strike should be more expensive
+                lower_strike_leg = min(group.legs, key=lambda x: x.strike)
+                higher_strike_leg = max(group.legs, key=lambda x: x.strike)
+                
+                if lower_strike_leg.current_price < higher_strike_leg.current_price:
+                    errors.append("Call pricing violation: lower strike cheaper")
+            else:
+                # Puts: higher strike should be more expensive
+                lower_strike_leg = min(group.legs, key=lambda x: x.strike)
+                higher_strike_leg = max(group.legs, key=lambda x: x.strike)
+                
+                if higher_strike_leg.current_price < lower_strike_leg.current_price:
+                    errors.append("Put pricing violation: higher strike cheaper")
+        
+        return errors
+    
+    def _calculate_intrinsic_value(self, leg: PositionLeg, underlying: float) -> float:
+        """Calculate intrinsic value of option."""
+        if leg.option_type == OptionRight.CALL:
+            return max(0, underlying - leg.strike)
+        else:
+            return max(0, leg.strike - underlying)
 
 # ==============================================================================
-# POSITION GROUP PROTOCOLS
+# POSITION GROUP VALIDATOR CLASS
 # ==============================================================================
-class IPositionGroup(Protocol):
-    """Protocol for LEAN-style position groups"""
-    positions: List[Dict[str, Any]]
-    strategy: OptionStrategy
-    
-class IValidatable(Protocol):
-    """Protocol for validatable position groups"""
-    def validate_position_group(self) -> bool:
-        """Validate position group following LEAN patterns"""
-        ...
-
-# ==============================================================================
-# LEAN VALIDATION STRATEGIES
-# ==============================================================================
-class LEANValidationStrategy(ABC):
-    """Abstract base class for LEAN validation strategies"""
-    
-    @abstractmethod
-    def validate_position_group(self, positions: List[Dict[str, Any]], 
-                              strategy: OptionStrategy) -> PositionGroupDiagnostics:
-        """Validate position group using LEAN patterns"""
-        pass
-    
-    @abstractmethod
-    def get_expected_position_count(self) -> int:
-        """Get expected number of positions"""
-        pass
-
-class CalendarSpreadValidator(LEANValidationStrategy):
+class PositionGroupValidator:
     """
-    Calendar Spread validator from LEAN algorithms.
+    Universal position group validator.
     
-    Based on:
-    - LongAndShortPutCalendarSpreadStrategiesAlgorithm.py
-    - LongAndShortCallCalendarSpreadStrategiesAlgorithm.py
+    Implements comprehensive validation for all option strategy types using
+    LEAN-inspired patterns. Ensures position integrity, risk limits, and
+    proper strategy construction.
+    
+    Attributes:
+        logger: Module logger
+        strategy_constraints: Constraints by strategy type
+        validation_rules: Active validation rules
+        
+    Example:
+        >>> validator = PositionGroupValidator()
+        >>> group = PositionGroup(...)
+        >>> report = validator.validate_position_group(group)
+        >>> if report.overall_result == ValidationResult.VALID:
+        ...     # Proceed with position
     """
     
-    def validate_position_group(self, positions: List[Dict[str, Any]], 
-                              strategy: OptionStrategy) -> PositionGroupDiagnostics:
-        """Validate calendar spread position group using LEAN patterns"""
-        diagnostics = PositionGroupDiagnostics(
-            position_count=len(positions),
-            strategy_type=self._get_calendar_type(strategy)
-        )
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize position group validator.
         
-        # LEAN Pattern: Calendar spreads must have exactly 2 positions
-        if len(positions) != 2:
-            diagnostics.add_error(ValidationError(
-                error_type="POSITION_COUNT_MISMATCH",
-                severity=ValidationSeverity.CRITICAL,
-                message="Calendar spread must have exactly 2 positions",
-                expected_value=2,
-                actual_value=len(positions)
-            ))
-            return diagnostics
-        
-        # Extract near and far expiry positions
-        near_expiration = min(leg.expiry for leg in strategy.legs)
-        far_expiration = max(leg.expiry for leg in strategy.legs)
-        
-        # Find positions by expiry (LEAN pattern)
-        near_position = self._find_position_by_expiry(positions, near_expiration, strategy)
-        far_position = self._find_position_by_expiry(positions, far_expiration, strategy)
-        
-        if not near_position:
-            diagnostics.add_error(ValidationError(
-                error_type="MISSING_NEAR_POSITION",
-                severity=ValidationSeverity.CRITICAL,
-                message=f"Expected near expiry position not found",
-                expected_value=near_expiration.strftime('%Y-%m-%d'),
-                actual_value="None"
-            ))
-            
-        if not far_position:
-            diagnostics.add_error(ValidationError(
-                error_type="MISSING_FAR_POSITION",
-                severity=ValidationSeverity.CRITICAL,
-                message=f"Expected far expiry position not found",
-                expected_value=far_expiration.strftime('%Y-%m-%d'),
-                actual_value="None"
-            ))
-            
-        # Validate quantities (LEAN pattern: near=-2, far=2 for calendar)
-        if near_position and near_position.get('quantity', 0) != -2:
-            diagnostics.add_error(ValidationError(
-                error_type="INVALID_NEAR_QUANTITY",
-                severity=ValidationSeverity.ERROR,
-                message="Near expiry position quantity should be -2",
-                expected_value=-2,
-                actual_value=near_position.get('quantity', 0)
-            ))
-            
-        if far_position and far_position.get('quantity', 0) != 2:
-            diagnostics.add_error(ValidationError(
-                error_type="INVALID_FAR_QUANTITY",
-                severity=ValidationSeverity.ERROR,
-                message="Far expiry position quantity should be 2",
-                expected_value=2,
-                actual_value=far_position.get('quantity', 0)
-            ))
-        
-        # Validate same strike (calendar spread requirement)
-        if near_position and far_position:
-            near_strike = near_position.get('strike', 0)
-            far_strike = far_position.get('strike', 0)
-            
-            if abs(near_strike - far_strike) > STRIKE_TOLERANCE:
-                diagnostics.add_error(ValidationError(
-                    error_type="STRIKE_MISMATCH",
-                    severity=ValidationSeverity.ERROR,
-                    message="Calendar spread legs must have same strike",
-                    expected_value=near_strike,
-                    actual_value=far_strike
-                ))
-        
-        # Validate option type consistency
-        self._validate_option_type_consistency(positions, diagnostics)
-        
-        return diagnostics
-    
-    def get_expected_position_count(self) -> int:
-        return 2
-    
-    def _get_calendar_type(self, strategy: OptionStrategy) -> LEANPositionGroupType:
-        """Determine calendar type from strategy"""
-        if strategy.strategy_type == StrategyType.PUT_CALENDAR_SPREAD:
-            return LEANPositionGroupType.PUT_CALENDAR_SPREAD
-        elif strategy.strategy_type == StrategyType.CALL_CALENDAR_SPREAD:
-            return LEANPositionGroupType.CALL_CALENDAR_SPREAD
-        return LEANPositionGroupType.UNDEFINED
-    
-    def _find_position_by_expiry(self, positions: List[Dict[str, Any]], 
-                                expiry: datetime, strategy: OptionStrategy) -> Optional[Dict[str, Any]]:
-        """Find position by expiry date"""
-        for position in positions:
-            pos_expiry = position.get('expiry')
-            if pos_expiry and abs((pos_expiry - expiry).total_seconds()) < EXPIRY_TOLERANCE.total_seconds():
-                return position
-        return None
-    
-    def _validate_option_type_consistency(self, positions: List[Dict[str, Any]], 
-                                        diagnostics: PositionGroupDiagnostics):
-        """Validate all positions have same option type"""
-        option_types = set(pos.get('option_right') for pos in positions if pos.get('option_right'))
-        
-        if len(option_types) > 1:
-            diagnostics.add_error(ValidationError(
-                error_type="OPTION_TYPE_INCONSISTENCY",
-                severity=ValidationSeverity.ERROR,
-                message="Calendar spread legs must be same option type",
-                expected_value="Single option type",
-                actual_value=f"Multiple types: {option_types}"
-            ))
-
-class StrangleValidator(LEANValidationStrategy):
-    """
-    Strangle validator from LEAN LongAndShortStrangleStrategiesAlgorithm.py
-    """
-    
-    def validate_position_group(self, positions: List[Dict[str, Any]], 
-                              strategy: OptionStrategy) -> PositionGroupDiagnostics:
-        """Validate strangle position group using LEAN patterns"""
-        diagnostics = PositionGroupDiagnostics(
-            position_count=len(positions),
-            strategy_type=LEANPositionGroupType.STRANGLE
-        )
-        
-        # LEAN Pattern: Strangle must have exactly 2 positions
-        if len(positions) != 2:
-            diagnostics.add_error(ValidationError(
-                error_type="POSITION_COUNT_MISMATCH",
-                severity=ValidationSeverity.CRITICAL,
-                message="Strangle must have exactly 2 positions",
-                expected_value=2,
-                actual_value=len(positions)
-            ))
-            return diagnostics
-        
-        # Find call and put positions (LEAN pattern)
-        call_position = self._find_position_by_option_right(positions, OptionRight.CALL)
-        put_position = self._find_position_by_option_right(positions, OptionRight.PUT)
-        
-        if not call_position:
-            diagnostics.add_error(ValidationError(
-                error_type="MISSING_CALL_POSITION",
-                severity=ValidationSeverity.CRITICAL,
-                message="Expected call position not found",
-                expected_value="CALL position",
-                actual_value="None"
-            ))
-            
-        if not put_position:
-            diagnostics.add_error(ValidationError(
-                error_type="MISSING_PUT_POSITION",
-                severity=ValidationSeverity.CRITICAL,
-                message="Expected put position not found",
-                expected_value="PUT position",
-                actual_value="None"
-            ))
-        
-        # Validate quantities (LEAN pattern: both should be same sign and magnitude)
-        expected_call_quantity = 2  # From LEAN algorithm
-        expected_put_quantity = 2   # From LEAN algorithm
-        
-        if call_position and call_position.get('quantity', 0) != expected_call_quantity:
-            diagnostics.add_error(ValidationError(
-                error_type="INVALID_CALL_QUANTITY",
-                severity=ValidationSeverity.ERROR,
-                message="Call position quantity mismatch",
-                expected_value=expected_call_quantity,
-                actual_value=call_position.get('quantity', 0)
-            ))
-            
-        if put_position and put_position.get('quantity', 0) != expected_put_quantity:
-            diagnostics.add_error(ValidationError(
-                error_type="INVALID_PUT_QUANTITY",
-                severity=ValidationSeverity.ERROR,
-                message="Put position quantity mismatch",
-                expected_value=expected_put_quantity,
-                actual_value=put_position.get('quantity', 0)
-            ))
-        
-        # Validate different strikes (strangle requirement)
-        if call_position and put_position:
-            call_strike = call_position.get('strike', 0)
-            put_strike = put_position.get('strike', 0)
-            
-            if abs(call_strike - put_strike) < STRIKE_TOLERANCE:
-                diagnostics.add_error(ValidationError(
-                    error_type="STRIKES_TOO_CLOSE",
-                    severity=ValidationSeverity.WARNING,
-                    message="Strangle strikes should be different (close to straddle)",
-                    expected_value="Different strikes",
-                    actual_value=f"Call: {call_strike}, Put: {put_strike}"
-                ))
-        
-        # Validate same expiry
-        self._validate_same_expiry(positions, diagnostics)
-        
-        return diagnostics
-    
-    def get_expected_position_count(self) -> int:
-        return 2
-    
-    def _find_position_by_option_right(self, positions: List[Dict[str, Any]], 
-                                     option_right: OptionRight) -> Optional[Dict[str, Any]]:
-        """Find position by option right (CALL/PUT)"""
-        for position in positions:
-            if position.get('option_right') == option_right:
-                return position
-        return None
-    
-    def _validate_same_expiry(self, positions: List[Dict[str, Any]], 
-                            diagnostics: PositionGroupDiagnostics):
-        """Validate all positions have same expiry"""
-        expiries = [pos.get('expiry') for pos in positions if pos.get('expiry')]
-        
-        if len(set(expiries)) > 1:
-            diagnostics.add_error(ValidationError(
-                error_type="EXPIRY_MISMATCH",
-                severity=ValidationSeverity.ERROR,
-                message="Strangle legs must have same expiry",
-                expected_value="Single expiry",
-                actual_value=f"Multiple expiries: {expiries}"
-            ))
-
-class IronCondorValidator(LEANValidationStrategy):
-    """
-    Iron Condor validator based on LEAN patterns (inferred from structure)
-    """
-    
-    def validate_position_group(self, positions: List[Dict[str, Any]], 
-                              strategy: OptionStrategy) -> PositionGroupDiagnostics:
-        """Validate Iron Condor position group using LEAN patterns"""
-        diagnostics = PositionGroupDiagnostics(
-            position_count=len(positions),
-            strategy_type=LEANPositionGroupType.IRON_CONDOR
-        )
-        
-        # Iron Condor must have exactly 4 positions
-        if len(positions) != 4:
-            diagnostics.add_error(ValidationError(
-                error_type="POSITION_COUNT_MISMATCH",
-                severity=ValidationSeverity.CRITICAL,
-                message="Iron Condor must have exactly 4 positions",
-                expected_value=4,
-                actual_value=len(positions)
-            ))
-            return diagnostics
-        
-        # Validate strike order and structure
-        self._validate_iron_condor_structure(positions, diagnostics)
-        
-        return diagnostics
-    
-    def get_expected_position_count(self) -> int:
-        return 4
-    
-    def _validate_iron_condor_structure(self, positions: List[Dict[str, Any]], 
-                                      diagnostics: PositionGroupDiagnostics):
-        """Validate Iron Condor strike and quantity structure"""
-        # Sort positions by strike
-        sorted_positions = sorted(positions, key=lambda x: x.get('strike', 0))
-        
-        # Expected structure: Long Put, Short Put, Short Call, Long Call
-        expected_structure = [
-            {'option_right': OptionRight.PUT, 'quantity_sign': 1},    # Long Put
-            {'option_right': OptionRight.PUT, 'quantity_sign': -1},   # Short Put
-            {'option_right': OptionRight.CALL, 'quantity_sign': -1},  # Short Call
-            {'option_right': OptionRight.CALL, 'quantity_sign': 1}    # Long Call
-        ]
-        
-        for i, (position, expected) in enumerate(zip(sorted_positions, expected_structure)):
-            # Validate option right
-            if position.get('option_right') != expected['option_right']:
-                diagnostics.add_error(ValidationError(
-                    error_type="INVALID_OPTION_RIGHT",
-                    severity=ValidationSeverity.ERROR,
-                    message=f"Position {i+1} has wrong option type",
-                    expected_value=expected['option_right'].value,
-                    actual_value=position.get('option_right', 'Unknown'),
-                    position_index=i
-                ))
-            
-            # Validate quantity sign
-            quantity = position.get('quantity', 0)
-            expected_sign = expected['quantity_sign']
-            
-            if (quantity > 0) != (expected_sign > 0):
-                diagnostics.add_error(ValidationError(
-                    error_type="INVALID_QUANTITY_SIGN",
-                    severity=ValidationSeverity.ERROR,
-                    message=f"Position {i+1} has wrong quantity sign",
-                    expected_value=f"{'Positive' if expected_sign > 0 else 'Negative'}",
-                    actual_value=quantity,
-                    position_index=i
-                ))
-
-# ==============================================================================
-# UNIVERSAL POSITION GROUP VALIDATOR
-# ==============================================================================
-class LEANPositionGroupValidator:
-    """
-    Universal Position Group Validator with LEAN Algorithm Patterns.
-    
-    Week 3-4 Enhancement: Implements comprehensive position group validation
-    using patterns from QuantConnect LEAN algorithms across all strategy types.
-    """
-    
-    def __init__(self):
-        """Initialize universal validator"""
+        Args:
+            config: Optional configuration dictionary
+        """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        self.risk_manager = get_risk_manager()
-        self.event_manager = get_event_manager()
         
-        # Initialize validation strategies
-        self.validation_strategies: Dict[StrategyType, LEANValidationStrategy] = {
-            StrategyType.PUT_CALENDAR_SPREAD: CalendarSpreadValidator(),
-            StrategyType.CALL_CALENDAR_SPREAD: CalendarSpreadValidator(),
-            StrategyType.SHORT_PUT_CALENDAR_SPREAD: CalendarSpreadValidator(),
-            StrategyType.SHORT_CALL_CALENDAR_SPREAD: CalendarSpreadValidator(),
-            StrategyType.STRANGLE: StrangleValidator(),
-            StrategyType.SHORT_STRANGLE: StrangleValidator(),
-            StrategyType.IRON_CONDOR: IronCondorValidator(),
-            # Additional strategies can be added here
+        # Configuration
+        self.config = config or {}
+        
+        # Thread safety
+        self._lock = threading.RLock()
+        
+        # Initialize strategy constraints
+        self.strategy_constraints = self._initialize_constraints()
+        
+        # Validation rules
+        self.validation_rules: Dict[ValidationCategory, List[ValidationRule]] = {
+            ValidationCategory.STRUCTURE: [],
+            ValidationCategory.PRICING: [],
+            ValidationCategory.GREEKS: [],
+            ValidationCategory.RISK: [],
+            ValidationCategory.EXECUTION: [],
+            ValidationCategory.COMPLIANCE: []
         }
         
-        # Validation statistics
-        self.validation_stats = {
-            'total_validations': 0,
-            'successful_validations': 0,
-            'failed_validations': 0,
-            'validation_errors': 0,
-            'validation_warnings': 0,
-            'strategy_validation_counts': {},
-            'error_type_counts': {}
-        }
+        # Initialize default rules
+        self._initialize_default_rules()
         
-        self.logger.info("LEAN Position Group Validator initialized (Week 3-4)")
+        # Validation history
+        self.validation_history: List[ValidationReport] = []
+        
+        # Statistics
+        self.validation_stats = defaultdict(lambda: {'total': 0, 'valid': 0, 'invalid': 0})
+        
+        self.logger.info("PositionGroupValidator initialized")
     
     # ==========================================================================
-    # MAIN VALIDATION INTERFACE
+    # INITIALIZATION
     # ==========================================================================
-    def validate_position_group(self, positions: List[Dict[str, Any]], 
-                              strategy: OptionStrategy) -> PositionGroupDiagnostics:
-        """
-        Universal position group validation using LEAN patterns.
+    def _initialize_constraints(self) -> Dict[StrategyType, StrategyConstraints]:
+        """Initialize strategy constraints."""
+        constraints = {}
         
-        Args:
-            positions: List of position dictionaries
-            strategy: Option strategy definition
-            
-        Returns:
-            Comprehensive position group diagnostics
-        """
-        start_time = datetime.now()
-        
-        try:
-            self.validation_stats['total_validations'] += 1
-            
-            # Get appropriate validation strategy
-            validator = self.validation_strategies.get(strategy.strategy_type)
-            
-            if not validator:
-                # Default validation for unsupported strategies
-                diagnostics = self._perform_default_validation(positions, strategy)
-            else:
-                # Use strategy-specific LEAN validation
-                diagnostics = validator.validate_position_group(positions, strategy)
-            
-            # Perform universal checks
-            self._perform_universal_checks(positions, strategy, diagnostics)
-            
-            # Update statistics
-            self._update_validation_statistics(diagnostics, strategy.strategy_type)
-            
-            # Log validation results
-            validation_time = (datetime.now() - start_time).total_seconds() * 1000
-            self._log_validation_results(diagnostics, validation_time)
-            
-            # Emit validation event
-            self._emit_validation_event(diagnostics, strategy)
-            
-            return diagnostics
-            
-        except Exception as e:
-            self.logger.error(f"Position group validation failed: {e}")
-            self.error_handler.handle_error(e, context="position_group_validation")
-            
-            # Return error diagnostics
-            error_diagnostics = PositionGroupDiagnostics(
-                position_count=len(positions),
-                strategy_type=LEANPositionGroupType.UNDEFINED,
-                is_valid=False
+        # Iron Condor constraints
+        constraints[StrategyType.IRON_CONDOR] = StrategyConstraints(
+            strategy_type=StrategyType.IRON_CONDOR,
+            min_strikes=4,
+            max_strikes=4,
+            required_relationships=[
+                PositionRelationship.STRIKE_SPREAD,
+                PositionRelationship.LONG_SHORT_PAIR
+            ],
+            strike_rules={
+                'min_width': 2.5,
+                'max_width': IRON_CONDOR_MAX_WIDTH,
+                'put_call_separation': 5.0
+            },
+            time_rules={'same_expiration': True},
+            quantity_rules={'equal_quantities': True},
+            greeks_limits=GreeksLimits(
+                max_delta=20,
+                max_gamma=10,
+                max_vega=100,
+                delta_neutral_tolerance=0.1
             )
-            error_diagnostics.add_error(ValidationError(
-                error_type="VALIDATION_EXCEPTION",
-                severity=ValidationSeverity.CRITICAL,
-                message=f"Validation failed with exception: {str(e)}"
-            ))
-            
-            return error_diagnostics
-    
-    def assert_strategy_position_group(self, positions: List[Dict[str, Any]], 
-                                     strategy: OptionStrategy) -> bool:
-        """
-        LEAN-style assertion validation (raises AssertionError on failure).
+        )
         
-        This method mimics LEAN's assert_strategy_position_group behavior
-        by raising AssertionError with detailed messages when validation fails.
+        # Credit Spread constraints
+        constraints[StrategyType.CREDIT_SPREAD] = StrategyConstraints(
+            strategy_type=StrategyType.CREDIT_SPREAD,
+            min_strikes=2,
+            max_strikes=2,
+            required_relationships=[PositionRelationship.STRIKE_SPREAD],
+            strike_rules={
+                'min_width': 1.0,
+                'max_width': 10.0
+            },
+            time_rules={'same_expiration': True},
+            quantity_rules={'opposite_signs': True, 'equal_magnitudes': True},
+            greeks_limits=GreeksLimits(max_delta=50, max_gamma=25)
+        )
+        
+        # Calendar Spread constraints
+        constraints[StrategyType.CALENDAR_SPREAD] = StrategyConstraints(
+            strategy_type=StrategyType.CALENDAR_SPREAD,
+            min_strikes=2,
+            max_strikes=2,
+            required_relationships=[PositionRelationship.TIME_SPREAD],
+            strike_rules={'same_strike': True},
+            time_rules={
+                'different_expirations': True,
+                'min_time_spread': CALENDAR_MIN_TIME_SPREAD
+            },
+            quantity_rules={'opposite_signs': True},
+            greeks_limits=GreeksLimits(max_vega=150, max_theta=-50)
+        )
+        
+        # Add more strategies as needed...
+        
+        return constraints
+    
+    def _initialize_default_rules(self) -> None:
+        """Initialize default validation rules."""
+        # Add structure rules for each strategy
+        for strategy_type, constraints in self.strategy_constraints.items():
+            self.validation_rules[ValidationCategory.STRUCTURE].append(
+                StructureValidationRule(constraints)
+            )
+        
+        # Add universal rules
+        self.validation_rules[ValidationCategory.PRICING].append(
+            PricingValidationRule()
+        )
+        
+        # Add Greeks rules with default limits
+        default_greeks_limits = GreeksLimits()
+        self.validation_rules[ValidationCategory.GREEKS].append(
+            GreeksValidationRule(default_greeks_limits)
+        )
+    
+    # ==========================================================================
+    # PUBLIC METHODS - VALIDATION
+    # ==========================================================================
+    def validate_position_group(self, position_group: PositionGroup) -> ValidationReport:
+        """
+        Validate a position group.
         
         Args:
-            positions: List of position dictionaries
-            strategy: Option strategy definition
+            position_group: Position group to validate
             
         Returns:
-            True if valid
+            Comprehensive validation report
+        """
+        with self._lock:
+            # Create report
+            report = ValidationReport(
+                group_id=position_group.group_id,
+                timestamp=datetime.now(),
+                overall_result=ValidationResult.VALID,
+                checks_performed={},
+                errors=[],
+                warnings=[],
+                recommendations=[],
+                metrics={},
+                adjustments_needed=[]
+            )
+            
+            try:
+                # Update last validated time
+                position_group.last_validated = datetime.now()
+                
+                # Run all validation rules
+                for category, rules in self.validation_rules.items():
+                    category_result = ValidationResult.VALID
+                    category_messages = []
+                    
+                    for rule in rules:
+                        if rule.get_category() == category:
+                            result, messages = rule.validate(position_group)
+                            
+                            # Update category result (worst case)
+                            if result == ValidationResult.INVALID:
+                                category_result = ValidationResult.INVALID
+                                report.errors.extend(messages)
+                            elif result == ValidationResult.WARNING and category_result != ValidationResult.INVALID:
+                                category_result = ValidationResult.WARNING
+                                report.warnings.extend(messages)
+                            
+                            category_messages.extend(messages)
+                    
+                    report.checks_performed[category] = category_result
+                
+                # Calculate metrics
+                report.metrics = self._calculate_validation_metrics(position_group)
+                
+                # Determine overall result
+                if any(r == ValidationResult.INVALID for r in report.checks_performed.values()):
+                    report.overall_result = ValidationResult.INVALID
+                elif any(r == ValidationResult.WARNING for r in report.checks_performed.values()):
+                    report.overall_result = ValidationResult.WARNING
+                
+                # Generate recommendations
+                report.recommendations = self._generate_recommendations(position_group, report)
+                
+                # Check if adjustments needed
+                if report.overall_result in [ValidationResult.WARNING, ValidationResult.NEEDS_ADJUSTMENT]:
+                    report.adjustments_needed = self._calculate_adjustments(position_group, report)
+                
+                # Update statistics
+                self._update_statistics(position_group.strategy_type, report.overall_result)
+                
+                # Store in history
+                self.validation_history.append(report)
+                
+                # Log result
+                self.logger.info(
+                    f"Validated {position_group.strategy_type.value} group {position_group.group_id}: "
+                    f"{report.overall_result.value}"
+                )
+                
+                return report
+                
+            except Exception as e:
+                self.logger.error(f"Validation error: {e}")
+                self.error_handler.handle_error(e, {"method": "validate_position_group"})
+                
+                report.overall_result = ValidationResult.INVALID
+                report.errors.append(f"Validation error: {str(e)}")
+                return report
+    
+    def validate_proposed_adjustment(self, 
+                                   current_group: PositionGroup,
+                                   proposed_changes: List[Dict[str, Any]]) -> ValidationReport:
+        """
+        Validate proposed adjustments to a position group.
+        
+        Args:
+            current_group: Current position group
+            proposed_changes: List of proposed changes
+            
+        Returns:
+            Validation report for proposed state
+        """
+        # Create copy of current group
+        adjusted_group = self._apply_proposed_changes(current_group, proposed_changes)
+        
+        # Validate the adjusted group
+        report = self.validate_position_group(adjusted_group)
+        
+        # Add adjustment context
+        report.metadata['is_adjustment'] = True
+        report.metadata['original_group_id'] = current_group.group_id
+        report.metadata['proposed_changes'] = proposed_changes
+        
+        return report
+    
+    def assert_strategy_position_group(self, position_group: PositionGroup) -> None:
+        """
+        LEAN-style assertion for position group validity.
+        
+        Raises exception if position group is invalid.
+        
+        Args:
+            position_group: Position group to assert
             
         Raises:
-            AssertionError: If validation fails (LEAN pattern)
+            AssertionError: If position group is invalid
         """
-        diagnostics = self.validate_position_group(positions, strategy)
+        report = self.validate_position_group(position_group)
         
-        if not diagnostics.is_valid:
-            # Collect all critical errors
-            critical_errors = [
-                error for error in diagnostics.validation_errors 
-                if error.severity == ValidationSeverity.CRITICAL
-            ]
+        if report.overall_result == ValidationResult.INVALID:
+            error_msg = f"Position group {position_group.group_id} validation failed:\n"
+            error_msg += "\n".join(f"  - {error}" for error in report.errors)
             
-            if critical_errors:
-                # Raise first critical error (LEAN pattern)
-                error = critical_errors[0]
-                raise AssertionError(error.message)
+            self.logger.error(error_msg)
+            raise AssertionError(error_msg)
+        
+        if report.warnings:
+            warning_msg = f"Position group {position_group.group_id} has warnings:\n"
+            warning_msg += "\n".join(f"  - {warning}" for warning in report.warnings)
+            self.logger.warning(warning_msg)
+    
+    # ==========================================================================
+    # PRIVATE METHODS - CALCULATIONS
+    # ==========================================================================
+    def _calculate_validation_metrics(self, position_group: PositionGroup) -> Dict[str, float]:
+        """Calculate validation metrics."""
+        metrics = {}
+        
+        # Position metrics
+        metrics['num_legs'] = len(position_group.legs)
+        metrics['total_quantity'] = sum(abs(leg.quantity) for leg in position_group.legs)
+        
+        # Greeks metrics
+        metrics['total_delta'] = sum(leg.delta * leg.quantity for leg in position_group.legs)
+        metrics['total_gamma'] = sum(leg.gamma * leg.quantity for leg in position_group.legs)
+        metrics['total_vega'] = sum(leg.vega * leg.quantity for leg in position_group.legs)
+        metrics['total_theta'] = sum(leg.theta * leg.quantity for leg in position_group.legs)
+        
+        # Risk metrics
+        metrics['max_loss'] = self._calculate_max_loss(position_group)
+        metrics['max_profit'] = self._calculate_max_profit(position_group)
+        metrics['breakeven_points'] = len(self._calculate_breakevens(position_group))
+        
+        # Time metrics
+        min_dte = min((leg.expiration - datetime.now()).days for leg in position_group.legs)
+        metrics['min_days_to_expiry'] = max(0, min_dte)
+        
+        return metrics
+    
+    def _calculate_max_loss(self, position_group: PositionGroup) -> float:
+        """Calculate maximum loss for position group."""
+        if position_group.strategy_type == StrategyType.IRON_CONDOR:
+            # Max loss is spread width minus credit received
+            sorted_legs = sorted(position_group.legs, key=lambda x: x.strike)
+            put_width = sorted_legs[1].strike - sorted_legs[0].strike
             
-            # Raise first error if no critical errors
-            if diagnostics.validation_errors:
-                error = diagnostics.validation_errors[0]
-                raise AssertionError(error.message)
+            # Calculate net credit
+            net_credit = sum(leg.entry_price * leg.quantity * 100 for leg in position_group.legs)
+            
+            return (put_width * 100) - net_credit
         
-        return True
+        elif position_group.strategy_type == StrategyType.CREDIT_SPREAD:
+            # Max loss is spread width minus credit
+            strikes = [leg.strike for leg in position_group.legs]
+            spread_width = abs(max(strikes) - min(strikes))
+            net_credit = sum(leg.entry_price * leg.quantity * 100 for leg in position_group.legs)
+            
+            return (spread_width * 100) - net_credit
+        
+        # Default calculation
+        return sum(abs(leg.entry_price * leg.quantity * 100) for leg in position_group.legs)
+    
+    def _calculate_max_profit(self, position_group: PositionGroup) -> float:
+        """Calculate maximum profit for position group."""
+        if position_group.strategy_type in [StrategyType.IRON_CONDOR, StrategyType.CREDIT_SPREAD]:
+            # Max profit is net credit received
+            return sum(leg.entry_price * leg.quantity * 100 for leg in position_group.legs)
+        
+        # Default calculation
+        return 0.0
+    
+    def _calculate_breakevens(self, position_group: PositionGroup) -> List[float]:
+        """Calculate breakeven points."""
+        breakevens = []
+        
+        if position_group.strategy_type == StrategyType.CREDIT_SPREAD:
+            # Single breakeven point
+            if position_group.legs[0].option_type == OptionRight.CALL:
+                # Bull call spread
+                short_strike = min(leg.strike for leg in position_group.legs if leg.quantity < 0)
+                net_credit = sum(leg.entry_price for leg in position_group.legs)
+                breakevens.append(short_strike + net_credit)
+            else:
+                # Bear put spread
+                short_strike = max(leg.strike for leg in position_group.legs if leg.quantity < 0)
+                net_credit = sum(leg.entry_price for leg in position_group.legs)
+                breakevens.append(short_strike - net_credit)
+        
+        elif position_group.strategy_type == StrategyType.IRON_CONDOR:
+            # Two breakeven points
+            sorted_legs = sorted(position_group.legs, key=lambda x: x.strike)
+            net_credit = sum(leg.entry_price for leg in position_group.legs)
+            
+            # Lower breakeven (put side)
+            breakevens.append(sorted_legs[1].strike - net_credit)
+            
+            # Upper breakeven (call side)
+            breakevens.append(sorted_legs[2].strike + net_credit)
+        
+        return breakevens
+    
+    def _generate_recommendations(self, position_group: PositionGroup, 
+                                report: ValidationReport) -> List[str]:
+        """Generate recommendations based on validation."""
+        recommendations = []
+        
+        # Greeks recommendations
+        metrics = report.metrics
+        
+        if abs(metrics.get('total_delta', 0)) > 50:
+            recommendations.append(
+                f"Consider delta hedging - current delta: {metrics['total_delta']:.1f}"
+            )
+        
+        if metrics.get('total_theta', 0) < -100:
+            recommendations.append(
+                f"High theta decay: ${metrics['total_theta']:.0f}/day"
+            )
+        
+        if metrics.get('min_days_to_expiry', 0) < 5:
+            recommendations.append(
+                "Position approaching expiration - consider rolling or closing"
+            )
+        
+        # Strategy-specific recommendations
+        if position_group.strategy_type == StrategyType.IRON_CONDOR:
+            if abs(metrics.get('total_delta', 0)) > 10:
+                recommendations.append(
+                    "Iron condor delta imbalanced - consider adjustment"
+                )
+        
+        return recommendations
+    
+    def _calculate_adjustments(self, position_group: PositionGroup,
+                             report: ValidationReport) -> List[Dict[str, Any]]:
+        """Calculate needed adjustments."""
+        adjustments = []
+        
+        # Delta adjustment
+        if abs(report.metrics.get('total_delta', 0)) > 20:
+            delta_adjustment = {
+                'type': 'delta_hedge',
+                'current_delta': report.metrics['total_delta'],
+                'target_delta': 0,
+                'shares_needed': -int(report.metrics['total_delta'] * 100)
+            }
+            adjustments.append(delta_adjustment)
+        
+        # Time adjustment
+        if report.metrics.get('min_days_to_expiry', 0) < 5:
+            time_adjustment = {
+                'type': 'roll_position',
+                'reason': 'approaching_expiration',
+                'days_remaining': report.metrics['min_days_to_expiry']
+            }
+            adjustments.append(time_adjustment)
+        
+        return adjustments
+    
+    def _apply_proposed_changes(self, current_group: PositionGroup,
+                               changes: List[Dict[str, Any]]) -> PositionGroup:
+        """Apply proposed changes to create new position group."""
+        # Deep copy current group
+        import copy
+        adjusted_group = copy.deepcopy(current_group)
+        
+        for change in changes:
+            change_type = change.get('type')
+            
+            if change_type == 'add_leg':
+                new_leg = PositionLeg(**change['leg_data'])
+                adjusted_group.legs.append(new_leg)
+            
+            elif change_type == 'remove_leg':
+                leg_id = change.get('leg_id')
+                adjusted_group.legs = [
+                    leg for leg in adjusted_group.legs 
+                    if leg.position_id != leg_id
+                ]
+            
+            elif change_type == 'modify_leg':
+                leg_id = change.get('leg_id')
+                for leg in adjusted_group.legs:
+                    if leg.position_id == leg_id:
+                        for key, value in change.get('modifications', {}).items():
+                            setattr(leg, key, value)
+        
+        return adjusted_group
+    
+    def _update_statistics(self, strategy_type: StrategyType, result: ValidationResult) -> None:
+        """Update validation statistics."""
+        stats = self.validation_stats[strategy_type.value]
+        stats['total'] += 1
+        
+        if result == ValidationResult.VALID:
+            stats['valid'] += 1
+        elif result == ValidationResult.INVALID:
+            stats['invalid'] += 1
     
     # ==========================================================================
-    # VALIDATION IMPLEMENTATIONS
+    # PUBLIC METHODS - CONFIGURATION
     # ==========================================================================
-    def _perform_default_validation(self, positions: List[Dict[str, Any]], 
-                                   strategy: OptionStrategy) -> PositionGroupDiagnostics:
-        """Perform default validation for unsupported strategies"""
-        diagnostics = PositionGroupDiagnostics(
-            position_count=len(positions),
-            strategy_type=LEANPositionGroupType.UNDEFINED
-        )
-        
-        # Basic position count validation
-        expected_legs = len(strategy.legs)
-        if len(positions) != expected_legs:
-            diagnostics.add_error(ValidationError(
-                error_type="POSITION_COUNT_MISMATCH",
-                severity=ValidationSeverity.ERROR,
-                message=f"Position count mismatch for {strategy.strategy_type.value}",
-                expected_value=expected_legs,
-                actual_value=len(positions)
-            ))
-        
-        return diagnostics
+    def add_validation_rule(self, category: ValidationCategory, rule: ValidationRule) -> None:
+        """Add custom validation rule."""
+        with self._lock:
+            self.validation_rules[category].append(rule)
+            self.logger.info(f"Added validation rule for {category.value}")
     
-    def _perform_universal_checks(self, positions: List[Dict[str, Any]], 
-                                strategy: OptionStrategy, 
-                                diagnostics: PositionGroupDiagnostics):
-        """Perform universal validation checks across all strategies"""
-        
-        # Check for empty positions
-        if not positions:
-            diagnostics.add_error(ValidationError(
-                error_type="EMPTY_POSITION_GROUP",
-                severity=ValidationSeverity.CRITICAL,
-                message="Position group cannot be empty"
-            ))
-            return
-        
-        # Validate position data completeness
-        required_fields = ['symbol', 'quantity', 'strike', 'expiry', 'option_right']
-        
-        for i, position in enumerate(positions):
-            for field in required_fields:
-                if field not in position or position[field] is None:
-                    diagnostics.add_error(ValidationError(
-                        error_type="MISSING_POSITION_DATA",
-                        severity=ValidationSeverity.ERROR,
-                        message=f"Position {i+1} missing required field: {field}",
-                        position_index=i
-                    ))
-        
-        # Calculate portfolio metrics
-        self._calculate_portfolio_metrics(positions, diagnostics)
-        
-        # Validate position symbols match strategy
-        self._validate_position_symbols(positions, strategy, diagnostics)
+    def update_constraints(self, strategy_type: StrategyType, 
+                         constraints: StrategyConstraints) -> None:
+        """Update strategy constraints."""
+        with self._lock:
+            self.strategy_constraints[strategy_type] = constraints
+            self.logger.info(f"Updated constraints for {strategy_type.value}")
     
-    def _calculate_portfolio_metrics(self, positions: List[Dict[str, Any]], 
-                                   diagnostics: PositionGroupDiagnostics):
-        """Calculate portfolio-level metrics"""
-        total_quantity = sum(pos.get('quantity', 0) for pos in positions)
-        diagnostics.total_quantity = total_quantity
-        
-        # Simple delta calculation (would use real Greeks in production)
-        net_delta = sum(pos.get('delta', 0) * pos.get('quantity', 0) for pos in positions)
-        diagnostics.net_delta = net_delta
-        
-        # Determine if position is neutral or directional
-        diagnostics.is_net_neutral = abs(net_delta) < 0.1
-        diagnostics.is_directional = abs(net_delta) > 0.3
-        
-        # Extract unique strikes and expiries
-        diagnostics.unique_strikes = sorted(list(set(
-            pos.get('strike', 0) for pos in positions if pos.get('strike')
-        )))
-        
-        diagnostics.unique_expiries = sorted(list(set(
-            pos.get('expiry') for pos in positions if pos.get('expiry')
-        )))
-        
-        # Calculate strike spacing
-        if len(diagnostics.unique_strikes) > 1:
-            diagnostics.strike_spacing = [
-                diagnostics.unique_strikes[i+1] - diagnostics.unique_strikes[i]
-                for i in range(len(diagnostics.unique_strikes) - 1)
+    def get_validation_statistics(self) -> Dict[str, Dict[str, Any]]:
+        """Get validation statistics."""
+        with self._lock:
+            return dict(self.validation_stats)
+    
+    def get_recent_reports(self, hours: int = 24) -> List[ValidationReport]:
+        """Get recent validation reports."""
+        with self._lock:
+            cutoff = datetime.now() - timedelta(hours=hours)
+            return [
+                report for report in self.validation_history
+                if report.timestamp >= cutoff
             ]
+
+# ==============================================================================
+# MODULE FUNCTIONS
+# ==============================================================================
+def create_position_group_validator(config: Optional[Dict[str, Any]] = None) -> PositionGroupValidator:
+    """
+    Create position group validator instance.
     
-    def _validate_position_symbols(self, positions: List[Dict[str, Any]], 
-                                 strategy: OptionStrategy, 
-                                 diagnostics: PositionGroupDiagnostics):
-        """Validate position symbols match strategy legs"""
-        strategy_symbols = set(leg.symbol for leg in strategy.legs)
-        position_symbols = set(pos.get('symbol', '') for pos in positions)
+    Args:
+        config: Optional configuration
         
-        # Check for missing symbols
-        missing_symbols = strategy_symbols - position_symbols
-        if missing_symbols:
-            diagnostics.add_error(ValidationError(
-                error_type="MISSING_STRATEGY_SYMBOLS",
-                severity=ValidationSeverity.ERROR,
-                message=f"Positions missing for strategy symbols: {missing_symbols}"
-            ))
-        
-        # Check for extra symbols
-        extra_symbols = position_symbols - strategy_symbols
-        if extra_symbols:
-            diagnostics.add_error(ValidationError(
-                error_type="EXTRA_POSITION_SYMBOLS",
-                severity=ValidationSeverity.WARNING,
-                message=f"Extra positions found: {extra_symbols}"
-            ))
+    Returns:
+        PositionGroupValidator instance
+    """
+    return PositionGroupValidator(config)
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
+if __name__ == "__main__":
+    print("="*80)
+    print("SPYDER E08 - Position Group Validator Test")
+    print("="*80)
     
-    # ==========================================================================
-    # STATISTICS AND LOGGING
-    # ==========================================================================
-    def _update_validation_statistics(self, diagnostics: PositionGroupDiagnostics, 
-                                    strategy_type: StrategyType):
-        """Update validation statistics"""
-        if diagnostics.is_valid:
-            self.validation_stats['successful_validations'] += 1
-        else:
-            self.validation_stats['failed_validations'] += 1
-        
-        self.validation_stats['validation_errors'] += len(diagnostics.validation_errors)
-        self.validation_stats['validation_warnings'] += len(diagnostics.validation_warnings)
-        
-        # Strategy-specific counts
-        strategy_key = strategy_type.value
-        if strategy_key not in self.validation_stats['strategy_validation_counts']:
-            self.validation_stats['strategy_validation_counts'][strategy_key] = 0
-        self.validation_stats['strategy_validation_counts'][strategy_key] += 1
-        
-        # Error type counts
-        for error in diagnostics.validation_errors + diagnostics.validation_warnings:
-            error_type = error.error_type
-            if error_type not in self.validation_stats['error_type_counts']:
-                self.validation_stats['error_type_counts'][error_type] = 0
-            self.validation_stats['error_type_counts'][error_type] += 1
+    # Create validator
+    validator = create_position_group_validator()
     
-    def _log_validation_results(self, diagnostics: PositionGroupDiagnostics, 
-                              validation_time_ms: float):
-        """Log validation results"""
-        result = "VALID" if diagnostics.is_valid else "INVALID"
-        
-        self.logger.info(
-            f"Position group validation {result}: "
-            f"{diagnostics.strategy_type.value} "
-            f"(Score: {diagnostics.validation_score:.2f}, "
-            f"Time: {validation_time_ms:.1f}ms, "
-            f"Errors: {len(diagnostics.validation_errors)}, "
-            f"Warnings: {len(diagnostics.validation_warnings)})"
+    # Test Iron Condor validation
+    print("\n🦅 Testing Iron Condor Validation")
+    print("-"*40)
+    
+    # Create iron condor position group
+    iron_condor_legs = [
+        # Put spread
+        PositionLeg(
+            symbol="SPY_250117P380",
+            quantity=1,
+            side="BUY",
+            option_type=OptionRight.PUT,
+            strike=380,
+            expiration=datetime.now() + timedelta(days=45),
+            entry_price=0.50,
+            current_price=0.45,
+            implied_volatility=0.18,
+            delta=-0.05,
+            gamma=0.001,
+            vega=0.5,
+            theta=-0.5
+        ),
+        PositionLeg(
+            symbol="SPY_250117P390",
+            quantity=-1,
+            side="SELL",
+            option_type=OptionRight.PUT,
+            strike=390,
+            expiration=datetime.now() + timedelta(days=45),
+            entry_price=1.00,
+            current_price=0.95,
+            implied_volatility=0.17,
+            delta=-0.10,
+            gamma=0.002,
+            vega=1.0,
+            theta=-1.0
+        ),
+        # Call spread
+        PositionLeg(
+            symbol="SPY_250117C410",
+            quantity=-1,
+            side="SELL",
+            option_type=OptionRight.CALL,
+            strike=410,
+            expiration=datetime.now() + timedelta(days=45),
+            entry_price=1.00,
+            current_price=0.95,
+            implied_volatility=0.17,
+            delta=0.10,
+            gamma=0.002,
+            vega=1.0,
+            theta=-1.0
+        ),
+        PositionLeg(
+            symbol="SPY_250117C420",
+            quantity=1,
+            side="BUY",
+            option_type=OptionRight.CALL,
+            strike=420,
+            expiration=datetime.now() + timedelta(days=45),
+            entry_price=0.50,
+            current_price=0.45,
+            implied_volatility=0.18,
+            delta=0.05,
+            gamma=0.001,
+            vega=0.5,
+            theta=-0.5
         )
-        
-        # Log errors and warnings
-        for error in diagnostics.validation_errors:
-            self.logger.error(f"Validation Error: {error}")
-        
-        for warning in diagnostics.validation_warnings:
-            self.logger.warning(f"Validation Warning: {warning}")
-    
-    def _emit_validation_event(self, diagnostics: PositionGroupDiagnostics, 
-                             strategy: OptionStrategy):
-        """Emit validation event for monitoring"""
-        event_data = {
-            'strategy_type': strategy.strategy_type.value,
-            'position_count': diagnostics.position_count,
-            'is_valid': diagnostics.is_valid,
-            'validation_score': diagnostics.validation_score,
-            'error_count': len(diagnostics.validation_errors),
-            'warning_count': len(diagnostics.validation_warnings)
-        }
-        
-        event_type = EventType.VALIDATION_SUCCESS if diagnostics.is_valid else EventType.VALIDATION_FAILURE
-        
-        try:
-            self.event_manager.emit_event(event_type, event_data)
-        except Exception as e:
-            self.logger.warning(f"Failed to emit validation event: {e}")
-    
-    # ==========================================================================
-    # UTILITY METHODS
-    # ==========================================================================
-    def get_validation_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive validation statistics"""
-        stats = self.validation_stats.copy()
-        
-        # Calculate success rate
-        total = stats['total_validations']
-        if total > 0:
-            stats['success_rate'] = stats['successful_validations'] / total
-            stats['failure_rate'] = stats['failed_validations'] / total
-        else:
-            stats['success_rate'] = 0.0
-            stats['failure_rate'] = 0.0
-        
-        return stats
-    
-    def reset_statistics(self):
-        """Reset validation statistics"""
-        self.validation_stats = {
-            'total_validations': 0,
-            'successful_validations': 0,
-            'failed_validations': 0,
-            'validation_errors': 0,
-            'validation_warnings': 0,
-            'strategy_validation_counts': {},
-            'error_type_counts': {}
-        }
-        
-        self.logger.info("Validation statistics reset")
-    
-    def get_supported_strategies(self) -> List[str]:
-        """Get list of supported strategy types"""
-        return [strategy_type.value for strategy_type in self.validation_strategies.keys()]
-
-# ==============================================================================
-# FACTORY FUNCTIONS
-# ==============================================================================
-def create_lean_position_group_validator() -> LEANPositionGroupValidator:
-    """Factory function to create LEAN position group validator"""
-    return LEANPositionGroupValidator()
-
-def get_position_group_validator() -> LEANPositionGroupValidator:
-    """Get singleton position group validator instance"""
-    if not hasattr(get_position_group_validator, '_instance'):
-        get_position_group_validator._instance = create_lean_position_group_validator()
-    return get_position_group_validator._instance
-
-# ==============================================================================
-# CONVENIENCE FUNCTIONS
-# ==============================================================================
-def validate_position_group_lean(positions: List[Dict[str, Any]], 
-                                strategy: OptionStrategy) -> PositionGroupDiagnostics:
-    """Convenience function for LEAN position group validation"""
-    validator = get_position_group_validator()
-    return validator.validate_position_group(positions, strategy)
-
-def assert_position_group_lean(positions: List[Dict[str, Any]], 
-                             strategy: OptionStrategy) -> bool:
-    """Convenience function for LEAN assertion-style validation"""
-    validator = get_position_group_validator()
-    return validator.assert_strategy_position_group(positions, strategy)
-
-# ==============================================================================
-# TESTING AND VALIDATION
-# ==============================================================================
-def test_lean_position_group_validator():
-    """Test LEAN position group validator with sample data"""
-    print("Testing LEAN Position Group Validator (Week 3-4)")
-    print("=" * 60)
-    
-    validator = create_lean_position_group_validator()
-    
-    # Test Calendar Spread Validation
-    from SpyderU_Utilities.SpyderU14_OptionStrategies import SpyderOptionStrategies
-    
-    # Create sample calendar spread
-    near_expiry = datetime.now() + timedelta(days=14)
-    far_expiry = datetime.now() + timedelta(days=35)
-    
-    calendar_strategy = SpyderOptionStrategies.put_calendar_spread("SPY", 600, near_expiry, far_expiry)
-    
-    # Create valid calendar positions (LEAN pattern)
-    valid_calendar_positions = [
-        {
-            'symbol': 'SPY_251010P600',
-            'quantity': -2,  # Near expiry short
-            'strike': 600.0,
-            'expiry': near_expiry,
-            'option_right': OptionRight.PUT,
-            'delta': -0.3
-        },
-        {
-            'symbol': 'SPY_251031P600',
-            'quantity': 2,   # Far expiry long
-            'strike': 600.0,
-            'expiry': far_expiry,
-            'option_right': OptionRight.PUT,
-            'delta': -0.35
-        }
     ]
     
-    # Test valid calendar
-    print("Testing Valid Calendar Spread:")
-    diagnostics = validator.validate_position_group(valid_calendar_positions, calendar_strategy)
-    print(f"Valid: {diagnostics.is_valid}")
-    print(f"Score: {diagnostics.validation_score:.2f}")
-    print(f"Errors: {len(diagnostics.validation_errors)}")
-    print(f"Warnings: {len(diagnostics.validation_warnings)}")
+    iron_condor_group = PositionGroup(
+        group_id="IC_001",
+        strategy_type=StrategyType.IRON_CONDOR,
+        legs=iron_condor_legs,
+        underlying_price=400,
+        created_at=datetime.now()
+    )
     
-    # Test invalid calendar (wrong quantities)
-    invalid_calendar_positions = valid_calendar_positions.copy()
-    invalid_calendar_positions[0]['quantity'] = 2  # Should be -2
+    # Validate iron condor
+    ic_report = validator.validate_position_group(iron_condor_group)
     
-    print("\nTesting Invalid Calendar Spread:")
-    diagnostics = validator.validate_position_group(invalid_calendar_positions, calendar_strategy)
-    print(f"Valid: {diagnostics.is_valid}")
-    print(f"Score: {diagnostics.validation_score:.2f}")
-    print(f"Errors: {len(diagnostics.validation_errors)}")
-    if diagnostics.validation_errors:
-        print(f"First Error: {diagnostics.validation_errors[0]}")
+    print(f"Validation Result: {ic_report.overall_result.value}")
+    print(f"\nChecks Performed:")
+    for category, result in ic_report.checks_performed.items():
+        print(f"  {category.value}: {result.value}")
     
-    # Test LEAN assertion pattern
-    print("\nTesting LEAN Assertion Pattern:")
+    if ic_report.errors:
+        print(f"\nErrors:")
+        for error in ic_report.errors:
+            print(f"  ❌ {error}")
+    
+    if ic_report.warnings:
+        print(f"\nWarnings:")
+        for warning in ic_report.warnings:
+            print(f"  ⚠️ {warning}")
+    
+    print(f"\nMetrics:")
+    for metric, value in ic_report.metrics.items():
+        print(f"  {metric}: {value:.2f}")
+    
+    if ic_report.recommendations:
+        print(f"\nRecommendations:")
+        for rec in ic_report.recommendations:
+            print(f"  💡 {rec}")
+    
+    # Test Credit Spread validation
+    print("\n\n💳 Testing Credit Spread Validation")
+    print("-"*40)
+    
+    credit_spread_legs = [
+        PositionLeg(
+            symbol="SPY_250117P395",
+            quantity=-1,
+            side="SELL",
+            option_type=OptionRight.PUT,
+            strike=395,
+            expiration=datetime.now() + timedelta(days=30),
+            entry_price=2.00,
+            current_price=1.95,
+            implied_volatility=0.16,
+            delta=-0.20,
+            gamma=0.003,
+            vega=2.0,
+            theta=-2.0
+        ),
+        PositionLeg(
+            symbol="SPY_250117P390",
+            quantity=1,
+            side="BUY",
+            option_type=OptionRight.PUT,
+            strike=390,
+            expiration=datetime.now() + timedelta(days=30),
+            entry_price=1.00,
+            current_price=0.95,
+            implied_volatility=0.17,
+            delta=-0.15,
+            gamma=0.002,
+            vega=1.5,
+            theta=-1.5
+        )
+    ]
+    
+    credit_spread_group = PositionGroup(
+        group_id="CS_001",
+        strategy_type=StrategyType.CREDIT_SPREAD,
+        legs=credit_spread_legs,
+        underlying_price=400,
+        created_at=datetime.now()
+    )
+    
+    # Validate credit spread
+    cs_report = validator.validate_position_group(credit_spread_group)
+    
+    print(f"Validation Result: {cs_report.overall_result.value}")
+    print(f"Max Loss: ${cs_report.metrics['max_loss']:.2f}")
+    print(f"Max Profit: ${cs_report.metrics['max_profit']:.2f}")
+    
+    # Test LEAN-style assertion
+    print("\n\n🔒 Testing LEAN-style Assertion")
+    print("-"*40)
+    
     try:
-        validator.assert_strategy_position_group(valid_calendar_positions, calendar_strategy)
-        print("✅ Valid calendar assertion passed")
+        validator.assert_strategy_position_group(credit_spread_group)
+        print("✅ Position group assertion passed")
     except AssertionError as e:
-        print(f"❌ Valid calendar assertion failed: {e}")
+        print(f"❌ Position group assertion failed: {e}")
     
-    try:
-        validator.assert_strategy_position_group(invalid_calendar_positions, calendar_strategy)
-        print("❌ Invalid calendar assertion should have failed")
-    except AssertionError as e:
-        print(f"✅ Invalid calendar assertion correctly failed: {e}")
+    # Show statistics
+    print("\n\n📊 Validation Statistics")
+    print("-"*40)
     
-    # Test statistics
-    print(f"\nValidation Statistics:")
     stats = validator.get_validation_statistics()
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
+    for strategy, counts in stats.items():
+        if counts['total'] > 0:
+            print(f"\n{strategy}:")
+            print(f"  Total: {counts['total']}")
+            print(f"  Valid: {counts['valid']} ({counts['valid']/counts['total']*100:.0f}%)")
+            print(f"  Invalid: {counts['invalid']} ({counts['invalid']/counts['total']*100:.0f}%)")
     
-    print("\n✅ LEAN Position Group Validator (Week 3-4) testing complete!")
-    print("Key Features Tested:")
-    print("- ✅ Universal position group validation")
-    print("- ✅ LEAN-style assertion patterns")
-    print("- ✅ Strategy-specific validation rules")
-    print("- ✅ Comprehensive error diagnostics")
-    print("- ✅ Professional validation statistics")
-
-if __name__ == "__main__":
-    test_lean_position_group_validator()
+    print("\n✅ Position Group Validator test completed successfully!")

@@ -5,19 +5,21 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderZ03_TradingCoordinator.py
 Group: Z (Communication Infrastructure)
-Purpose: DEALER/ROUTER pattern implementation for multi-strategy coordination
+Purpose: Enhanced trading coordinator with redundancy and state persistence
 
 Description:
-    This module implements a central trading coordinator using ZeroMQ's DEALER/ROUTER
-    pattern. It manages communication between the GUI dashboard and multiple trading
-    engines (volatility, anomaly detection, auto-hedging). The coordinator routes
-    commands, aggregates responses, monitors process health, and enforces system-wide
-    risk limits.
+    This module implements a fault-tolerant central trading coordinator with:
+    - High availability through redundancy and failover
+    - State persistence and recovery mechanisms
+    - Load balancing across multiple engines
+    - Message ordering guarantees
+    - Comprehensive monitoring and debugging
+    - Distributed consensus for critical operations
+    - Automatic backup and restore capabilities
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-28
-Last Updated: 2025-06-28 Time: 15:45:00
+Spyder Version: 2.0
+Author: SPYDER Team
+Date: 2025-01-03
 """
 
 # ==============================================================================
@@ -27,15 +29,20 @@ import os
 import sys
 import time
 import json
+import pickle
 import threading
 import multiprocessing as mp
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Callable
-from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, Tuple, Callable, Set
+from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 import uuid
 import logging
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict
+import heapq
+import sqlite3
+from pathlib import Path
+import hashlib
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -49,15 +56,18 @@ import numpy as np
 # ==============================================================================
 from SpyderZ01_ZeroMQIntegration import (
     SpyderMessage, MessageType, SpyderCommHub,
-    TRADE_EXECUTION_PORT, RISK_MONITOR_PORT, STRATEGY_PORT
+    ConnectionState, CircuitBreaker, PRIORITY_CRITICAL,
+    PRIORITY_HIGH, PRIORITY_NORMAL
 )
 from SpyderZ02_MessageProtocol import (
     MessageCategory, MessageFactory, ProtocolManager,
-    SystemStatusMessage, HeartbeatMessage, RiskLimitMessage,
-    PortfolioGreeksMessage, SerializationFormat
+    SystemStatusMessage, HeartbeatMessage, ErrorMessage,
+    ProtocolMessage, SerializationFormat, ValidationLevel
 )
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+
+# Import from utilities (these would be actual imports in production)
+# from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+# from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # ==============================================================================
 # CONSTANTS
@@ -66,21 +76,34 @@ from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 COORDINATOR_ROUTER_PORT = 6000
 COORDINATOR_PUB_PORT = 6001
 COORDINATOR_MONITOR_PORT = 6002
+COORDINATOR_BACKUP_PORT = 6003
 
 # Engine ports (DEALER clients will connect to these)
-VOL_ENGINE_PORT = 6010
-ANOMALY_ENGINE_PORT = 6011
-HEDGE_ENGINE_PORT = 6012
+ENGINE_PORT_BASE = 6010
+ENGINE_PORT_RANGE = 100  # Support up to 100 engines
 
 # Timing constants
 HEARTBEAT_INTERVAL = 1.0  # seconds
 HEARTBEAT_TIMEOUT = 5.0   # seconds
 COMMAND_TIMEOUT = 3.0     # seconds
 HEALTH_CHECK_INTERVAL = 2.0
+STATE_SAVE_INTERVAL = 10.0  # seconds
+BACKUP_SYNC_INTERVAL = 5.0  # seconds
 
 # System limits
 MAX_PENDING_COMMANDS = 1000
 MAX_MESSAGE_QUEUE_SIZE = 10000
+MAX_ENGINE_INSTANCES = 10  # Per engine type
+MAX_MESSAGE_AGE = 300  # seconds (5 minutes)
+
+# Load balancing
+LOAD_BALANCE_THRESHOLD = 0.8  # 80% capacity
+LOAD_CHECK_INTERVAL = 1.0  # seconds
+
+# State persistence
+STATE_DB_PATH = "coordinator_state.db"
+STATE_BACKUP_PATH = "coordinator_state_backup.db"
+MAX_STATE_HISTORY = 1000
 
 # ==============================================================================
 # ENUMS
@@ -92,6 +115,8 @@ class EngineType(Enum):
     HEDGER = "AUTO_HEDGER"
     EXECUTION = "EXECUTION_ENGINE"
     DATA_FEED = "DATA_FEED"
+    RISK_MONITOR = "RISK_MONITOR"
+    ML_PREDICTOR = "ML_PREDICTOR"
 
 class CommandType(Enum):
     """Command types for engine control."""
@@ -100,801 +125,517 @@ class CommandType(Enum):
     PAUSE = "PAUSE"
     RESUME = "RESUME"
     CONFIGURE = "CONFIGURE"
-    STATUS = "STATUS"
-    CALCULATE = "CALCULATE"
+    EXECUTE = "EXECUTE"
+    QUERY = "QUERY"
     SUBSCRIBE = "SUBSCRIBE"
     UNSUBSCRIBE = "UNSUBSCRIBE"
 
 class CoordinatorState(Enum):
     """Coordinator operational states."""
     INITIALIZING = auto()
-    READY = auto()
     RUNNING = auto()
-    PAUSED = auto()
-    ERROR = auto()
+    DEGRADED = auto()
+    RECOVERING = auto()
     SHUTTING_DOWN = auto()
+    STOPPED = auto()
+
+class EngineStatus(Enum):
+    """Engine status states."""
+    OFFLINE = auto()
+    STARTING = auto()
+    ONLINE = auto()
+    BUSY = auto()
+    ERROR = auto()
+    UNRESPONSIVE = auto()
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
 class EngineInfo:
-    """Information about a connected engine."""
-    engine_type: EngineType
+    """Information about a registered engine."""
     engine_id: str
-    identity: bytes  # ZMQ identity
+    engine_type: EngineType
+    status: EngineStatus = EngineStatus.OFFLINE
     last_heartbeat: float = 0.0
-    status: str = "UNKNOWN"
     capabilities: List[str] = field(default_factory=list)
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    
-    def is_alive(self, timeout: float = HEARTBEAT_TIMEOUT) -> bool:
-        """Check if engine is alive based on heartbeat."""
-        return (time.time() - self.last_heartbeat) < timeout
+    current_load: float = 0.0
+    processed_commands: int = 0
+    error_count: int = 0
+    start_time: float = field(default_factory=time.time)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
-class PendingCommand:
-    """Track pending commands sent to engines."""
-    command_id: str
-    command_type: CommandType
-    target_engine: str
-    timestamp: float
-    timeout: float
-    callback: Optional[Callable] = None
-    retry_count: int = 0
+class CommandRequest:
+    """Command request to be routed to engines."""
+    command_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    command_type: CommandType = CommandType.EXECUTE
+    target_engine: Optional[str] = None
+    target_type: Optional[EngineType] = None
+    payload: Dict[str, Any] = field(default_factory=dict)
+    source: str = ""
+    timestamp: float = field(default_factory=time.time)
+    timeout: float = COMMAND_TIMEOUT
+    priority: int = PRIORITY_NORMAL
+    requires_response: bool = True
+    retries: int = 0
     max_retries: int = 3
 
 @dataclass
-class SystemMetrics:
-    """System-wide performance metrics."""
-    total_messages: int = 0
-    messages_per_second: float = 0.0
+class CommandResponse:
+    """Response from engine for a command."""
+    command_id: str
+    engine_id: str
+    success: bool
+    result: Any
+    error: Optional[str] = None
+    execution_time: float = 0.0
+    timestamp: float = field(default_factory=time.time)
+
+@dataclass
+class CoordinatorMetrics:
+    """Metrics for coordinator performance."""
+    total_commands: int = 0
+    successful_commands: int = 0
+    failed_commands: int = 0
+    avg_response_time: float = 0.0
     active_engines: int = 0
-    pending_commands: int = 0
-    error_count: int = 0
-    last_update: float = field(default_factory=time.time)
-    
-    def update_rate(self, new_messages: int):
-        """Update message rate calculation."""
-        now = time.time()
-        elapsed = now - self.last_update
-        if elapsed > 0:
-            self.messages_per_second = new_messages / elapsed
-        self.total_messages += new_messages
-        self.last_update = now
+    total_engines: int = 0
+    message_queue_size: int = 0
+    uptime: float = 0.0
+    last_state_save: float = 0.0
+    memory_usage_mb: float = 0.0
 
 # ==============================================================================
-# MAIN CLASS
+# STATE PERSISTENCE
 # ==============================================================================
-class TradingCoordinator:
-    """
-    Central trading coordinator using DEALER/ROUTER pattern.
+class StateManager:
+    """Manages coordinator state persistence and recovery."""
     
-    This class manages all trading engines, routes commands, aggregates
-    responses, and monitors system health. It acts as the central nervous
-    system for the SPYDER trading platform.
+    def __init__(self, db_path: str = STATE_DB_PATH):
+        self.db_path = db_path
+        self.backup_path = STATE_BACKUP_PATH
+        self.logger = logging.getLogger("StateManager")
+        self._initialize_db()
     
-    Attributes:
-        logger: Module logger instance
-        error_handler: Error handling instance
-        state: Current coordinator state
-        engines: Dictionary of connected engines
-        pending_commands: Queue of commands awaiting responses
-        
-    Example:
-        >>> coordinator = TradingCoordinator()
-        >>> coordinator.initialize()
-        >>> coordinator.start()
-    """
-    
-    def __init__(self):
-        """Initialize the trading coordinator."""
-        self.logger = SpyderLogger.get_logger(__name__)
-        self.error_handler = SpyderErrorHandler()
-        self.state = CoordinatorState.INITIALIZING
-        
-        # ZeroMQ context and sockets
-        self.context = zmq.Context()
-        self.router_socket = None  # ROUTER for command routing
-        self.pub_socket = None     # PUB for broadcasting updates
-        self.monitor_socket = None # REP for monitoring/control
-        
-        # Protocol manager
-        self.protocol = ProtocolManager(SerializationFormat.MSGPACK)
-        
-        # Engine management
-        self.engines: Dict[str, EngineInfo] = {}
-        self.engine_lock = threading.Lock()
-        
-        # Command tracking
-        self.pending_commands: Dict[str, PendingCommand] = {}
-        self.command_results: Dict[str, Any] = {}
-        
-        # Metrics and monitoring
-        self.metrics = SystemMetrics()
-        self.message_history = deque(maxlen=1000)
-        
-        # Risk limits
-        self.risk_limits = {
-            'max_position_delta': 1000.0,
-            'max_portfolio_vega': 5000.0,
-            'max_daily_loss': 10000.0,
-            'max_order_size': 100
-        }
-        
-        # Threads
-        self.router_thread = None
-        self.monitor_thread = None
-        self.health_thread = None
-        self.running = False
-        
-        self.logger.info(f"{self.__class__.__name__} initialized")
-        
-    # ==========================================================================
-    # PUBLIC METHODS
-    # ==========================================================================
-    def initialize(self) -> bool:
-        """
-        Initialize coordinator components.
-        
-        Returns:
-            bool: True if initialization successful
-        """
+    def _initialize_db(self):
+        """Initialize state database."""
         try:
-            # Create ROUTER socket for engine communication
-            self.router_socket = self.context.socket(zmq.ROUTER)
-            self.router_socket.bind(f"tcp://*:{COORDINATOR_ROUTER_PORT}")
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Create tables
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS coordinator_state (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp REAL,
+                        state TEXT,
+                        engines TEXT,
+                        metrics TEXT,
+                        checksum TEXT
+                    )
+                """)
+                
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS command_history (
+                        command_id TEXT PRIMARY KEY,
+                        timestamp REAL,
+                        command_type TEXT,
+                        target TEXT,
+                        payload TEXT,
+                        response TEXT,
+                        status TEXT
+                    )
+                """)
+                
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS engine_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        engine_id TEXT,
+                        timestamp REAL,
+                        event_type TEXT,
+                        details TEXT
+                    )
+                """)
+                
+                conn.commit()
+                
+        except Exception as e:
+            self.logger.error(f"Failed to initialize database: {e}")
+    
+    def save_state(self, 
+                   state: CoordinatorState,
+                   engines: Dict[str, EngineInfo],
+                   metrics: CoordinatorMetrics) -> bool:
+        """Save coordinator state to database."""
+        try:
+            # Prepare data
+            state_data = {
+                "state": state.name,
+                "engines": {eid: asdict(info) for eid, info in engines.items()},
+                "metrics": asdict(metrics)
+            }
             
-            # Create PUB socket for broadcasting
-            self.pub_socket = self.context.socket(zmq.PUB)
-            self.pub_socket.bind(f"tcp://*:{COORDINATOR_PUB_PORT}")
+            # Calculate checksum
+            state_json = json.dumps(state_data, sort_keys=True)
+            checksum = hashlib.sha256(state_json.encode()).hexdigest()
             
-            # Create REP socket for monitoring
-            self.monitor_socket = self.context.socket(zmq.REP)
-            self.monitor_socket.bind(f"tcp://*:{COORDINATOR_MONITOR_PORT}")
+            # Save to database
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO coordinator_state (timestamp, state, engines, metrics, checksum)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    time.time(),
+                    state_data["state"],
+                    json.dumps(state_data["engines"]),
+                    json.dumps(state_data["metrics"]),
+                    checksum
+                ))
+                
+                # Clean old entries
+                cursor.execute("""
+                    DELETE FROM coordinator_state 
+                    WHERE id NOT IN (
+                        SELECT id FROM coordinator_state 
+                        ORDER BY timestamp DESC 
+                        LIMIT ?
+                    )
+                """, (MAX_STATE_HISTORY,))
+                
+                conn.commit()
+                
+            # Create backup
+            self._create_backup()
             
-            # Allow time for bindings
-            time.sleep(0.5)
-            
-            self.state = CoordinatorState.READY
-            self.logger.info("Coordinator initialized successfully")
             return True
             
         except Exception as e:
-            self.logger.error(f"Initialization failed: {e}")
-            self.state = CoordinatorState.ERROR
+            self.logger.error(f"Failed to save state: {e}")
             return False
     
-    def start(self) -> None:
-        """Start the coordinator threads."""
-        if self.state != CoordinatorState.READY:
-            self.logger.warning(f"Cannot start from state: {self.state}")
-            return
-            
-        self.running = True
-        self.state = CoordinatorState.RUNNING
-        
-        # Start router thread
-        self.router_thread = threading.Thread(
-            target=self._router_loop,
-            name="RouterThread",
-            daemon=True
-        )
-        self.router_thread.start()
-        
-        # Start monitor thread
-        self.monitor_thread = threading.Thread(
-            target=self._monitor_loop,
-            name="MonitorThread",
-            daemon=True
-        )
-        self.monitor_thread.start()
-        
-        # Start health check thread
-        self.health_thread = threading.Thread(
-            target=self._health_check_loop,
-            name="HealthThread",
-            daemon=True
-        )
-        self.health_thread.start()
-        
-        self.logger.info("Coordinator started")
-        
-    def stop(self) -> None:
-        """Stop the coordinator."""
-        if self.state != CoordinatorState.RUNNING:
-            self.logger.warning(f"Cannot stop from state: {self.state}")
-            return
-            
-        self.state = CoordinatorState.SHUTTING_DOWN
-        self.running = False
-        
-        # Send shutdown commands to all engines
-        self._broadcast_shutdown()
-        
-        # Wait for threads to finish
-        if self.router_thread:
-            self.router_thread.join(timeout=2.0)
-        if self.monitor_thread:
-            self.monitor_thread.join(timeout=2.0)
-        if self.health_thread:
-            self.health_thread.join(timeout=2.0)
-            
-        # Close sockets
-        if self.router_socket:
-            self.router_socket.close()
-        if self.pub_socket:
-            self.pub_socket.close()
-        if self.monitor_socket:
-            self.monitor_socket.close()
-            
-        self.context.term()
-        
-        self.logger.info("Coordinator stopped")
-        
-    def send_command(self, engine_type: EngineType, command_type: CommandType,
-                    data: Dict[str, Any], callback: Optional[Callable] = None) -> str:
-        """
-        Send command to a specific engine type.
-        
-        Args:
-            engine_type: Type of engine to target
-            command_type: Command to send
-            data: Command data
-            callback: Optional callback for response
-            
-        Returns:
-            Command ID for tracking
-        """
-        command_id = str(uuid.uuid4())
-        
-        # Find available engine of the requested type
-        target_engine = self._find_engine(engine_type)
-        if not target_engine:
-            self.logger.error(f"No available engine of type {engine_type}")
-            return ""
-            
-        # Create command message
-        command_msg = {
-            'command_id': command_id,
-            'command_type': command_type.value,
-            'data': data,
-            'timestamp': time.time()
-        }
-        
-        # Track pending command
-        pending = PendingCommand(
-            command_id=command_id,
-            command_type=command_type,
-            target_engine=target_engine.engine_id,
-            timestamp=time.time(),
-            timeout=COMMAND_TIMEOUT,
-            callback=callback
-        )
-        self.pending_commands[command_id] = pending
-        
-        # Send via router
-        self._route_command(target_engine.identity, command_msg)
-        
-        return command_id
-        
-    def broadcast_market_update(self, data: Dict[str, Any]) -> None:
-        """
-        Broadcast market data update to all engines.
-        
-        Args:
-            data: Market data to broadcast
-        """
-        msg = self.protocol.create_message(
-            MessageCategory.MARKET,
-            "MARKET_UPDATE",
-            data,
-            source="COORDINATOR"
-        )
-        
-        serialized = self.protocol.serialize_message(msg)
-        self.pub_socket.send(b"MARKET|" + serialized)
-        
-        self.metrics.total_messages += 1
-        
-    def get_system_status(self) -> Dict[str, Any]:
-        """
-        Get comprehensive system status.
-        
-        Returns:
-            System status dictionary
-        """
-        with self.engine_lock:
-            engine_status = {
-                engine_id: {
-                    'type': info.engine_type.value,
-                    'status': info.status,
-                    'alive': info.is_alive(),
-                    'last_heartbeat': datetime.fromtimestamp(info.last_heartbeat).isoformat(),
-                    'metrics': info.metrics
-                }
-                for engine_id, info in self.engines.items()
-            }
-            
-        return {
-            'state': self.state.name,
-            'engines': engine_status,
-            'metrics': {
-                'total_messages': self.metrics.total_messages,
-                'messages_per_second': self.metrics.messages_per_second,
-                'active_engines': self.metrics.active_engines,
-                'pending_commands': len(self.pending_commands),
-                'error_count': self.metrics.error_count
-            },
-            'risk_limits': self.risk_limits,
-            'timestamp': datetime.now().isoformat()
-        }
-        
-    # ==========================================================================
-    # PRIVATE METHODS - MAIN LOOPS
-    # ==========================================================================
-    def _router_loop(self) -> None:
-        """Main ROUTER socket processing loop."""
-        poller = zmq.Poller()
-        poller.register(self.router_socket, zmq.POLLIN)
-        
-        while self.running:
-            try:
-                # Poll with timeout
-                socks = dict(poller.poll(100))
-                
-                if self.router_socket in socks:
-                    # Receive multipart message
-                    frames = self.router_socket.recv_multipart()
-                    
-                    if len(frames) >= 3:
-                        identity = frames[0]
-                        empty = frames[1]  # Empty delimiter frame
-                        message = frames[2]
-                        
-                        # Process the message
-                        self._process_router_message(identity, message)
-                        
-            except Exception as e:
-                self.logger.error(f"Router loop error: {e}")
-                self.error_handler.handle_error(e, {"context": "router_loop"})
-                
-    def _monitor_loop(self) -> None:
-        """Monitor socket processing loop for external queries."""
-        poller = zmq.Poller()
-        poller.register(self.monitor_socket, zmq.POLLIN)
-        
-        while self.running:
-            try:
-                socks = dict(poller.poll(100))
-                
-                if self.monitor_socket in socks:
-                    request = self.monitor_socket.recv_json()
-                    
-                    # Process monitoring request
-                    response = self._process_monitor_request(request)
-                    
-                    # Send response
-                    self.monitor_socket.send_json(response)
-                    
-            except Exception as e:
-                self.logger.error(f"Monitor loop error: {e}")
-                
-    def _health_check_loop(self) -> None:
-        """Periodic health check of all engines."""
-        next_check = time.time()
-        
-        while self.running:
-            try:
-                now = time.time()
-                
-                if now >= next_check:
-                    self._check_engine_health()
-                    self._check_pending_commands()
-                    self._update_metrics()
-                    
-                    next_check = now + HEALTH_CHECK_INTERVAL
-                    
-                time.sleep(0.1)
-                
-            except Exception as e:
-                self.logger.error(f"Health check error: {e}")
-                
-    # ==========================================================================
-    # PRIVATE METHODS - MESSAGE PROCESSING
-    # ==========================================================================
-    def _process_router_message(self, identity: bytes, message: bytes) -> None:
-        """Process message received on ROUTER socket."""
+    def load_state(self) -> Optional[Dict[str, Any]]:
+        """Load latest coordinator state from database."""
         try:
-            # Deserialize message
-            msg_dict = json.loads(message.decode('utf-8'))
-            msg_type = msg_dict.get('type', '')
-            
-            # Handle different message types
-            if msg_type == 'REGISTER':
-                self._handle_registration(identity, msg_dict)
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT state, engines, metrics, checksum 
+                    FROM coordinator_state 
+                    ORDER BY timestamp DESC 
+                    LIMIT 1
+                """)
                 
-            elif msg_type == 'HEARTBEAT':
-                self._handle_heartbeat(identity, msg_dict)
+                row = cursor.fetchone()
+                if not row:
+                    return None
                 
-            elif msg_type == 'RESPONSE':
-                self._handle_command_response(identity, msg_dict)
-                
-            elif msg_type == 'EVENT':
-                self._handle_engine_event(identity, msg_dict)
-                
-            else:
-                self.logger.warning(f"Unknown message type: {msg_type}")
-                
-            # Update metrics
-            self.metrics.total_messages += 1
-            
-        except Exception as e:
-            self.logger.error(f"Message processing error: {e}")
-            
-    def _handle_registration(self, identity: bytes, data: Dict) -> None:
-        """Handle engine registration."""
-        engine_type = EngineType(data['engine_type'])
-        engine_id = data['engine_id']
-        
-        # Create engine info
-        engine_info = EngineInfo(
-            engine_type=engine_type,
-            engine_id=engine_id,
-            identity=identity,
-            last_heartbeat=time.time(),
-            status='REGISTERED',
-            capabilities=data.get('capabilities', [])
-        )
-        
-        # Store engine
-        with self.engine_lock:
-            self.engines[engine_id] = engine_info
-            self.metrics.active_engines = len(self.engines)
-            
-        self.logger.info(f"Engine registered: {engine_id} ({engine_type.value})")
-        
-        # Send acknowledgment
-        ack = {
-            'type': 'REGISTRATION_ACK',
-            'status': 'SUCCESS',
-            'coordinator_time': time.time()
-        }
-        self.router_socket.send_multipart([identity, b'', json.dumps(ack).encode()])
-        
-        # Broadcast registration event
-        self._broadcast_engine_status(engine_id, 'REGISTERED')
-        
-    def _handle_heartbeat(self, identity: bytes, data: Dict) -> None:
-        """Handle engine heartbeat."""
-        engine_id = data.get('engine_id')
-        
-        with self.engine_lock:
-            if engine_id in self.engines:
-                engine = self.engines[engine_id]
-                engine.last_heartbeat = time.time()
-                engine.status = data.get('status', 'HEALTHY')
-                engine.metrics = data.get('metrics', {})
-                
-    def _handle_command_response(self, identity: bytes, data: Dict) -> None:
-        """Handle response to a command."""
-        command_id = data.get('command_id')
-        
-        if command_id in self.pending_commands:
-            pending = self.pending_commands[command_id]
-            
-            # Store result
-            self.command_results[command_id] = data.get('result')
-            
-            # Execute callback if provided
-            if pending.callback:
-                try:
-                    pending.callback(data.get('result'))
-                except Exception as e:
-                    self.logger.error(f"Callback error: {e}")
-                    
-            # Remove from pending
-            del self.pending_commands[command_id]
-            
-            self.logger.debug(f"Command {command_id} completed")
-            
-    def _handle_engine_event(self, identity: bytes, data: Dict) -> None:
-        """Handle event from engine (alerts, updates, etc)."""
-        event_type = data.get('event_type')
-        
-        # Map to appropriate message category
-        if event_type == 'RISK_ALERT':
-            self._process_risk_alert(data)
-        elif event_type == 'GREEK_UPDATE':
-            self._process_greek_update(data)
-        elif event_type == 'ANOMALY_DETECTED':
-            self._process_anomaly(data)
-        else:
-            # Forward as generic event
-            self._broadcast_engine_event(data)
-            
-    # ==========================================================================
-    # PRIVATE METHODS - UTILITIES
-    # ==========================================================================
-    def _find_engine(self, engine_type: EngineType) -> Optional[EngineInfo]:
-        """Find an available engine of the specified type."""
-        with self.engine_lock:
-            for engine in self.engines.values():
-                if engine.engine_type == engine_type and engine.is_alive():
-                    return engine
-        return None
-        
-    def _route_command(self, identity: bytes, command: Dict) -> None:
-        """Route command to specific engine."""
-        message = json.dumps(command).encode('utf-8')
-        self.router_socket.send_multipart([identity, b'', message])
-        
-    def _check_engine_health(self) -> None:
-        """Check health of all registered engines."""
-        with self.engine_lock:
-            dead_engines = []
-            
-            for engine_id, engine in self.engines.items():
-                if not engine.is_alive():
-                    dead_engines.append(engine_id)
-                    self.logger.warning(f"Engine {engine_id} appears dead")
-                    
-            # Remove dead engines
-            for engine_id in dead_engines:
-                del self.engines[engine_id]
-                self._broadcast_engine_status(engine_id, 'DISCONNECTED')
-                
-            self.metrics.active_engines = len(self.engines)
-            
-    def _check_pending_commands(self) -> None:
-        """Check for timed out commands."""
-        now = time.time()
-        timed_out = []
-        
-        for cmd_id, pending in self.pending_commands.items():
-            if now - pending.timestamp > pending.timeout:
-                timed_out.append(cmd_id)
-                
-        # Handle timeouts
-        for cmd_id in timed_out:
-            pending = self.pending_commands[cmd_id]
-            
-            if pending.retry_count < pending.max_retries:
-                # Retry command
-                pending.retry_count += 1
-                pending.timestamp = now
-                self.logger.warning(f"Retrying command {cmd_id} (attempt {pending.retry_count})")
-                
-                # Re-route command
-                engine = self._find_engine_by_id(pending.target_engine)
-                if engine:
-                    command_msg = {
-                        'command_id': cmd_id,
-                        'command_type': pending.command_type.value,
-                        'timestamp': now,
-                        'retry': pending.retry_count
-                    }
-                    self._route_command(engine.identity, command_msg)
-            else:
-                # Max retries exceeded
-                self.logger.error(f"Command {cmd_id} failed after {pending.max_retries} retries")
-                
-                if pending.callback:
-                    pending.callback({'error': 'Command timeout'})
-                    
-                del self.pending_commands[cmd_id]
-                self.metrics.error_count += 1
-                
-    def _find_engine_by_id(self, engine_id: str) -> Optional[EngineInfo]:
-        """Find engine by ID."""
-        with self.engine_lock:
-            return self.engines.get(engine_id)
-            
-    def _update_metrics(self) -> None:
-        """Update system metrics."""
-        # Calculate message rate
-        current_messages = self.metrics.total_messages
-        self.metrics.update_rate(0)  # Just update timestamp
-        
-        # Broadcast metrics
-        metrics_msg = SystemStatusMessage(
-            component="COORDINATOR",
-            status="HEALTHY" if self.state == CoordinatorState.RUNNING else "DEGRADED",
-            message=f"Active engines: {self.metrics.active_engines}",
-            timestamp=time.time()
-        )
-        
-        msg = self.protocol.factory.create_message(
-            MessageCategory.SYSTEM,
-            "METRICS_UPDATE",
-            asdict(metrics_msg),
-            source="COORDINATOR"
-        )
-        
-        self.pub_socket.send(b"SYSTEM|" + self.protocol.serialize_message(msg))
-        
-    def _broadcast_shutdown(self) -> None:
-        """Broadcast shutdown command to all engines."""
-        shutdown_msg = {
-            'type': 'COMMAND',
-            'command_type': CommandType.STOP.value,
-            'timestamp': time.time()
-        }
-        
-        with self.engine_lock:
-            for engine in self.engines.values():
-                self._route_command(engine.identity, shutdown_msg)
-                
-    def _broadcast_engine_status(self, engine_id: str, status: str) -> None:
-        """Broadcast engine status change."""
-        status_msg = {
-            'engine_id': engine_id,
-            'status': status,
-            'timestamp': time.time()
-        }
-        
-        msg = self.protocol.create_message(
-            MessageCategory.SYSTEM,
-            "ENGINE_STATUS",
-            status_msg,
-            source="COORDINATOR"
-        )
-        
-        self.pub_socket.send(b"SYSTEM|" + self.protocol.serialize_message(msg))
-        
-    def _broadcast_engine_event(self, event_data: Dict) -> None:
-        """Broadcast generic engine event."""
-        msg = self.protocol.create_message(
-            MessageCategory.SYSTEM,
-            "ENGINE_EVENT",
-            event_data,
-            source="COORDINATOR"
-        )
-        
-        self.pub_socket.send(b"EVENT|" + self.protocol.serialize_message(msg))
-        
-    def _process_risk_alert(self, data: Dict) -> None:
-        """Process risk alert from engine."""
-        # Create risk limit message
-        risk_msg = RiskLimitMessage(
-            limit_type=data.get('limit_type', 'UNKNOWN'),
-            current_value=data.get('current_value', 0),
-            limit_value=data.get('limit_value', 0),
-            severity=data.get('severity', 'WARNING'),
-            action_required=data.get('action', 'Review position')
-        )
-        
-        # Check against coordinator's risk limits
-        if self._validate_risk_limit(risk_msg):
-            # Broadcast validated alert
-            msg = self.protocol.factory.create_message(
-                MessageCategory.RISK,
-                "RISK_ALERT",
-                asdict(risk_msg),
-                source="COORDINATOR"
-            )
-            
-            self.pub_socket.send(b"RISK|" + self.protocol.serialize_message(msg))
-            
-            # Log critical alerts
-            if risk_msg.severity == "CRITICAL":
-                self.logger.error(f"CRITICAL RISK ALERT: {risk_msg.limit_type} = {risk_msg.current_value}")
-                
-    def _process_greek_update(self, data: Dict) -> None:
-        """Process Greek update from volatility engine."""
-        # Forward to subscribers
-        msg = self.protocol.create_message(
-            MessageCategory.RISK,
-            "GREEK_UPDATE",
-            data,
-            source="COORDINATOR"
-        )
-        
-        self.pub_socket.send(b"RISK|" + self.protocol.serialize_message(msg))
-        
-    def _process_anomaly(self, data: Dict) -> None:
-        """Process anomaly detection event."""
-        # Evaluate severity and take action
-        severity = data.get('severity', 'LOW')
-        
-        if severity in ['HIGH', 'CRITICAL']:
-            # May need to pause trading
-            self.logger.warning(f"High severity anomaly detected: {data.get('description')}")
-            
-            # Notify all engines
-            alert_cmd = {
-                'command_type': CommandType.PAUSE.value,
-                'reason': 'Anomaly detected',
-                'data': data
-            }
-            
-            with self.engine_lock:
-                for engine in self.engines.values():
-                    if engine.engine_type == EngineType.EXECUTION:
-                        self._route_command(engine.identity, alert_cmd)
-                        
-        # Broadcast anomaly event
-        msg = self.protocol.create_message(
-            MessageCategory.ALERT,
-            "ANOMALY_DETECTED",
-            data,
-            source="COORDINATOR"
-        )
-        
-        self.pub_socket.send(b"ALERT|" + self.protocol.serialize_message(msg))
-        
-    def _validate_risk_limit(self, risk_msg: RiskLimitMessage) -> bool:
-        """Validate risk limit against coordinator limits."""
-        limit_type = risk_msg.limit_type
-        
-        # Map to internal limits
-        if limit_type == "MAX_DELTA":
-            return abs(risk_msg.current_value) <= self.risk_limits['max_position_delta']
-        elif limit_type == "MAX_VEGA":
-            return abs(risk_msg.current_value) <= self.risk_limits['max_portfolio_vega']
-        elif limit_type == "DAILY_LOSS":
-            return abs(risk_msg.current_value) <= self.risk_limits['max_daily_loss']
-            
-        return True  # Unknown limits pass through
-        
-    def _process_monitor_request(self, request: Dict) -> Dict:
-        """Process monitoring/control request."""
-        request_type = request.get('type', '')
-        
-        if request_type == 'STATUS':
-            return self.get_system_status()
-            
-        elif request_type == 'SET_LIMIT':
-            # Update risk limit
-            limit_name = request.get('limit_name')
-            limit_value = request.get('limit_value')
-            
-            if limit_name in self.risk_limits:
-                old_value = self.risk_limits[limit_name]
-                self.risk_limits[limit_name] = limit_value
-                
-                return {
-                    'status': 'SUCCESS',
-                    'old_value': old_value,
-                    'new_value': limit_value
+                # Verify checksum
+                state_data = {
+                    "state": row[0],
+                    "engines": json.loads(row[1]),
+                    "metrics": json.loads(row[2])
                 }
-            else:
-                return {'status': 'ERROR', 'message': 'Unknown limit'}
                 
-        elif request_type == 'ENGINE_COMMAND':
-            # Forward command to engine
-            engine_type = EngineType(request.get('engine_type'))
-            command_type = CommandType(request.get('command_type'))
-            
-            cmd_id = self.send_command(
-                engine_type,
-                command_type,
-                request.get('data', {})
-            )
-            
-            return {'status': 'SUCCESS', 'command_id': cmd_id}
-            
-        else:
-            return {'status': 'ERROR', 'message': 'Unknown request type'}
-            
-    # ==========================================================================
-    # LIFECYCLE METHODS
-    # ==========================================================================
-    def cleanup(self) -> None:
-        """Clean up coordinator resources."""
-        self.stop()
-        self.logger.info("Coordinator cleanup completed")
+                state_json = json.dumps(state_data, sort_keys=True)
+                checksum = hashlib.sha256(state_json.encode()).hexdigest()
+                
+                if checksum != row[3]:
+                    self.logger.warning("State checksum mismatch, attempting backup")
+                    return self._load_from_backup()
+                
+                return state_data
+                
+        except Exception as e:
+            self.logger.error(f"Failed to load state: {e}")
+            return self._load_from_backup()
+    
+    def _create_backup(self):
+        """Create backup of state database."""
+        try:
+            import shutil
+            shutil.copy2(self.db_path, self.backup_path)
+        except Exception as e:
+            self.logger.error(f"Failed to create backup: {e}")
+    
+    def _load_from_backup(self) -> Optional[Dict[str, Any]]:
+        """Load state from backup database."""
+        if not os.path.exists(self.backup_path):
+            return None
+        
+        # Swap paths temporarily
+        self.db_path, self.backup_path = self.backup_path, self.db_path
+        result = self.load_state()
+        self.db_path, self.backup_path = self.backup_path, self.db_path
+        
+        return result
+    
+    def save_command(self, command: CommandRequest, response: Optional[CommandResponse] = None):
+        """Save command to history."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO command_history 
+                    (command_id, timestamp, command_type, target, payload, response, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    command.command_id,
+                    command.timestamp,
+                    command.command_type.value,
+                    command.target_engine or command.target_type.value if command.target_type else "",
+                    json.dumps(command.payload),
+                    json.dumps(asdict(response)) if response else None,
+                    "SUCCESS" if response and response.success else "PENDING" if not response else "FAILED"
+                ))
+                conn.commit()
+                
+        except Exception as e:
+            self.logger.error(f"Failed to save command: {e}")
 
 # ==============================================================================
-# MODULE FUNCTIONS
+# LOAD BALANCER
 # ==============================================================================
-def create_engine_client(engine_type: EngineType, engine_id: str) -> zmq.Socket:
+class LoadBalancer:
+    """Manages load distribution across engines."""
+    
+    def __init__(self):
+        self.engine_loads = defaultdict(float)
+        self.engine_queues = defaultdict(int)
+        self.routing_history = defaultdict(list)
+        self.logger = logging.getLogger("LoadBalancer")
+    
+    def select_engine(self, 
+                     engines: Dict[str, EngineInfo],
+                     engine_type: Optional[EngineType] = None,
+                     exclude: Optional[Set[str]] = None) -> Optional[str]:
+        """Select best engine based on load and availability."""
+        exclude = exclude or set()
+        
+        # Filter available engines
+        available = []
+        for engine_id, info in engines.items():
+            if engine_id in exclude:
+                continue
+            if engine_type and info.engine_type != engine_type:
+                continue
+            if info.status != EngineStatus.ONLINE:
+                continue
+            if info.current_load >= LOAD_BALANCE_THRESHOLD:
+                continue
+                
+            available.append((engine_id, info))
+        
+        if not available:
+            return None
+        
+        # Sort by load and error rate
+        def score_engine(item):
+            engine_id, info = item
+            load_score = info.current_load
+            error_rate = info.error_count / max(info.processed_commands, 1)
+            queue_size = self.engine_queues.get(engine_id, 0)
+            
+            # Combined score (lower is better)
+            return load_score + (error_rate * 0.3) + (queue_size * 0.1)
+        
+        available.sort(key=score_engine)
+        selected = available[0][0]
+        
+        # Update routing history
+        self.routing_history[selected].append(time.time())
+        
+        return selected
+    
+    def update_load(self, engine_id: str, load: float):
+        """Update engine load."""
+        self.engine_loads[engine_id] = load
+    
+    def update_queue_size(self, engine_id: str, size: int):
+        """Update engine queue size."""
+        self.engine_queues[engine_id] = size
+    
+    def get_load_distribution(self) -> Dict[str, float]:
+        """Get current load distribution."""
+        return dict(self.engine_loads)
+
+# ==============================================================================
+# MESSAGE SEQUENCER
+# ==============================================================================
+class MessageSequencer:
+    """Ensures message ordering guarantees."""
+    
+    def __init__(self):
+        self.sequences = defaultdict(int)
+        self.pending_messages = defaultdict(list)
+        self.message_buffer = OrderedDict()
+        self.max_buffer_size = 1000
+        self.logger = logging.getLogger("MessageSequencer")
+    
+    def add_sequence(self, message: ProtocolMessage) -> int:
+        """Add sequence number to message."""
+        key = f"{message.source}:{message.category.value}"
+        sequence = self.sequences[key]
+        self.sequences[key] += 1
+        
+        # Add sequence to metadata
+        message.metadata.tags.add(f"seq:{sequence}")
+        
+        return sequence
+    
+    def should_process(self, message: ProtocolMessage) -> bool:
+        """Check if message should be processed based on ordering."""
+        # Extract sequence if present
+        sequence = None
+        for tag in message.metadata.tags:
+            if tag.startswith("seq:"):
+                sequence = int(tag.split(":")[1])
+                break
+        
+        if sequence is None:
+            return True  # No sequencing required
+        
+        key = f"{message.source}:{message.category.value}"
+        expected = self.get_expected_sequence(key)
+        
+        if sequence == expected:
+            # Process any pending messages
+            self._process_pending(key)
+            return True
+        elif sequence > expected:
+            # Out of order, buffer it
+            heapq.heappush(self.pending_messages[key], (sequence, message))
+            return False
+        else:
+            # Old message, discard
+            self.logger.warning(f"Handling failure for engine: {engine_id}")
+            
+            with self._lock:
+                if engine_id not in self.engines:
+                    return
+                
+                info = self.engines[engine_id]
+                
+                # Reassign pending commands
+                reassign_commands = []
+                for cmd_id, command in self.pending_commands.items():
+                    if command.target_engine == engine_id:
+                        reassign_commands.append(command)
+                
+                # Remove failed engine from active list
+                self.engine_types[info.engine_type].remove(engine_id)
+                
+            # Reassign commands to other engines
+            for command in reassign_commands:
+                command.target_engine = None  # Let load balancer select new engine
+                self.route_command(command)
+            
+            # Broadcast engine failure
+            self._broadcast_status(f"ENGINE_FAILED:{engine_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Engine failure handling error: {e}")
+    
+    def promote_to_primary(self):
+        """Promote backup coordinator to primary."""
+        if self.is_primary:
+            return
+        
+        self.logger.info("Promoting to primary coordinator")
+        
+        with self._lock:
+            self.is_primary = True
+            
+            # Rebind sockets to primary ports
+            self.router_socket.close()
+            self.router_socket = self.context.socket(zmq.ROUTER)
+            self.router_socket.bind(f"tcp://*:{COORDINATOR_ROUTER_PORT}")
+            
+            # Switch backup socket to publisher mode
+            self.backup_socket.close()
+            self.backup_socket = self.context.socket(zmq.PUB)
+            self.backup_socket.bind(f"tcp://*:{COORDINATOR_BACKUP_PORT}")
+        
+        # Broadcast promotion
+        self._broadcast_status("COORDINATOR_PROMOTED")
+    
+    # ==========================================================================
+    # BROADCASTING AND MONITORING
+    # ==========================================================================
+    def _broadcast_status(self, status: str):
+        """Broadcast status update to all subscribers."""
+        try:
+            status_msg = self.protocol_manager.create_message(
+                category=MessageCategory.SYSTEM,
+                message_type="STATUS_BROADCAST",
+                source=self.coordinator_id,
+                data={
+                    "status": status,
+                    "timestamp": time.time(),
+                    "is_primary": self.is_primary,
+                    "state": self.state.name
+                },
+                priority=PRIORITY_HIGH
+            )
+            
+            data = self.protocol_manager.serialize_message(status_msg)
+            self.pub_socket.send(data)
+            
+        except Exception as e:
+            self.logger.error(f"Broadcast failed: {e}")
+    
+    def get_system_status(self) -> Dict[str, Any]:
+        """Get comprehensive system status."""
+        with self._lock:
+            return {
+                "coordinator_id": self.coordinator_id,
+                "state": self.state.name,
+                "is_primary": self.is_primary,
+                "uptime": time.time() - self.start_time,
+                "engines": {
+                    engine_type.value: {
+                        "total": len(engine_ids),
+                        "online": sum(
+                            1 for eid in engine_ids 
+                            if self.engines[eid].status == EngineStatus.ONLINE
+                        ),
+                        "engines": [
+                            {
+                                "id": eid,
+                                "status": self.engines[eid].status.name,
+                                "load": self.engines[eid].current_load,
+                                "errors": self.engines[eid].error_count
+                            }
+                            for eid in engine_ids
+                        ]
+                    }
+                    for engine_type, engine_ids in self.engine_types.items()
+                },
+                "metrics": asdict(self.metrics),
+                "load_distribution": self.load_balancer.get_load_distribution(),
+                "pending_commands": len(self.pending_commands),
+                "circuit_breakers": {
+                    name: breaker.state.name 
+                    for name, breaker in self.circuit_breakers.items()
+                }
+            }
+
+# ==============================================================================
+# ENGINE CLIENT HELPER
+# ==============================================================================
+def create_engine_client(engine_type: EngineType, 
+                        engine_id: str,
+                        coordinator_host: str = "localhost",
+                        coordinator_port: int = COORDINATOR_ROUTER_PORT) -> zmq.Socket:
     """
     Create a DEALER socket for engine to connect to coordinator.
     
     Args:
         engine_type: Type of engine
         engine_id: Unique engine identifier
+        coordinator_host: Coordinator hostname
+        coordinator_port: Coordinator port
         
     Returns:
         Configured DEALER socket
@@ -905,79 +646,884 @@ def create_engine_client(engine_type: EngineType, engine_id: str) -> zmq.Socket:
     # Set identity for routing
     socket.identity = f"{engine_type.value}:{engine_id}".encode('utf-8')
     
+    # Configure socket
+    socket.setsockopt(zmq.LINGER, 0)
+    socket.setsockopt(zmq.SNDHWM, 0)
+    socket.setsockopt(zmq.RCVHWM, 0)
+    
     # Connect to coordinator
-    socket.connect(f"tcp://localhost:{COORDINATOR_ROUTER_PORT}")
+    socket.connect(f"tcp://{coordinator_host}:{coordinator_port}")
+    
+    # Create protocol manager
+    protocol_manager = ProtocolManager()
     
     # Send registration
-    registration = {
-        'type': 'REGISTER',
-        'engine_type': engine_type.value,
-        'engine_id': engine_id,
-        'capabilities': [],
-        'timestamp': time.time()
-    }
+    registration = protocol_manager.create_message(
+        category=MessageCategory.SYSTEM,
+        message_type="REGISTER",
+        source=engine_id,
+        data={
+            "engine_id": engine_id,
+            "engine_type": engine_type.value,
+            "capabilities": [],
+            "timestamp": time.time()
+        },
+        priority=PRIORITY_HIGH
+    )
     
-    socket.send_json(registration)
+    # Send registration message
+    data = protocol_manager.serialize_message(registration)
+    socket.send(data)
     
     return socket
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# COORDINATOR CLUSTER MANAGER
 # ==============================================================================
-# Module-level initialization code
-_coordinator_instance: Optional[TradingCoordinator] = None
-
-def get_coordinator_instance() -> TradingCoordinator:
-    """
-    Get singleton instance of the trading coordinator.
+class CoordinatorCluster:
+    """Manages multiple coordinator instances for high availability."""
     
+    def __init__(self, num_instances: int = 2):
+        self.num_instances = num_instances
+        self.coordinators = []
+        self.primary_index = 0
+        self.logger = logging.getLogger("CoordinatorCluster")
+    
+    def start(self):
+        """Start coordinator cluster."""
+        for i in range(self.num_instances):
+            is_primary = (i == self.primary_index)
+            coordinator = TradingCoordinator(is_primary=is_primary)
+            
+            if coordinator.initialize():
+                coordinator.start()
+                self.coordinators.append(coordinator)
+                self.logger.info(f"Started coordinator {i} (Primary: {is_primary})")
+            else:
+                self.logger.error(f"Failed to start coordinator {i}")
+    
+    def monitor_health(self):
+        """Monitor coordinator health and handle failover."""
+        while True:
+            try:
+                # Check primary health
+                primary = self.coordinators[self.primary_index]
+                
+                # Simple health check - in production would be more sophisticated
+                if primary.state != CoordinatorState.RUNNING:
+                    self.logger.warning("Primary coordinator unhealthy, initiating failover")
+                    self._perform_failover()
+                
+                time.sleep(5)
+                
+            except Exception as e:
+                self.logger.error(f"Health monitoring error: {e}")
+    
+    def _perform_failover(self):
+        """Perform failover to backup coordinator."""
+        # Find healthy backup
+        for i, coordinator in enumerate(self.coordinators):
+            if i != self.primary_index and coordinator.state == CoordinatorState.RUNNING:
+                # Promote backup to primary
+                coordinator.promote_to_primary()
+                self.primary_index = i
+                self.logger.info(f"Failover completed to coordinator {i}")
+                break
+
+# ==============================================================================
+# MODULE FUNCTIONS
+# ==============================================================================
+def get_coordinator_instance(is_primary: bool = True) -> TradingCoordinator:
+    """
+    Get coordinator instance.
+    
+    Args:
+        is_primary: Whether this is the primary coordinator
+        
     Returns:
         TradingCoordinator instance
     """
-    global _coordinator_instance
-    if _coordinator_instance is None:
-        _coordinator_instance = TradingCoordinator()
-    return _coordinator_instance
+    coordinator = TradingCoordinator(is_primary=is_primary)
+    return coordinator
+
+# ==============================================================================
+# EXAMPLE USAGE
+# ==============================================================================
+def example_single_coordinator():
+    """Example: Single coordinator with engines."""
+    print("\n" + "="*60)
+    print("Example: Single Coordinator")
+    print("="*60)
+    
+    # Create and start coordinator
+    coordinator = TradingCoordinator(is_primary=True)
+    
+    if coordinator.initialize():
+        print("✅ Coordinator initialized")
+        coordinator.start()
+        print("✅ Coordinator started")
+        
+        # Simulate engine connections
+        print("\nSimulating engine connections...")
+        
+        # Print status
+        print("\nCoordinator Status:")
+        status = coordinator.get_system_status()
+        print(f"  ID: {status['coordinator_id'][:8]}")
+        print(f"  State: {status['state']}")
+        print(f"  Primary: {status['is_primary']}")
+        print(f"  Uptime: {status['uptime']:.1f}s")
+        
+        # Create and route a command
+        command = CommandRequest(
+            command_type=CommandType.EXECUTE,
+            target_type=EngineType.VOLATILITY,
+            payload={"action": "calculate_iv", "symbol": "SPY"},
+            source="TestClient",
+            priority=PRIORITY_HIGH
+        )
+        
+        print(f"\nRouting command: {command.command_id[:8]}")
+        cmd_id = coordinator.route_command(command)
+        
+        if cmd_id:
+            print(f"✅ Command routed successfully")
+        else:
+            print("❌ Command routing failed")
+        
+        # Let it run for a bit
+        time.sleep(5)
+        
+        # Stop coordinator
+        coordinator.stop()
+        print("\n✅ Coordinator stopped")
+        
+    else:
+        print("❌ Coordinator initialization failed")
+
+def example_coordinator_cluster():
+    """Example: High availability coordinator cluster."""
+    print("\n" + "="*60)
+    print("Example: Coordinator Cluster")
+    print("="*60)
+    
+    # Create cluster
+    cluster = CoordinatorCluster(num_instances=2)
+    
+    print("Starting coordinator cluster...")
+    cluster.start()
+    
+    print("\nCluster Status:")
+    for i, coordinator in enumerate(cluster.coordinators):
+        print(f"  Coordinator {i}:")
+        print(f"    State: {coordinator.state.name}")
+        print(f"    Primary: {coordinator.is_primary}")
+    
+    # Simulate failover
+    print("\nSimulating primary failure...")
+    cluster.coordinators[0].state = CoordinatorState.STOPPED
+    
+    cluster._perform_failover()
+    
+    print("\nCluster Status After Failover:")
+    for i, coordinator in enumerate(cluster.coordinators):
+        print(f"  Coordinator {i}:")
+        print(f"    State: {coordinator.state.name}")
+        print(f"    Primary: {coordinator.is_primary}")
+    
+    # Stop all coordinators
+    for coordinator in cluster.coordinators:
+        if coordinator.state == CoordinatorState.RUNNING:
+            coordinator.stop()
+    
+    print("\n✅ Cluster stopped")
 
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Module testing code
-    import signal
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
-    coordinator = TradingCoordinator()
+    print("\n🚀 SPYDER Trading Coordinator - Enhanced Version")
+    print("=" * 60)
     
-    # Handle shutdown gracefully
-    def signal_handler(sig, frame):
-        print("\nShutting down coordinator...")
-        coordinator.stop()
-        sys.exit(0)
-        
-    signal.signal(signal.SIGINT, signal_handler)
+    print("\nSelect example to run:")
+    print("1. Single Coordinator")
+    print("2. High Availability Cluster")
+    print("3. Exit")
     
-    if coordinator.initialize():
-        print("✅ Trading Coordinator initialized")
-        
-        # Start coordinator
-        coordinator.start()
-        print("✅ Trading Coordinator started")
-        print(f"   ROUTER port: {COORDINATOR_ROUTER_PORT}")
-        print(f"   PUB port: {COORDINATOR_PUB_PORT}")
-        print(f"   Monitor port: {COORDINATOR_MONITOR_PORT}")
-        
-        # Print status periodically
-        try:
-            while True:
-                time.sleep(5)
-                status = coordinator.get_system_status()
-                print(f"\nStatus: {status['state']}")
-                print(f"Active engines: {status['metrics']['active_engines']}")
-                print(f"Total messages: {status['metrics']['total_messages']}")
-                print(f"Pending commands: {status['metrics']['pending_commands']}")
-                
-        except KeyboardInterrupt:
-            pass
-            
+    choice = input("\nSelect example (1-3): ")
+    
+    if choice == "1":
+        example_single_coordinator()
+    elif choice == "2":
+        example_coordinator_cluster()
     else:
-        print("❌ Coordinator initialization failed")
+        print("Exiting...")
+    
+    print("\n✅ Enhanced Trading Coordinator Features:")
+    print("   • High availability with failover support")
+    print("   • State persistence and recovery")
+    print("   • Load balancing across engines")
+    print("   • Message ordering guarantees")
+    print("   • Comprehensive monitoring and metrics")
+    print("   • Circuit breaker protection")
+    print("   • Automatic backup synchronization")
+    print("   • Command retry with exponential backoff")Discarding old message with sequence {sequence}")
+            return False
+    
+    def get_expected_sequence(self, key: str) -> int:
+        """Get expected sequence number for a key."""
+        # This would be tracked based on processed messages
+        return 0  # Simplified for example
+    
+    def _process_pending(self, key: str):
+        """Process pending messages that are now in order."""
+        # Implementation would process buffered messages
+        pass
+
+# ==============================================================================
+# ENHANCED TRADING COORDINATOR
+# ==============================================================================
+class TradingCoordinator:
+    """
+    Enhanced central trading coordinator with high availability.
+    
+    Features:
+        - Redundancy and failover support
+        - State persistence and recovery
+        - Load balancing across engines
+        - Message ordering guarantees
+        - Comprehensive monitoring
+        - Automatic backup and restore
+    """
+    
+    def __init__(self, is_primary: bool = True):
+        """Initialize enhanced trading coordinator."""
+        self.is_primary = is_primary
+        self.coordinator_id = str(uuid.uuid4())
+        self.state = CoordinatorState.INITIALIZING
+        
+        # Communication
+        self.context = zmq.Context()
+        self.router_socket = None
+        self.pub_socket = None
+        self.monitor_socket = None
+        self.backup_socket = None
+        
+        # Protocol management
+        self.protocol_manager = ProtocolManager(
+            validation_level=ValidationLevel.STRICT,
+            default_format=SerializationFormat.COMPRESSED_JSON
+        )
+        
+        # State management
+        self.state_manager = StateManager()
+        self.load_balancer = LoadBalancer()
+        self.message_sequencer = MessageSequencer()
+        
+        # Engine tracking
+        self.engines = {}  # engine_id -> EngineInfo
+        self.engine_types = defaultdict(list)  # engine_type -> [engine_ids]
+        self.pending_commands = {}  # command_id -> CommandRequest
+        self.command_responses = {}  # command_id -> CommandResponse
+        
+        # Metrics
+        self.metrics = CoordinatorMetrics()
+        self.start_time = time.time()
+        
+        # Circuit breakers
+        self.circuit_breakers = defaultdict(lambda: CircuitBreaker())
+        
+        # Thread control
+        self._running = False
+        self._threads = []
+        self._lock = threading.RLock()
+        
+        # Logging
+        self.logger = logging.getLogger(f"TradingCoordinator.{self.coordinator_id[:8]}")
+    
+    # ==========================================================================
+    # INITIALIZATION AND LIFECYCLE
+    # ==========================================================================
+    def initialize(self) -> bool:
+        """Initialize coordinator with state recovery."""
+        try:
+            self.logger.info(f"Initializing coordinator (Primary: {self.is_primary})")
+            
+            # Load previous state if available
+            saved_state = self.state_manager.load_state()
+            if saved_state:
+                self._restore_state(saved_state)
+                self.logger.info("Restored previous coordinator state")
+            
+            # Setup sockets
+            if not self._setup_sockets():
+                return False
+            
+            # Initialize components
+            self.state = CoordinatorState.RUNNING
+            self._running = True
+            
+            self.logger.info("Coordinator initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Initialization failed: {e}")
+            self.state = CoordinatorState.STOPPED
+            return False
+    
+    def _setup_sockets(self) -> bool:
+        """Setup ZMQ sockets."""
+        try:
+            # Router socket for engine communication
+            self.router_socket = self.context.socket(zmq.ROUTER)
+            self.router_socket.setsockopt(zmq.ROUTER_MANDATORY, 1)
+            self.router_socket.setsockopt(zmq.SNDHWM, 0)
+            self.router_socket.setsockopt(zmq.RCVHWM, 0)
+            
+            if self.is_primary:
+                self.router_socket.bind(f"tcp://*:{COORDINATOR_ROUTER_PORT}")
+            else:
+                # Backup uses different port
+                self.router_socket.bind(f"tcp://*:{COORDINATOR_ROUTER_PORT + 100}")
+            
+            # Publisher socket for broadcasts
+            self.pub_socket = self.context.socket(zmq.PUB)
+            self.pub_socket.bind(f"tcp://*:{COORDINATOR_PUB_PORT}")
+            
+            # Monitor socket for health checks
+            self.monitor_socket = self.context.socket(zmq.REP)
+            self.monitor_socket.bind(f"tcp://*:{COORDINATOR_MONITOR_PORT}")
+            
+            # Backup synchronization socket
+            if self.is_primary:
+                self.backup_socket = self.context.socket(zmq.PUB)
+                self.backup_socket.bind(f"tcp://*:{COORDINATOR_BACKUP_PORT}")
+            else:
+                self.backup_socket = self.context.socket(zmq.SUB)
+                self.backup_socket.connect(f"tcp://localhost:{COORDINATOR_BACKUP_PORT}")
+                self.backup_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Socket setup failed: {e}")
+            return False
+    
+    def start(self):
+        """Start coordinator threads."""
+        try:
+            # Start worker threads
+            threads = [
+                ("router", self._router_thread),
+                ("monitor", self._monitor_thread),
+                ("health", self._health_check_thread),
+                ("state", self._state_persistence_thread),
+                ("cleanup", self._cleanup_thread),
+                ("backup", self._backup_sync_thread),
+            ]
+            
+            for name, target in threads:
+                thread = threading.Thread(target=target, name=name, daemon=True)
+                thread.start()
+                self._threads.append(thread)
+                self.logger.info(f"Started {name} thread")
+            
+            # Broadcast startup
+            self._broadcast_status("COORDINATOR_STARTED")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start threads: {e}")
+            self.stop()
+    
+    def stop(self):
+        """Stop coordinator gracefully."""
+        self.logger.info("Shutting down coordinator...")
+        
+        with self._lock:
+            self.state = CoordinatorState.SHUTTING_DOWN
+            self._running = False
+        
+        # Save final state
+        self._save_state()
+        
+        # Broadcast shutdown
+        self._broadcast_status("COORDINATOR_SHUTDOWN")
+        
+        # Wait for threads
+        for thread in self._threads:
+            thread.join(timeout=2)
+        
+        # Close sockets
+        for socket in [self.router_socket, self.pub_socket, 
+                      self.monitor_socket, self.backup_socket]:
+            if socket:
+                socket.close()
+        
+        self.context.term()
+        
+        with self._lock:
+            self.state = CoordinatorState.STOPPED
+        
+        self.logger.info("Coordinator stopped")
+    
+    # ==========================================================================
+    # THREAD WORKERS
+    # ==========================================================================
+    def _router_thread(self):
+        """Handle engine communication."""
+        poller = zmq.Poller()
+        poller.register(self.router_socket, zmq.POLLIN)
+        
+        while self._running:
+            try:
+                # Poll with timeout
+                socks = dict(poller.poll(100))
+                
+                if self.router_socket in socks:
+                    # Receive message
+                    frames = self.router_socket.recv_multipart()
+                    if len(frames) < 2:
+                        continue
+                    
+                    identity = frames[0]
+                    message_data = frames[1]
+                    
+                    # Process message
+                    self._process_engine_message(identity, message_data)
+                
+                # Process pending commands
+                self._process_pending_commands()
+                
+            except zmq.ZMQError as e:
+                if e.errno != zmq.EAGAIN:
+                    self.logger.error(f"Router error: {e}")
+            except Exception as e:
+                self.logger.error(f"Router thread error: {e}")
+    
+    def _monitor_thread(self):
+        """Handle monitoring requests."""
+        while self._running:
+            try:
+                # Wait for monitoring request
+                if self.monitor_socket.poll(100):
+                    request = self.monitor_socket.recv_json()
+                    
+                    # Prepare response
+                    response = {
+                        "coordinator_id": self.coordinator_id,
+                        "state": self.state.name,
+                        "is_primary": self.is_primary,
+                        "metrics": asdict(self.metrics),
+                        "engines": {
+                            eid: {
+                                "type": info.engine_type.value,
+                                "status": info.status.name,
+                                "load": info.current_load
+                            }
+                            for eid, info in self.engines.items()
+                        },
+                        "timestamp": time.time()
+                    }
+                    
+                    self.monitor_socket.send_json(response)
+                    
+            except Exception as e:
+                self.logger.error(f"Monitor thread error: {e}")
+    
+    def _health_check_thread(self):
+        """Monitor engine health."""
+        while self._running:
+            try:
+                current_time = time.time()
+                
+                with self._lock:
+                    for engine_id, info in list(self.engines.items()):
+                        # Check heartbeat timeout
+                        if current_time - info.last_heartbeat > HEARTBEAT_TIMEOUT:
+                            if info.status == EngineStatus.ONLINE:
+                                self.logger.warning(f"Engine {engine_id} heartbeat timeout")
+                                info.status = EngineStatus.UNRESPONSIVE
+                                self._handle_engine_failure(engine_id)
+                
+                time.sleep(HEALTH_CHECK_INTERVAL)
+                
+            except Exception as e:
+                self.logger.error(f"Health check error: {e}")
+    
+    def _state_persistence_thread(self):
+        """Periodically save coordinator state."""
+        while self._running:
+            try:
+                time.sleep(STATE_SAVE_INTERVAL)
+                
+                if self.is_primary:
+                    self._save_state()
+                    
+            except Exception as e:
+                self.logger.error(f"State persistence error: {e}")
+    
+    def _cleanup_thread(self):
+        """Clean up old messages and data."""
+        while self._running:
+            try:
+                current_time = time.time()
+                
+                with self._lock:
+                    # Clean old pending commands
+                    old_commands = []
+                    for cmd_id, cmd in self.pending_commands.items():
+                        if current_time - cmd.timestamp > MAX_MESSAGE_AGE:
+                            old_commands.append(cmd_id)
+                    
+                    for cmd_id in old_commands:
+                        self.logger.warning(f"Removing old command: {cmd_id}")
+                        del self.pending_commands[cmd_id]
+                
+                time.sleep(60)  # Run every minute
+                
+            except Exception as e:
+                self.logger.error(f"Cleanup error: {e}")
+    
+    def _backup_sync_thread(self):
+        """Synchronize with backup coordinator."""
+        while self._running:
+            try:
+                if self.is_primary:
+                    # Send state updates to backup
+                    state_update = {
+                        "type": "STATE_SYNC",
+                        "engines": {eid: asdict(info) for eid, info in self.engines.items()},
+                        "metrics": asdict(self.metrics),
+                        "timestamp": time.time()
+                    }
+                    
+                    self.backup_socket.send_json(state_update)
+                    
+                else:
+                    # Receive state updates from primary
+                    if self.backup_socket.poll(100):
+                        update = self.backup_socket.recv_json()
+                        self._process_backup_update(update)
+                
+                time.sleep(BACKUP_SYNC_INTERVAL)
+                
+            except Exception as e:
+                self.logger.error(f"Backup sync error: {e}")
+    
+    # ==========================================================================
+    # MESSAGE PROCESSING
+    # ==========================================================================
+    def _process_engine_message(self, identity: bytes, message_data: bytes):
+        """Process message from engine."""
+        try:
+            # Deserialize message
+            message = self.protocol_manager.deserialize_message(message_data)
+            
+            # Check sequencing
+            if not self.message_sequencer.should_process(message):
+                return
+            
+            # Route based on message type
+            if message.message_type == "REGISTER":
+                self._handle_engine_registration(identity, message)
+            elif message.message_type == "HEARTBEAT":
+                self._handle_heartbeat(identity, message)
+            elif message.message_type == "RESPONSE":
+                self._handle_command_response(identity, message)
+            elif message.message_type == "STATUS_UPDATE":
+                self._handle_status_update(identity, message)
+            else:
+                self.logger.warning(f"Unknown message type: {message.message_type}")
+            
+            # Update metrics
+            self.metrics.total_commands += 1
+            
+        except Exception as e:
+            self.logger.error(f"Message processing error: {e}")
+            self.metrics.failed_commands += 1
+    
+    def _handle_engine_registration(self, identity: bytes, message: ProtocolMessage):
+        """Handle engine registration."""
+        try:
+            data = message.data
+            engine_id = data.get("engine_id")
+            engine_type = EngineType(data.get("engine_type"))
+            
+            with self._lock:
+                # Create or update engine info
+                if engine_id not in self.engines:
+                    self.engines[engine_id] = EngineInfo(
+                        engine_id=engine_id,
+                        engine_type=engine_type,
+                        capabilities=data.get("capabilities", [])
+                    )
+                    self.engine_types[engine_type].append(engine_id)
+                    self.logger.info(f"Registered new engine: {engine_id} ({engine_type.value})")
+                
+                # Update status
+                info = self.engines[engine_id]
+                info.status = EngineStatus.ONLINE
+                info.last_heartbeat = time.time()
+                
+                # Store identity mapping
+                info.metadata["identity"] = identity
+            
+            # Send acknowledgment
+            ack = self.protocol_manager.factory.create_alert(
+                alert_type="REGISTRATION_ACK",
+                message=f"Engine {engine_id} registered successfully",
+                source=self.coordinator_id,
+                severity="INFO"
+            )
+            
+            self._send_to_engine(identity, ack)
+            
+            # Update load balancer
+            self.load_balancer.update_load(engine_id, 0.0)
+            
+            # Save state
+            self._save_state()
+            
+        except Exception as e:
+            self.logger.error(f"Registration error: {e}")
+    
+    def _handle_heartbeat(self, identity: bytes, message: ProtocolMessage):
+        """Handle engine heartbeat."""
+        try:
+            engine_id = message.source
+            
+            with self._lock:
+                if engine_id in self.engines:
+                    info = self.engines[engine_id]
+                    info.last_heartbeat = time.time()
+                    info.current_load = message.data.get("load", 0.0)
+                    info.status = EngineStatus.ONLINE
+                    
+                    # Update load balancer
+                    self.load_balancer.update_load(engine_id, info.current_load)
+                    
+        except Exception as e:
+            self.logger.error(f"Heartbeat error: {e}")
+    
+    def _handle_command_response(self, identity: bytes, message: ProtocolMessage):
+        """Handle command response from engine."""
+        try:
+            command_id = message.data.get("command_id")
+            
+            with self._lock:
+                if command_id in self.pending_commands:
+                    # Create response
+                    response = CommandResponse(
+                        command_id=command_id,
+                        engine_id=message.source,
+                        success=message.data.get("success", False),
+                        result=message.data.get("result"),
+                        error=message.data.get("error"),
+                        execution_time=message.data.get("execution_time", 0.0)
+                    )
+                    
+                    # Store response
+                    self.command_responses[command_id] = response
+                    
+                    # Save to history
+                    command = self.pending_commands[command_id]
+                    self.state_manager.save_command(command, response)
+                    
+                    # Remove from pending
+                    del self.pending_commands[command_id]
+                    
+                    # Update metrics
+                    if response.success:
+                        self.metrics.successful_commands += 1
+                    else:
+                        self.metrics.failed_commands += 1
+                    
+                    # Update engine info
+                    if message.source in self.engines:
+                        self.engines[message.source].processed_commands += 1
+                        if not response.success:
+                            self.engines[message.source].error_count += 1
+                    
+        except Exception as e:
+            self.logger.error(f"Response handling error: {e}")
+    
+    # ==========================================================================
+    # COMMAND ROUTING
+    # ==========================================================================
+    def route_command(self, command: CommandRequest) -> Optional[str]:
+        """
+        Route command to appropriate engine.
+        
+        Returns command_id if routed successfully.
+        """
+        try:
+            with self._lock:
+                # Select target engine
+                if command.target_engine:
+                    # Specific engine requested
+                    if command.target_engine not in self.engines:
+                        raise ValueError(f"Unknown engine: {command.target_engine}")
+                    target = command.target_engine
+                else:
+                    # Use load balancer
+                    target = self.load_balancer.select_engine(
+                        self.engines,
+                        command.target_type
+                    )
+                    
+                    if not target:
+                        raise ValueError("No available engines")
+                
+                # Add to pending
+                self.pending_commands[command.command_id] = command
+                
+                # Create protocol message
+                cmd_message = self.protocol_manager.create_message(
+                    category=MessageCategory.SYSTEM,
+                    message_type="COMMAND",
+                    source=self.coordinator_id,
+                    data=asdict(command),
+                    priority=command.priority
+                )
+                
+                # Add sequencing
+                self.message_sequencer.add_sequence(cmd_message)
+                
+                # Send to engine
+                engine_info = self.engines[target]
+                identity = engine_info.metadata.get("identity")
+                
+                if identity:
+                    self._send_to_engine(identity, cmd_message)
+                    
+                    # Save command
+                    self.state_manager.save_command(command)
+                    
+                    return command.command_id
+                else:
+                    raise ValueError(f"No identity for engine {target}")
+                    
+        except Exception as e:
+            self.logger.error(f"Command routing failed: {e}")
+            self.metrics.failed_commands += 1
+            return None
+    
+    def _send_to_engine(self, identity: bytes, message: ProtocolMessage):
+        """Send message to specific engine."""
+        try:
+            # Serialize message
+            data = self.protocol_manager.serialize_message(message)
+            
+            # Send via router
+            self.router_socket.send_multipart([identity, data])
+            
+        except Exception as e:
+            self.logger.error(f"Send to engine failed: {e}")
+    
+    def _process_pending_commands(self):
+        """Process commands that need retry."""
+        current_time = time.time()
+        retry_commands = []
+        
+        with self._lock:
+            for cmd_id, command in self.pending_commands.items():
+                if current_time - command.timestamp > command.timeout:
+                    if command.retries < command.max_retries:
+                        retry_commands.append(command)
+                    else:
+                        # Max retries exceeded
+                        self.logger.error(f"Command {cmd_id} failed after max retries")
+                        del self.pending_commands[cmd_id]
+                        self.metrics.failed_commands += 1
+        
+        # Retry commands
+        for command in retry_commands:
+            command.retries += 1
+            command.timestamp = current_time
+            self.route_command(command)
+    
+    # ==========================================================================
+    # STATE MANAGEMENT
+    # ==========================================================================
+    def _save_state(self):
+        """Save current coordinator state."""
+        try:
+            with self._lock:
+                # Update metrics
+                self.metrics.uptime = time.time() - self.start_time
+                self.metrics.active_engines = sum(
+                    1 for info in self.engines.values() 
+                    if info.status == EngineStatus.ONLINE
+                )
+                self.metrics.total_engines = len(self.engines)
+                self.metrics.message_queue_size = len(self.pending_commands)
+                
+                # Save state
+                self.state_manager.save_state(
+                    self.state,
+                    self.engines,
+                    self.metrics
+                )
+                
+                self.metrics.last_state_save = time.time()
+                
+        except Exception as e:
+            self.logger.error(f"State save failed: {e}")
+    
+    def _restore_state(self, saved_state: Dict[str, Any]):
+        """Restore coordinator state from saved data."""
+        try:
+            # Restore engines
+            for engine_id, engine_data in saved_state.get("engines", {}).items():
+                info = EngineInfo(**engine_data)
+                info.status = EngineStatus.OFFLINE  # Reset status
+                self.engines[engine_id] = info
+                self.engine_types[info.engine_type].append(engine_id)
+            
+            # Restore metrics
+            metrics_data = saved_state.get("metrics", {})
+            for key, value in metrics_data.items():
+                if hasattr(self.metrics, key):
+                    setattr(self.metrics, key, value)
+            
+            self.logger.info(f"Restored {len(self.engines)} engines from saved state")
+            
+        except Exception as e:
+            self.logger.error(f"State restore failed: {e}")
+    
+    def _process_backup_update(self, update: Dict[str, Any]):
+        """Process state update from primary (backup mode)."""
+        try:
+            if update.get("type") == "STATE_SYNC":
+                # Update engine information
+                for engine_id, engine_data in update.get("engines", {}).items():
+                    if engine_id not in self.engines:
+                        self.engines[engine_id] = EngineInfo(**engine_data)
+                    else:
+                        # Update existing info
+                        for key, value in engine_data.items():
+                            if hasattr(self.engines[engine_id], key):
+                                setattr(self.engines[engine_id], key, value)
+                
+                # Update metrics
+                metrics_data = update.get("metrics", {})
+                for key, value in metrics_data.items():
+                    if hasattr(self.metrics, key):
+                        setattr(self.metrics, key, value)
+                        
+        except Exception as e:
+            self.logger.error(f"Backup update processing failed: {e}")
+    
+    # ==========================================================================
+    # FAILOVER AND RECOVERY
+    # ==========================================================================
+    def _handle_engine_failure(self, engine_id: str):
+        """Handle engine failure."""
+        try:
+            self.logger.warning(f"

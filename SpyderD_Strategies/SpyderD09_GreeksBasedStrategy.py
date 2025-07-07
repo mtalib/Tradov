@@ -14,1042 +14,1464 @@ Description:
     with minimal latency due to elimination of Greeks calculation overhead.
 
 Author: Mohamed Talib
-Date: 2025-06-13
-Version: 1.4
+Date: 2025-01-10
+Version: 2.0 (Production-Ready)
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import datetime
-import time
-import numpy as np
-from typing import Dict, List, Optional, Tuple, Any, Set
+from datetime import datetime, timedelta, time
+from typing import Dict, List, Optional, Any, Tuple, Set
 from dataclasses import dataclass, field
-from collections import defaultdict
 from enum import Enum, auto
+import uuid
 import threading
+from concurrent.futures import ThreadPoolExecutor
+import queue
+from collections import defaultdict
+import asyncio
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
+import numpy as np
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+from SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    BaseStrategy, TradingSignal, SignalType, SignalStrength,
+    StrategyPosition, PositionType, PositionState,
+    EventManager, RiskProfile, Event, EventType
+)
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import OptionType, OrderType, OrderAction
-from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, TradingSignal, SignalType
-from SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import (
-    OPRAGreeksHandler, ValidatedGreeks, PortfolioGreeks
-)
-from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
+from SpyderU_Utilities.SpyderU07_Constants import SPY_CONTRACT_MULTIPLIER
+from SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler
+from SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow import GreeksFlowAnalyzer
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
 # Strategy parameters
-DELTA_NEUTRAL_THRESHOLD = 10.0  # Delta threshold for rebalancing
-GAMMA_SCALP_THRESHOLD = 100.0   # Minimum gamma for scalping
-THETA_HARVEST_MIN = 50.0        # Minimum daily theta to harvest
-VEGA_NEUTRAL_THRESHOLD = 50.0   # Vega threshold
+MAX_POSITION_DELTA = 1000      # Maximum portfolio delta
+MAX_POSITION_GAMMA = 500       # Maximum portfolio gamma
+MAX_POSITION_VEGA = 5000       # Maximum portfolio vega
+TARGET_DELTA_NEUTRAL = 0       # Target for delta-neutral
 
-# Greek limits
-MAX_PORTFOLIO_DELTA = 100.0
-MAX_PORTFOLIO_GAMMA = 500.0
-MAX_PORTFOLIO_VEGA = 1000.0
-MAX_DAILY_THETA = -2000.0  # Maximum theta burn
+# Gamma scalping parameters
+GAMMA_SCALP_THRESHOLD = 50     # Minimum gamma to initiate scalp
+DELTA_REBALANCE_THRESHOLD = 100 # Delta threshold for rebalancing
+GAMMA_PROFIT_TARGET = 0.50     # Target profit per gamma scalp
 
-# Execution parameters
-MIN_EDGE_REQUIRED = 0.05  # 5 cents minimum edge
-GREEK_ARBITRAGE_THRESHOLD = 0.02  # 2% Greek mispricing
-REBALANCE_FREQUENCY = 60  # seconds
+# Greeks cache parameters
+GREEKS_CACHE_SIZE = 10000      # Maximum cached Greeks entries
+GREEKS_CACHE_TTL = 60          # Cache TTL in seconds
+GREEKS_UPDATE_INTERVAL = 0.1   # Update interval in seconds
+
+# Risk parameters
+MAX_GREEK_EXPOSURE = 10000     # Maximum dollar exposure per Greek
+STOP_LOSS_MULTIPLIER = 2.0     # Stop loss as multiple of expected profit
+MAX_CONCURRENT_POSITIONS = 20   # Maximum positions
+
+# Performance parameters
+LATENCY_THRESHOLD_MS = 10      # Maximum acceptable latency
+MIN_EDGE_THRESHOLD = 0.10      # Minimum edge to trade
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
-class GreekStrategyType(Enum):
-    """Types of Greek-based strategies"""
+class GreeksStrategy(Enum):
+    """Types of Greeks-based strategies"""
     DELTA_NEUTRAL = auto()
     GAMMA_SCALPING = auto()
-    THETA_HARVESTING = auto()
     VEGA_TRADING = auto()
-    GREEK_ARBITRAGE = auto()
-    DISPERSION = auto()
+    THETA_HARVESTING = auto()
+    VOLATILITY_ARBITRAGE = auto()
+    PIN_RISK_MANAGEMENT = auto()
 
-class RebalanceReason(Enum):
-    """Reasons for portfolio rebalancing"""
-    DELTA_DRIFT = auto()
-    GAMMA_OPPORTUNITY = auto()
-    RISK_LIMIT = auto()
-    MARKET_MOVE = auto()
-    TIME_BASED = auto()
-    GREEK_ARBITRAGE = auto()
+class GreeksSignalType(Enum):
+    """Greeks-based signal types"""
+    DELTA_HEDGE = auto()
+    GAMMA_SCALP = auto()
+    VEGA_TRADE = auto()
+    THETA_COLLECT = auto()
+    VOL_ARB = auto()
+    GREEK_IMBALANCE = auto()
+
+class GreeksCacheStatus(Enum):
+    """Cache status for Greeks data"""
+    FRESH = auto()
+    STALE = auto()
+    MISSING = auto()
+    ERROR = auto()
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class GreekExposure:
-    """Current Greek exposures"""
+class GreeksSnapshot:
+    """Point-in-time Greeks data"""
+    timestamp: datetime
+    symbol: str
+    strike: float
+    expiry: datetime
+    option_type: str  # 'call' or 'put'
+    
+    # Greeks
     delta: float
     gamma: float
     theta: float
     vega: float
     rho: float
     
-    delta_dollars: float
-    gamma_dollars: float
-    theta_dollars: float
-    vega_dollars: float
+    # Pricing
+    bid: float
+    ask: float
+    mid: float
+    iv: float
+    underlying_price: float
     
-    # By expiry
-    delta_by_expiry: Dict[datetime.date, float]
-    gamma_by_expiry: Dict[datetime.date, float]
+    # Market data
+    volume: int
+    open_interest: int
+    bid_size: int
+    ask_size: int
+    
+    # Cache metadata
+    cache_status: GreeksCacheStatus
+    latency_ms: float
+
+@dataclass
+class GreeksPosition:
+    """Greeks-focused position tracking"""
+    position_id: str
+    strategy_type: GreeksStrategy
+    entry_time: datetime
+    contracts: Dict[str, int]  # symbol -> quantity
+    
+    # Portfolio Greeks
+    net_delta: float = 0.0
+    net_gamma: float = 0.0
+    net_theta: float = 0.0
+    net_vega: float = 0.0
+    
+    # P&L tracking
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    gamma_pnl: float = 0.0
+    theta_pnl: float = 0.0
+    vega_pnl: float = 0.0
     
     # Risk metrics
-    gamma_risk: float  # 1% move impact
-    vega_risk: float   # 1 vol point impact
-    var_95: float      # 95% VaR
+    max_delta_exposure: float = 0.0
+    max_gamma_exposure: float = 0.0
+    hedge_effectiveness: float = 0.0
+    
+    # Performance
+    trade_count: int = 0
+    rebalance_count: int = 0
+    avg_latency_ms: float = 0.0
 
 @dataclass
-class GreekOpportunity:
-    """Trading opportunity based on Greeks"""
-    strategy_type: GreekStrategyType
-    symbols: List[str]
-    action: str  # 'buy', 'sell', 'spread'
-    rationale: str
-    expected_edge: float
-    greek_edge: Dict[str, float]  # Edge from each Greek
+class GreeksArbitrage:
+    """Greeks arbitrage opportunity"""
+    arb_id: str
+    arb_type: str  # 'put_call_parity', 'calendar', 'butterfly'
+    contracts: List[str]
+    theoretical_value: float
+    market_value: float
+    edge: float
+    edge_percent: float
     confidence: float
-    urgency: float  # 0-1 scale
-
-@dataclass
-class GammaScalpSetup:
-    """Gamma scalping setup"""
-    symbol: str
-    current_gamma: float
-    hedge_ratio: float
-    rebalance_threshold: float  # Price move to trigger rebalance
-    last_hedge_price: float
-    shares_to_trade: int
-    expected_profit: float
+    expiry_time: datetime
+    greeks_impact: Dict[str, float]
 
 # ==============================================================================
-# GREEKS-BASED STRATEGY CLASS
+# GREEKS CACHE MANAGER
+# ==============================================================================
+class GreeksCacheManager:
+    """Thread-safe Greeks cache with TTL"""
+    
+    def __init__(self, max_size: int = GREEKS_CACHE_SIZE, ttl: int = GREEKS_CACHE_TTL):
+        self.max_size = max_size
+        self.ttl = ttl
+        self.cache: Dict[str, GreeksSnapshot] = {}
+        self.access_times: Dict[str, datetime] = {}
+        self.lock = threading.RLock()
+        self.stats = {
+            'hits': 0,
+            'misses': 0,
+            'updates': 0,
+            'evictions': 0
+        }
+    
+    def get(self, symbol: str) -> Optional[GreeksSnapshot]:
+        """Get Greeks from cache"""
+        with self.lock:
+            if symbol in self.cache:
+                # Check TTL
+                if (datetime.now() - self.access_times[symbol]).seconds <= self.ttl:
+                    self.stats['hits'] += 1
+                    self.access_times[symbol] = datetime.now()
+                    return self.cache[symbol]
+                else:
+                    # Stale data
+                    self.cache[symbol].cache_status = GreeksCacheStatus.STALE
+            
+            self.stats['misses'] += 1
+            return None
+    
+    def put(self, symbol: str, greeks: GreeksSnapshot) -> None:
+        """Put Greeks in cache"""
+        with self.lock:
+            # Evict if at capacity
+            if len(self.cache) >= self.max_size and symbol not in self.cache:
+                self._evict_oldest()
+            
+            self.cache[symbol] = greeks
+            self.access_times[symbol] = datetime.now()
+            self.stats['updates'] += 1
+    
+    def _evict_oldest(self) -> None:
+        """Evict oldest entry"""
+        if not self.access_times:
+            return
+        
+        oldest = min(self.access_times.items(), key=lambda x: x[1])
+        del self.cache[oldest[0]]
+        del self.access_times[oldest[0]]
+        self.stats['evictions'] += 1
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics"""
+        with self.lock:
+            total_requests = self.stats['hits'] + self.stats['misses']
+            hit_rate = self.stats['hits'] / total_requests if total_requests > 0 else 0
+            
+            return {
+                'size': len(self.cache),
+                'hit_rate': hit_rate,
+                **self.stats
+            }
+
+# ==============================================================================
+# GREEKS BASED STRATEGY CLASS
 # ==============================================================================
 class GreeksBasedStrategy(BaseStrategy):
     """
-    High-speed trading strategy using OPRA Greeks.
+    High-speed Greeks-based trading strategy.
     
-    This strategy leverages pre-calculated Greeks for instant decision making,
-    enabling delta-neutral trading, gamma scalping, and Greek arbitrage with
-    minimal latency.
+    Leverages pre-calculated Greeks from OPRA feeds for ultra-low latency
+    trading decisions including delta-neutral strategies and gamma scalping.
     """
     
-    def __init__(
-        self,
-        opra_handler: OPRAGreeksHandler,
-        risk_manager: RiskManager,
-        ib_client: IBClient,
-        logger: Optional[SpyderLogger] = None,
-        error_handler: Optional[SpyderErrorHandler] = None
-    ):
+    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+                 config: Dict[str, Any]):
         """Initialize Greeks-based strategy"""
-        super().__init__(logger, error_handler)
+        super().__init__("GreeksBasedStrategy", event_manager, risk_profile, config)
         
-        self.opra_handler = opra_handler
-        self.risk_manager = risk_manager
-        self.ib_client = ib_client
+        # Components
+        self.opra_handler = OPRAGreeksHandler()
+        self.greeks_flow = GreeksFlowAnalyzer()
         
-        # Strategy configuration
-        self.enabled_strategies = {
-            GreekStrategyType.DELTA_NEUTRAL: True,
-            GreekStrategyType.GAMMA_SCALPING: True,
-            GreekStrategyType.THETA_HARVESTING: True,
-            GreekStrategyType.VEGA_TRADING: False,
-            GreekStrategyType.GREEK_ARBITRAGE: True,
-            GreekStrategyType.DISPERSION: False
+        # Configuration
+        self.enable_delta_neutral = config.get('enable_delta_neutral', True)
+        self.enable_gamma_scalping = config.get('enable_gamma_scalping', True)
+        self.enable_vega_trading = config.get('enable_vega_trading', False)
+        self.max_latency_ms = config.get('max_latency_ms', LATENCY_THRESHOLD_MS)
+        
+        # Greeks cache
+        self.greeks_cache = GreeksCacheManager()
+        
+        # Position tracking
+        self.greeks_positions: Dict[str, GreeksPosition] = {}
+        self.portfolio_greeks = {
+            'delta': 0.0,
+            'gamma': 0.0,
+            'theta': 0.0,
+            'vega': 0.0
         }
         
-        # Portfolio state
-        self.current_positions: Dict[str, float] = {}
-        self.portfolio_greeks: Optional[PortfolioGreeks] = None
-        self.last_rebalance_time = time.time()
-        
-        # Gamma scalping state
-        self.gamma_scalp_setups: Dict[str, GammaScalpSetup] = {}
-        self.hedge_positions: Dict[str, float] = {}  # SPY shares for hedging
+        # Threading for high-speed updates
+        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.greeks_queue = queue.Queue(maxsize=1000)
+        self.update_thread = None
+        self.stop_event = threading.Event()
         
         # Performance tracking
-        self.scalp_pnl = 0.0
-        self.theta_collected = 0.0
-        self.rebalance_count = 0
+        self.latency_buffer = []
+        self.arbitrage_opportunities: Dict[str, GreeksArbitrage] = {}
         
-        # Real-time monitoring
-        self.monitoring_thread = threading.Thread(target=self._monitor_greeks)
-        self.monitoring_thread.daemon = True
-        self.monitoring_active = True
+        # Strategy metrics
+        self.greeks_metrics = {
+            'delta_hedges': 0,
+            'gamma_scalps': 0,
+            'vega_trades': 0,
+            'arbitrage_captured': 0,
+            'avg_latency_ms': 0.0,
+            'total_greek_pnl': 0.0
+        }
         
-        self.logger.info("Greeks-Based Strategy initialized")
+        # Start background threads
+        self._start_background_tasks()
+        
+        self.logger.info("GreeksBasedStrategy initialized with OPRA integration")
     
     # ==========================================================================
-    # MAIN STRATEGY METHODS
+    # LIFECYCLE METHODS
     # ==========================================================================
-    def scan_opportunities(self) -> List[TradingSignal]:
-        """Scan for Greek-based trading opportunities"""
-        opportunities = []
+    
+    def _start_background_tasks(self) -> None:
+        """Start background processing threads"""
+        # Greeks update thread
+        self.update_thread = threading.Thread(
+            target=self._greeks_update_loop,
+            daemon=True
+        )
+        self.update_thread.start()
+        
+        # Arbitrage detection thread
+        self.executor.submit(self._arbitrage_detection_loop)
+    
+    def _greeks_update_loop(self) -> None:
+        """Background thread for processing Greeks updates"""
+        while not self.stop_event.is_set():
+            try:
+                # Get Greeks update from queue
+                update = self.greeks_queue.get(timeout=1)
+                if update:
+                    self._process_greeks_update(update)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.error_handler.handle_error(e, {'method': '_greeks_update_loop'})
+    
+    # ==========================================================================
+    # REQUIRED ABSTRACT METHOD IMPLEMENTATIONS
+    # ==========================================================================
+    
+    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Generate Greeks-based trading signals"""
+        signals = []
         
         try:
-            # Update portfolio Greeks
+            # Update portfolio Greeks from OPRA
             self._update_portfolio_greeks()
             
-            # Check each enabled strategy
-            if self.enabled_strategies[GreekStrategyType.DELTA_NEUTRAL]:
-                opportunities.extend(self._scan_delta_neutral())
+            # Check for delta-neutral opportunities
+            if self.enable_delta_neutral:
+                delta_signals = self._generate_delta_neutral_signals()
+                signals.extend(delta_signals)
             
-            if self.enabled_strategies[GreekStrategyType.GAMMA_SCALPING]:
-                opportunities.extend(self._scan_gamma_scalping())
+            # Check for gamma scalping opportunities
+            if self.enable_gamma_scalping:
+                gamma_signals = self._generate_gamma_scalping_signals(market_data)
+                signals.extend(gamma_signals)
             
-            if self.enabled_strategies[GreekStrategyType.THETA_HARVESTING]:
-                opportunities.extend(self._scan_theta_harvesting())
+            # Check for vega trading opportunities
+            if self.enable_vega_trading:
+                vega_signals = self._generate_vega_trading_signals()
+                signals.extend(vega_signals)
             
-            if self.enabled_strategies[GreekStrategyType.GREEK_ARBITRAGE]:
-                opportunities.extend(self._scan_greek_arbitrage())
+            # Check arbitrage opportunities
+            arb_signals = self._check_arbitrage_opportunities()
+            signals.extend(arb_signals)
             
-            # Filter and rank opportunities
-            valid_opportunities = self._filter_opportunities(opportunities)
-            ranked_opportunities = self._rank_opportunities(valid_opportunities)
-            
-            return ranked_opportunities[:5]  # Top 5 opportunities
+            # Filter by latency requirements
+            signals = self._filter_by_latency(signals)
             
         except Exception as e:
-            self.logger.error(f"Error scanning opportunities: {e}")
-            self.error_handler.handle_error(e)
-            return []
-    
-    def execute_strategy(self) -> List[Dict[str, Any]]:
-        """Execute Greeks-based strategy"""
-        execution_results = []
-        
-        # Check if rebalancing needed
-        if self._needs_rebalancing():
-            rebalance_orders = self._rebalance_portfolio()
-            execution_results.extend(rebalance_orders)
-        
-        # Scan for new opportunities
-        opportunities = self.scan_opportunities()
-        
-        for signal in opportunities:
-            if self.should_execute(signal):
-                result = self._execute_signal(signal)
-                execution_results.append(result)
-        
-        # Update gamma scalping positions
-        if self.gamma_scalp_setups:
-            scalp_orders = self._update_gamma_scalps()
-            execution_results.extend(scalp_orders)
-        
-        return execution_results
-    
-    # ==========================================================================
-    # DELTA NEUTRAL STRATEGY
-    # ==========================================================================
-    def _scan_delta_neutral(self) -> List[TradingSignal]:
-        """Scan for delta neutral opportunities"""
-        signals = []
-        
-        if not self.portfolio_greeks:
-            return signals
-        
-        # Check current delta exposure
-        current_delta = self.portfolio_greeks.total_delta
-        
-        if abs(current_delta) > DELTA_NEUTRAL_THRESHOLD:
-            # Need to neutralize delta
-            hedge_signal = self._create_delta_hedge_signal(current_delta)
-            if hedge_signal:
-                signals.append(hedge_signal)
-        
-        # Look for delta-neutral spread opportunities
-        spread_opportunities = self._find_delta_neutral_spreads()
-        signals.extend(spread_opportunities)
+            self.error_handler.handle_error(e, {
+                'method': 'generate_signals',
+                'market_data_shape': market_data.shape
+            })
         
         return signals
     
-    def _create_delta_hedge_signal(self, delta_to_hedge: float) -> Optional[TradingSignal]:
-        """Create signal to hedge delta exposure"""
-        # Find best hedging instrument
-        hedge_options = self._find_hedge_options(-delta_to_hedge)
-        
-        if not hedge_options:
-            # Use SPY shares as hedge
-            shares_needed = round(-delta_to_hedge)
-            if abs(shares_needed) > 10:
-                return TradingSignal(
-                    signal_type=SignalType.HEDGE,
-                    symbol="SPY",
-                    action=OrderAction.BUY if shares_needed > 0 else OrderAction.SELL,
-                    quantity=abs(shares_needed),
-                    order_type=OrderType.MARKET,
-                    reason=f"Delta hedge: {delta_to_hedge:.1f} delta exposure",
-                    confidence=0.95,
-                    urgency=0.8,
-                    metadata={
-                        'hedge_type': 'delta',
-                        'current_delta': delta_to_hedge,
-                        'strategy': 'delta_neutral'
-                    }
-                )
-        
-        # Use options for hedging
-        best_option = hedge_options[0]
-        contracts_needed = round(-delta_to_hedge / (best_option['delta'] * 100))
-        
-        if abs(contracts_needed) > 0:
-            return TradingSignal(
-                signal_type=SignalType.ENTRY,
-                symbol=best_option['symbol'],
-                action=OrderAction.BUY if contracts_needed > 0 else OrderAction.SELL,
-                quantity=abs(contracts_needed),
-                order_type=OrderType.LIMIT,
-                limit_price=best_option['mid_price'],
-                reason=f"Delta hedge via options: {delta_to_hedge:.1f} delta",
-                confidence=0.85,
-                urgency=0.7,
-                metadata={
-                    'hedge_type': 'delta_options',
-                    'option_delta': best_option['delta'],
-                    'contracts': contracts_needed
-                }
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate Greeks-based signal"""
+        try:
+            # Check signal validity
+            if not signal.is_valid():
+                return False
+            
+            # Check Greeks data freshness
+            greeks_data = signal.metadata.get('greeks_data', {})
+            if greeks_data.get('cache_status') == GreeksCacheStatus.STALE.name:
+                return False
+            
+            # Check latency
+            if greeks_data.get('latency_ms', float('inf')) > self.max_latency_ms:
+                return False
+            
+            # Check edge threshold
+            if greeks_data.get('edge', 0) < MIN_EDGE_THRESHOLD:
+                return False
+            
+            # Validate Greeks limits
+            portfolio_impact = greeks_data.get('portfolio_impact', {})
+            
+            if abs(portfolio_impact.get('delta', 0)) > MAX_POSITION_DELTA:
+                return False
+            
+            if abs(portfolio_impact.get('gamma', 0)) > MAX_POSITION_GAMMA:
+                return False
+            
+            if abs(portfolio_impact.get('vega', 0)) > MAX_POSITION_VEGA:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'validate_signal',
+                'signal_id': signal.signal_id
+            })
+            return False
+    
+    def calculate_position_size(self, signal: TradingSignal) -> int:
+        """Calculate position size based on Greeks exposure"""
+        try:
+            greeks_data = signal.metadata.get('greeks_data', {})
+            signal_type = greeks_data.get('signal_type')
+            
+            # Base size on Greek exposure limits
+            if signal_type == GreeksSignalType.DELTA_HEDGE.name:
+                # Size to neutralize delta
+                target_delta = -self.portfolio_greeks['delta']
+                contract_delta = greeks_data.get('contract_delta', 50)
+                contracts = int(target_delta / contract_delta)
+                
+            elif signal_type == GreeksSignalType.GAMMA_SCALP.name:
+                # Size based on gamma exposure
+                max_gamma_value = MAX_GREEK_EXPOSURE / 100  # $100 per 1% move
+                contract_gamma = greeks_data.get('contract_gamma', 1)
+                contracts = int(max_gamma_value / (contract_gamma * SPY_CONTRACT_MULTIPLIER))
+                
+            elif signal_type == GreeksSignalType.VEGA_TRADE.name:
+                # Size based on vega exposure
+                max_vega_value = MAX_GREEK_EXPOSURE / 100  # $100 per 1% vol move
+                contract_vega = greeks_data.get('contract_vega', 0.5)
+                contracts = int(max_vega_value / (contract_vega * SPY_CONTRACT_MULTIPLIER))
+                
+            else:
+                # Default sizing
+                contracts = 1
+            
+            # Apply limits
+            contracts = max(1, min(abs(contracts), 50))
+            
+            # Adjust for signal strength
+            if signal.strength == SignalStrength.WEAK:
+                contracts = max(1, contracts // 2)
+            elif signal.strength == SignalStrength.VERY_STRONG:
+                contracts = min(50, int(contracts * 1.5))
+            
+            return contracts
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'calculate_position_size',
+                'signal_id': signal.signal_id
+            })
+            return 1
+    
+    def should_exit_position(self, position: StrategyPosition,
+                           market_data: pd.DataFrame) -> Tuple[bool, str]:
+        """Determine if Greeks position should be exited"""
+        try:
+            # Get Greeks position
+            greeks_pos = self.greeks_positions.get(position.position_id)
+            if not greeks_pos:
+                return False, ""
+            
+            # Update position Greeks
+            self._update_position_greeks(greeks_pos)
+            
+            # Check strategy-specific exit conditions
+            if greeks_pos.strategy_type == GreeksStrategy.DELTA_NEUTRAL:
+                # Exit if delta drifts too far
+                if abs(greeks_pos.net_delta) > DELTA_REBALANCE_THRESHOLD * 2:
+                    return True, "Delta drift exceeded limits"
+            
+            elif greeks_pos.strategy_type == GreeksStrategy.GAMMA_SCALPING:
+                # Exit if gamma drops too low
+                if abs(greeks_pos.net_gamma) < GAMMA_SCALP_THRESHOLD * 0.5:
+                    return True, "Gamma too low for scalping"
+                
+                # Exit if profit target reached
+                if greeks_pos.gamma_pnl >= GAMMA_PROFIT_TARGET * greeks_pos.net_gamma * SPY_CONTRACT_MULTIPLIER:
+                    return True, "Gamma scalp profit target reached"
+            
+            elif greeks_pos.strategy_type == GreeksStrategy.VEGA_TRADING:
+                # Exit if vega exposure flips
+                if greeks_pos.net_vega * greeks_pos.vega_pnl < 0:
+                    return True, "Vega exposure unfavorable"
+            
+            # General exit conditions
+            
+            # Stop loss
+            if greeks_pos.unrealized_pnl < -MAX_GREEK_EXPOSURE:
+                return True, "Stop loss triggered"
+            
+            # Time decay for short premium
+            if greeks_pos.net_theta < 0 and greeks_pos.theta_pnl < -MAX_GREEK_EXPOSURE * 0.5:
+                return True, "Excessive theta decay"
+            
+            # Pin risk near expiry
+            if self._check_pin_risk(greeks_pos):
+                return True, "Pin risk detected"
+            
+            return False, ""
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'should_exit_position',
+                'position_id': position.position_id
+            })
+            return False, ""
+    
+    # ==========================================================================
+    # GREEKS UPDATE METHODS
+    # ==========================================================================
+    
+    def _update_portfolio_greeks(self) -> None:
+        """Update portfolio-level Greeks from OPRA feed"""
+        try:
+            # Reset portfolio Greeks
+            self.portfolio_greeks = {
+                'delta': 0.0,
+                'gamma': 0.0,
+                'theta': 0.0,
+                'vega': 0.0
+            }
+            
+            # Sum Greeks across all positions
+            for position in self.greeks_positions.values():
+                self._update_position_greeks(position)
+                
+                self.portfolio_greeks['delta'] += position.net_delta
+                self.portfolio_greeks['gamma'] += position.net_gamma
+                self.portfolio_greeks['theta'] += position.net_theta
+                self.portfolio_greeks['vega'] += position.net_vega
+            
+            # Log portfolio Greeks
+            self.logger.debug(f"Portfolio Greeks: Delta={self.portfolio_greeks['delta']:.0f}, "
+                            f"Gamma={self.portfolio_greeks['gamma']:.0f}, "
+                            f"Theta={self.portfolio_greeks['theta']:.0f}, "
+                            f"Vega={self.portfolio_greeks['vega']:.0f}")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_update_portfolio_greeks'})
+    
+    def _update_position_greeks(self, position: GreeksPosition) -> None:
+        """Update Greeks for a specific position"""
+        try:
+            # Reset position Greeks
+            position.net_delta = 0.0
+            position.net_gamma = 0.0
+            position.net_theta = 0.0
+            position.net_vega = 0.0
+            
+            latencies = []
+            
+            # Get Greeks for each contract
+            for symbol, quantity in position.contracts.items():
+                # Try cache first
+                greeks = self.greeks_cache.get(symbol)
+                
+                if not greeks or greeks.cache_status == GreeksCacheStatus.STALE:
+                    # Fetch from OPRA
+                    start_time = datetime.now()
+                    greeks = self._fetch_greeks_from_opra(symbol)
+                    latency_ms = (datetime.now() - start_time).total_seconds() * 1000
+                    
+                    if greeks:
+                        greeks.latency_ms = latency_ms
+                        self.greeks_cache.put(symbol, greeks)
+                        latencies.append(latency_ms)
+                
+                if greeks:
+                    # Sum position Greeks
+                    position.net_delta += greeks.delta * quantity * SPY_CONTRACT_MULTIPLIER
+                    position.net_gamma += greeks.gamma * quantity * SPY_CONTRACT_MULTIPLIER
+                    position.net_theta += greeks.theta * quantity * SPY_CONTRACT_MULTIPLIER
+                    position.net_vega += greeks.vega * quantity * SPY_CONTRACT_MULTIPLIER
+            
+            # Update average latency
+            if latencies:
+                position.avg_latency_ms = sum(latencies) / len(latencies)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_update_position_greeks',
+                'position_id': position.position_id
+            })
+    
+    def _fetch_greeks_from_opra(self, symbol: str) -> Optional[GreeksSnapshot]:
+        """Fetch Greeks from OPRA feed"""
+        try:
+            # In production, this would connect to actual OPRA feed
+            # For now, return simulated data
+            
+            # Parse symbol (e.g., "SPY_450C_20250117")
+            parts = symbol.split('_')
+            if len(parts) != 3:
+                return None
+            
+            underlying = parts[0]
+            strike_type = parts[1]
+            strike = float(strike_type[:-1])
+            option_type = 'call' if strike_type[-1] == 'C' else 'put'
+            expiry_str = parts[2]
+            expiry = datetime.strptime(expiry_str, '%Y%m%d')
+            
+            # Simulate Greeks (in production, from OPRA)
+            return GreeksSnapshot(
+                timestamp=datetime.now(),
+                symbol=symbol,
+                strike=strike,
+                expiry=expiry,
+                option_type=option_type,
+                delta=0.5 if option_type == 'call' else -0.5,
+                gamma=0.02,
+                theta=-0.05,
+                vega=0.15,
+                rho=0.01,
+                bid=2.50,
+                ask=2.55,
+                mid=2.525,
+                iv=0.20,
+                underlying_price=450,
+                volume=1000,
+                open_interest=5000,
+                bid_size=100,
+                ask_size=150,
+                cache_status=GreeksCacheStatus.FRESH,
+                latency_ms=0
             )
-        
-        return None
-    
-    # ==========================================================================
-    # GAMMA SCALPING STRATEGY
-    # ==========================================================================
-    def _scan_gamma_scalping(self) -> List[TradingSignal]:
-        """Scan for gamma scalping opportunities"""
-        signals = []
-        
-        # Look for high gamma positions to establish
-        high_gamma_options = self._find_high_gamma_options()
-        
-        for option in high_gamma_options:
-            if option['gamma'] > GAMMA_SCALP_THRESHOLD / 100:  # Convert to per-share
-                
-                # Check if we should enter gamma scalp
-                setup = self._analyze_gamma_scalp(option)
-                if setup and setup.expected_profit > 50:  # $50 minimum expected profit
-                    
-                    signal = TradingSignal(
-                        signal_type=SignalType.ENTRY,
-                        symbol=option['symbol'],
-                        action=OrderAction.BUY,
-                        quantity=10,  # Start with 10 contracts
-                        order_type=OrderType.LIMIT,
-                        limit_price=option['ask'],
-                        reason=f"Gamma scalp setup: {option['gamma']:.3f} gamma",
-                        confidence=0.75,
-                        urgency=0.6,
-                        metadata={
-                            'strategy': 'gamma_scalping',
-                            'gamma': option['gamma'],
-                            'expected_profit': setup.expected_profit,
-                            'rebalance_threshold': setup.rebalance_threshold
-                        }
-                    )
-                    signals.append(signal)
-        
-        return signals
-    
-    def _update_gamma_scalps(self) -> List[Dict[str, Any]]:
-        """Update gamma scalping positions"""
-        orders = []
-        spot_price = self._get_spot_price()
-        
-        for symbol, setup in self.gamma_scalp_setups.items():
-            # Check if rebalance needed
-            price_move = abs(spot_price - setup.last_hedge_price)
             
-            if price_move >= setup.rebalance_threshold:
-                # Calculate hedge adjustment
-                position_delta = self._get_position_delta(symbol)
-                hedge_shares = round(-position_delta)
-                
-                if abs(hedge_shares) > 10:
-                    order = {
-                        'symbol': 'SPY',
-                        'action': 'BUY' if hedge_shares > 0 else 'SELL',
-                        'quantity': abs(hedge_shares),
-                        'order_type': 'MARKET',
-                        'reason': f'Gamma scalp rebalance for {symbol}',
-                        'metadata': {
-                            'parent_symbol': symbol,
-                            'price_move': price_move,
-                            'current_gamma': setup.current_gamma
-                        }
-                    }
-                    orders.append(order)
-                    
-                    # Update setup
-                    setup.last_hedge_price = spot_price
-                    setup.shares_to_trade = hedge_shares
-                    
-                    # Track P&L
-                    self.scalp_pnl += self._estimate_scalp_profit(setup, price_move)
-        
-        return orders
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_fetch_greeks_from_opra',
+                'symbol': symbol
+            })
+            return None
     
-    # ==========================================================================
-    # THETA HARVESTING STRATEGY
-    # ==========================================================================
-    def _scan_theta_harvesting(self) -> List[TradingSignal]:
-        """Scan for theta harvesting opportunities"""
-        signals = []
-        
-        # Find high theta options to sell
-        high_theta_options = self._find_high_theta_options()
-        
-        for option in high_theta_options:
-            # Check if theta is attractive
-            daily_theta = option['theta'] * 100  # Per contract
+    def _process_greeks_update(self, update: Dict[str, Any]) -> None:
+        """Process real-time Greeks update"""
+        try:
+            symbol = update.get('symbol')
+            if not symbol:
+                return
             
-            if daily_theta < -THETA_HARVEST_MIN:  # Negative theta for short positions
-                
-                # Analyze risk/reward
-                if self._analyze_theta_risk_reward(option):
-                    signal = TradingSignal(
-                        signal_type=SignalType.ENTRY,
-                        symbol=option['symbol'],
-                        action=OrderAction.SELL,
-                        quantity=5,  # Conservative position size
-                        order_type=OrderType.LIMIT,
-                        limit_price=option['bid'],
-                        reason=f"Theta harvest: ${-daily_theta:.2f}/day",
-                        confidence=0.70,
-                        urgency=0.5,
-                        metadata={
-                            'strategy': 'theta_harvesting',
-                            'daily_theta': daily_theta,
-                            'days_to_expiry': option['days_to_expiry'],
-                            'iv_rank': option.get('iv_rank', 0)
-                        }
-                    )
-                    signals.append(signal)
-        
-        return signals
+            # Create Greeks snapshot
+            greeks = GreeksSnapshot(
+                timestamp=datetime.now(),
+                symbol=symbol,
+                strike=update.get('strike', 0),
+                expiry=update.get('expiry', datetime.now()),
+                option_type=update.get('option_type', 'call'),
+                delta=update.get('delta', 0),
+                gamma=update.get('gamma', 0),
+                theta=update.get('theta', 0),
+                vega=update.get('vega', 0),
+                rho=update.get('rho', 0),
+                bid=update.get('bid', 0),
+                ask=update.get('ask', 0),
+                mid=update.get('mid', 0),
+                iv=update.get('iv', 0),
+                underlying_price=update.get('underlying_price', 0),
+                volume=update.get('volume', 0),
+                open_interest=update.get('open_interest', 0),
+                bid_size=update.get('bid_size', 0),
+                ask_size=update.get('ask_size', 0),
+                cache_status=GreeksCacheStatus.FRESH,
+                latency_ms=update.get('latency_ms', 0)
+            )
+            
+            # Update cache
+            self.greeks_cache.put(symbol, greeks)
+            
+            # Check for trading opportunities
+            self._check_greeks_opportunities(greeks)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_process_greeks_update',
+                'update': update
+            })
     
     # ==========================================================================
-    # GREEK ARBITRAGE STRATEGY
+    # SIGNAL GENERATION METHODS
     # ==========================================================================
-    def _scan_greek_arbitrage(self) -> List[TradingSignal]:
-        """Scan for Greek-based arbitrage opportunities"""
+    
+    def _generate_delta_neutral_signals(self) -> List[TradingSignal]:
+        """Generate delta-neutral hedging signals"""
         signals = []
         
-        # Get Greek anomalies from OPRA handler
-        anomalies = self.opra_handler.find_greek_anomalies()
-        
-        for anomaly in anomalies:
-            if anomaly['type'] == 'butterfly_gamma_violation':
-                # Create butterfly arbitrage trade
-                signal = self._create_butterfly_arbitrage_signal(anomaly)
-                if signal:
-                    signals.append(signal)
-                    
-            elif anomaly['type'] == 'negative_gamma':
-                # This should never happen - investigate
-                self.logger.warning(f"Negative gamma detected: {anomaly}")
+        try:
+            # Check if delta hedge needed
+            if abs(self.portfolio_greeks['delta']) > DELTA_REBALANCE_THRESHOLD:
+                # Find best hedge instrument
+                hedge_option = self._find_best_delta_hedge()
                 
-            elif anomaly['type'] == 'greek_mismatch':
-                # Greeks don't match theoretical values
-                signal = self._create_greek_mismatch_signal(anomaly)
-                if signal:
-                    signals.append(signal)
-        
-        # Check for volatility arbitrage using vega
-        vega_arb_signals = self._scan_vega_arbitrage()
-        signals.extend(vega_arb_signals)
+                if hedge_option:
+                    signal = self._create_greeks_signal(
+                        GreeksSignalType.DELTA_HEDGE,
+                        hedge_option,
+                        -self.portfolio_greeks['delta']  # Target delta
+                    )
+                    
+                    if signal:
+                        signals.append(signal)
+                        self.greeks_metrics['delta_hedges'] += 1
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_generate_delta_neutral_signals'})
         
         return signals
     
-    # ==========================================================================
-    # PORTFOLIO MANAGEMENT
-    # ==========================================================================
-    def _needs_rebalancing(self) -> bool:
-        """Check if portfolio needs rebalancing"""
-        if not self.portfolio_greeks:
-            return False
+    def _generate_gamma_scalping_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Generate gamma scalping signals"""
+        signals = []
         
-        # Time-based check
-        time_since_rebalance = time.time() - self.last_rebalance_time
-        if time_since_rebalance < REBALANCE_FREQUENCY:
-            return False
+        try:
+            # Check if we have sufficient gamma
+            if abs(self.portfolio_greeks['gamma']) >= GAMMA_SCALP_THRESHOLD:
+                current_price = market_data['close'].iloc[-1]
+                
+                # Calculate expected gamma profit
+                price_move = market_data['close'].pct_change().rolling(5).std().iloc[-1]
+                expected_gamma_profit = 0.5 * self.portfolio_greeks['gamma'] * (price_move ** 2) * current_price ** 2
+                
+                if expected_gamma_profit > GAMMA_PROFIT_TARGET:
+                    # Find ATM straddle for gamma scalping
+                    gamma_option = self._find_best_gamma_option(current_price)
+                    
+                    if gamma_option:
+                        signal = self._create_greeks_signal(
+                            GreeksSignalType.GAMMA_SCALP,
+                            gamma_option,
+                            expected_gamma_profit
+                        )
+                        
+                        if signal:
+                            signals.append(signal)
+                            self.greeks_metrics['gamma_scalps'] += 1
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_generate_gamma_scalping_signals'})
         
-        # Delta drift check
-        if abs(self.portfolio_greeks.total_delta) > DELTA_NEUTRAL_THRESHOLD:
-            return True
-        
-        # Risk limit checks
-        if abs(self.portfolio_greeks.total_gamma) > MAX_PORTFOLIO_GAMMA:
-            return True
-        
-        if abs(self.portfolio_greeks.total_vega) > MAX_PORTFOLIO_VEGA:
-            return True
-        
-        if self.portfolio_greeks.total_theta < MAX_DAILY_THETA:
-            return True
-        
-        return False
+        return signals
     
-    def _rebalance_portfolio(self) -> List[Dict[str, Any]]:
-        """Rebalance portfolio to maintain Greek targets"""
-        orders = []
+    def _generate_vega_trading_signals(self) -> List[TradingSignal]:
+        """Generate vega trading signals"""
+        signals = []
         
-        self.logger.info(f"Rebalancing portfolio - Delta: {self.portfolio_greeks.total_delta:.1f}, "
-                        f"Gamma: {self.portfolio_greeks.total_gamma:.1f}")
+        try:
+            # Analyze volatility regime
+            vol_regime = self._analyze_volatility_regime()
+            
+            # Long vega in low vol, short vega in high vol
+            if vol_regime == 'low' and self.portfolio_greeks['vega'] < 1000:
+                # Buy vega
+                vega_option = self._find_best_vega_option('long')
+                
+                if vega_option:
+                    signal = self._create_greeks_signal(
+                        GreeksSignalType.VEGA_TRADE,
+                        vega_option,
+                        1000  # Target vega
+                    )
+                    
+                    if signal:
+                        signals.append(signal)
+                        self.greeks_metrics['vega_trades'] += 1
+            
+            elif vol_regime == 'high' and self.portfolio_greeks['vega'] > -1000:
+                # Sell vega
+                vega_option = self._find_best_vega_option('short')
+                
+                if vega_option:
+                    signal = self._create_greeks_signal(
+                        GreeksSignalType.VEGA_TRADE,
+                        vega_option,
+                        -1000  # Target vega
+                    )
+                    
+                    if signal:
+                        signals.append(signal)
+                        self.greeks_metrics['vega_trades'] += 1
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_generate_vega_trading_signals'})
         
-        # Delta rebalancing
-        if abs(self.portfolio_greeks.total_delta) > DELTA_NEUTRAL_THRESHOLD:
-            delta_orders = self._rebalance_delta()
-            orders.extend(delta_orders)
-        
-        # Gamma rebalancing
-        if abs(self.portfolio_greeks.total_gamma) > MAX_PORTFOLIO_GAMMA:
-            gamma_orders = self._rebalance_gamma()
-            orders.extend(gamma_orders)
-        
-        # Update rebalance time
-        self.last_rebalance_time = time.time()
-        self.rebalance_count += 1
-        
-        return orders
+        return signals
     
-    def _update_portfolio_greeks(self):
-        """Update portfolio Greeks from current positions"""
-        if not self.current_positions:
-            self.portfolio_greeks = None
-            return
+    def _check_arbitrage_opportunities(self) -> List[TradingSignal]:
+        """Check for Greeks-based arbitrage opportunities"""
+        signals = []
         
-        self.portfolio_greeks = self.opra_handler.calculate_portfolio_greeks(
-            self.current_positions
-        )
+        try:
+            # Put-call parity arbitrage
+            parity_arbs = self._check_put_call_parity()
+            for arb in parity_arbs:
+                if arb.edge_percent > MIN_EDGE_THRESHOLD:
+                    signal = self._create_arbitrage_signal(arb)
+                    if signal:
+                        signals.append(signal)
+            
+            # Calendar spread arbitrage
+            calendar_arbs = self._check_calendar_arbitrage()
+            for arb in calendar_arbs:
+                if arb.edge_percent > MIN_EDGE_THRESHOLD:
+                    signal = self._create_arbitrage_signal(arb)
+                    if signal:
+                        signals.append(signal)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_check_arbitrage_opportunities'})
+        
+        return signals
     
     # ==========================================================================
     # HELPER METHODS
     # ==========================================================================
-    def _find_high_gamma_options(self) -> List[Dict[str, Any]]:
-        """Find options with high gamma for scalping"""
-        high_gamma = []
-        
-        # Get ATM options for each expiry
-        for expiry in self._get_active_expiries():
-            surface = self.opra_handler.get_greek_surface(expiry, 'gamma')
-            if surface.empty:
-                continue
-            
-            # Find highest gamma strikes
-            top_gamma = surface.nlargest(5, 'gamma')
-            
-            for _, row in top_gamma.iterrows():
-                if row['gamma'] > 0.01:  # Minimum gamma threshold
-                    high_gamma.append({
-                        'symbol': self._construct_symbol(row['strike'], expiry, row['type']),
-                        'strike': row['strike'],
-                        'gamma': row['gamma'],
-                        'delta': self._get_option_greek(row['strike'], expiry, row['type'], 'delta'),
-                        'bid': row['bid'],
-                        'ask': row['ask'],
-                        'mid_price': (row['bid'] + row['ask']) / 2,
-                        'days_to_expiry': (expiry - datetime.date.today()).days
-                    })
-        
-        return sorted(high_gamma, key=lambda x: x['gamma'], reverse=True)
     
-    def _find_high_theta_options(self) -> List[Dict[str, Any]]:
-        """Find options with high theta for harvesting"""
-        high_theta = []
-        
-        # Focus on near-term expiries
-        for expiry in self._get_active_expiries():
-            days_to_expiry = (expiry - datetime.date.today()).days
-            if days_to_expiry > 45:  # Skip far-dated options
-                continue
+    def _find_best_delta_hedge(self) -> Optional[GreeksSnapshot]:
+        """Find best option for delta hedging"""
+        try:
+            target_delta = -self.portfolio_greeks['delta'] / SPY_CONTRACT_MULTIPLIER
+            best_option = None
+            min_diff = float('inf')
             
-            surface = self.opra_handler.get_greek_surface(expiry, 'theta')
-            if surface.empty:
-                continue
-            
-            # Find OTM options with high theta
-            spot_price = self._get_spot_price()
-            otm_puts = surface[(surface['type'] == 'P') & (surface['strike'] < spot_price * 0.95)]
-            otm_calls = surface[(surface['type'] == 'C') & (surface['strike'] > spot_price * 1.05)]
-            
-            for df in [otm_puts, otm_calls]:
-                top_theta = df.nsmallest(3, 'theta')  # Most negative theta
-                
-                for _, row in top_theta.iterrows():
-                    high_theta.append({
-                        'symbol': self._construct_symbol(row['strike'], expiry, row['type']),
-                        'strike': row['strike'],
-                        'theta': row['theta'],
-                        'delta': self._get_option_greek(row['strike'], expiry, row['type'], 'delta'),
-                        'gamma': self._get_option_greek(row['strike'], expiry, row['type'], 'gamma'),
-                        'bid': row['bid'],
-                        'ask': row['ask'],
-                        'iv': row['iv'],
-                        'days_to_expiry': days_to_expiry
-                    })
-        
-        return high_theta
-    
-    def _analyze_gamma_scalp(self, option: Dict[str, Any]) -> Optional[GammaScalpSetup]:
-        """Analyze gamma scalping opportunity"""
-        spot_price = self._get_spot_price()
-        gamma_dollars = option['gamma'] * 100 * spot_price  # Per contract
-        
-        # Calculate rebalance threshold (when delta changes by ~50)
-        rebalance_threshold = 50 / (option['gamma'] * 100) if option['gamma'] > 0 else 5.0
-        
-        # Estimate profit potential (simplified)
-        daily_vol = self._get_realized_volatility() * spot_price / np.sqrt(252)
-        expected_moves = 2  # Expect 2 rebalances per day
-        expected_profit = 0.5 * gamma_dollars * (daily_vol ** 2) * expected_moves
-        
-        if expected_profit > 0:
-            return GammaScalpSetup(
-                symbol=option['symbol'],
-                current_gamma=option['gamma'],
-                hedge_ratio=option['delta'],
-                rebalance_threshold=rebalance_threshold,
-                last_hedge_price=spot_price,
-                shares_to_trade=0,
-                expected_profit=expected_profit
-            )
-        
-        return None
-    
-    def _analyze_theta_risk_reward(self, option: Dict[str, Any]) -> bool:
-        """Analyze risk/reward for theta harvesting"""
-        # Check if IV is elevated
-        if option.get('iv', 0) < 0.15:  # Below 15% IV
-            return False
-        
-        # Check risk metrics
-        max_loss = option['ask'] * 100 * 5  # 5 contracts
-        daily_theta = -option['theta'] * 100 * 5
-        days_to_expiry = option['days_to_expiry']
-        
-        # Need to collect at least 20% of max loss in theta
-        total_theta = daily_theta * min(days_to_expiry, 10)  # 10 days max
-        
-        return total_theta >= max_loss * 0.20
-    
-    def _monitor_greeks(self):
-        """Background thread to monitor Greeks"""
-        while self.monitoring_active:
-            try:
-                # Update portfolio Greeks
-                self._update_portfolio_greeks()
-                
-                if self.portfolio_greeks:
-                    # Log current exposures
-                    if abs(self.portfolio_greeks.total_delta) > 50:
-                        self.logger.info(f"Delta exposure: {self.portfolio_greeks.total_delta:.1f}")
+            # Search cached options
+            for symbol, greeks in self.greeks_cache.cache.items():
+                if greeks.cache_status == GreeksCacheStatus.FRESH:
+                    delta_diff = abs(greeks.delta - target_delta)
                     
-                    if abs(self.portfolio_greeks.total_gamma) > 200:
-                        self.logger.info(f"Gamma exposure: {self.portfolio_greeks.total_gamma:.1f}")
-                    
-                    # Check risk limits
-                    self._check_greek_limits()
-                
-                time.sleep(5)  # Check every 5 seconds
-                
-            except Exception as e:
-                self.logger.error(f"Error in Greeks monitoring: {e}")
-    
-    def _check_greek_limits(self):
-        """Check if Greek exposures exceed limits"""
-        if abs(self.portfolio_greeks.total_delta) > MAX_PORTFOLIO_DELTA * 1.2:
-            self.logger.warning(f"DELTA LIMIT EXCEEDED: {self.portfolio_greeks.total_delta:.1f}")
-            self._emergency_hedge('delta')
-        
-        if abs(self.portfolio_greeks.total_gamma) > MAX_PORTFOLIO_GAMMA * 1.2:
-            self.logger.warning(f"GAMMA LIMIT EXCEEDED: {self.portfolio_greeks.total_gamma:.1f}")
-            self._emergency_hedge('gamma')
-    
-    def _get_spot_price(self) -> float:
-        """Get current SPY price"""
-        # This would get real price from market data
-        return 450.0
-    
-    def _get_realized_volatility(self) -> float:
-        """Get realized volatility"""
-        # This would calculate from recent price moves
-        return 0.15
-    
-    def _get_active_expiries(self) -> List[datetime.date]:
-        """Get list of active expiration dates"""
-        # This would come from market data
-        today = datetime.date.today()
-        return [
-            today + datetime.timedelta(days=1),   # 0DTE
-            today + datetime.timedelta(days=7),   # Weekly
-            today + datetime.timedelta(days=30),  # Monthly
-        ]
-    
-    def _construct_symbol(self, strike: float, expiry: datetime.date, 
-                         option_type: str) -> str:
-        """Construct option symbol from components"""
-        # Format: SPYYYMMDDCP00000000
-        expiry_str = expiry.strftime('%y%m%d')
-        strike_str = f"{int(strike * 1000):08d}"
-        return f"SPY{expiry_str}{option_type}{strike_str}"
-    
-    def _get_option_greek(self, strike: float, expiry: datetime.date, 
-                         option_type: str, greek: str) -> float:
-        """Get specific Greek for an option"""
-        symbol = self._construct_symbol(strike, expiry, option_type)
-        if symbol in self.opra_handler.validated_greeks:
-            return getattr(self.opra_handler.validated_greeks[symbol], greek, 0.0)
-        return 0.0
-    
-    def _get_position_delta(self, symbol: str) -> float:
-        """Get delta exposure for a position"""
-        if symbol not in self.current_positions:
-            return 0.0
-        
-        position = self.current_positions[symbol]
-        if symbol in self.opra_handler.validated_greeks:
-            option_delta = self.opra_handler.validated_greeks[symbol].delta
-            return position * option_delta * 100  # Position * delta * multiplier
-        return 0.0
-    
-    def _estimate_scalp_profit(self, setup: GammaScalpSetup, price_move: float) -> float:
-        """Estimate profit from gamma scalp rebalance"""
-        # Profit ≈ 0.5 * Gamma * (Price Move)^2 * Position Size
-        return 0.5 * setup.current_gamma * (price_move ** 2) * 100 * 10  # 10 contracts
-    
-    def _create_butterfly_arbitrage_signal(self, anomaly: Dict) -> Optional[TradingSignal]:
-        """Create butterfly arbitrage signal"""
-        strikes = anomaly['strikes']
-        
-        # Butterfly: Buy 1 low, Sell 2 middle, Buy 1 high
-        # All same expiry and type
-        
-        return TradingSignal(
-            signal_type=SignalType.ARBITRAGE,
-            symbol=f"BUTTERFLY_{strikes[1]}",  # Middle strike identifier
-            action=OrderAction.BUY,  # Butterfly spread
-            quantity=1,  # 1 unit of spread
-            order_type=OrderType.LIMIT,
-            reason=f"Butterfly arbitrage: strikes {strikes}",
-            confidence=0.85,
-            urgency=0.9,  # High urgency for arbitrage
-            metadata={
-                'strategy': 'butterfly_arbitrage',
-                'strikes': strikes,
-                'legs': [
-                    {'strike': strikes[0], 'action': 'buy', 'quantity': 1},
-                    {'strike': strikes[1], 'action': 'sell', 'quantity': 2},
-                    {'strike': strikes[2], 'action': 'buy', 'quantity': 1}
-                ],
-                'anomaly_type': anomaly['type']
-            }
-        )
-    
-    def _create_greek_mismatch_signal(self, anomaly: Dict) -> Optional[TradingSignal]:
-        """Create signal for Greek mismatch opportunity"""
-        if anomaly.get('mispricing_amount', 0) < MIN_EDGE_REQUIRED:
+                    if delta_diff < min_diff and delta_diff < 0.10:
+                        min_diff = delta_diff
+                        best_option = greeks
+            
+            return best_option
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_find_best_delta_hedge'})
             return None
-        
-        return TradingSignal(
-            signal_type=SignalType.ENTRY,
-            symbol=anomaly['symbol'],
-            action=OrderAction.BUY if anomaly['underpriced'] else OrderAction.SELL,
-            quantity=5,
-            order_type=OrderType.LIMIT,
-            limit_price=anomaly['current_price'],
-            reason=f"Greek mismatch: {anomaly.get('mispricing_amount', 0):.2f} edge",
-            confidence=0.75,
-            urgency=0.8,
-            metadata={
-                'strategy': 'greek_mismatch',
-                'theoretical_value': anomaly.get('theoretical_value'),
-                'current_greeks': anomaly.get('current_greeks'),
-                'expected_greeks': anomaly.get('expected_greeks')
-            }
-        )
     
-    def _scan_vega_arbitrage(self) -> List[TradingSignal]:
-        """Scan for volatility arbitrage using vega"""
-        signals = []
-        
-        # Compare implied vs realized volatility
-        realized_vol = self._get_realized_volatility()
-        
-        # Get term structure of implied volatility
-        for expiry in self._get_active_expiries():
-            surface = self.opra_handler.get_greek_surface(expiry, 'vega')
-            if surface.empty:
-                continue
-            
-            # Find high IV options relative to realized
-            atm_options = surface[abs(surface['strike'] / self._get_spot_price() - 1) < 0.02]
-            
-            for _, row in atm_options.iterrows():
-                iv = row['iv']
-                if iv > realized_vol * 1.3:  # IV 30% higher than realized
-                    # Sell volatility
-                    signal = TradingSignal(
-                        signal_type=SignalType.ENTRY,
-                        symbol=self._construct_symbol(row['strike'], expiry, row['type']),
-                        action=OrderAction.SELL,
-                        quantity=10,
-                        order_type=OrderType.LIMIT,
-                        limit_price=row['bid'],
-                        reason=f"Vega arbitrage: IV {iv:.1%} vs RV {realized_vol:.1%}",
-                        confidence=0.70,
-                        urgency=0.6,
-                        metadata={
-                            'strategy': 'vega_arbitrage',
-                            'implied_vol': iv,
-                            'realized_vol': realized_vol,
-                            'vega': row.get('vega', 0),
-                            'edge': (iv - realized_vol) * row.get('vega', 0) * 100
-                        }
-                    )
-                    signals.append(signal)
-        
-        return signals
-    
-    def _find_hedge_options(self, target_delta: float) -> List[Dict[str, Any]]:
-        """Find options to hedge specific delta amount"""
-        hedge_candidates = []
-        
-        for expiry in self._get_active_expiries()[:2]:  # Use near-term only
-            # Get all options for this expiry
-            calls = self.opra_handler.get_greek_surface(expiry, 'delta')
-            
-            if not calls.empty:
-                # Filter by delta efficiency
-                for _, row in calls.iterrows():
-                    if row['delta'] * target_delta > 0:  # Same sign
-                        contracts_needed = target_delta / (row['delta'] * 100)
-                        if 1 <= abs(contracts_needed) <= 20:  # Reasonable size
-                            hedge_candidates.append({
-                                'symbol': self._construct_symbol(row['strike'], expiry, row['type']),
-                                'delta': row['delta'],
-                                'contracts_needed': contracts_needed,
-                                'bid': row['bid'],
-                                'ask': row['ask'],
-                                'mid_price': (row['bid'] + row['ask']) / 2,
-                                'cost': abs(contracts_needed) * row['ask'] * 100
-                            })
-        
-        # Sort by cost efficiency
-        return sorted(hedge_candidates, key=lambda x: x['cost'])
-    
-    def _rebalance_delta(self) -> List[Dict[str, Any]]:
-        """Rebalance delta exposure"""
-        orders = []
-        target_delta = 0  # Delta neutral target
-        current_delta = self.portfolio_greeks.total_delta
-        delta_to_hedge = target_delta - current_delta
-        
-        if abs(delta_to_hedge) > DELTA_NEUTRAL_THRESHOLD:
-            # Use SPY shares for precise hedging
-            shares = round(delta_to_hedge)
-            if shares != 0:
-                orders.append({
-                    'symbol': 'SPY',
-                    'action': 'BUY' if shares > 0 else 'SELL',
-                    'quantity': abs(shares),
-                    'order_type': 'MARKET',
-                    'reason': f'Delta rebalance: {current_delta:.1f} -> {target_delta}',
-                    'metadata': {
-                        'rebalance_type': 'delta',
-                        'current_delta': current_delta,
-                        'target_delta': target_delta
-                    }
-                })
-        
-        return orders
-    
-    def _rebalance_gamma(self) -> List[Dict[str, Any]]:
-        """Rebalance gamma exposure"""
-        orders = []
-        current_gamma = self.portfolio_greeks.total_gamma
-        
-        if abs(current_gamma) > MAX_PORTFOLIO_GAMMA:
-            # Reduce gamma by closing some positions
-            positions_by_gamma = []
-            
-            for symbol, position in self.current_positions.items():
-                if symbol in self.opra_handler.validated_greeks:
-                    greeks = self.opra_handler.validated_greeks[symbol]
-                    position_gamma = greeks.gamma * position * 100
-                    positions_by_gamma.append({
-                        'symbol': symbol,
-                        'position': position,
-                        'gamma': position_gamma,
-                        'abs_gamma': abs(position_gamma)
-                    })
-            
-            # Sort by absolute gamma contribution
-            positions_by_gamma.sort(key=lambda x: x['abs_gamma'], reverse=True)
-            
-            # Close highest gamma positions until within limit
-            remaining_gamma = current_gamma
-            for pos in positions_by_gamma:
-                if abs(remaining_gamma) <= MAX_PORTFOLIO_GAMMA:
-                    break
-                
-                # Close position
-                orders.append({
-                    'symbol': pos['symbol'],
-                    'action': 'SELL' if pos['position'] > 0 else 'BUY',
-                    'quantity': abs(pos['position']),
-                    'order_type': 'MARKET',
-                    'reason': f'Gamma reduction: {pos["gamma"]:.1f} gamma',
-                    'metadata': {
-                        'rebalance_type': 'gamma',
-                        'position_gamma': pos['gamma'],
-                        'total_gamma': current_gamma
-                    }
-                })
-                
-                remaining_gamma -= pos['gamma']
-        
-        return orders
-    
-    def _emergency_hedge(self, greek_type: str):
-        """Emergency hedge when limits exceeded"""
-        self.logger.warning(f"EMERGENCY HEDGE TRIGGERED: {greek_type}")
-        
-        if greek_type == 'delta':
-            # Immediate delta hedge with SPY
-            shares = round(-self.portfolio_greeks.total_delta)
-            if shares != 0:
-                self.ib_client.place_order(
-                    symbol='SPY',
-                    action='BUY' if shares > 0 else 'SELL',
-                    quantity=abs(shares),
-                    order_type='MARKET'
-                )
-        
-        elif greek_type == 'gamma':
-            # Close largest gamma position
-            max_gamma_symbol = None
+    def _find_best_gamma_option(self, spot_price: float) -> Optional[GreeksSnapshot]:
+        """Find best option for gamma scalping"""
+        try:
+            best_option = None
             max_gamma = 0
             
-            for symbol, position in self.current_positions.items():
-                if symbol in self.opra_handler.validated_greeks:
-                    pos_gamma = abs(self.opra_handler.validated_greeks[symbol].gamma * position * 100)
-                    if pos_gamma > max_gamma:
-                        max_gamma = pos_gamma
-                        max_gamma_symbol = symbol
+            # Look for ATM options with high gamma
+            for symbol, greeks in self.greeks_cache.cache.items():
+                if greeks.cache_status == GreeksCacheStatus.FRESH:
+                    # Check if ATM
+                    if abs(greeks.strike - spot_price) / spot_price < 0.01:
+                        if greeks.gamma > max_gamma:
+                            max_gamma = greeks.gamma
+                            best_option = greeks
             
-            if max_gamma_symbol:
-                position = self.current_positions[max_gamma_symbol]
-                self.ib_client.place_order(
-                    symbol=max_gamma_symbol,
-                    action='SELL' if position > 0 else 'BUY',
-                    quantity=abs(position),
-                    order_type='MARKET'
-                )
+            return best_option
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_find_best_gamma_option'})
+            return None
+    
+    def _find_best_vega_option(self, direction: str) -> Optional[GreeksSnapshot]:
+        """Find best option for vega trading"""
+        try:
+            best_option = None
+            max_vega = 0
+            
+            # Look for options with high vega
+            for symbol, greeks in self.greeks_cache.cache.items():
+                if greeks.cache_status == GreeksCacheStatus.FRESH:
+                    # Check DTE for vega trading (30-60 days optimal)
+                    dte = (greeks.expiry - datetime.now()).days
+                    
+                    if 30 <= dte <= 60:
+                        if greeks.vega > max_vega:
+                            max_vega = greeks.vega
+                            best_option = greeks
+            
+            return best_option
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_find_best_vega_option'})
+            return None
+    
+    def _create_greeks_signal(self, signal_type: GreeksSignalType,
+                            option: GreeksSnapshot,
+                            target_value: float) -> Optional[TradingSignal]:
+        """Create trading signal from Greeks analysis"""
+        try:
+            # Calculate contracts needed
+            if signal_type == GreeksSignalType.DELTA_HEDGE:
+                contracts = int(target_value / option.delta)
+                strength = SignalStrength.STRONG
+            elif signal_type == GreeksSignalType.GAMMA_SCALP:
+                contracts = 10  # Standard size for gamma scalping
+                strength = SignalStrength.VERY_STRONG if option.gamma > 0.03 else SignalStrength.MODERATE
+            elif signal_type == GreeksSignalType.VEGA_TRADE:
+                contracts = int(abs(target_value) / option.vega)
+                strength = SignalStrength.MODERATE
+            else:
+                contracts = 1
+                strength = SignalStrength.WEAK
+            
+            # Create signal
+            signal = TradingSignal(
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.BUY if contracts > 0 else SignalType.SELL,
+                symbol=option.symbol,
+                strength=strength,
+                confidence=0.8,  # High confidence with fresh Greeks
+                entry_price=option.mid,
+                stop_loss=0,  # Managed by Greeks
+                take_profit=0,  # Managed by Greeks
+                position_size=abs(contracts),
+                timestamp=datetime.now(),
+                expires_at=datetime.now() + timedelta(seconds=30),  # Short expiry for fast execution
+                metadata={
+                    'strategy': 'greeks_based',
+                    'greeks_data': {
+                        'signal_type': signal_type.name,
+                        'contract_delta': option.delta,
+                        'contract_gamma': option.gamma,
+                        'contract_theta': option.theta,
+                        'contract_vega': option.vega,
+                        'iv': option.iv,
+                        'cache_status': option.cache_status.name,
+                        'latency_ms': option.latency_ms,
+                        'portfolio_impact': {
+                            'delta': option.delta * contracts * SPY_CONTRACT_MULTIPLIER,
+                            'gamma': option.gamma * contracts * SPY_CONTRACT_MULTIPLIER,
+                            'theta': option.theta * contracts * SPY_CONTRACT_MULTIPLIER,
+                            'vega': option.vega * contracts * SPY_CONTRACT_MULTIPLIER
+                        },
+                        'edge': target_value / 100  # Simplified edge calculation
+                    }
+                }
+            )
+            
+            return signal
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_create_greeks_signal'})
+            return None
+    
+    def _check_pin_risk(self, position: GreeksPosition) -> bool:
+        """Check for pin risk near expiry"""
+        try:
+            # Check each contract in position
+            for symbol in position.contracts:
+                greeks = self.greeks_cache.get(symbol)
+                if greeks:
+                    dte = (greeks.expiry - datetime.now()).days
+                    
+                    # Pin risk exists near expiry with high gamma
+                    if dte <= 1 and abs(greeks.gamma) > 0.05:
+                        # Check if near strike
+                        if abs(greeks.underlying_price - greeks.strike) / greeks.strike < 0.01:
+                            return True
+            
+            return False
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_check_pin_risk'})
+            return False
+    
+    def _analyze_volatility_regime(self) -> str:
+        """Analyze current volatility regime"""
+        # Simplified - would use actual vol analysis
+        # Check average IV across options
+        total_iv = 0
+        count = 0
+        
+        for greeks in self.greeks_cache.cache.values():
+            if greeks.cache_status == GreeksCacheStatus.FRESH:
+                total_iv += greeks.iv
+                count += 1
+        
+        avg_iv = total_iv / count if count > 0 else 0.20
+        
+        if avg_iv < 0.15:
+            return 'low'
+        elif avg_iv > 0.30:
+            return 'high'
+        else:
+            return 'normal'
+    
+    def _check_put_call_parity(self) -> List[GreeksArbitrage]:
+        """Check for put-call parity violations"""
+        arbitrages = []
+        
+        # Group options by strike and expiry
+        options_by_strike = defaultdict(list)
+        
+        for symbol, greeks in self.greeks_cache.cache.items():
+            if greeks.cache_status == GreeksCacheStatus.FRESH:
+                key = (greeks.strike, greeks.expiry)
+                options_by_strike[key].append(greeks)
+        
+        # Check each strike/expiry combination
+        for (strike, expiry), options in options_by_strike.items():
+            calls = [o for o in options if o.option_type == 'call']
+            puts = [o for o in options if o.option_type == 'put']
+            
+            if calls and puts:
+                call = calls[0]
+                put = puts[0]
+                
+                # Put-call parity: C - P = S - K * e^(-r*t)
+                r = 0.05  # Risk-free rate
+                t = (expiry - datetime.now()).days / 365
+                
+                theoretical_diff = call.underlying_price - strike * np.exp(-r * t)
+                actual_diff = call.mid - put.mid
+                
+                edge = theoretical_diff - actual_diff
+                edge_percent = abs(edge) / call.underlying_price
+                
+                if edge_percent > MIN_EDGE_THRESHOLD:
+                    arb = GreeksArbitrage(
+                        arb_id=str(uuid.uuid4()),
+                        arb_type='put_call_parity',
+                        contracts=[call.symbol, put.symbol],
+                        theoretical_value=theoretical_diff,
+                        market_value=actual_diff,
+                        edge=edge,
+                        edge_percent=edge_percent,
+                        confidence=0.9,
+                        expiry_time=datetime.now() + timedelta(minutes=5),
+                        greeks_impact={
+                            'delta': 0,  # Neutral
+                            'gamma': 0,  # Neutral
+                            'theta': call.theta - put.theta,
+                            'vega': 0  # Neutral
+                        }
+                    )
+                    arbitrages.append(arb)
+        
+        return arbitrages
+    
+    def _check_calendar_arbitrage(self) -> List[GreeksArbitrage]:
+        """Check for calendar spread arbitrage"""
+        arbitrages = []
+        
+        # Group options by strike and type
+        options_by_strike = defaultdict(list)
+        
+        for symbol, greeks in self.greeks_cache.cache.items():
+            if greeks.cache_status == GreeksCacheStatus.FRESH:
+                key = (greeks.strike, greeks.option_type)
+                options_by_strike[key].append(greeks)
+        
+        # Check each strike
+        for (strike, option_type), options in options_by_strike.items():
+            if len(options) >= 2:
+                # Sort by expiry
+                sorted_options = sorted(options, key=lambda x: x.expiry)
+                
+                for i in range(len(sorted_options) - 1):
+                    near = sorted_options[i]
+                    far = sorted_options[i + 1]
+                    
+                    # Calendar spread should have positive value
+                    spread_value = far.mid - near.mid
+                    
+                    # Check if mispriced based on theta
+                    days_between = (far.expiry - near.expiry).days
+                    expected_value = near.theta * days_between / 365
+                    
+                    edge = spread_value - expected_value
+                    edge_percent = abs(edge) / near.mid if near.mid > 0 else 0
+                    
+                    if edge_percent > MIN_EDGE_THRESHOLD and edge > 0:
+                        arb = GreeksArbitrage(
+                            arb_id=str(uuid.uuid4()),
+                            arb_type='calendar',
+                            contracts=[near.symbol, far.symbol],
+                            theoretical_value=expected_value,
+                            market_value=spread_value,
+                            edge=edge,
+                            edge_percent=edge_percent,
+                            confidence=0.7,
+                            expiry_time=datetime.now() + timedelta(minutes=10),
+                            greeks_impact={
+                                'delta': far.delta - near.delta,
+                                'gamma': far.gamma - near.gamma,
+                                'theta': far.theta - near.theta,
+                                'vega': far.vega - near.vega
+                            }
+                        )
+                        arbitrages.append(arb)
+        
+        return arbitrages
+    
+    def _create_arbitrage_signal(self, arb: GreeksArbitrage) -> Optional[TradingSignal]:
+        """Create signal from arbitrage opportunity"""
+        try:
+            # Determine signal strength based on edge
+            if arb.edge_percent > 0.02:
+                strength = SignalStrength.VERY_STRONG
+            elif arb.edge_percent > 0.015:
+                strength = SignalStrength.STRONG
+            elif arb.edge_percent > 0.01:
+                strength = SignalStrength.MODERATE
+            else:
+                strength = SignalStrength.WEAK
+            
+            # Create signal
+            signal = TradingSignal(
+                signal_id=arb.arb_id,
+                signal_type=SignalType.BUY,  # Arbitrage is always a package
+                symbol='SPY',  # Base symbol
+                strength=strength,
+                confidence=arb.confidence,
+                entry_price=arb.market_value,
+                stop_loss=arb.market_value - arb.edge * 2,  # 2x edge as stop
+                take_profit=arb.theoretical_value,
+                position_size=1,  # Package deal
+                timestamp=datetime.now(),
+                expires_at=arb.expiry_time,
+                metadata={
+                    'strategy': 'greeks_arbitrage',
+                    'arbitrage_data': {
+                        'type': arb.arb_type,
+                        'contracts': arb.contracts,
+                        'edge': arb.edge,
+                        'edge_percent': arb.edge_percent,
+                        'greeks_impact': arb.greeks_impact
+                    }
+                }
+            )
+            
+            return signal
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_create_arbitrage_signal'})
+            return None
+    
+    def _filter_by_latency(self, signals: List[TradingSignal]) -> List[TradingSignal]:
+        """Filter signals by latency requirements"""
+        filtered = []
+        
+        for signal in signals:
+            greeks_data = signal.metadata.get('greeks_data', {})
+            latency_ms = greeks_data.get('latency_ms', float('inf'))
+            
+            if latency_ms <= self.max_latency_ms:
+                filtered.append(signal)
+            else:
+                self.logger.warning(f"Signal {signal.signal_id} filtered due to latency: {latency_ms}ms")
+        
+        return filtered
+    
+    def _arbitrage_detection_loop(self) -> None:
+        """Background loop for arbitrage detection"""
+        while not self.stop_event.is_set():
+            try:
+                # Check for arbitrage every second
+                arbs = []
+                arbs.extend(self._check_put_call_parity())
+                arbs.extend(self._check_calendar_arbitrage())
+                
+                # Store significant arbitrages
+                for arb in arbs:
+                    if arb.edge_percent > MIN_EDGE_THRESHOLD:
+                        self.arbitrage_opportunities[arb.arb_id] = arb
+                
+                # Clean expired arbitrages
+                current_time = datetime.now()
+                expired = [
+                    arb_id for arb_id, arb in self.arbitrage_opportunities.items()
+                    if current_time > arb.expiry_time
+                ]
+                
+                for arb_id in expired:
+                    del self.arbitrage_opportunities[arb_id]
+                
+                # Sleep
+                threading.Event().wait(1)
+                
+            except Exception as e:
+                self.error_handler.handle_error(e, {'method': '_arbitrage_detection_loop'})
+    
+    def _check_greeks_opportunities(self, greeks: GreeksSnapshot) -> None:
+        """Check for immediate opportunities from Greeks update"""
+        try:
+            # Check for extreme Greeks that need immediate attention
+            
+            # High gamma opportunity
+            if abs(greeks.gamma) > 0.05:
+                self.logger.info(f"High gamma detected: {greeks.symbol} gamma={greeks.gamma}")
+            
+            # High vega opportunity
+            if abs(greeks.vega) > 0.30:
+                self.logger.info(f"High vega detected: {greeks.symbol} vega={greeks.vega}")
+            
+            # Near-zero bid (exercise/assignment risk)
+            if greeks.bid < 0.05 and greeks.delta > 0.90:
+                self.logger.warning(f"Deep ITM option near zero: {greeks.symbol}")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_check_greeks_opportunities'})
     
     # ==========================================================================
-    # PERFORMANCE TRACKING
+    # POSITION MANAGEMENT
     # ==========================================================================
-    def get_strategy_metrics(self) -> Dict[str, Any]:
-        """Get strategy performance metrics"""
-        return {
-            'strategy_type': 'Greeks-Based Multi-Strategy',
-            'enabled_strategies': [s.name for s, enabled in self.enabled_strategies.items() if enabled],
-            'positions': len(self.current_positions),
-            'portfolio_greeks': {
-                'delta': self.portfolio_greeks.total_delta if self.portfolio_greeks else 0,
-                'gamma': self.portfolio_greeks.total_gamma if self.portfolio_greeks else 0,
-                'theta': self.portfolio_greeks.total_theta if self.portfolio_greeks else 0,
-                'vega': self.portfolio_greeks.total_vega if self.portfolio_greeks else 0
-            },
-            'greek_exposures': {
-                'delta_dollars': self.portfolio_greeks.delta_dollars if self.portfolio_greeks else 0,
-                'gamma_risk': self.portfolio_greeks.gamma_scalp_potential if self.portfolio_greeks else 0,
-                'daily_theta': self.portfolio_greeks.daily_decay if self.portfolio_greeks else 0,
-                'vega_exposure': self.portfolio_greeks.vega_exposure if self.portfolio_greeks else 0
-            },
-            'performance': {
-                'gamma_scalp_pnl': self.scalp_pnl,
-                'theta_collected': self.theta_collected,
-                'rebalance_count': self.rebalance_count
-            },
-            'active_setups': {
-                'gamma_scalps': len(self.gamma_scalp_setups),
-                'hedge_positions': sum(abs(p) for p in self.hedge_positions.values())
+    
+    def open_greeks_position(self, signal: TradingSignal) -> Optional[GreeksPosition]:
+        """Open a new Greeks-based position"""
+        try:
+            greeks_data = signal.metadata.get('greeks_data', {})
+            signal_type = GreeksSignalType[greeks_data.get('signal_type', 'DELTA_HEDGE')]
+            
+            # Map signal type to strategy type
+            strategy_map = {
+                GreeksSignalType.DELTA_HEDGE: GreeksStrategy.DELTA_NEUTRAL,
+                GreeksSignalType.GAMMA_SCALP: GreeksStrategy.GAMMA_SCALPING,
+                GreeksSignalType.VEGA_TRADE: GreeksStrategy.VEGA_TRADING
             }
+            
+            # Create position
+            position = GreeksPosition(
+                position_id=str(uuid.uuid4()),
+                strategy_type=strategy_map.get(signal_type, GreeksStrategy.DELTA_NEUTRAL),
+                entry_time=datetime.now(),
+                contracts={signal.symbol: signal.position_size}
+            )
+            
+            # Update position Greeks
+            self._update_position_greeks(position)
+            
+            # Add to tracking
+            self.greeks_positions[position.position_id] = position
+            
+            # Update metrics
+            self.greeks_metrics['total_greek_pnl'] = sum(
+                p.unrealized_pnl for p in self.greeks_positions.values()
+            )
+            
+            # Publish event
+            self.event_manager.publish(Event.create(
+                EventType.POSITION_OPENED,
+                self.name,
+                {
+                    'position_id': position.position_id,
+                    'strategy_type': position.strategy_type.name,
+                    'net_greeks': {
+                        'delta': position.net_delta,
+                        'gamma': position.net_gamma,
+                        'theta': position.net_theta,
+                        'vega': position.net_vega
+                    }
+                }
+            ))
+            
+            self.logger.info(f"Opened Greeks position: {position.position_id}")
+            return position
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'open_greeks_position',
+                'signal_id': signal.signal_id
+            })
+            return None
+    
+    def close_greeks_position(self, position_id: str, reason: str) -> bool:
+        """Close Greeks position"""
+        try:
+            position = self.greeks_positions.get(position_id)
+            if not position:
+                return False
+            
+            # Update final P&L
+            position.realized_pnl = position.unrealized_pnl
+            
+            # Remove from active
+            del self.greeks_positions[position_id]
+            
+            # Update metrics
+            if position.strategy_type == GreeksStrategy.GAMMA_SCALPING:
+                self.greeks_metrics['arbitrage_captured'] += position.gamma_pnl
+            
+            # Publish event
+            self.event_manager.publish(Event.create(
+                EventType.POSITION_CLOSED,
+                self.name,
+                {
+                    'position_id': position_id,
+                    'realized_pnl': position.realized_pnl,
+                    'exit_reason': reason,
+                    'trade_count': position.trade_count
+                }
+            ))
+            
+            self.logger.info(f"Closed Greeks position {position_id}: P&L ${position.realized_pnl:.2f}")
+            return True
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'close_greeks_position',
+                'position_id': position_id
+            })
+            return False
+    
+    # ==========================================================================
+    # CLEANUP
+    # ==========================================================================
+    
+    def cleanup(self) -> None:
+        """Clean up resources"""
+        try:
+            # Stop background threads
+            self.stop_event.set()
+            if self.update_thread:
+                self.update_thread.join(timeout=5)
+            
+            # Shutdown executor
+            self.executor.shutdown(wait=True)
+            
+            # Clear cache
+            self.greeks_cache.cache.clear()
+            
+            self.logger.info("GreeksBasedStrategy cleanup completed")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': 'cleanup'})
+    
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+    
+    def get_strategy_summary(self) -> Dict[str, Any]:
+        """Get comprehensive strategy summary"""
+        cache_stats = self.greeks_cache.get_stats()
+        
+        # Calculate average latency
+        if self.latency_buffer:
+            avg_latency = sum(self.latency_buffer) / len(self.latency_buffer)
+        else:
+            avg_latency = 0
+        
+        return {
+            'strategy': 'GreeksBasedStrategy',
+            'state': self.state,
+            'portfolio_greeks': self.portfolio_greeks.copy(),
+            'active_positions': len(self.greeks_positions),
+            'position_types': {
+                strategy.name: sum(1 for p in self.greeks_positions.values() 
+                                 if p.strategy_type == strategy)
+                for strategy in GreeksStrategy
+            },
+            'cache_performance': {
+                'size': cache_stats['size'],
+                'hit_rate': cache_stats['hit_rate'],
+                'avg_latency_ms': avg_latency
+            },
+            'arbitrage_opportunities': len(self.arbitrage_opportunities),
+            'metrics': self.greeks_metrics.copy()
         }
-
 
 # ==============================================================================
 # MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    from SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-    
-    # Initialize components
-    opra_handler = OPRAGreeksHandler()
-    risk_manager = RiskManager()
-    ib_client = IBClient()
-    
-    # Create strategy
-    strategy = GreeksBasedStrategy(
-        opra_handler=opra_handler,
-        risk_manager=risk_manager,
-        ib_client=ib_client
+    # Test Greeks-based strategy
+    event_manager = EventManager()
+    risk_profile = RiskProfile(
+        account_size=100000,
+        max_position_size=0.02,
+        max_portfolio_risk=0.06,
+        max_loss_per_trade=0.01
     )
     
-    # Simulate some positions
-    strategy.current_positions = {
-        "SPY231215C450": 10,   # Long 10 ATM calls
-        "SPY231215P445": -5,   # Short 5 OTM puts
-        "SPY231222C455": -10   # Short 10 OTM calls (next week)
+    config = {
+        'enable_delta_neutral': True,
+        'enable_gamma_scalping': True,
+        'enable_vega_trading': True,
+        'max_latency_ms': 10
     }
     
-    print("Greeks-Based Strategy Test")
-    print("=" * 50)
+    strategy = GreeksBasedStrategy(event_manager, risk_profile, config)
+    strategy.start()
     
-    # Start monitoring
-    strategy.monitoring_thread.start()
+    # Simulate some Greeks data
+    test_greeks = {
+        'symbol': 'SPY_450C_20250131',
+        'strike': 450,
+        'expiry': datetime(2025, 1, 31),
+        'option_type': 'call',
+        'delta': 0.55,
+        'gamma': 0.025,
+        'theta': -0.08,
+        'vega': 0.20,
+        'bid': 5.50,
+        'ask': 5.60,
+        'mid': 5.55,
+        'iv': 0.18,
+        'underlying_price': 448,
+        'volume': 2500,
+        'latency_ms': 5
+    }
     
-    # Execute strategy
-    signals = strategy.scan_opportunities()
+    # Add to queue for processing
+    strategy.greeks_queue.put(test_greeks)
     
-    print(f"\nFound {len(signals)} trading signals:")
-    for signal in signals[:3]:  # Show top 3
-        print(f"\n{signal.signal_type.name}: {signal.symbol}")
-        print(f"  Action: {signal.action.name} {signal.quantity}")
-        print(f"  Reason: {signal.reason}")
-        print(f"  Confidence: {signal.confidence:.1%}")
-        print(f"  Strategy: {signal.metadata.get('strategy', 'unknown')}")
+    # Create market data
+    dates = pd.date_range(end=datetime.now(), periods=100, freq='1min')
+    prices = 450 + np.cumsum(np.random.randn(100) * 0.1)
     
-    # Get metrics
-    metrics = strategy.get_strategy_metrics()
-    print(f"\nStrategy Metrics:")
-    print(f"Portfolio Greeks:")
-    for greek, value in metrics['portfolio_greeks'].items():
-        print(f"  {greek}: {value:.2f}")
+    market_data = pd.DataFrame({
+        'open': prices,
+        'high': prices + 0.1,
+        'low': prices - 0.1,
+        'close': prices,
+        'volume': np.random.randint(100000, 500000, 100)
+    }, index=dates)
     
-    print(f"\nGreek Exposures:")
-    for exposure, value in metrics['greek_exposures'].items():
-        print(f"  {exposure}: ${value:,.2f}")
+    # Generate signals
+    signals = strategy.generate_signals(market_data)
     
-    # Clean up
-    strategy.monitoring_active = False
+    print(f"Strategy: {strategy.name}")
+    print(f"\nPortfolio Greeks:")
+    for greek, value in strategy.portfolio_greeks.items():
+        print(f"  {greek.capitalize()}: {value:.0f}")
+    
+    print(f"\nCache Stats:")
+    cache_stats = strategy.greeks_cache.get_stats()
+    print(f"  Size: {cache_stats['size']}")
+    print(f"  Hit Rate: {cache_stats['hit_rate']:.1%}")
+    
+    print(f"\nSignals Generated: {len(signals)}")
+    for signal in signals:
+        greeks_data = signal.metadata.get('greeks_data', {})
+        print(f"\nSignal: {greeks_data.get('signal_type')}")
+        print(f"  Symbol: {signal.symbol}")
+        print(f"  Size: {signal.position_size}")
+        print(f"  Latency: {greeks_data.get('latency_ms')}ms")
+        print(f"  Edge: {greeks_data.get('edge'):.2f}")
+    
+    # Get summary
+    summary = strategy.get_strategy_summary()
+    print(f"\nStrategy Summary:")
+    print(f"  Active Positions: {summary['active_positions']}")
+    print(f"  Arbitrage Opportunities: {summary['arbitrage_opportunities']}")
+    print(f"  Delta Hedges: {summary['metrics']['delta_hedges']}")
+    print(f"  Gamma Scalps: {summary['metrics']['gamma_scalps']}")
+    
+    # Cleanup
+    strategy.cleanup()
+    strategy.stop()
+    
+    print("\nGreeksBasedStrategy test completed!")

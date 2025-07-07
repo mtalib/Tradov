@@ -10,664 +10,775 @@ Purpose: Directional bear call spread strategy
 Description:
     This module implements a directional bear call spread strategy for SPY options.
     The strategy sells out-of-the-money call spreads when bearish market conditions
-    are detected. It mirrors the bull put spread logic but for bearish scenarios,
-    incorporating volatility regime analysis, optimal entry timing, and research-driven
-    profit targets. The strategy collects premium while limiting risk through the
-    protective long call.
+    are detected. It incorporates resistance level analysis, momentum indicators,
+    and volatility regime detection to optimize entry and exit timing.
 
 Author: Mohamed Talib
-Date: 2025-06-01
-Version: 1.4
+Date: 2025-01-10
+Version: 2.0 (Production-Ready)
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import json
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta, time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, auto
+import uuid
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
 import pandas as pd
+import numpy as np
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy
-from SpyderC_MarketData.SpyderC04_MarketInternals import MarketInternals
-from SpyderE_RiskMgmt.SpyderE01_RiskManager import get_risk_manager
-from SpyderE_RiskMgmt.SpyderE02_PositionSizer import get_position_sizer
+from SpyderD_Strategies.SpyderD03_CreditSpread import (
+    CreditSpreadStrategy, CreditSpread, SpreadType, SpreadState,
+    MarketCondition, OptionLeg
+)
+from SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    TradingSignal, SignalType, SignalStrength,
+    EventManager, RiskProfile, Event, EventType
+)
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from SpyderU_Utilities.SpyderU07_Constants import (
     BEAR_CALL_SPREAD_PROFIT_TARGET,
-    BEAR_CALL_SPREAD_STOP_LOSS,
-    MIN_IVR_FOR_SPREADS,
-    MAX_SPREAD_WIDTH,
-    MIN_CREDIT_RATIO,
     OPTIMAL_ENTRY_START,
     OPTIMAL_ENTRY_END,
-    TIME_BASED_EXIT
+    SPY_CONTRACT_MULTIPLIER
 )
-from SpyderU_Utilities.SpyderU11_FeatureFlags import get_feature_flags
+from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
+from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
+from SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
+from SpyderF_Analysis.SpyderF02_PriceAction import PriceActionAnalyzer
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-STRATEGY_NAME = "BearCallSpread"
-DEFAULT_DELTA_SHORT = 0.30   # Short call delta (positive for calls)
-DEFAULT_DELTA_LONG = 0.20    # Long call delta
-MIN_DAYS_TO_EXPIRY = 0       # Allow 0DTE
-MAX_DAYS_TO_EXPIRY = 7       # Max 7 DTE
-MIN_PREMIUM_COLLECTED = 0.50  # Minimum $0.50 credit per spread
-MAX_CONTRACTS = 10           # Maximum contracts per trade
+# Bear call spread specific parameters
+MIN_BEARISH_STRENGTH = -0.3  # Minimum bearish trend strength
+MIN_RSI = 30  # Minimum RSI (avoid oversold)
+MAX_RSI = 70  # Maximum RSI (prefer overbought)
+MIN_VOLUME_RATIO = 1.2  # Higher volume on down moves
 
-# Bear market indicators
-BEAR_TREND_MA_DAYS = 10      # Moving average period
-BEAR_RSI_THRESHOLD = 60      # RSI below this for bear signal
-BEAR_VWAP_TOLERANCE = 0.002  # Price below VWAP + 0.2%
+# Strike selection
+SHORT_CALL_DELTA_TARGET = 0.25  # Target delta for short call
+LONG_CALL_DELTA_TARGET = 0.10   # Target delta for long call
+PREFERRED_SPREAD_WIDTH = 5.0    # Preferred $5 wide spreads
+MAX_SPREAD_WIDTH = 10.0        # Maximum spread width
+
+# Entry filters
+MIN_RESISTANCE_DISTANCE = 0.01  # Minimum 1% below resistance
+MAX_VOLATILITY_RANK = 80       # Higher IV acceptable for bear calls
+PREFERRED_DTE = 30             # Preferred days to expiry
+
+# Risk management
+MAX_PORTFOLIO_DELTA = 100      # Maximum positive delta exposure
+PROFIT_TARGET = 0.40          # 40% of max profit
+STOP_LOSS = 2.0              # 200% of credit received
+DELTA_HEDGE_THRESHOLD = 30    # Delta threshold for hedging
+
+# Distribution days
+DISTRIBUTION_DAY_THRESHOLD = 3  # Number of distribution days to confirm
+DISTRIBUTION_VOLUME_INCREASE = 1.5  # Volume increase on down days
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+class BearishSignalType(Enum):
+    """Types of bearish signals"""
+    OVERBOUGHT_REVERSAL = auto()
+    TREND_BREAKDOWN = auto()
+    RESISTANCE_REJECTION = auto()
+    DISTRIBUTION_DAY = auto()
+    FAILED_BREAKOUT = auto()
+    NEGATIVE_DIVERGENCE = auto()
+
+class BearishStrength(Enum):
+    """Bearish trend strength classification"""
+    WEAK = auto()
+    MODERATE = auto()
+    STRONG = auto()
+    VERY_STRONG = auto()
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class BearCallSpreadSignal:
-    """Signal data for bear call spread entry."""
-    timestamp: datetime
-    underlying_price: float
-    short_strike: float
-    long_strike: float
-    expiration: datetime
-    credit_received: float
-    spread_width: float
-    probability_profit: float
-    implied_volatility: float
-    delta_short: float
-    delta_long: float
-    contracts: int
-    max_profit: float
-    max_loss: float
-    breakeven: float
-    score: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+class BearishAnalysis:
+    """Bearish market analysis"""
+    trend_strength: BearishStrength
+    trend_score: float  # Negative for bearish
+    resistance_levels: List[float]
+    nearest_resistance: float
+    distance_to_resistance: float
+    rsi: float
+    volume_ratio: float
+    momentum: float  # Negative for bearish
+    bearish_signals: List[BearishSignalType]
+    distribution_days: int
+    divergence_detected: bool
+    confidence: float
+    entry_score: float
 
-class MarketRegime(Enum):
-    """Market regime classification for strategy selection."""
-    STRONG_BULL = "strong_bull"
-    BULL = "bull"
-    NEUTRAL = "neutral"
-    BEAR = "bear"
-    STRONG_BEAR = "strong_bear"
+@dataclass
+class ResistanceTest:
+    """Resistance level test information"""
+    level: float
+    test_date: datetime
+    rejection_strength: float  # 0-1 scale
+    volume_on_test: float
+    failed_breakout: bool
 
 # ==============================================================================
-# BEAR CALL SPREAD STRATEGY
+# BEAR CALL SPREAD STRATEGY CLASS
 # ==============================================================================
-class BearCallSpreadStrategy(BaseStrategy):
+class BearCallSpreadStrategy(CreditSpreadStrategy):
     """
     Bear call spread strategy implementation.
     
-    This strategy sells out-of-the-money call spreads when:
-    - Market shows bearish characteristics
-    - Volatility regime is favorable
-    - Entry timing is optimal (10:15-11:40 AM)
-    - Risk/reward meets minimum thresholds
+    Specializes the credit spread base class for bearish directional trades
+    using call spreads with enhanced resistance analysis and distribution detection.
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize bear call spread strategy."""
-        super().__init__(config)
+    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+                 config: Dict[str, Any]):
+        """Initialize bear call spread strategy"""
+        # Override config for bear calls only
+        config['use_bull_puts'] = False
+        config['use_bear_calls'] = True
         
-        # Strategy configuration
-        self.strategy_name = STRATEGY_NAME
-        self.delta_short = config.get('delta_short', DEFAULT_DELTA_SHORT)
-        self.delta_long = config.get('delta_long', DEFAULT_DELTA_LONG)
-        self.min_credit_ratio = config.get('min_credit_ratio', MIN_CREDIT_RATIO)
-        self.profit_target = config.get('profit_target', BEAR_CALL_SPREAD_PROFIT_TARGET)
-        self.stop_loss = config.get('stop_loss', BEAR_CALL_SPREAD_STOP_LOSS)
+        super().__init__(event_manager, risk_profile, config)
         
-        # Risk management
-        self.risk_manager = get_risk_manager()
-        self.position_sizer = get_position_sizer()
+        # Update strategy name
+        self.name = "BearCallSpread"
         
-        # Market analysis
-        self.market_internals = MarketInternals()
+        # Additional components
+        self.trend_detector = TrendDetector()
+        self.price_action = PriceActionAnalyzer()
+        self.greeks_calculator = GreeksCalculator()
         
-        # Feature flags
-        self.feature_flags = get_feature_flags()
+        # Bear call specific configuration
+        self.min_bearish_strength = config.get('min_bearish_strength', MIN_BEARISH_STRENGTH)
+        self.profit_target = config.get('profit_target', PROFIT_TARGET)
+        self.stop_loss = config.get('stop_loss', STOP_LOSS)
+        self.enable_delta_hedging = config.get('enable_delta_hedging', True)
+        
+        # Delta hedging tracking (opposite of bull puts)
+        self.active_hedges: Dict[str, Any] = {}
+        self.portfolio_delta = 0.0
+        
+        # Enhanced bearish analysis
+        self.bearish_analysis: Optional[BearishAnalysis] = None
+        self.resistance_tests: List[ResistanceTest] = []
+        self.distribution_day_count = 0
+        self.last_distribution_check = None
         
         # Performance tracking
-        self.trades_today = 0
-        self.daily_pnl = 0.0
-        self.open_positions = {}
+        self.bear_call_metrics = {
+            'total_spreads': 0,
+            'winning_spreads': 0,
+            'avg_credit': 0.0,
+            'avg_days_held': 0.0,
+            'resistance_rejections': 0,
+            'trend_breakdowns': 0,
+            'distribution_trades': 0,
+            'hedged_positions': 0,
+            'failed_breakout_trades': 0
+        }
         
-        self.logger.info(f"Bear call spread strategy initialized with delta {self.delta_short}/{self.delta_long}")
+        self.logger.info("BearCallSpreadStrategy initialized with enhanced bearish analysis")
     
-    def analyze_market_regime(self, market_data: Dict[str, Any]) -> MarketRegime:
-        """
-        Analyze current market regime for bear call spread suitability.
+    # ==========================================================================
+    # OVERRIDDEN METHODS
+    # ==========================================================================
+    
+    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Generate bear call spread signals with enhanced analysis"""
+        signals = []
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            MarketRegime classification
-        """
         try:
-            price = market_data.get('last_price', 0)
+            # Perform bearish analysis
+            self._analyze_bearish_conditions(market_data)
             
-            # Get technical indicators
-            sma_10 = market_data.get('sma_10', price)
-            sma_20 = market_data.get('sma_20', price)
-            rsi = market_data.get('rsi', 50)
-            vwap = market_data.get('vwap', price)
+            # Check distribution days
+            self._check_distribution_days(market_data)
             
-            # Bear market scoring (inverse of bull scoring)
-            bear_score = 0
+            # Check if we should open bear calls
+            if not self._should_open_bear_call_enhanced():
+                return signals
             
-            # Price below moving averages
-            if price < sma_10:
-                bear_score += 2
-            if price < sma_20:
-                bear_score += 1
+            # Call parent method to check basic conditions
+            parent_signals = super().generate_signals(market_data)
             
-            # RSI not overbought
-            if rsi < BEAR_RSI_THRESHOLD:
-                bear_score += 2
-            if rsi < 40:
-                bear_score += 1
+            # Filter and enhance signals
+            for signal in parent_signals:
+                if self._validate_bearish_signal(signal):
+                    enhanced_signal = self._enhance_bear_call_signal(signal)
+                    if enhanced_signal:
+                        signals.append(enhanced_signal)
             
-            # Price near or below VWAP
-            vwap_diff = (price - vwap) / vwap
-            if vwap_diff < BEAR_VWAP_TOLERANCE:
-                bear_score += 2
+            # Check for delta hedging needs
+            self._check_delta_hedging_needs()
             
-            # Negative trend strength
-            trend_strength = (sma_10 - sma_20) / sma_20
-            if trend_strength < -0.002:  # 0.2% below
-                bear_score += 2
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'generate_signals',
+                'market_data_shape': market_data.shape
+            })
+        
+        return signals
+    
+    def should_exit_position(self, position: StrategyPosition,
+                           market_data: pd.DataFrame) -> Tuple[bool, str]:
+        """Enhanced exit logic for bear calls"""
+        try:
+            # First check parent exit conditions
+            should_exit, reason = super().should_exit_position(position, market_data)
+            if should_exit:
+                return should_exit, reason
             
-            # Classify regime (inverse of bull classification)
-            if bear_score >= 7:
-                return MarketRegime.STRONG_BEAR
-            elif bear_score >= 5:
-                return MarketRegime.BEAR
-            elif bear_score >= 3:
-                return MarketRegime.NEUTRAL
-            elif bear_score >= 1:
-                return MarketRegime.BULL
+            # Get spread position
+            spread = self.active_spreads.get(position.position_id)
+            if not spread:
+                return False, ""
+            
+            # Check if trend has reversed to bullish
+            if self.bearish_analysis and self.bearish_analysis.trend_score > 0.3:
+                return True, "Trend reversal to bullish detected"
+            
+            # Check if resistance has been broken
+            current_price = market_data['close'].iloc[-1]
+            if self.bearish_analysis and self.bearish_analysis.nearest_resistance > 0:
+                if current_price > self.bearish_analysis.nearest_resistance * 1.01:
+                    return True, "Resistance level broken"
+            
+            # Check delta exposure
+            if spread.net_delta > 50:  # Too positive
+                return True, "Delta exposure too high"
+            
+            # Check for strong bullish volume
+            volume_ratio = market_data['volume'].iloc[-1] / market_data['volume'].rolling(20).mean().iloc[-1]
+            if current_price > market_data['close'].iloc[-2] and volume_ratio > 2:
+                return True, "Strong bullish volume detected"
+            
+            # Check profit target (tighter for bear calls)
+            profit_pct = spread.profit_percentage
+            if profit_pct >= self.profit_target:
+                return True, f"Profit target reached: {profit_pct:.1%}"
+            
+            return False, ""
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'should_exit_position',
+                'position_id': position.position_id
+            })
+            return False, ""
+    
+    # ==========================================================================
+    # BEARISH ANALYSIS METHODS
+    # ==========================================================================
+    
+    def _analyze_bearish_conditions(self, market_data: pd.DataFrame) -> None:
+        """Perform comprehensive bearish market analysis"""
+        try:
+            close_prices = market_data['close']
+            current_price = close_prices.iloc[-1]
+            
+            # Trend analysis (looking for negative trend)
+            trend_data = self.trend_detector.detect_trend(market_data)
+            trend_score = -abs(trend_data.get('strength', 0)) if trend_data.get('direction') == 'down' else trend_data.get('strength', 0)
+            
+            # Classify bearish strength
+            if trend_score <= -0.7:
+                trend_strength = BearishStrength.VERY_STRONG
+            elif trend_score <= -0.5:
+                trend_strength = BearishStrength.STRONG
+            elif trend_score <= -0.3:
+                trend_strength = BearishStrength.MODERATE
             else:
-                return MarketRegime.STRONG_BULL
-                
+                trend_strength = BearishStrength.WEAK
+            
+            # Get resistance levels from parent
+            resistance_levels = self.support_resistance.get('resistance', [])
+            nearest_resistance = resistance_levels[0] if resistance_levels else current_price * 1.03
+            distance_to_resistance = (nearest_resistance - current_price) / current_price
+            
+            # Technical indicators
+            rsi = self.tech_indicators.calculate_rsi(close_prices, 14).iloc[-1]
+            
+            # Volume analysis (looking for distribution)
+            volume = market_data['volume']
+            avg_volume = volume.rolling(20).mean().iloc[-1]
+            current_volume = volume.iloc[-1]
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+            
+            # Check if down day with high volume
+            if close_prices.iloc[-1] < close_prices.iloc[-2] and volume_ratio > DISTRIBUTION_VOLUME_INCREASE:
+                volume_ratio *= 1.5  # Emphasize distribution
+            
+            # Momentum (negative for bearish)
+            momentum = close_prices.pct_change(10).iloc[-1]  # 10-period momentum
+            
+            # Identify bearish signals
+            bearish_signals = []
+            
+            if rsi > 65:
+                bearish_signals.append(BearishSignalType.OVERBOUGHT_REVERSAL)
+            
+            if trend_score < -0.5 and momentum < 0:
+                bearish_signals.append(BearishSignalType.TREND_BREAKDOWN)
+            
+            if distance_to_resistance < 0.02:  # Within 2% of resistance
+                bearish_signals.append(BearishSignalType.RESISTANCE_REJECTION)
+            
+            if self.distribution_day_count >= DISTRIBUTION_DAY_THRESHOLD:
+                bearish_signals.append(BearishSignalType.DISTRIBUTION_DAY)
+            
+            # Check for failed breakout
+            if self._check_failed_breakout(market_data):
+                bearish_signals.append(BearishSignalType.FAILED_BREAKOUT)
+            
+            # Check for negative divergence
+            divergence = self._check_negative_divergence(market_data)
+            if divergence:
+                bearish_signals.append(BearishSignalType.NEGATIVE_DIVERGENCE)
+            
+            # Calculate confidence
+            confidence = 0.5  # Base confidence
+            confidence += len(bearish_signals) * 0.08
+            confidence += min(0.2, abs(trend_score) * 0.3) if trend_score < 0 else 0
+            confidence = min(0.95, confidence)
+            
+            # Calculate entry score
+            entry_score = 0
+            entry_score += abs(trend_score) * 30 if trend_score < 0 else 0
+            entry_score += max(0, (rsi - 50) / 50 * 20)  # Higher RSI better
+            entry_score += min(20, distance_to_resistance * 1000)  # Distance from resistance
+            entry_score += min(20, volume_ratio * 10) if momentum < 0 else 0
+            entry_score += len(bearish_signals) * 10
+            
+            # Create analysis object
+            self.bearish_analysis = BearishAnalysis(
+                trend_strength=trend_strength,
+                trend_score=trend_score,
+                resistance_levels=resistance_levels,
+                nearest_resistance=nearest_resistance,
+                distance_to_resistance=distance_to_resistance,
+                rsi=rsi,
+                volume_ratio=volume_ratio,
+                momentum=momentum,
+                bearish_signals=bearish_signals,
+                distribution_days=self.distribution_day_count,
+                divergence_detected=divergence,
+                confidence=confidence,
+                entry_score=entry_score
+            )
+            
         except Exception as e:
-            self.logger.error(f"Error analyzing market regime: {e}")
-            return MarketRegime.NEUTRAL
+            self.error_handler.handle_error(e, {'method': '_analyze_bearish_conditions'})
     
-    def find_optimal_strikes(self, 
-                           options_chain: pd.DataFrame,
-                           underlying_price: float,
-                           expiration: datetime) -> Optional[Tuple[float, float]]:
-        """
-        Find optimal strike prices for bear call spread.
-        
-        Args:
-            options_chain: Available options
-            underlying_price: Current SPY price
-            expiration: Target expiration
-            
-        Returns:
-            Tuple of (short_strike, long_strike) or None
-        """
+    def _check_distribution_days(self, market_data: pd.DataFrame) -> None:
+        """Check for distribution days (institutional selling)"""
         try:
-            # Filter for calls at target expiration
-            calls = options_chain[
-                (options_chain['type'] == 'CALL') &
-                (options_chain['expiration'] == expiration) &
-                (options_chain['strike'] > underlying_price)
-            ].sort_values('strike', ascending=True)
+            today = datetime.now().date()
             
-            if len(calls) < 2:
-                return None
+            # Reset counter if new day
+            if self.last_distribution_check != today:
+                self.distribution_day_count = 0
+                self.last_distribution_check = today
             
-            # Find strikes near target deltas
-            short_strike = None
-            long_strike = None
+            # Look at last 10 days
+            recent_data = market_data.tail(10)
             
-            for _, option in calls.iterrows():
-                delta = option.get('delta', 0)
+            distribution_days = 0
+            for i in range(1, len(recent_data)):
+                close_change = recent_data['close'].iloc[i] / recent_data['close'].iloc[i-1] - 1
+                volume_ratio = recent_data['volume'].iloc[i] / recent_data['volume'].rolling(20).mean().iloc[i]
                 
-                # Find short strike near target delta
-                if short_strike is None and abs(delta - self.delta_short) < 0.05:
-                    short_strike = option['strike']
-                
-                # Find long strike near target delta
-                elif short_strike and abs(delta - self.delta_long) < 0.05:
-                    long_strike = option['strike']
-                    break
+                # Distribution day: down >0.5% on heavy volume
+                if close_change < -0.005 and volume_ratio > DISTRIBUTION_VOLUME_INCREASE:
+                    distribution_days += 1
             
-            if not short_strike or not long_strike:
-                return None
-            
-            # Validate spread width
-            spread_width = long_strike - short_strike
-            if spread_width > MAX_SPREAD_WIDTH or spread_width < 1:
-                return None
-            
-            return (short_strike, long_strike)
+            self.distribution_day_count = distribution_days
             
         except Exception as e:
-            self.logger.error(f"Error finding optimal strikes: {e}")
+            self.error_handler.handle_error(e, {'method': '_check_distribution_days'})
+    
+    def _check_failed_breakout(self, market_data: pd.DataFrame) -> bool:
+        """Check for failed breakout pattern"""
+        try:
+            if len(market_data) < 10:
+                return False
+            
+            recent_high = market_data['high'].rolling(20).max()
+            current_price = market_data['close'].iloc[-1]
+            
+            # Check if price broke above recent high but failed
+            for i in range(-5, -1):
+                if (market_data['high'].iloc[i] > recent_high.iloc[i-1] and 
+                    market_data['close'].iloc[i] < recent_high.iloc[i-1]):
+                    # Failed breakout detected
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_check_failed_breakout'})
+            return False
+    
+    def _check_negative_divergence(self, market_data: pd.DataFrame) -> bool:
+        """Check for negative RSI divergence"""
+        try:
+            if len(market_data) < 20:
+                return False
+            
+            close_prices = market_data['close']
+            rsi = self.tech_indicators.calculate_rsi(close_prices, 14)
+            
+            # Find recent peaks
+            price_peaks = []
+            rsi_peaks = []
+            
+            for i in range(5, len(close_prices) - 5):
+                if (close_prices.iloc[i] > close_prices.iloc[i-2] and 
+                    close_prices.iloc[i] > close_prices.iloc[i+2]):
+                    price_peaks.append((i, close_prices.iloc[i]))
+                    rsi_peaks.append((i, rsi.iloc[i]))
+            
+            # Check for divergence
+            if len(price_peaks) >= 2:
+                # Higher price high but lower RSI high
+                if (price_peaks[-1][1] > price_peaks[-2][1] and 
+                    rsi_peaks[-1][1] < rsi_peaks[-2][1]):
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_check_negative_divergence'})
+            return False
+    
+    def _should_open_bear_call_enhanced(self) -> bool:
+        """Enhanced check for bear call entry conditions"""
+        if not self.bearish_analysis:
+            return False
+        
+        # Check trend strength
+        if self.bearish_analysis.trend_score > self.min_bearish_strength:
+            self.logger.debug(f"Trend not bearish enough: {self.bearish_analysis.trend_score:.2f}")
+            return False
+        
+        # Check RSI not oversold
+        if self.bearish_analysis.rsi < MIN_RSI:
+            self.logger.debug(f"RSI oversold: {self.bearish_analysis.rsi:.0f}")
+            return False
+        
+        # Check volume confirmation
+        if self.bearish_analysis.momentum >= 0 and self.bearish_analysis.volume_ratio < MIN_VOLUME_RATIO:
+            self.logger.debug(f"Insufficient bearish volume: {self.bearish_analysis.volume_ratio:.2f}")
+            return False
+        
+        # Check distance from resistance
+        if self.bearish_analysis.distance_to_resistance < MIN_RESISTANCE_DISTANCE:
+            self.logger.debug("Too close to resistance level")
+            return False
+        
+        # Check volatility rank
+        if self.volatility_rank > MAX_VOLATILITY_RANK:
+            self.logger.debug(f"IV rank too high: {self.volatility_rank:.0f}")
+            return False
+        
+        # Need at least one bearish signal
+        if not self.bearish_analysis.bearish_signals:
+            self.logger.debug("No bearish signals detected")
+            return False
+        
+        # Check entry score
+        if self.bearish_analysis.entry_score < 40:
+            self.logger.debug(f"Entry score too low: {self.bearish_analysis.entry_score:.0f}")
+            return False
+        
+        return True
+    
+    def _validate_bearish_signal(self, signal: TradingSignal) -> bool:
+        """Validate signal is appropriate for bear call spread"""
+        spread_data = signal.metadata.get('spread_data', {})
+        
+        # Ensure it's a bear call spread
+        if spread_data.get('spread_type') != SpreadType.BEAR_CALL:
+            return False
+        
+        # Additional bearish validation
+        if self.bearish_analysis:
+            if self.bearish_analysis.confidence < 0.6:
+                return False
+        
+        return True
+    
+    def _enhance_bear_call_signal(self, signal: TradingSignal) -> Optional[TradingSignal]:
+        """Enhance signal with bear call specific data"""
+        try:
+            # Add bearish analysis to metadata
+            signal.metadata['bearish_analysis'] = {
+                'trend_strength': self.bearish_analysis.trend_strength.name,
+                'trend_score': self.bearish_analysis.trend_score,
+                'resistance_distance': self.bearish_analysis.distance_to_resistance,
+                'rsi': self.bearish_analysis.rsi,
+                'momentum': self.bearish_analysis.momentum,
+                'bearish_signals': [s.name for s in self.bearish_analysis.bearish_signals],
+                'distribution_days': self.bearish_analysis.distribution_days,
+                'divergence': self.bearish_analysis.divergence_detected,
+                'confidence': self.bearish_analysis.confidence
+            }
+            
+            # Adjust signal strength based on bearish analysis
+            if self.bearish_analysis.entry_score >= 80:
+                signal.strength = SignalStrength.VERY_STRONG
+            elif self.bearish_analysis.entry_score >= 60:
+                signal.strength = SignalStrength.STRONG
+            elif self.bearish_analysis.entry_score >= 40:
+                signal.strength = SignalStrength.MODERATE
+            else:
+                signal.strength = SignalStrength.WEAK
+            
+            # Update confidence
+            signal.confidence = self.bearish_analysis.confidence
+            
+            return signal
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_enhance_bear_call_signal'})
             return None
     
-    def calculate_spread_metrics(self,
-                               short_strike: float,
-                               long_strike: float,
-                               credit: float,
-                               contracts: int = 1) -> Dict[str, float]:
-        """
-        Calculate key metrics for bear call spread.
-        
-        Args:
-            short_strike: Short call strike price
-            long_strike: Long call strike price
-            credit: Net credit received
-            contracts: Number of contracts
-            
-        Returns:
-            Dict with spread metrics
-        """
-        spread_width = long_strike - short_strike
-        
-        # Calculate P&L metrics
-        max_profit = credit * contracts * 100
-        max_loss = (spread_width - credit) * contracts * 100
-        breakeven = short_strike + credit
-        
-        # Risk/reward ratios
-        risk_reward_ratio = max_loss / max_profit if max_profit > 0 else float('inf')
-        credit_ratio = credit / spread_width if spread_width > 0 else 0
-        
-        # Probability calculations (simplified)
-        # In production, use proper options math
-        probability_profit = 0.65  # Placeholder
-        
-        return {
-            'max_profit': max_profit,
-            'max_loss': max_loss,
-            'breakeven': breakeven,
-            'risk_reward_ratio': risk_reward_ratio,
-            'credit_ratio': credit_ratio,
-            'probability_profit': probability_profit,
-            'spread_width': spread_width
-        }
+    # ==========================================================================
+    # DELTA HEDGING METHODS
+    # ==========================================================================
     
-    def generate_entry_signal(self, market_data: Dict[str, Any]) -> Optional[BearCallSpreadSignal]:
-        """
-        Generate entry signal for bear call spread.
+    def _check_delta_hedging_needs(self) -> None:
+        """Check if delta hedging is needed for bear calls"""
+        if not self.enable_delta_hedging:
+            return
         
-        Args:
-            market_data: Current market data including options chain
-            
-        Returns:
-            BearCallSpreadSignal if conditions met, None otherwise
-        """
         try:
-            # Check if strategy is enabled
-            if not self.feature_flags.is_enabled('directional_spreads'):
-                return None
+            # Calculate portfolio delta
+            self._update_portfolio_delta()
             
-            # Check optimal entry window
-            if not DateTimeUtils.is_optimal_entry_time():
-                self.logger.debug("Outside optimal entry window for bear call spread")
-                return None
+            # Check if hedging needed (opposite of bull puts)
+            if self.portfolio_delta > MAX_PORTFOLIO_DELTA:
+                self.logger.info(f"Portfolio delta too positive: {self.portfolio_delta:.0f}")
+                self._create_delta_hedge()
             
-            # Analyze market regime
-            regime = self.analyze_market_regime(market_data)
-            if regime not in [MarketRegime.BEAR, MarketRegime.STRONG_BEAR]:
-                self.logger.debug(f"Market regime {regime.value} not suitable for bear call spread")
-                return None
-            
-            # Check volatility conditions
-            iv_rank = market_data.get('iv_rank', 0)
-            if iv_rank < MIN_IVR_FOR_SPREADS:
-                self.logger.debug(f"IV rank {iv_rank} too low for spread entry")
-                return None
-            
-            # Get options chain
-            options_chain = market_data.get('options_chain')
-            if options_chain is None or options_chain.empty:
-                return None
-            
-            underlying_price = market_data.get('last_price', 0)
-            
-            # Find best expiration (prefer 2-5 DTE)
-            best_signal = None
-            best_score = 0
-            
-            expirations = options_chain['expiration'].unique()
-            for expiry in expirations:
-                dte = (expiry - datetime.now()).days
-                
-                if dte < MIN_DAYS_TO_EXPIRY or dte > MAX_DAYS_TO_EXPIRY:
-                    continue
-                
-                # Find strikes
-                strikes = self.find_optimal_strikes(options_chain, underlying_price, expiry)
-                if not strikes:
-                    continue
-                
-                short_strike, long_strike = strikes
-                
-                # Get option prices
-                short_call = options_chain[
-                    (options_chain['strike'] == short_strike) &
-                    (options_chain['expiration'] == expiry) &
-                    (options_chain['type'] == 'CALL')
-                ].iloc[0]
-                
-                long_call = options_chain[
-                    (options_chain['strike'] == long_strike) &
-                    (options_chain['expiration'] == expiry) &
-                    (options_chain['type'] == 'CALL')
-                ].iloc[0]
-                
-                # Calculate net credit
-                credit = short_call['bid'] - long_call['ask']
-                
-                if credit < MIN_PREMIUM_COLLECTED:
-                    continue
-                
-                # Calculate metrics
-                metrics = self.calculate_spread_metrics(short_strike, long_strike, credit)
-                
-                # Check credit ratio
-                if metrics['credit_ratio'] < self.min_credit_ratio:
-                    continue
-                
-                # Score this opportunity
-                score = self._score_spread_opportunity(market_data, metrics, regime, dte)
-                
-                if score > best_score:
-                    # Determine position size
-                    position_size = self.position_sizer.calculate_position_size(
-                        strategy=self.strategy_name,
-                        signal_strength=min(score / 100, 1.0),
-                        market_conditions={'volatility': iv_rank}
-                    )
-                    
-                    contracts = min(position_size.contracts, MAX_CONTRACTS)
-                    
-                    if contracts > 0:
-                        best_signal = BearCallSpreadSignal(
-                            timestamp=datetime.now(),
-                            underlying_price=underlying_price,
-                            short_strike=short_strike,
-                            long_strike=long_strike,
-                            expiration=expiry,
-                            credit_received=credit,
-                            spread_width=long_strike - short_strike,
-                            probability_profit=metrics['probability_profit'],
-                            implied_volatility=short_call.get('implied_volatility', 0),
-                            delta_short=short_call.get('delta', self.delta_short),
-                            delta_long=long_call.get('delta', self.delta_long),
-                            contracts=contracts,
-                            max_profit=metrics['max_profit'] * contracts,
-                            max_loss=metrics['max_loss'] * contracts,
-                            breakeven=metrics['breakeven'],
-                            score=score,
-                            metadata={
-                                'regime': regime.value,
-                                'iv_rank': iv_rank,
-                                'credit_ratio': metrics['credit_ratio'],
-                                'dte': dte
-                            }
-                        )
-                        best_score = score
-            
-            if best_signal:
-                self.logger.info(
-                    f"Bear call spread signal: {best_signal.short_strike}/{best_signal.long_strike} "
-                    f"for ${best_signal.credit_received:.2f} credit, score: {best_signal.score:.1f}"
-                )
-            
-            return best_signal
+            # Check existing hedges
+            self._manage_existing_hedges()
             
         except Exception as e:
-            self.logger.error(f"Error generating bear call spread signal: {e}")
-            self.error_handler.handle_error(e)
+            self.error_handler.handle_error(e, {'method': '_check_delta_hedging_needs'})
+    
+    def _create_delta_hedge(self) -> Optional[Dict[str, Any]]:
+        """Create delta hedge position for bear calls"""
+        try:
+            # Calculate hedge size needed
+            delta_excess = self.portfolio_delta - MAX_PORTFOLIO_DELTA
+            
+            # For bear calls, hedge with long puts
+            current_price = self.market_data['close'].iloc[-1] if hasattr(self, 'market_data') else 450
+            
+            hedge = {
+                'hedge_id': str(uuid.uuid4()),
+                'hedge_type': 'long_put',
+                'strike': current_price - 5,  # 5 points OTM
+                'quantity': int(delta_excess / 50),  # Assuming -0.5 delta per put
+                'entry_time': datetime.now(),
+                'cost': delta_excess * 2  # Simplified
+            }
+            
+            self.active_hedges[hedge['hedge_id']] = hedge
+            self.bear_call_metrics['hedged_positions'] += 1
+            
+            self.logger.info(f"Created delta hedge: {hedge['hedge_type']} x{hedge['quantity']}")
+            return hedge
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_create_delta_hedge'})
             return None
     
-    def _score_spread_opportunity(self,
-                                market_data: Dict[str, Any],
-                                metrics: Dict[str, float],
-                                regime: MarketRegime,
-                                dte: int) -> float:
-        """
-        Score a spread opportunity (0-100).
-        
-        Args:
-            market_data: Current market data
-            metrics: Spread metrics
-            regime: Current market regime
-            dte: Days to expiration
-            
-        Returns:
-            float: Score 0-100
-        """
-        score = 50.0  # Base score
-        
-        # Market regime bonus
-        if regime == MarketRegime.STRONG_BEAR:
-            score += 15
-        elif regime == MarketRegime.BEAR:
-            score += 10
-        
-        # Credit ratio bonus
-        credit_ratio = metrics['credit_ratio']
-        if credit_ratio > 0.35:
-            score += 15
-        elif credit_ratio > 0.30:
-            score += 10
-        elif credit_ratio > 0.25:
-            score += 5
-        
-        # Probability of profit bonus
-        if metrics['probability_profit'] > 0.70:
-            score += 10
-        elif metrics['probability_profit'] > 0.65:
-            score += 5
-        
-        # IV rank bonus
-        iv_rank = market_data.get('iv_rank', 50)
-        if iv_rank > 70:
-            score += 10
-        elif iv_rank > 50:
-            score += 5
-        
-        # DTE preference (2-5 days optimal)
-        if 2 <= dte <= 5:
-            score += 10
-        elif dte == 1:
-            score += 5
-        
-        # Time of day bonus (closer to 10:15 is better)
-        current_time = datetime.now().time()
-        if time(10, 15) <= current_time <= time(10, 45):
-            score += 10
-        elif time(10, 45) <= current_time <= time(11, 15):
-            score += 5
-        
-        # Risk/reward penalty
-        if metrics['risk_reward_ratio'] > 3:
-            score -= 10
-        elif metrics['risk_reward_ratio'] > 2:
-            score -= 5
-        
-        # Additional bear market indicators
-        vix = market_data.get('vix', 20)
-        if vix > 25:  # Higher VIX favors bear strategies
-            score += 5
-        
-        return max(0, min(100, score))
+    # ==========================================================================
+    # POSITION MANAGEMENT OVERRIDES
+    # ==========================================================================
     
-    def should_exit_position(self,
-                           position: Dict[str, Any],
-                           market_data: Dict[str, Any]) -> Tuple[bool, str]:
-        """
-        Check if position should be exited.
+    def open_credit_spread(self, signal: TradingSignal) -> Optional[CreditSpread]:
+        """Open bear call spread with enhanced tracking"""
+        spread = super().open_credit_spread(signal)
         
-        Args:
-            position: Current position details
-            market_data: Current market data
+        if spread:
+            # Update bear call specific metrics
+            self.bear_call_metrics['total_spreads'] += 1
             
-        Returns:
-            Tuple of (should_exit, reason)
-        """
-        try:
-            # Time-based exit at 12:00 PM
-            if DateTimeUtils.should_exit_by_time():
-                return True, "time_based_exit"
-            
-            # Get current spread value
-            current_value = self._get_spread_value(position, market_data)
-            entry_credit = position['entry_credit']
-            
-            # Calculate P&L
-            pnl = entry_credit - current_value
-            pnl_percent = pnl / entry_credit if entry_credit > 0 else 0
-            
-            # Profit target hit
-            if pnl_percent >= self.profit_target:
-                return True, f"profit_target_hit_{pnl_percent:.1%}"
-            
-            # Stop loss hit
-            if pnl_percent <= -self.stop_loss:
-                return True, f"stop_loss_hit_{pnl_percent:.1%}"
-            
-            # Check if spread is threatened
-            underlying_price = market_data.get('last_price', 0)
-            short_strike = position['short_strike']
-            
-            # Exit if underlying approaches short strike
-            if underlying_price >= short_strike * 0.98:  # Within 2% of short strike
-                return True, "defensive_exit_strike_threatened"
-            
-            # DTE-based management
-            dte = (position['expiration'] - datetime.now()).days
-            if dte == 0 and pnl_percent > 0.25:  # Take 25% profit on expiration day
-                return True, "expiration_day_profit"
-            
-            # Market regime change
-            current_regime = self.analyze_market_regime(market_data)
-            if current_regime in [MarketRegime.BULL, MarketRegime.STRONG_BULL]:
-                if pnl_percent > 0:  # Exit with any profit if regime changes
-                    return True, "regime_change_exit"
-            
-            return False, ""
-            
-        except Exception as e:
-            self.logger.error(f"Error checking exit conditions: {e}")
-            return False, ""
-    
-    def _get_spread_value(self,
-                        position: Dict[str, Any],
-                        market_data: Dict[str, Any]) -> float:
-        """Calculate current value of spread position."""
-        try:
-            options_chain = market_data.get('options_chain')
-            if options_chain is None:
-                return position['entry_credit']  # Return entry value if no data
-            
-            # Get current prices for the spread
-            short_call = options_chain[
-                (options_chain['strike'] == position['short_strike']) &
-                (options_chain['expiration'] == position['expiration']) &
-                (options_chain['type'] == 'CALL')
-            ]
-            
-            long_call = options_chain[
-                (options_chain['strike'] == position['long_strike']) &
-                (options_chain['expiration'] == position['expiration']) &
-                (options_chain['type'] == 'CALL')
-            ]
-            
-            if short_call.empty or long_call.empty:
-                return position['entry_credit']
-            
-            # Calculate current spread value (cost to close)
-            current_value = short_call.iloc[0]['ask'] - long_call.iloc[0]['bid']
-            return current_value
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating spread value: {e}")
-            return position['entry_credit']
-    
-    def execute(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute bear call spread strategy.
+            # Track signal type
+            bearish_signals = signal.metadata.get('bearish_analysis', {}).get('bearish_signals', [])
+            if BearishSignalType.RESISTANCE_REJECTION.name in bearish_signals:
+                self.bear_call_metrics['resistance_rejections'] += 1
+            elif BearishSignalType.TREND_BREAKDOWN.name in bearish_signals:
+                self.bear_call_metrics['trend_breakdowns'] += 1
+            elif BearishSignalType.DISTRIBUTION_DAY.name in bearish_signals:
+                self.bear_call_metrics['distribution_trades'] += 1
+            elif BearishSignalType.FAILED_BREAKOUT.name in bearish_signals:
+                self.bear_call_metrics['failed_breakout_trades'] += 1
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Execution results
-        """
-        results = {
-            'signals': [],
-            'exits': [],
-            'timestamp': datetime.now(),
-            'status': 'success'
+        return spread
+    
+    # ==========================================================================
+    # HELPER METHODS
+    # ==========================================================================
+    
+    def _update_portfolio_delta(self) -> None:
+        """Update total portfolio delta"""
+        total_delta = 0.0
+        
+        # Sum deltas from active spreads
+        for spread in self.active_spreads.values():
+            spread.update_greeks()
+            total_delta += spread.net_delta * spread.quantity * SPY_CONTRACT_MULTIPLIER
+        
+        # Add deltas from hedges
+        for hedge in self.active_hedges.values():
+            if hedge['hedge_type'] == 'long_put':
+                total_delta -= hedge['quantity'] * 50  # Simplified
+        
+        self.portfolio_delta = total_delta
+    
+    def _manage_existing_hedges(self) -> None:
+        """Manage existing delta hedges"""
+        hedges_to_close = []
+        
+        for hedge_id, hedge in self.active_hedges.items():
+            # Check if hedge still needed
+            if self.portfolio_delta < DELTA_HEDGE_THRESHOLD:
+                hedges_to_close.append(hedge_id)
+        
+        # Close unneeded hedges
+        for hedge_id in hedges_to_close:
+            del self.active_hedges[hedge_id]
+            self.logger.info(f"Closed hedge {hedge_id}")
+    
+    def get_strategy_summary(self) -> Dict[str, Any]:
+        """Get comprehensive strategy summary"""
+        # Get parent summary
+        summary = super().get_strategy_summary()
+        
+        # Add bear call specific data
+        summary['bear_call_analysis'] = {
+            'trend_strength': self.bearish_analysis.trend_strength.name if self.bearish_analysis else 'UNKNOWN',
+            'trend_score': self.bearish_analysis.trend_score if self.bearish_analysis else 0,
+            'nearest_resistance': self.bearish_analysis.nearest_resistance if self.bearish_analysis else 0,
+            'distribution_days': self.distribution_day_count,
+            'portfolio_delta': self.portfolio_delta,
+            'active_hedges': len(self.active_hedges)
         }
         
-        try:
-            # Check existing positions for exits
-            for position_id, position in self.open_positions.items():
-                should_exit, reason = self.should_exit_position(position, market_data)
-                if should_exit:
-                    results['exits'].append({
-                        'position_id': position_id,
-                        'reason': reason,
-                        'position': position
-                    })
-            
-            # Check for new entry signals
-            if self.trades_today < self._get_max_daily_trades():
-                signal = self.generate_entry_signal(market_data)
-                if signal:
-                    results['signals'].append(signal)
-                    self.trades_today += 1
-            
-            return results
-            
-        except Exception as e:
-            self.logger.error(f"Error executing bear call spread strategy: {e}")
-            results['status'] = 'error'
-            results['error'] = str(e)
-            return results
+        summary['bear_call_metrics'] = self.bear_call_metrics.copy()
+        
+        return summary
+
+# ==============================================================================
+# MODULE TESTING
+# ==============================================================================
+if __name__ == "__main__":
+    # Test bear call spread strategy
+    event_manager = EventManager()
+    risk_profile = RiskProfile(
+        account_size=100000,
+        max_position_size=0.02,
+        max_portfolio_risk=0.06,
+        max_loss_per_trade=0.01
+    )
     
-    def _get_max_daily_trades(self) -> int:
-        """Get maximum daily trades based on day of week."""
-        if DateTimeUtils.is_monday():
-            return 3  # More trades on Monday
-        else:
-            return 2  # Fewer trades other days
+    config = {
+        'max_spreads': 5,
+        'spread_width': 5.0,
+        'target_premium': 1.0,
+        'min_bearish_strength': -0.3,
+        'enable_delta_hedging': True
+    }
     
-    def get_strategy_parameters(self) -> Dict[str, Any]:
-        """Get current strategy parameters."""
-        return {
-            'strategy_name': self.strategy_name,
-            'delta_short': self.delta_short,
-            'delta_long': self.delta_long,
-            'min_credit_ratio': self.min_credit_ratio,
-            'profit_target': self.profit_target,
-            'stop_loss': self.stop_loss,
-            'max_daily_trades': self._get_max_daily_trades(),
-            'trades_today': self.trades_today,
-            'open_positions': len(self.open_positions),
-            'feature_enabled': self.feature_flags.is_enabled('directional_spreads')
-        }
+    strategy = BearCallSpreadStrategy(event_manager, risk_profile, config)
+    strategy.start()
+    
+    # Create bearish market data
+    dates = pd.date_range(end=datetime.now(), periods=100, freq='5min')
+    base_price = 455
+    
+    # Downtrend with resistance tests
+    trend = np.linspace(0, -10, 100)  # Downtrend
+    resistance_tests = np.sin(np.linspace(0, 4*np.pi, 100)) * 2  # Oscillation
+    noise = np.random.randn(100) * 0.5
+    prices = base_price + trend + resistance_tests + noise
+    
+    # Ensure prices don't go above resistance
+    resistance_level = 455
+    prices = np.minimum(prices, resistance_level)
+    
+    market_data = pd.DataFrame({
+        'timestamp': dates,
+        'open': prices + 0.1,
+        'high': prices + abs(np.random.randn(100) * 0.3),
+        'low': prices - abs(np.random.randn(100) * 0.3),
+        'close': prices,
+        'volume': np.random.randint(50000000, 150000000, 100)
+    })
+    
+    # Add volume surge on down moves
+    for i in range(1, len(market_data)):
+        if market_data['close'].iloc[i] < market_data['close'].iloc[i-1]:
+            market_data.loc[i, 'volume'] *= 1.5
+    
+    # Process market data
+    signals = strategy.generate_signals(market_data)
+    
+    # Print results
+    print(f"Strategy: {strategy.name}")
+    
+    if strategy.bearish_analysis:
+        print(f"\nBearish Analysis:")
+        print(f"Trend Strength: {strategy.bearish_analysis.trend_strength.name}")
+        print(f"Trend Score: {strategy.bearish_analysis.trend_score:.2f}")
+        print(f"RSI: {strategy.bearish_analysis.rsi:.0f}")
+        print(f"Distance to Resistance: {strategy.bearish_analysis.distance_to_resistance:.2%}")
+        print(f"Momentum: {strategy.bearish_analysis.momentum:.3f}")
+        print(f"Distribution Days: {strategy.bearish_analysis.distribution_days}")
+        print(f"Bearish Signals: {[s.name for s in strategy.bearish_analysis.bearish_signals]}")
+        print(f"Confidence: {strategy.bearish_analysis.confidence:.2%}")
+    
+    print(f"\nSignals Generated: {len(signals)}")
+    
+    for signal in signals:
+        spread_data = signal.metadata.get('spread_data', {})
+        bearish_data = signal.metadata.get('bearish_analysis', {})
+        
+        print(f"\nBear Call Spread Signal:")
+        print(f"Strength: {signal.strength.name}")
+        print(f"Short Strike: ${spread_data.get('short_strike', 0)}")
+        print(f"Long Strike: ${spread_data.get('long_strike', 0)}")
+        print(f"Credit: ${spread_data.get('credit', 0):.2f}")
+        print(f"Max Loss: ${spread_data.get('max_loss', 0):.2f}")
+        print(f"Probability: {spread_data.get('probability_profit', 0):.2%}")
+        print(f"Bearish Signals: {bearish_data.get('bearish_signals', [])}")
+    
+    # Get strategy summary
+    summary = strategy.get_strategy_summary()
+    print(f"\nStrategy Summary:")
+    print(f"Portfolio Delta: {summary['bear_call_analysis']['portfolio_delta']:.0f}")
+    print(f"Distribution Days: {summary['bear_call_analysis']['distribution_days']}")
+    print(f"Total Spreads: {summary['bear_call_metrics']['total_spreads']}")
+    print(f"Resistance Rejections: {summary['bear_call_metrics']['resistance_rejections']}")
+    print(f"Failed Breakouts: {summary['bear_call_metrics']['failed_breakout_trades']}")
+    
+    strategy.stop()
+    print("\nBearCallSpreadStrategy test completed!")

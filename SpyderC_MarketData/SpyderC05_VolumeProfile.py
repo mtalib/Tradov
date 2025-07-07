@@ -5,879 +5,917 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderC05_VolumeProfile.py
 Group: C (Market Data)
-Purpose: Volume profile and liquidity analysis
+Purpose: Volume profile analysis for institutional flow detection and support/resistance levels
 
 Description:
-    This module analyzes volume profiles and liquidity patterns for the Spyder trading
-    system. It tracks volume at price levels, identifies high volume nodes (HVN) and
-    low volume nodes (LVN), calculates VWAP, and monitors liquidity conditions. This
-    information is crucial for identifying support/resistance levels and optimal entry/exit points.
+    This module provides comprehensive volume profile analysis including VWAP calculations,
+    volume-at-price distributions, institutional flow detection, and volume-based support
+    and resistance levels. It analyzes tick-by-tick volume data to identify high-volume
+    nodes (HVN), low-volume nodes (LVN), and point of control (POC) levels that are
+    crucial for options strategy entry and exit timing.
 
-Author: Mohamed Talib
-Date: 2025-05-29
-Version: 1.4
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-07-06
+Last Updated: 2025-07-06 Time: 16:00:00
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import os
+import sys
 import time
 import threading
-import datetime
-from typing import Dict, List, Optional, Tuple, Any, Set
-from enum import Enum
+import json
+import bisect
+from datetime import datetime, timedelta, time as dt_time
+from typing import Dict, List, Optional, Tuple, Any, Set, Callable
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
-import bisect
-import numpy as np
+from enum import Enum, auto
+import statistics
+import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
 import pandas as pd
-from scipy.stats import gaussian_kde
-from ibapi.contract import Contract
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy import stats, signal
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-from SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager
+from SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils, MarketSession
+from SpyderU_Utilities.SpyderU07_Constants import TimeFrame
+from SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager, MarketTick
+from SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
+from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Volume profile parameters
-PRICE_BUCKET_SIZE = 0.10  # $0.10 price buckets for SPY
-VOLUME_PROFILE_WINDOW = 390  # Minutes in regular trading day
-MIN_VOLUME_FOR_NODE = 100000  # Minimum volume to consider a price level
-HVN_PERCENTILE = 70  # High Volume Node threshold (70th percentile)
-LVN_PERCENTILE = 30  # Low Volume Node threshold (30th percentile)
+# Volume Profile Configuration
+DEFAULT_PRICE_LEVELS = 500  # Number of price levels for volume profile
+MIN_TICK_VOLUME = 1  # Minimum volume to consider
+VWAP_LOOKBACK_PERIODS = [20, 50, 100, 200]  # VWAP calculation periods
+POC_THRESHOLD = 0.70  # Point of Control threshold (70% of volume)
+HVN_THRESHOLD = 0.85  # High Volume Node threshold (85th percentile)
+LVN_THRESHOLD = 0.15  # Low Volume Node threshold (15th percentile)
 
-# Update intervals
-PROFILE_UPDATE_INTERVAL = 30  # seconds
-VWAP_UPDATE_INTERVAL = 5  # seconds
+# Institutional Flow Detection
+BLOCK_SIZE_THRESHOLD = 10000  # Minimum shares for block trade
+LARGE_TRADE_THRESHOLD = 50000  # Large institutional trade threshold
+VOLUME_SPIKE_THRESHOLD = 3.0  # Standard deviations for volume spike
+PRICE_IMPACT_THRESHOLD = 0.05  # Minimum price impact percentage
 
-# Liquidity thresholds
-MIN_BID_ASK_SIZE = 100  # Minimum bid/ask size for liquidity
-MAX_SPREAD_PERCENT = 0.02  # 2% maximum spread for liquid market
+# Time-based Analysis
+SESSION_PERIODS = {
+    'pre_market': (dt_time(4, 0), dt_time(9, 30)),
+    'opening': (dt_time(9, 30), dt_time(10, 30)),
+    'morning': (dt_time(10, 30), dt_time(12, 0)),
+    'lunch': (dt_time(12, 0), dt_time(14, 0)),
+    'afternoon': (dt_time(14, 0), dt_time(15, 30)),
+    'closing': (dt_time(15, 30), dt_time(16, 0)),
+    'after_hours': (dt_time(16, 0), dt_time(20, 0))
+}
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class VolumeNodeType(Enum):
-    """Volume node types"""
-    HVN = "high_volume_node"  # High Volume Node (support/resistance)
-    LVN = "low_volume_node"   # Low Volume Node (potential breakout)
-    POC = "point_of_control"  # Point of Control (most volume)
-    VAH = "value_area_high"   # Value Area High
-    VAL = "value_area_low"    # Value Area Low
+    """Volume node classification."""
+    HIGH_VOLUME_NODE = "hvn"
+    LOW_VOLUME_NODE = "lvn"
+    POINT_OF_CONTROL = "poc"
+    VALUE_AREA_HIGH = "vah"
+    VALUE_AREA_LOW = "val"
+    NORMAL = "normal"
 
-class LiquidityCondition(Enum):
-    """Market liquidity conditions"""
-    HIGH = "high_liquidity"
-    NORMAL = "normal_liquidity"
-    LOW = "low_liquidity"
-    VERY_LOW = "very_low_liquidity"
+class FlowDirection(Enum):
+    """Institutional flow direction."""
+    ACCUMULATION = "accumulation"
+    DISTRIBUTION = "distribution"
+    NEUTRAL = "neutral"
+    ROTATION = "rotation"
+
+class VWAPPosition(Enum):
+    """Price position relative to VWAP."""
+    ABOVE = "above"
+    BELOW = "below"
+    AT_VWAP = "at_vwap"
+    RECLAIMING = "reclaiming"
+    LOSING = "losing"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
-class PriceLevel:
-    """Volume at a specific price level"""
+@dataclass
+class VolumeLevel:
+    """Individual volume level data."""
     price: float
-    volume: int = 0
-    buy_volume: int = 0
-    sell_volume: int = 0
-    trades: int = 0
+    volume: int
+    trades: int
+    buy_volume: int
+    sell_volume: int
+    timestamp: datetime
+    
+    @property
+    def imbalance_ratio(self) -> float:
+        """Calculate buy/sell imbalance ratio."""
+        if self.sell_volume == 0:
+            return float('inf') if self.buy_volume > 0 else 0.0
+        return self.buy_volume / self.sell_volume
     
     @property
     def net_volume(self) -> int:
-        """Net buying/selling pressure"""
+        """Calculate net volume (buy - sell)."""
         return self.buy_volume - self.sell_volume
-    
-    @property
-    def volume_ratio(self) -> float:
-        """Buy/sell volume ratio"""
-        if self.sell_volume > 0:
-            return self.buy_volume / self.sell_volume
-        return float('inf') if self.buy_volume > 0 else 1.0
 
-class VolumeProfile:
-    """Complete volume profile for a period"""
-    start_time: datetime.datetime
-    end_time: datetime.datetime
-    price_levels: Dict[float, PriceLevel]
-    total_volume: int = 0
+@dataclass
+class VolumeNode:
+    """Volume node (significant price level)."""
+    price: float
+    volume: int
+    node_type: VolumeNodeType
+    strength: float  # 0.0 to 1.0
+    session: str
+    first_touch: datetime
+    last_touch: datetime
+    touch_count: int = 0
     
-    # Key levels
-    poc: Optional[float] = None  # Point of Control
-    vah: Optional[float] = None  # Value Area High
-    val: Optional[float] = None  # Value Area Low
-    
-    # Statistics
-    volume_weighted_price: float = 0.0
-    average_trade_size: float = 0.0
-    
-    def calculate_key_levels(self, value_area_percent: float = 0.70) -> None:
-        """Calculate POC, VAH, VAL"""
-        if not self.price_levels:
-            return
-        
-        # Sort price levels by volume
-        sorted_levels = sorted(
-            self.price_levels.items(),
-            key=lambda x: x[1].volume,
-            reverse=True
-        )
-        
-        # POC is highest volume level
-        if sorted_levels:
-            self.poc = sorted_levels[0][0]
-        
-        # Calculate value area (70% of volume)
-        value_area_volume = self.total_volume * value_area_percent
-        cumulative_volume = 0
-        value_area_prices = []
-        
-        for price, level in sorted_levels:
-            cumulative_volume += level.volume
-            value_area_prices.append(price)
-            if cumulative_volume >= value_area_volume:
-                break
-        
-        if value_area_prices:
-            self.vah = max(value_area_prices)
-            self.val = min(value_area_prices)
-    
-    def get_volume_nodes(self) -> Dict[VolumeNodeType, List[float]]:
-        """Identify volume nodes (HVN, LVN)"""
-        if not self.price_levels:
-            return {}
-        
-        volumes = [level.volume for level in self.price_levels.values()]
-        if not volumes:
-            return {}
-        
-        # Calculate percentiles
-        hvn_threshold = np.percentile(volumes, HVN_PERCENTILE)
-        lvn_threshold = np.percentile(volumes, LVN_PERCENTILE)
-        
-        nodes = {
-            VolumeNodeType.HVN: [],
-            VolumeNodeType.LVN: [],
-            VolumeNodeType.POC: [],
-            VolumeNodeType.VAH: [],
-            VolumeNodeType.VAL: []
-        }
-        
-        # Classify nodes
-        for price, level in self.price_levels.items():
-            if level.volume >= hvn_threshold:
-                nodes[VolumeNodeType.HVN].append(price)
-            elif level.volume <= lvn_threshold and level.volume > 0:
-                nodes[VolumeNodeType.LVN].append(price)
-        
-        # Add key levels
-        if self.poc:
-            nodes[VolumeNodeType.POC].append(self.poc)
-        if self.vah:
-            nodes[VolumeNodeType.VAH].append(self.vah)
-        if self.val:
-            nodes[VolumeNodeType.VAL].append(self.val)
-        
-        return nodes
+    def __post_init__(self):
+        self.touch_count = 1
 
+@dataclass
 class VWAPData:
-    """Volume Weighted Average Price data"""
-    timestamp: datetime.datetime
+    """VWAP calculation data."""
     vwap: float
-    upper_band: float  # VWAP + n*std
-    lower_band: float  # VWAP - n*std
-    cumulative_volume: int
-    cumulative_pv: float  # Price * Volume
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
-        return {
-            'timestamp': self.timestamp.isoformat(),
-            'vwap': self.vwap,
-            'upper_band': self.upper_band,
-            'lower_band': self.lower_band,
-            'volume': self.cumulative_volume
-        }
+    volume: int
+    value: float  # cumulative price * volume
+    period: int
+    std_dev_1: float
+    std_dev_2: float
+    timestamp: datetime
 
-class LiquiditySnapshot:
-    """Market liquidity snapshot"""
-    timestamp: datetime.datetime
-    bid_size: int
-    ask_size: int
-    spread: float
-    spread_percent: float
+@dataclass
+class InstitutionalFlow:
+    """Institutional flow analysis."""
+    direction: FlowDirection
+    strength: float  # 0.0 to 1.0
+    volume: int
     avg_trade_size: float
-    trades_per_minute: int
-    liquidity_score: float  # 0-100
-    condition: LiquidityCondition
+    block_trades: int
+    large_trades: int
+    price_impact: float
+    session: str
+    confidence: float
+
+@dataclass
+class VolumeProfile:
+    """Complete volume profile for a time period."""
+    price_levels: List[VolumeLevel]
+    volume_nodes: List[VolumeNode]
+    poc_price: float
+    value_area_high: float
+    value_area_low: float
+    total_volume: int
+    period_start: datetime
+    period_end: datetime
+    session: str
 
 # ==============================================================================
-# VOLUME PROFILE MANAGER CLASS
+# MAIN CLASS
 # ==============================================================================
-class VolumeProfileManager:
+class VolumeProfileAnalyzer:
     """
-    Manages volume profile and liquidity analysis.
+    Volume profile analyzer for institutional flow detection.
     
-    Features:
-    - Real-time volume profile construction
-    - High/Low volume node identification
-    - VWAP calculation with bands
-    - Liquidity monitoring
-    - Delta volume analysis
-    - Market profile visualization data
-    """
+    This class provides comprehensive volume profile analysis including VWAP calculations,
+    volume distribution analysis, institutional flow detection, and volume-based support
+    and resistance identification. It processes real-time tick data to build volume profiles
+    and detect significant institutional activity.
     
-    def __init__(
-        self,
-        ib_client: IBClient,
-        event_manager: EventManager,
-        data_feed: DataFeedManager
-    ):
-        """
-        Initialize volume profile manager.
+    Attributes:
+        logger: Module logger instance
+        error_handler: Error handling instance
+        data_validator: Data validation instance
+        price_levels: Current price level data
+        volume_nodes: Identified volume nodes
+        vwap_data: VWAP calculations for different periods
+        flow_analysis: Current institutional flow analysis
         
-        Args:
-            ib_client: IB client instance
-            event_manager: Event manager instance
-            data_feed: Data feed manager instance
-        """
-        self.ib_client = ib_client
-        self.event_manager = event_manager
-        self.data_feed = data_feed
-        self.logger = SpyderLogger.get_logger(__name__)
+    Example:
+        >>> analyzer = VolumeProfileAnalyzer()
+        >>> analyzer.initialize()
+        >>> analyzer.start_analysis()
+        >>> profile = analyzer.get_current_profile()
+        >>> nodes = analyzer.get_volume_nodes()
+    """
+    
+    def __init__(self, config: Optional[Dict] = None):
+        """Initialize volume profile analyzer."""
+        self.logger = SpyderLogger.get_logger("VolumeProfileAnalyzer")
         self.error_handler = SpyderErrorHandler()
+        self.data_validator = DataValidator()
         
-        # Trading calendar
-        self.calendar = TradingCalendar()
+        # Configuration
+        self.config = config or {}
+        self.price_levels_count = self.config.get('price_levels', DEFAULT_PRICE_LEVELS)
+        self.vwap_periods = self.config.get('vwap_periods', VWAP_LOOKBACK_PERIODS)
         
-        # Volume profiles
-        self.current_profile: Optional[VolumeProfile] = None
-        self.historical_profiles: deque = deque(maxlen=20)  # Keep 20 days
+        # Data storage
+        self.price_levels: Dict[float, VolumeLevel] = {}
+        self.volume_nodes: List[VolumeNode] = []
+        self.vwap_data: Dict[int, VWAPData] = {}
+        self.flow_analysis: Optional[InstitutionalFlow] = None
         
-        # VWAP tracking
-        self.vwap_data: deque = deque(maxlen=VOLUME_PROFILE_WINDOW)
-        self.current_vwap = VWAPData(
-            timestamp=datetime.datetime.now(),
-            vwap=0.0,
-            upper_band=0.0,
-            lower_band=0.0,
-            cumulative_volume=0,
-            cumulative_pv=0.0
-        )
+        # Real-time data
+        self.tick_buffer: deque = deque(maxlen=10000)
+        self.trade_buffer: deque = deque(maxlen=5000)
+        self.current_session = "regular"
         
-        # Liquidity tracking
-        self.liquidity_snapshots: deque = deque(maxlen=120)  # 10 minutes
-        self.current_liquidity = LiquiditySnapshot(
-            timestamp=datetime.datetime.now(),
-            bid_size=0,
-            ask_size=0,
-            spread=0.0,
-            spread_percent=0.0,
-            avg_trade_size=0.0,
-            trades_per_minute=0,
-            liquidity_score=50.0,
-            condition=LiquidityCondition.NORMAL
-        )
+        # Analysis state
+        self.is_analyzing = False
+        self.last_update = None
+        self.profile_cache: Dict[str, VolumeProfile] = {}
         
-        # Trade tracking
-        self.recent_trades: deque = deque(maxlen=1000)
-        self._trade_lock = threading.RLock()
+        # Threading
+        self._lock = threading.RLock()
+        self._analysis_thread = None
+        self._stop_event = threading.Event()
         
-        # Update threads
-        self._profile_thread: Optional[threading.Thread] = None
-        self._vwap_thread: Optional[threading.Thread] = None
-        self._running = False
+        # Event manager integration
+        self.event_manager = get_event_manager()
         
-        # Subscribe to market data events
-        self._subscribe_to_events()
+        self.logger.info("Volume Profile Analyzer initialized")
+
+    # ==========================================================================
+    # INITIALIZATION METHODS
+    # ==========================================================================
+    def initialize(self) -> bool:
+        """
+        Initialize the volume profile analyzer.
         
-        self.logger.info("VolumeProfileManager initialized")
+        Returns:
+            True if initialization successful, False otherwise
+        """
+        try:
+            # Initialize data structures
+            self._reset_analysis_data()
+            
+            # Register event callbacks
+            self._register_event_callbacks()
+            
+            # Initialize VWAP calculations
+            self._initialize_vwap()
+            
+            self.logger.info("Volume profile analyzer initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'initialize',
+                'class': 'VolumeProfileAnalyzer'
+            })
+            return False
     
+    def _reset_analysis_data(self) -> None:
+        """Reset all analysis data structures."""
+        with self._lock:
+            self.price_levels.clear()
+            self.volume_nodes.clear()
+            self.vwap_data.clear()
+            self.tick_buffer.clear()
+            self.trade_buffer.clear()
+            self.profile_cache.clear()
+            self.flow_analysis = None
+            self.last_update = None
+    
+    def _register_event_callbacks(self) -> None:
+        """Register event manager callbacks."""
+        if self.event_manager:
+            self.event_manager.subscribe(EventType.MARKET_DATA, self._on_market_data)
+            self.event_manager.subscribe(EventType.TRADE_EXECUTED, self._on_trade_data)
+    
+    def _initialize_vwap(self) -> None:
+        """Initialize VWAP calculations for different periods."""
+        for period in self.vwap_periods:
+            self.vwap_data[period] = VWAPData(
+                vwap=0.0,
+                volume=0,
+                value=0.0,
+                period=period,
+                std_dev_1=0.0,
+                std_dev_2=0.0,
+                timestamp=datetime.now()
+            )
+
     # ==========================================================================
     # LIFECYCLE METHODS
     # ==========================================================================
-    def start(self) -> None:
-        """Start volume profile tracking"""
-        if self._running:
+    def start_analysis(self) -> None:
+        """Start volume profile analysis."""
+        if self.is_analyzing:
+            self.logger.warning("Volume profile analysis already running")
             return
         
-        self._running = True
-        
-        # Initialize new profile
-        self._initialize_daily_profile()
-        
-        # Start update threads
-        self._profile_thread = threading.Thread(
-            target=self._profile_update_loop,
-            daemon=True,
-            name="VolumeProfileUpdater"
-        )
-        self._profile_thread.start()
-        
-        self._vwap_thread = threading.Thread(
-            target=self._vwap_update_loop,
-            daemon=True,
-            name="VWAPUpdater"
-        )
-        self._vwap_thread.start()
-        
-        self.logger.info("Volume profile tracking started")
-    
-    def stop(self) -> None:
-        """Stop volume profile tracking"""
-        self._running = False
-        
-        # Save current profile
-        if self.current_profile:
-            self._save_profile(self.current_profile)
-        
-        # Wait for threads
-        if self._profile_thread:
-            self._profile_thread.join(timeout=5.0)
-        if self._vwap_thread:
-            self._vwap_thread.join(timeout=5.0)
-        
-        self.logger.info("Volume profile tracking stopped")
-    
-    # ==========================================================================
-    # PROFILE MANAGEMENT
-    # ==========================================================================
-    def _initialize_daily_profile(self) -> None:
-        """Initialize new daily volume profile"""
-        now = datetime.datetime.now()
-        
-        # Save previous profile if exists
-        if self.current_profile:
-            self._save_profile(self.current_profile)
-        
-        # Create new profile
-        self.current_profile = VolumeProfile(
-            start_time=now.replace(hour=9, minute=30, second=0, microsecond=0),
-            end_time=now.replace(hour=16, minute=0, second=0, microsecond=0),
-            price_levels={}
-        )
-        
-        # Reset VWAP
-        self.current_vwap = VWAPData(
-            timestamp=now,
-            vwap=0.0,
-            upper_band=0.0,
-            lower_band=0.0,
-            cumulative_volume=0,
-            cumulative_pv=0.0
-        )
-        self.vwap_data.clear()
-        
-        self.logger.info("Initialized new daily volume profile")
-    
-    def _save_profile(self, profile: VolumeProfile) -> None:
-        """Save completed profile"""
-        profile.calculate_key_levels()
-        self.historical_profiles.append(profile)
-        
-        # Emit profile complete event
-        self.event_manager.emit(Event(
-            EventType.MARKET_DATA,
-            {
-                'type': 'volume_profile_complete',
-                'date': profile.start_time.date().isoformat(),
-                'total_volume': profile.total_volume,
-                'poc': profile.poc,
-                'vah': profile.vah,
-                'val': profile.val
-            }
-        ))
-    
-    def _get_price_bucket(self, price: float) -> float:
-        """Round price to nearest bucket"""
-        return round(price / PRICE_BUCKET_SIZE) * PRICE_BUCKET_SIZE
-    
-    # ==========================================================================
-    # TRADE PROCESSING
-    # ==========================================================================
-    def _process_trade(self, symbol: str, price: float, size: int, is_buy: bool) -> None:
-        """Process individual trade for volume profile"""
-        if symbol != "SPY" or not self.current_profile:
-            return
-        
-        with self._trade_lock:
-            # Get price bucket
-            bucket_price = self._get_price_bucket(price)
+        try:
+            self.is_analyzing = True
+            self._stop_event.clear()
             
-            # Update or create price level
-            if bucket_price not in self.current_profile.price_levels:
-                self.current_profile.price_levels[bucket_price] = PriceLevel(price=bucket_price)
+            # Start analysis thread
+            self._analysis_thread = threading.Thread(
+                target=self._analysis_loop,
+                name="VolumeProfileAnalysis",
+                daemon=True
+            )
+            self._analysis_thread.start()
             
-            level = self.current_profile.price_levels[bucket_price]
-            level.volume += size
-            level.trades += 1
+            self.logger.info("Volume profile analysis started")
             
-            if is_buy:
-                level.buy_volume += size
-            else:
-                level.sell_volume += size
-            
-            # Update totals
-            self.current_profile.total_volume += size
-            
-            # Track recent trades
-            self.recent_trades.append({
-                'timestamp': datetime.datetime.now(),
-                'price': price,
-                'size': size,
-                'is_buy': is_buy
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'start_analysis'
             })
+            self.is_analyzing = False
     
+    def stop_analysis(self) -> None:
+        """Stop volume profile analysis."""
+        if not self.is_analyzing:
+            return
+        
+        try:
+            self.is_analyzing = False
+            self._stop_event.set()
+            
+            if self._analysis_thread and self._analysis_thread.is_alive():
+                self._analysis_thread.join(timeout=5.0)
+            
+            self.logger.info("Volume profile analysis stopped")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'stop_analysis'
+            })
+
     # ==========================================================================
-    # UPDATE LOOPS
+    # DATA PROCESSING METHODS
     # ==========================================================================
-    def _profile_update_loop(self) -> None:
-        """Update volume profile periodically"""
-        while self._running:
-            try:
-                # Check if new day
-                if self._is_new_trading_day():
-                    self._initialize_daily_profile()
-                
-                # Update profile calculations
-                if self.current_profile:
-                    self.current_profile.calculate_key_levels()
-                    
-                    # Calculate volume-weighted price
-                    total_pv = sum(
-                        price * level.volume 
-                        for price, level in self.current_profile.price_levels.items()
-                    )
-                    if self.current_profile.total_volume > 0:
-                        self.current_profile.volume_weighted_price = (
-                            total_pv / self.current_profile.total_volume
-                        )
-                    
-                    # Emit update
-                    self._emit_profile_update()
-                
-                # Update liquidity
-                self._update_liquidity()
-                
-                time.sleep(PROFILE_UPDATE_INTERVAL)
-                
-            except Exception as e:
-                self.logger.error(f"Error in profile update loop: {e}")
-    
-    def _vwap_update_loop(self) -> None:
-        """Update VWAP calculations"""
-        while self._running:
-            try:
-                self._calculate_vwap()
-                time.sleep(VWAP_UPDATE_INTERVAL)
-                
-            except Exception as e:
-                self.logger.error(f"Error in VWAP update loop: {e}")
-    
-    def _calculate_vwap(self) -> None:
-        """Calculate current VWAP with bands"""
-        with self._trade_lock:
-            if not self.recent_trades:
+    def _on_market_data(self, event: Event) -> None:
+        """Handle incoming market data."""
+        try:
+            if not self.is_analyzing:
                 return
             
-            # Get recent trades (last minute)
-            cutoff_time = datetime.datetime.now() - datetime.timedelta(minutes=1)
-            recent = [t for t in self.recent_trades if t['timestamp'] > cutoff_time]
+            tick_data = event.data
+            if not self._validate_tick_data(tick_data):
+                return
             
-            if recent:
-                # Update cumulative values
-                for trade in recent:
-                    self.current_vwap.cumulative_volume += trade['size']
-                    self.current_vwap.cumulative_pv += trade['price'] * trade['size']
-                
-                # Calculate VWAP
-                if self.current_vwap.cumulative_volume > 0:
-                    vwap = self.current_vwap.cumulative_pv / self.current_vwap.cumulative_volume
-                    self.current_vwap.vwap = vwap
-                    
-                    # Calculate standard deviation for bands
-                    prices = [t['price'] for t in recent]
-                    if len(prices) > 1:
-                        std_dev = np.std(prices)
-                        self.current_vwap.upper_band = vwap + 2 * std_dev
-                        self.current_vwap.lower_band = vwap - 2 * std_dev
-                
-                self.current_vwap.timestamp = datetime.datetime.now()
-                
-                # Store VWAP data point
-                self.vwap_data.append(self.current_vwap)
-                
-                # Emit VWAP update
-                self.event_manager.emit(Event(
-                    EventType.MARKET_DATA,
-                    {
-                        'type': 'vwap_update',
-                        'vwap': self.current_vwap.vwap,
-                        'upper_band': self.current_vwap.upper_band,
-                        'lower_band': self.current_vwap.lower_band,
-                        'volume': self.current_vwap.cumulative_volume
-                    }
-                ))
+            # Create market tick
+            tick = MarketTick(
+                symbol=tick_data.get('symbol', 'SPY'),
+                price=float(tick_data['price']),
+                size=int(tick_data.get('size', 0)),
+                timestamp=tick_data.get('timestamp', datetime.now()),
+                bid=float(tick_data.get('bid', 0)),
+                ask=float(tick_data.get('ask', 0)),
+                volume=int(tick_data.get('volume', 0))
+            )
+            
+            # Process tick
+            self._process_tick(tick)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_on_market_data',
+                'data': str(event.data)[:100]
+            })
     
-    def _update_liquidity(self) -> None:
-        """Update liquidity metrics"""
-        # Get current market data from data feed
-        market_data = self.data_feed.get_market_data("SPY")
-        if not market_data:
-            return
+    def _on_trade_data(self, event: Event) -> None:
+        """Handle incoming trade data."""
+        try:
+            if not self.is_analyzing:
+                return
+            
+            trade_data = event.data
+            if not self._validate_trade_data(trade_data):
+                return
+            
+            # Process trade for institutional flow analysis
+            self._process_trade(trade_data)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_on_trade_data',
+                'data': str(event.data)[:100]
+            })
+    
+    def _process_tick(self, tick: MarketTick) -> None:
+        """Process individual tick for volume profile."""
+        with self._lock:
+            # Add to tick buffer
+            self.tick_buffer.append(tick)
+            
+            # Update price levels
+            self._update_price_level(tick)
+            
+            # Update VWAP calculations
+            self._update_vwap(tick)
+            
+            # Update session tracking
+            self._update_session(tick.timestamp)
+            
+            self.last_update = tick.timestamp
+    
+    def _process_trade(self, trade_data: Dict) -> None:
+        """Process trade data for institutional flow analysis."""
+        with self._lock:
+            # Add to trade buffer
+            self.trade_buffer.append(trade_data)
+            
+            # Detect block trades
+            if trade_data.get('size', 0) >= BLOCK_SIZE_THRESHOLD:
+                self._detect_institutional_flow(trade_data)
+
+    # ==========================================================================
+    # VOLUME PROFILE CALCULATION METHODS
+    # ==========================================================================
+    def _update_price_level(self, tick: MarketTick) -> None:
+        """Update price level with new tick data."""
+        price = round(tick.price, 2)  # Round to penny
         
-        # Calculate metrics
-        bid_size = market_data.get('bid_size', 0)
-        ask_size = market_data.get('ask_size', 0)
-        bid = market_data.get('bid', 0)
-        ask = market_data.get('ask', 0)
-        
-        spread = ask - bid if ask > 0 and bid > 0 else 0
-        spread_percent = spread / bid * 100 if bid > 0 else 0
-        
-        # Calculate average trade size
-        with self._trade_lock:
-            if self.recent_trades:
-                recent_sizes = [t['size'] for t in list(self.recent_trades)[-100:]]
-                avg_trade_size = np.mean(recent_sizes)
+        if price in self.price_levels:
+            level = self.price_levels[price]
+            level.volume += tick.size
+            level.trades += 1
+            level.timestamp = tick.timestamp
+            
+            # Estimate buy/sell based on bid/ask
+            if tick.price >= tick.ask:
+                level.buy_volume += tick.size
+            elif tick.price <= tick.bid:
+                level.sell_volume += tick.size
             else:
-                avg_trade_size = 0
+                # Split volume if between bid/ask
+                level.buy_volume += tick.size // 2
+                level.sell_volume += tick.size - (tick.size // 2)
+        else:
+            # Create new price level
+            buy_vol = tick.size if tick.price >= tick.ask else tick.size // 2
+            sell_vol = tick.size - buy_vol
             
-            # Trades per minute
-            cutoff_time = datetime.datetime.now() - datetime.timedelta(minutes=1)
-            trades_per_minute = sum(
-                1 for t in self.recent_trades 
-                if t['timestamp'] > cutoff_time
-            )
-        
-        # Calculate liquidity score (0-100)
-        liquidity_score = self._calculate_liquidity_score(
-            bid_size, ask_size, spread_percent, trades_per_minute
-        )
-        
-        # Determine condition
-        if liquidity_score >= 80:
-            condition = LiquidityCondition.HIGH
-        elif liquidity_score >= 50:
-            condition = LiquidityCondition.NORMAL
-        elif liquidity_score >= 20:
-            condition = LiquidityCondition.LOW
-        else:
-            condition = LiquidityCondition.VERY_LOW
-        
-        # Create snapshot
-        self.current_liquidity = LiquiditySnapshot(
-            timestamp=datetime.datetime.now(),
-            bid_size=bid_size,
-            ask_size=ask_size,
-            spread=spread,
-            spread_percent=spread_percent,
-            avg_trade_size=avg_trade_size,
-            trades_per_minute=trades_per_minute,
-            liquidity_score=liquidity_score,
-            condition=condition
-        )
-        
-        self.liquidity_snapshots.append(self.current_liquidity)
-    
-    def _calculate_liquidity_score(
-        self,
-        bid_size: int,
-        ask_size: int,
-        spread_percent: float,
-        trades_per_minute: int
-    ) -> float:
-        """Calculate liquidity score (0-100)"""
-        score = 0.0
-        
-        # Size component (40%)
-        total_size = bid_size + ask_size
-        if total_size >= 1000:
-            score += 40
-        elif total_size >= 500:
-            score += 30
-        elif total_size >= 100:
-            score += 20
-        else:
-            score += 10
-        
-        # Spread component (30%)
-        if spread_percent <= 0.01:  # 1 basis point
-            score += 30
-        elif spread_percent <= 0.02:
-            score += 20
-        elif spread_percent <= 0.05:
-            score += 10
-        else:
-            score += 5
-        
-        # Activity component (30%)
-        if trades_per_minute >= 100:
-            score += 30
-        elif trades_per_minute >= 50:
-            score += 20
-        elif trades_per_minute >= 20:
-            score += 10
-        else:
-            score += 5
-        
-        return min(100, score)
-    
-    # ==========================================================================
-    # EVENT HANDLING
-    # ==========================================================================
-    def _subscribe_to_events(self) -> None:
-        """Subscribe to relevant market data events"""
-        self.event_manager.subscribe(
-            self._on_market_data_event,
-            [EventType.TRADE, EventType.QUOTE]
-        )
-    
-    def _on_market_data_event(self, event: Event) -> None:
-        """Handle market data events"""
-        if event.type == EventType.TRADE:
-            # Process trade for volume profile
-            data = event.data
-            self._process_trade(
-                symbol=data.get('symbol', ''),
-                price=data.get('price', 0),
-                size=data.get('size', 0),
-                is_buy=data.get('is_buy', True)
+            self.price_levels[price] = VolumeLevel(
+                price=price,
+                volume=tick.size,
+                trades=1,
+                buy_volume=buy_vol,
+                sell_volume=sell_vol,
+                timestamp=tick.timestamp
             )
     
-    def _emit_profile_update(self) -> None:
-        """Emit volume profile update event"""
-        if not self.current_profile:
+    def _update_vwap(self, tick: MarketTick) -> None:
+        """Update VWAP calculations for all periods."""
+        if tick.size == 0:
             return
         
-        nodes = self.current_profile.get_volume_nodes()
-        
-        self.event_manager.emit(Event(
-            EventType.MARKET_DATA,
-            {
-                'type': 'volume_profile_update',
-                'total_volume': self.current_profile.total_volume,
-                'poc': self.current_profile.poc,
-                'vah': self.current_profile.vah,
-                'val': self.current_profile.val,
-                'hvn_levels': nodes.get(VolumeNodeType.HVN, []),
-                'lvn_levels': nodes.get(VolumeNodeType.LVN, [])
-            }
-        ))
+        for period in self.vwap_periods:
+            vwap_data = self.vwap_data[period]
+            
+            # Add current tick to VWAP calculation
+            vwap_data.volume += tick.size
+            vwap_data.value += tick.price * tick.size
+            vwap_data.vwap = vwap_data.value / vwap_data.volume if vwap_data.volume > 0 else 0.0
+            vwap_data.timestamp = tick.timestamp
+            
+            # Calculate standard deviation bands
+            if len(self.tick_buffer) >= period:
+                recent_ticks = list(self.tick_buffer)[-period:]
+                prices = [t.price for t in recent_ticks]
+                std_dev = np.std(prices) if len(prices) > 1 else 0.0
+                
+                vwap_data.std_dev_1 = std_dev
+                vwap_data.std_dev_2 = std_dev * 2
     
+    def _detect_institutional_flow(self, trade_data: Dict) -> None:
+        """Detect and analyze institutional flow patterns."""
+        try:
+            size = trade_data.get('size', 0)
+            price = trade_data.get('price', 0.0)
+            timestamp = trade_data.get('timestamp', datetime.now())
+            
+            # Classify trade size
+            is_block = size >= BLOCK_SIZE_THRESHOLD
+            is_large = size >= LARGE_TRADE_THRESHOLD
+            
+            # Calculate recent flow metrics
+            recent_trades = [t for t in self.trade_buffer if 
+                           (timestamp - t.get('timestamp', timestamp)).seconds < 300]  # 5 minutes
+            
+            if not recent_trades:
+                return
+            
+            total_volume = sum(t.get('size', 0) for t in recent_trades)
+            avg_trade_size = total_volume / len(recent_trades)
+            block_count = sum(1 for t in recent_trades if t.get('size', 0) >= BLOCK_SIZE_THRESHOLD)
+            large_count = sum(1 for t in recent_trades if t.get('size', 0) >= LARGE_TRADE_THRESHOLD)
+            
+            # Determine flow direction
+            direction = self._determine_flow_direction(recent_trades, price)
+            
+            # Calculate strength and confidence
+            strength = min(1.0, (avg_trade_size / BLOCK_SIZE_THRESHOLD) * 0.5 + (block_count / len(recent_trades)))
+            confidence = min(1.0, total_volume / (LARGE_TRADE_THRESHOLD * 10))
+            
+            # Update flow analysis
+            self.flow_analysis = InstitutionalFlow(
+                direction=direction,
+                strength=strength,
+                volume=total_volume,
+                avg_trade_size=avg_trade_size,
+                block_trades=block_count,
+                large_trades=large_count,
+                price_impact=self._calculate_price_impact(recent_trades),
+                session=self.current_session,
+                confidence=confidence
+            )
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_detect_institutional_flow'
+            })
+
     # ==========================================================================
-    # QUERIES
+    # ANALYSIS METHODS
+    # ==========================================================================
+    def _analysis_loop(self) -> None:
+        """Main analysis loop running in separate thread."""
+        while not self._stop_event.is_set() and self.is_analyzing:
+            try:
+                # Update volume nodes
+                self._update_volume_nodes()
+                
+                # Generate volume profile
+                self._generate_volume_profile()
+                
+                # Clean old data
+                self._cleanup_old_data()
+                
+                # Sleep before next analysis
+                time.sleep(1.0)
+                
+            except Exception as e:
+                self.error_handler.handle_error(e, {
+                    'method': '_analysis_loop'
+                })
+                time.sleep(5.0)  # Longer sleep on error
+    
+    def _update_volume_nodes(self) -> None:
+        """Update volume nodes based on current price levels."""
+        if not self.price_levels:
+            return
+        
+        with self._lock:
+            # Calculate volume statistics
+            volumes = [level.volume for level in self.price_levels.values()]
+            if not volumes:
+                return
+            
+            total_volume = sum(volumes)
+            volume_percentiles = np.percentile(volumes, [LVN_THRESHOLD * 100, HVN_THRESHOLD * 100])
+            
+            # Find Point of Control (highest volume)
+            poc_level = max(self.price_levels.values(), key=lambda x: x.volume)
+            
+            # Clear existing nodes
+            self.volume_nodes.clear()
+            
+            # Identify volume nodes
+            for level in self.price_levels.values():
+                node_type = VolumeNodeType.NORMAL
+                strength = level.volume / max(volumes) if volumes else 0.0
+                
+                if level == poc_level:
+                    node_type = VolumeNodeType.POINT_OF_CONTROL
+                    strength = 1.0
+                elif level.volume >= volume_percentiles[1]:
+                    node_type = VolumeNodeType.HIGH_VOLUME_NODE
+                elif level.volume <= volume_percentiles[0]:
+                    node_type = VolumeNodeType.LOW_VOLUME_NODE
+                
+                # Only add significant nodes
+                if node_type != VolumeNodeType.NORMAL or strength > 0.3:
+                    node = VolumeNode(
+                        price=level.price,
+                        volume=level.volume,
+                        node_type=node_type,
+                        strength=strength,
+                        session=self.current_session,
+                        first_touch=level.timestamp,
+                        last_touch=level.timestamp
+                    )
+                    self.volume_nodes.append(node)
+    
+    def _generate_volume_profile(self) -> None:
+        """Generate complete volume profile for current period."""
+        if not self.price_levels:
+            return
+        
+        with self._lock:
+            # Calculate value area (70% of volume)
+            sorted_levels = sorted(self.price_levels.values(), key=lambda x: x.volume, reverse=True)
+            total_volume = sum(level.volume for level in sorted_levels)
+            value_area_volume = total_volume * POC_THRESHOLD
+            
+            # Find value area boundaries
+            cumulative_volume = 0
+            value_area_levels = []
+            
+            for level in sorted_levels:
+                cumulative_volume += level.volume
+                value_area_levels.append(level)
+                if cumulative_volume >= value_area_volume:
+                    break
+            
+            if value_area_levels:
+                prices = [level.price for level in value_area_levels]
+                value_area_high = max(prices)
+                value_area_low = min(prices)
+                poc_price = max(value_area_levels, key=lambda x: x.volume).price
+            else:
+                value_area_high = value_area_low = poc_price = 0.0
+            
+            # Create volume profile
+            profile = VolumeProfile(
+                price_levels=list(self.price_levels.values()),
+                volume_nodes=self.volume_nodes.copy(),
+                poc_price=poc_price,
+                value_area_high=value_area_high,
+                value_area_low=value_area_low,
+                total_volume=total_volume,
+                period_start=min(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(),
+                period_end=max(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(),
+                session=self.current_session
+            )
+            
+            # Cache profile
+            cache_key = f"{self.current_session}_{datetime.now().strftime('%Y%m%d_%H')}"
+            self.profile_cache[cache_key] = profile
+
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+    def _validate_tick_data(self, data: Dict) -> bool:
+        """Validate incoming tick data."""
+        required_fields = ['price', 'timestamp']
+        return all(field in data for field in required_fields)
+    
+    def _validate_trade_data(self, data: Dict) -> bool:
+        """Validate incoming trade data."""
+        required_fields = ['price', 'size', 'timestamp']
+        return all(field in data for field in required_fields)
+    
+    def _update_session(self, timestamp: datetime) -> None:
+        """Update current trading session based on timestamp."""
+        current_time = timestamp.time()
+        
+        for session_name, (start_time, end_time) in SESSION_PERIODS.items():
+            if start_time <= current_time < end_time:
+                if self.current_session != session_name:
+                    self.current_session = session_name
+                    self.logger.debug(f"Session changed to: {session_name}")
+                break
+    
+    def _determine_flow_direction(self, trades: List[Dict], current_price: float) -> FlowDirection:
+        """Determine institutional flow direction."""
+        if not trades:
+            return FlowDirection.NEUTRAL
+        
+        # Analyze trade patterns
+        buy_volume = sum(t.get('size', 0) for t in trades if t.get('price', 0) >= current_price)
+        sell_volume = sum(t.get('size', 0) for t in trades if t.get('price', 0) < current_price)
+        
+        total_volume = buy_volume + sell_volume
+        if total_volume == 0:
+            return FlowDirection.NEUTRAL
+        
+        buy_ratio = buy_volume / total_volume
+        
+        if buy_ratio > 0.6:
+            return FlowDirection.ACCUMULATION
+        elif buy_ratio < 0.4:
+            return FlowDirection.DISTRIBUTION
+        else:
+            return FlowDirection.NEUTRAL
+    
+    def _calculate_price_impact(self, trades: List[Dict]) -> float:
+        """Calculate price impact of recent trades."""
+        if len(trades) < 2:
+            return 0.0
+        
+        prices = [t.get('price', 0.0) for t in trades]
+        return abs(max(prices) - min(prices)) / min(prices) if min(prices) > 0 else 0.0
+    
+    def _cleanup_old_data(self) -> None:
+        """Clean up old data to manage memory usage."""
+        current_time = datetime.now()
+        cutoff_time = current_time - timedelta(hours=1)  # Keep 1 hour of data
+        
+        with self._lock:
+            # Clean old price levels
+            old_prices = [price for price, level in self.price_levels.items() 
+                         if level.timestamp < cutoff_time]
+            for price in old_prices:
+                del self.price_levels[price]
+            
+            # Clean old cache entries
+            old_cache_keys = [key for key, profile in self.profile_cache.items() 
+                            if profile.period_end < cutoff_time]
+            for key in old_cache_keys:
+                del self.profile_cache[key]
+
+    # ==========================================================================
+    # PUBLIC API METHODS
     # ==========================================================================
     def get_current_profile(self) -> Optional[VolumeProfile]:
-        """Get current volume profile"""
-        return self.current_profile
+        """Get current volume profile."""
+        cache_key = f"{self.current_session}_{datetime.now().strftime('%Y%m%d_%H')}"
+        return self.profile_cache.get(cache_key)
     
-    def get_volume_at_price(self, price: float) -> Optional[PriceLevel]:
-        """Get volume data at specific price level"""
-        if not self.current_profile:
-            return None
-        
-        bucket_price = self._get_price_bucket(price)
-        return self.current_profile.price_levels.get(bucket_price)
+    def get_volume_nodes(self) -> List[VolumeNode]:
+        """Get current volume nodes."""
+        with self._lock:
+            return self.volume_nodes.copy()
     
-    def get_key_levels(self) -> Dict[str, Optional[float]]:
-        """Get key price levels (POC, VAH, VAL)"""
-        if not self.current_profile:
-            return {'poc': None, 'vah': None, 'val': None}
-        
-        return {
-            'poc': self.current_profile.poc,
-            'vah': self.current_profile.vah,
-            'val': self.current_profile.val
-        }
+    def get_vwap_data(self, period: int = 20) -> Optional[VWAPData]:
+        """Get VWAP data for specified period."""
+        return self.vwap_data.get(period)
     
-    def get_volume_nodes(self) -> Dict[VolumeNodeType, List[float]]:
-        """Get all volume nodes"""
-        if not self.current_profile:
-            return {}
-        
-        return self.current_profile.get_volume_nodes()
+    def get_institutional_flow(self) -> Optional[InstitutionalFlow]:
+        """Get current institutional flow analysis."""
+        return self.flow_analysis
     
-    def get_current_vwap(self) -> VWAPData:
-        """Get current VWAP data"""
-        return self.current_vwap
+    def get_poc_level(self) -> Optional[float]:
+        """Get current Point of Control price level."""
+        profile = self.get_current_profile()
+        return profile.poc_price if profile else None
     
-    def get_vwap_history(self, minutes: int = 30) -> pd.DataFrame:
-        """Get VWAP history as DataFrame"""
-        if not self.vwap_data:
-            return pd.DataFrame()
-        
-        cutoff_time = datetime.datetime.now() - datetime.timedelta(minutes=minutes)
-        data = [
-            vwap.to_dict() 
-            for vwap in self.vwap_data 
-            if vwap.timestamp >= cutoff_time
-        ]
-        
-        if data:
-            df = pd.DataFrame(data)
-            df.set_index('timestamp', inplace=True)
-            return df
-        
-        return pd.DataFrame()
+    def get_value_area(self) -> Optional[Tuple[float, float]]:
+        """Get current value area (VAH, VAL)."""
+        profile = self.get_current_profile()
+        if profile:
+            return (profile.value_area_high, profile.value_area_low)
+        return None
     
-    def get_liquidity_condition(self) -> LiquidityCondition:
-        """Get current liquidity condition"""
-        return self.current_liquidity.condition
+    def get_volume_at_price(self, price: float) -> int:
+        """Get volume traded at specific price level."""
+        rounded_price = round(price, 2)
+        level = self.price_levels.get(rounded_price)
+        return level.volume if level else 0
     
-    def get_liquidity_score(self) -> float:
-        """Get current liquidity score"""
-        return self.current_liquidity.liquidity_score
+    def is_price_above_vwap(self, price: float, period: int = 20) -> Optional[bool]:
+        """Check if price is above VWAP for given period."""
+        vwap_data = self.get_vwap_data(period)
+        if vwap_data and vwap_data.vwap > 0:
+            return price > vwap_data.vwap
+        return None
     
-    def get_delta_volume(self) -> Dict[str, Any]:
-        """Get buy/sell volume delta analysis"""
-        if not self.current_profile:
-            return {}
+    def get_support_resistance_levels(self) -> Dict[str, List[float]]:
+        """Get volume-based support and resistance levels."""
+        levels = {'support': [], 'resistance': []}
         
-        total_buy = sum(
-            level.buy_volume 
-            for level in self.current_profile.price_levels.values()
-        )
-        total_sell = sum(
-            level.sell_volume 
-            for level in self.current_profile.price_levels.values()
-        )
+        for node in self.volume_nodes:
+            if node.node_type in [VolumeNodeType.HIGH_VOLUME_NODE, VolumeNodeType.POINT_OF_CONTROL]:
+                if node.strength > 0.7:
+                    levels['resistance'].append(node.price)
+                else:
+                    levels['support'].append(node.price)
         
-        return {
-            'buy_volume': total_buy,
-            'sell_volume': total_sell,
-            'net_volume': total_buy - total_sell,
-            'buy_ratio': total_buy / (total_buy + total_sell) if (total_buy + total_sell) > 0 else 0.5
-        }
-    
-    def export_profile_data(self) -> pd.DataFrame:
-        """Export current profile to DataFrame"""
-        if not self.current_profile:
-            return pd.DataFrame()
+        # Sort levels
+        levels['support'].sort()
+        levels['resistance'].sort(reverse=True)
         
-        data = []
-        for price, level in sorted(self.current_profile.price_levels.items()):
-            data.append({
-                'price': price,
-                'volume': level.volume,
-                'buy_volume': level.buy_volume,
-                'sell_volume': level.sell_volume,
-                'net_volume': level.net_volume,
-                'trades': level.trades
+        return levels
+
+    # ==========================================================================
+    # CLEANUP METHODS
+    # ==========================================================================
+    def cleanup(self) -> None:
+        """Clean up volume profile analyzer resources."""
+        try:
+            # Stop analysis
+            self.stop_analysis()
+            
+            # Clear data
+            with self._lock:
+                self.price_levels.clear()
+                self.volume_nodes.clear()
+                self.vwap_data.clear()
+                self.tick_buffer.clear()
+                self.trade_buffer.clear()
+                self.profile_cache.clear()
+            
+            self.logger.info("Volume profile analyzer cleanup completed")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'cleanup'
             })
-        
-        if data:
-            return pd.DataFrame(data)
-        
-        return pd.DataFrame()
+
+# ==============================================================================
+# MODULE FUNCTIONS
+# ==============================================================================
+def get_volume_profile_analyzer(config: Optional[Dict] = None) -> VolumeProfileAnalyzer:
+    """
+    Get singleton instance of volume profile analyzer.
     
-    # ==========================================================================
-    # UTILITIES
-    # ==========================================================================
-    def _is_new_trading_day(self) -> bool:
-        """Check if it's a new trading day"""
-        if not self.current_profile:
-            return True
+    Args:
+        config: Optional configuration dictionary
         
-        now = datetime.datetime.now()
-        return (self.calendar.is_trading_day(now.date()) and 
-                now.date() != self.current_profile.start_time.date())
+    Returns:
+        VolumeProfileAnalyzer instance
+    """
+    global _volume_analyzer_instance
+    if _volume_analyzer_instance is None:
+        _volume_analyzer_instance = VolumeProfileAnalyzer(config)
+    return _volume_analyzer_instance
 
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
+# Global instance
+_volume_analyzer_instance: Optional[VolumeProfileAnalyzer] = None
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
-    # Test volume profile manager
-    from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager
+    # Module testing code
+    print("🔍 Testing Volume Profile Analyzer...")
     
-    # Mock IB client
-    class MockIBClient:
-        pass
+    analyzer = VolumeProfileAnalyzer()
     
-    # Mock data feed
-    class MockDataFeed:
-        def get_market_data(self, symbol):
-            return {
-                'bid': 450.00,
-                'ask': 450.02,
-                'bid_size': 500,
-                'ask_size': 600,
-                'last': 450.01,
-                'volume': 1000000
-            }
-    
-    # Initialize
-    event_manager = EventManager()
-    ib_client = MockIBClient()
-    data_feed = MockDataFeed()
-    
-    volume_manager = VolumeProfileManager(ib_client, event_manager, data_feed)
-    
-    # Start manager
-    volume_manager.start()
-    
-    # Simulate some trades
-    print("Simulating trades...")
-    import random
-    
-    for i in range(50):
-        price = 450.0 + random.uniform(-1, 1)
-        size = random.randint(100, 1000)
-        is_buy = random.random() > 0.5
+    if analyzer.initialize():
+        print("✅ Volume Profile Analyzer initialized successfully")
         
-        volume_manager._process_trade("SPY", price, size, is_buy)
-    
-    # Wait for calculations
-    time.sleep(2)
-    
-    # Get key levels
-    print("\nKey Levels:")
-    levels = volume_manager.get_key_levels()
-    for key, value in levels.items():
-        print(f"  {key.upper()}: ${value:.2f}" if value else f"  {key.upper()}: N/A")
-    
-    # Get volume nodes
-    print("\nVolume Nodes:")
-    nodes = volume_manager.get_volume_nodes()
-    for node_type, prices in nodes.items():
-        if prices:
-            print(f"  {node_type.value}: {[f'${p:.2f}' for p in prices[:3]]}")
-    
-    # Get VWAP
-    vwap = volume_manager.get_current_vwap()
-    print(f"\nVWAP: ${vwap.vwap:.2f}")
-    print(f"  Upper Band: ${vwap.upper_band:.2f}")
-    print(f"  Lower Band: ${vwap.lower_band:.2f}")
-    
-    # Get liquidity
-    print(f"\nLiquidity:")
-    print(f"  Score: {volume_manager.get_liquidity_score():.1f}/100")
-    print(f"  Condition: {volume_manager.get_liquidity_condition().value}")
-    
-    # Get delta volume
-    print("\nDelta Volume Analysis:")
-    delta = volume_manager.get_delta_volume()
-    for key, value in delta.items():
-        print(f"  {key}: {value:,.0f}" if isinstance(value, (int, float)) else f"  {key}: {value}")
-    
-    # Export profile data
-    print("\nVolume Profile Data:")
-    df = volume_manager.export_profile_data()
-    if not df.empty:
-        print(df.head(10))
-    
-    # Stop manager
-    volume_manager.stop()
+        # Start analysis
+        analyzer.start_analysis()
+        
+        # Simulate some tick data
+        import random
+        base_price = 450.0
+        
+        for i in range(100):
+            # Generate synthetic tick
+            price = base_price + random.normalvariate(0, 1.0)
+            size = random.randint(100, 10000)
+            
+            tick = MarketTick(
+                symbol="SPY",
+                price=price,
+                size=size,
+                timestamp=datetime.now(),
+                bid=price - 0.01,
+                ask=price + 0.01,
+                volume=size
+            )
+            
+            analyzer._process_tick(tick)
+        
+        # Wait for analysis
+        time.sleep(2)
+        
+        # Get results
+        profile = analyzer.get_current_profile()
+        if profile:
+            print(f"📊 Volume Profile Generated:")
+            print(f"  POC: ${profile.poc_price:.2f}")
+            print(f"  Value Area: ${profile.value_area_low:.2f} - ${profile.value_area_high:.2f}")
+            print(f"  Total Volume: {profile.total_volume:,}")
+        
+        nodes = analyzer.get_volume_nodes()
+        print(f"📍 Volume Nodes: {len(nodes)}")
+        for node in nodes[:5]:  # Show first 5
+            print(f"  {node.node_type.value}: ${node.price:.2f} (Volume: {node.volume:,})")
+        
+        vwap = analyzer.get_vwap_data(20)
+        if vwap:
+            print(f"📈 VWAP (20): ${vwap.vwap:.2f}")
+        
+        flow = analyzer.get_institutional_flow()
+        if flow:
+            print(f"🏛️ Institutional Flow: {flow.direction.value} (Strength: {flow.strength:.1%})")
+        
+        # Cleanup
+        analyzer.cleanup()
+        print("🧹 Cleanup completed")
+        
+    else:
+        print("❌ Volume Profile Analyzer initialization failed")

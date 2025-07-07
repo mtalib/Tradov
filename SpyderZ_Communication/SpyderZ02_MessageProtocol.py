@@ -5,19 +5,21 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderZ02_MessageProtocol.py
 Group: Z (Communication Infrastructure)
-Purpose: Standardized message protocol with schema validation and efficient serialization
+Purpose: Enhanced message protocol with strict validation and versioning
 
 Description:
-    This module provides:
-    - Standardized message schemas for all SPYDER components
-    - Message validation and type checking
-    - Efficient serialization using MessagePack (optional)
-    - Backward compatibility with JSON
-    - Message versioning support
+    This module provides a production-grade message protocol system with:
+    - Strict schema validation using JSON Schema
+    - Protocol version control and migration
+    - Message compression for large payloads
+    - Priority-based message handling
+    - Comprehensive type checking and validation
+    - Backward compatibility support
+    - Message encryption for sensitive data
 
 Author: SPYDER Team
-Date: 2025-06-28
-Version: 1.0
+Date: 2025-01-03
+Version: 2.0
 """
 
 # ==============================================================================
@@ -26,13 +28,19 @@ Version: 1.0
 import json
 import time
 import zlib
+import hashlib
+import base64
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Dict, List, Optional, Any, Union, Type, Callable
+from typing import Dict, List, Optional, Any, Union, Type, Callable, Set
 from dataclasses import dataclass, asdict, field
 from enum import Enum, auto
 import uuid
 import logging
+from collections import defaultdict
+import jsonschema
+from jsonschema import validate, ValidationError
+import warnings
 
 # Optional MessagePack for efficient serialization
 try:
@@ -40,28 +48,52 @@ try:
     MSGPACK_AVAILABLE = True
 except ImportError:
     MSGPACK_AVAILABLE = False
-    print("Warning: msgpack not installed. Using JSON serialization.")
-    print("Install with: pip install msgpack")
+    warnings.warn("msgpack not installed. Using JSON serialization.")
+
+# Optional encryption
+try:
+    from cryptography.fernet import Fernet
+    ENCRYPTION_AVAILABLE = True
+except ImportError:
+    ENCRYPTION_AVAILABLE = False
+    warnings.warn("cryptography not installed. Encryption disabled.")
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Protocol version
-PROTOCOL_VERSION = "1.0"
+# Protocol versions
+PROTOCOL_VERSION = "2.0"
+MIN_SUPPORTED_VERSION = "1.0"
+PROTOCOL_VERSIONS = ["1.0", "1.1", "2.0"]
 
-# Serialization formats
+# Serialization settings
+COMPRESSION_THRESHOLD = 1024  # bytes
+MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10MB
+
+# Validation settings
+STRICT_VALIDATION = True
+VALIDATE_TIMESTAMPS = True
+MAX_FUTURE_TIMESTAMP = 60  # seconds
+
+# Message priority levels
+PRIORITY_CRITICAL = 10
+PRIORITY_HIGH = 8
+PRIORITY_NORMAL = 5
+PRIORITY_LOW = 3
+PRIORITY_BACKGROUND = 1
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
 class SerializationFormat(Enum):
+    """Serialization formats with compression support."""
     JSON = "json"
     MSGPACK = "msgpack"
     COMPRESSED_JSON = "compressed_json"
     COMPRESSED_MSGPACK = "compressed_msgpack"
+    ENCRYPTED_JSON = "encrypted_json"
+    ENCRYPTED_MSGPACK = "encrypted_msgpack"
 
-# Default format
-DEFAULT_FORMAT = SerializationFormat.MSGPACK if MSGPACK_AVAILABLE else SerializationFormat.JSON
-
-# ==============================================================================
-# MESSAGE TYPES
-# ==============================================================================
 class MessageCategory(Enum):
     """High-level message categories."""
     MARKET = "MARKET"
@@ -71,647 +103,923 @@ class MessageCategory(Enum):
     STRATEGY = "STRATEGY"
     ACCOUNT = "ACCOUNT"
     ALERT = "ALERT"
+    SECURITY = "SECURITY"
 
-class MarketDataType(Enum):
-    """Market data message subtypes."""
-    QUOTE = "QUOTE"
-    TRADE_TICK = "TRADE_TICK"
-    OPTION_CHAIN = "OPTION_CHAIN"
-    GREEKS = "GREEKS"
-    DEPTH = "DEPTH"
-    STATISTICS = "STATISTICS"
-
-class TradeMessageType(Enum):
-    """Trade-related message subtypes."""
-    ORDER_NEW = "ORDER_NEW"
-    ORDER_MODIFY = "ORDER_MODIFY"
-    ORDER_CANCEL = "ORDER_CANCEL"
-    ORDER_STATUS = "ORDER_STATUS"
-    FILL = "FILL"
-    PARTIAL_FILL = "PARTIAL_FILL"
-    REJECTION = "REJECTION"
-
-class RiskMessageType(Enum):
-    """Risk-related message subtypes."""
-    PORTFOLIO_GREEKS = "PORTFOLIO_GREEKS"
-    POSITION_RISK = "POSITION_RISK"
-    MARGIN_UPDATE = "MARGIN_UPDATE"
-    RISK_LIMIT = "RISK_LIMIT"
-    STRESS_TEST = "STRESS_TEST"
+class ValidationLevel(Enum):
+    """Message validation levels."""
+    NONE = 0
+    BASIC = 1
+    STANDARD = 2
+    STRICT = 3
 
 # ==============================================================================
-# BASE MESSAGE SCHEMAS
+# SCHEMAS
+# ==============================================================================
+class MessageSchemas:
+    """JSON schemas for message validation."""
+    
+    # Base message schema
+    BASE_MESSAGE = {
+        "type": "object",
+        "required": ["version", "category", "type", "timestamp", "source", "data"],
+        "properties": {
+            "version": {
+                "type": "string",
+                "pattern": r"^\d+\.\d+$"
+            },
+            "category": {
+                "type": "string",
+                "enum": [cat.value for cat in MessageCategory]
+            },
+            "type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 50
+            },
+            "timestamp": {
+                "type": "number",
+                "minimum": 0
+            },
+            "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+            },
+            "destination": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+            },
+            "correlation_id": {
+                "type": ["string", "null"]
+            },
+            "message_id": {
+                "type": "string"
+            },
+            "priority": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+            },
+            "data": {
+                "type": "object"
+            },
+            "metadata": {
+                "type": "object"
+            }
+        }
+    }
+    
+    # Market data schema
+    MARKET_DATA = {
+        "type": "object",
+        "required": ["symbol", "timestamp"],
+        "properties": {
+            "symbol": {
+                "type": "string",
+                "pattern": r"^[A-Z0-9]+$"
+            },
+            "timestamp": {
+                "type": "number"
+            },
+            "bid": {
+                "type": ["number", "null"],
+                "minimum": 0
+            },
+            "ask": {
+                "type": ["number", "null"],
+                "minimum": 0
+            },
+            "last": {
+                "type": ["number", "null"],
+                "minimum": 0
+            },
+            "volume": {
+                "type": ["integer", "null"],
+                "minimum": 0
+            },
+            "bid_size": {
+                "type": ["integer", "null"],
+                "minimum": 0
+            },
+            "ask_size": {
+                "type": ["integer", "null"],
+                "minimum": 0
+            }
+        }
+    }
+    
+    # Order schema
+    ORDER = {
+        "type": "object",
+        "required": ["symbol", "action", "quantity", "order_type"],
+        "properties": {
+            "order_id": {
+                "type": "string"
+            },
+            "symbol": {
+                "type": "string"
+            },
+            "action": {
+                "type": "string",
+                "enum": ["BUY", "SELL"]
+            },
+            "quantity": {
+                "type": "integer",
+                "minimum": 1
+            },
+            "order_type": {
+                "type": "string",
+                "enum": ["MARKET", "LIMIT", "STOP", "STOP_LIMIT"]
+            },
+            "price": {
+                "type": ["number", "null"],
+                "minimum": 0
+            },
+            "stop_price": {
+                "type": ["number", "null"],
+                "minimum": 0
+            },
+            "time_in_force": {
+                "type": "string",
+                "enum": ["DAY", "GTC", "IOC", "FOK"]
+            }
+        }
+    }
+    
+    # Risk metrics schema
+    RISK_METRICS = {
+        "type": "object",
+        "required": ["timestamp"],
+        "properties": {
+            "timestamp": {
+                "type": "number"
+            },
+            "portfolio_delta": {
+                "type": ["number", "null"]
+            },
+            "portfolio_gamma": {
+                "type": ["number", "null"]
+            },
+            "portfolio_theta": {
+                "type": ["number", "null"]
+            },
+            "portfolio_vega": {
+                "type": ["number", "null"]
+            },
+            "portfolio_value": {
+                "type": ["number", "null"],
+                "minimum": 0
+            },
+            "var_95": {
+                "type": ["number", "null"]
+            },
+            "max_drawdown": {
+                "type": ["number", "null"]
+            }
+        }
+    }
+
+# ==============================================================================
+# MESSAGE TYPES
 # ==============================================================================
 @dataclass
-class MessageHeader:
-    """Standard message header for all SPYDER messages."""
-    msg_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: float = field(default_factory=time.time)
+class MessageMetadata:
+    """Metadata for message tracking and debugging."""
+    created_at: float = field(default_factory=time.time)
     version: str = PROTOCOL_VERSION
-    source: str = ""
-    destination: str = ""
-    correlation_id: Optional[str] = None
-    sequence_num: Optional[int] = None
-    
-    def to_datetime(self) -> datetime:
-        """Convert timestamp to datetime."""
-        return datetime.fromtimestamp(self.timestamp)
+    compression: Optional[str] = None
+    encryption: Optional[str] = None
+    size_bytes: Optional[int] = None
+    checksum: Optional[str] = None
+    route: List[str] = field(default_factory=list)
+    tags: Set[str] = field(default_factory=set)
 
 @dataclass
-class SpyderBaseMessage:
-    """Base class for all SPYDER messages."""
-    header: MessageHeader
+class ProtocolMessage:
+    """Enhanced protocol message with validation."""
     category: MessageCategory
-    msg_type: str
+    message_type: str
+    source: str
     data: Dict[str, Any]
+    destination: Optional[str] = None
+    correlation_id: Optional[str] = None
+    message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: float = field(default_factory=time.time)
+    priority: int = PRIORITY_NORMAL
+    metadata: MessageMetadata = field(default_factory=MessageMetadata)
     
-    def validate(self) -> bool:
-        """Validate message structure."""
-        return True  # Override in subclasses
-
-# ==============================================================================
-# MARKET DATA MESSAGES
-# ==============================================================================
-@dataclass
-class QuoteMessage:
-    """Stock or option quote message."""
-    symbol: str
-    bid: float
-    ask: float
-    bid_size: int
-    ask_size: int
-    last: float
-    volume: int
-    timestamp: float
-    exchange: Optional[str] = None
+    def __post_init__(self):
+        """Validate message after initialization."""
+        if not isinstance(self.category, MessageCategory):
+            self.category = MessageCategory(self.category)
+        
+        # Validate timestamp
+        if VALIDATE_TIMESTAMPS:
+            current_time = time.time()
+            if self.timestamp > current_time + MAX_FUTURE_TIMESTAMP:
+                raise ValueError(f"Timestamp too far in future: {self.timestamp}")
+            if self.timestamp < 0:
+                raise ValueError(f"Invalid timestamp: {self.timestamp}")
+        
+        # Validate priority
+        if not 1 <= self.priority <= 10:
+            raise ValueError(f"Priority must be between 1 and 10: {self.priority}")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "version": self.metadata.version,
+            "category": self.category.value,
+            "type": self.message_type,
+            "source": self.source,
+            "destination": self.destination,
+            "data": self.data,
+            "correlation_id": self.correlation_id,
+            "message_id": self.message_id,
+            "timestamp": self.timestamp,
+            "priority": self.priority,
+            "metadata": asdict(self.metadata)
+        }
     
     @classmethod
-    def from_dict(cls, data: Dict) -> 'QuoteMessage':
+    def from_dict(cls, data: Dict[str, Any]) -> 'ProtocolMessage':
         """Create from dictionary."""
-        return cls(**data)
-
-@dataclass
-class OptionQuoteMessage(QuoteMessage):
-    """Option-specific quote message."""
-    underlying: str
-    strike: float
-    expiry: str  # YYYYMMDD format
-    option_type: str  # "CALL" or "PUT"
-    open_interest: int = 0
-    implied_volatility: Optional[float] = None
-    delta: Optional[float] = None
-    gamma: Optional[float] = None
-    theta: Optional[float] = None
-    vega: Optional[float] = None
-    rho: Optional[float] = None
-
-@dataclass
-class OptionChainMessage:
-    """Complete option chain for a symbol."""
-    underlying: str
-    underlying_price: float
-    timestamp: float
-    expirations: List[str]
-    chain: List[OptionQuoteMessage]
-    
-    def filter_by_expiry(self, expiry: str) -> List[OptionQuoteMessage]:
-        """Filter chain by expiration date."""
-        return [opt for opt in self.chain if opt.expiry == expiry]
-    
-    def filter_by_strike_range(self, min_strike: float, max_strike: float) -> List[OptionQuoteMessage]:
-        """Filter chain by strike range."""
-        return [opt for opt in self.chain if min_strike <= opt.strike <= max_strike]
-
-@dataclass
-class MarketDepthMessage:
-    """Level 2 market depth."""
-    symbol: str
-    timestamp: float
-    bids: List[Dict[str, float]]  # [{'price': x, 'size': y}, ...]
-    asks: List[Dict[str, float]]
-    
-    def get_best_bid(self) -> Optional[Dict[str, float]]:
-        """Get best bid."""
-        return self.bids[0] if self.bids else None
-    
-    def get_best_ask(self) -> Optional[Dict[str, float]]:
-        """Get best ask."""
-        return self.asks[0] if self.asks else None
+        metadata_dict = data.pop("metadata", {})
+        metadata = MessageMetadata(**metadata_dict)
+        
+        return cls(
+            category=MessageCategory(data["category"]),
+            message_type=data["type"],
+            source=data["source"],
+            destination=data.get("destination"),
+            data=data["data"],
+            correlation_id=data.get("correlation_id"),
+            message_id=data.get("message_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", time.time()),
+            priority=data.get("priority", PRIORITY_NORMAL),
+            metadata=metadata
+        )
 
 # ==============================================================================
-# TRADE MESSAGES
+# SCHEMA VALIDATOR
 # ==============================================================================
-@dataclass
-class OrderMessage:
-    """Order request/status message."""
-    order_id: str
-    symbol: str
-    quantity: int
-    side: str  # "BUY" or "SELL"
-    order_type: str  # "MARKET", "LIMIT", "STOP", etc.
-    price: Optional[float] = None
-    stop_price: Optional[float] = None
-    time_in_force: str = "DAY"  # "DAY", "GTC", "IOC", "FOK"
-    status: str = "PENDING"
-    filled_quantity: int = 0
-    avg_fill_price: Optional[float] = None
-    commission: float = 0.0
-    timestamp: float = field(default_factory=time.time)
+class SchemaValidator:
+    """Schema validation with caching and performance optimization."""
     
-    def is_filled(self) -> bool:
-        """Check if order is completely filled."""
-        return self.filled_quantity >= self.quantity
+    def __init__(self):
+        self.schemas = {}
+        self.validators = {}
+        self._load_schemas()
+        
+    def _load_schemas(self):
+        """Load all schemas."""
+        self.schemas["BASE"] = MessageSchemas.BASE_MESSAGE
+        self.schemas["MARKET_DATA"] = MessageSchemas.MARKET_DATA
+        self.schemas["ORDER"] = MessageSchemas.ORDER
+        self.schemas["RISK_METRICS"] = MessageSchemas.RISK_METRICS
+        
+        # Create validators
+        for name, schema in self.schemas.items():
+            self.validators[name] = jsonschema.Draft7Validator(schema)
     
-    def is_partially_filled(self) -> bool:
-        """Check if order is partially filled."""
-        return 0 < self.filled_quantity < self.quantity
-
-@dataclass
-class OptionOrderMessage(OrderMessage):
-    """Option-specific order message."""
-    underlying: str
-    strike: float
-    expiry: str
-    option_type: str  # "CALL" or "PUT"
+    def validate(self, data: Dict[str, Any], schema_name: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate data against schema.
+        
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if schema_name not in self.validators:
+            return False, f"Unknown schema: {schema_name}"
+        
+        try:
+            self.validators[schema_name].validate(data)
+            return True, None
+        except ValidationError as e:
+            return False, str(e)
     
-@dataclass
-class SpreadOrderMessage:
-    """Multi-leg spread order."""
-    spread_id: str
-    strategy_type: str  # "IRON_CONDOR", "BULL_PUT_SPREAD", etc.
-    legs: List[OptionOrderMessage]
-    net_debit_credit: float
-    timestamp: float = field(default_factory=time.time)
-
-@dataclass
-class FillMessage:
-    """Trade execution fill message."""
-    fill_id: str
-    order_id: str
-    symbol: str
-    quantity: int
-    price: float
-    side: str
-    commission: float
-    exchange: str
-    timestamp: float
-    is_partial: bool = False
+    def validate_message(self, message: ProtocolMessage) -> Tuple[bool, Optional[str]]:
+        """Validate a protocol message."""
+        # First validate base message structure
+        message_dict = message.to_dict()
+        valid, error = self.validate(message_dict, "BASE")
+        
+        if not valid:
+            return False, f"Base validation failed: {error}"
+        
+        # Then validate data based on message type
+        if message.message_type == "MARKET_DATA":
+            return self.validate(message.data, "MARKET_DATA")
+        elif message.message_type in ["ORDER", "TRADE_ORDER"]:
+            return self.validate(message.data, "ORDER")
+        elif message.message_type == "RISK_UPDATE":
+            return self.validate(message.data, "RISK_METRICS")
+        
+        return True, None
 
 # ==============================================================================
-# RISK MESSAGES
+# SERIALIZATION MANAGER
 # ==============================================================================
-@dataclass
-class PortfolioGreeksMessage:
-    """Portfolio-level Greeks."""
-    timestamp: float
-    total_delta: float
-    total_gamma: float
-    total_theta: float
-    total_vega: float
-    total_rho: float
-    delta_dollars: float  # Delta in dollar terms
-    gamma_dollars: float
-    theta_dollars: float
-    vega_dollars: float
+class SerializationManager:
+    """Handles message serialization with compression and encryption."""
     
-    def get_risk_summary(self) -> Dict[str, float]:
-        """Get risk summary dictionary."""
-        return {
-            'delta': self.total_delta,
-            'gamma': self.total_gamma,
-            'theta': self.total_theta,
-            'vega': self.total_vega,
-            'delta_$': self.delta_dollars,
-            'theta_$': self.theta_dollars
+    def __init__(self, 
+                 default_format: SerializationFormat = SerializationFormat.COMPRESSED_JSON,
+                 encryption_key: Optional[bytes] = None):
+        self.default_format = default_format
+        self.encryption_key = encryption_key
+        self.fernet = None
+        
+        if encryption_key and ENCRYPTION_AVAILABLE:
+            self.fernet = Fernet(encryption_key)
+        
+        self.logger = logging.getLogger("SerializationManager")
+    
+    def serialize(self, 
+                  message: ProtocolMessage, 
+                  format: Optional[SerializationFormat] = None) -> bytes:
+        """Serialize message to bytes."""
+        format = format or self.default_format
+        
+        # Convert to dict
+        data = message.to_dict()
+        
+        # Choose serialization method
+        if format in [SerializationFormat.JSON, SerializationFormat.COMPRESSED_JSON, 
+                      SerializationFormat.ENCRYPTED_JSON]:
+            serialized = json.dumps(data).encode('utf-8')
+        elif MSGPACK_AVAILABLE and format in [SerializationFormat.MSGPACK, 
+                                               SerializationFormat.COMPRESSED_MSGPACK,
+                                               SerializationFormat.ENCRYPTED_MSGPACK]:
+            serialized = msgpack.packb(data)
+        else:
+            # Fallback to JSON
+            serialized = json.dumps(data).encode('utf-8')
+        
+        # Apply compression if needed
+        if format in [SerializationFormat.COMPRESSED_JSON, SerializationFormat.COMPRESSED_MSGPACK]:
+            if len(serialized) > COMPRESSION_THRESHOLD:
+                serialized = zlib.compress(serialized)
+                message.metadata.compression = "zlib"
+        
+        # Apply encryption if needed
+        if format in [SerializationFormat.ENCRYPTED_JSON, SerializationFormat.ENCRYPTED_MSGPACK]:
+            if self.fernet:
+                serialized = self.fernet.encrypt(serialized)
+                message.metadata.encryption = "fernet"
+            else:
+                self.logger.warning("Encryption requested but not available")
+        
+        # Update metadata
+        message.metadata.size_bytes = len(serialized)
+        message.metadata.checksum = hashlib.sha256(serialized).hexdigest()
+        
+        # Check size limit
+        if len(serialized) > MAX_MESSAGE_SIZE:
+            raise ValueError(f"Message too large: {len(serialized)} bytes")
+        
+        return serialized
+    
+    def deserialize(self, 
+                    data: bytes, 
+                    format: Optional[SerializationFormat] = None) -> ProtocolMessage:
+        """Deserialize bytes to message."""
+        format = format or self.default_format
+        
+        # Decrypt if needed
+        if format in [SerializationFormat.ENCRYPTED_JSON, SerializationFormat.ENCRYPTED_MSGPACK]:
+            if self.fernet:
+                data = self.fernet.decrypt(data)
+            else:
+                raise ValueError("Cannot decrypt: encryption not available")
+        
+        # Decompress if needed
+        if format in [SerializationFormat.COMPRESSED_JSON, SerializationFormat.COMPRESSED_MSGPACK]:
+            try:
+                data = zlib.decompress(data)
+            except zlib.error:
+                # Not compressed, continue
+                pass
+        
+        # Deserialize
+        if format in [SerializationFormat.JSON, SerializationFormat.COMPRESSED_JSON, 
+                      SerializationFormat.ENCRYPTED_JSON]:
+            message_dict = json.loads(data.decode('utf-8'))
+        elif MSGPACK_AVAILABLE and format in [SerializationFormat.MSGPACK, 
+                                               SerializationFormat.COMPRESSED_MSGPACK,
+                                               SerializationFormat.ENCRYPTED_MSGPACK]:
+            message_dict = msgpack.unpackb(data, raw=False)
+        else:
+            # Try JSON as fallback
+            message_dict = json.loads(data.decode('utf-8'))
+        
+        return ProtocolMessage.from_dict(message_dict)
+
+# ==============================================================================
+# VERSION MANAGER
+# ==============================================================================
+class VersionManager:
+    """Handles protocol version compatibility and migration."""
+    
+    def __init__(self):
+        self.current_version = PROTOCOL_VERSION
+        self.supported_versions = set(PROTOCOL_VERSIONS)
+        self.migration_functions = {
+            ("1.0", "1.1"): self._migrate_1_0_to_1_1,
+            ("1.1", "2.0"): self._migrate_1_1_to_2_0,
+            ("1.0", "2.0"): self._migrate_1_0_to_2_0,
         }
-
-@dataclass
-class PositionRiskMessage:
-    """Individual position risk metrics."""
-    position_id: str
-    symbol: str
-    quantity: int
-    market_value: float
-    unrealized_pnl: float
-    realized_pnl: float
-    delta: float
-    gamma: float
-    theta: float
-    vega: float
-    days_to_expiry: Optional[int] = None
-    implied_volatility: Optional[float] = None
-
-@dataclass
-class RiskLimitMessage:
-    """Risk limit alert/breach message."""
-    limit_type: str  # "MAX_DELTA", "MAX_LOSS", etc.
-    current_value: float
-    limit_value: float
-    severity: str  # "WARNING", "CRITICAL", "BREACH"
-    action_required: str
-    timestamp: float = field(default_factory=time.time)
     
-    def is_breached(self) -> bool:
-        """Check if limit is breached."""
-        return abs(self.current_value) > abs(self.limit_value)
-
-# ==============================================================================
-# SYSTEM MESSAGES
-# ==============================================================================
-@dataclass
-class SystemStatusMessage:
-    """System component status."""
-    component: str
-    status: str  # "HEALTHY", "DEGRADED", "ERROR", "OFFLINE"
-    latency_ms: Optional[float] = None
-    cpu_usage: Optional[float] = None
-    memory_usage: Optional[float] = None
-    message: str = ""
-    timestamp: float = field(default_factory=time.time)
-
-@dataclass
-class HeartbeatMessage:
-    """System heartbeat."""
-    source: str
-    timestamp: float = field(default_factory=time.time)
-    sequence: int = 0
-    metrics: Optional[Dict[str, Any]] = None
+    def is_version_supported(self, version: str) -> bool:
+        """Check if version is supported."""
+        return version in self.supported_versions
+    
+    def migrate_message(self, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Migrate message to current version."""
+        message_version = message_dict.get("version", "1.0")
+        
+        if message_version == self.current_version:
+            return message_dict
+        
+        if not self.is_version_supported(message_version):
+            raise ValueError(f"Unsupported version: {message_version}")
+        
+        # Find migration path
+        migration_key = (message_version, self.current_version)
+        if migration_key in self.migration_functions:
+            return self.migration_functions[migration_key](message_dict)
+        
+        # Try multi-step migration
+        return self._multi_step_migration(message_dict, message_version)
+    
+    def _multi_step_migration(self, message_dict: Dict[str, Any], from_version: str) -> Dict[str, Any]:
+        """Perform multi-step migration."""
+        current = from_version
+        result = message_dict.copy()
+        
+        # Find path from current to target version
+        version_order = ["1.0", "1.1", "2.0"]
+        start_idx = version_order.index(current)
+        target_idx = version_order.index(self.current_version)
+        
+        for i in range(start_idx, target_idx):
+            from_ver = version_order[i]
+            to_ver = version_order[i + 1]
+            migration_key = (from_ver, to_ver)
+            
+            if migration_key in self.migration_functions:
+                result = self.migration_functions[migration_key](result)
+        
+        return result
+    
+    def _migrate_1_0_to_1_1(self, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Migrate from version 1.0 to 1.1."""
+        result = message_dict.copy()
+        result["version"] = "1.1"
+        
+        # Add priority if missing
+        if "priority" not in result:
+            result["priority"] = PRIORITY_NORMAL
+        
+        return result
+    
+    def _migrate_1_1_to_2_0(self, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Migrate from version 1.1 to 2.0."""
+        result = message_dict.copy()
+        result["version"] = "2.0"
+        
+        # Add metadata if missing
+        if "metadata" not in result:
+            result["metadata"] = asdict(MessageMetadata(version="2.0"))
+        
+        # Ensure category is valid
+        if "category" in result:
+            try:
+                MessageCategory(result["category"])
+            except ValueError:
+                result["category"] = MessageCategory.SYSTEM.value
+        
+        return result
+    
+    def _migrate_1_0_to_2_0(self, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Direct migration from 1.0 to 2.0."""
+        # First migrate to 1.1
+        result = self._migrate_1_0_to_1_1(message_dict)
+        # Then to 2.0
+        return self._migrate_1_1_to_2_0(result)
 
 # ==============================================================================
 # MESSAGE FACTORY
 # ==============================================================================
 class MessageFactory:
-    """Factory for creating standardized messages."""
+    """Factory for creating validated messages."""
     
-    @staticmethod
-    def create_quote(symbol: str, bid: float, ask: float, last: float, 
-                    volume: int, **kwargs) -> SpyderBaseMessage:
-        """Create a quote message."""
-        quote = QuoteMessage(
-            symbol=symbol,
-            bid=bid,
-            ask=ask,
-            bid_size=kwargs.get('bid_size', 0),
-            ask_size=kwargs.get('ask_size', 0),
-            last=last,
-            volume=volume,
-            timestamp=time.time(),
-            exchange=kwargs.get('exchange')
-        )
-        
-        return SpyderBaseMessage(
-            header=MessageHeader(source=kwargs.get('source', 'MARKET_DATA')),
-            category=MessageCategory.MARKET,
-            msg_type=MarketDataType.QUOTE.value,
-            data=asdict(quote)
-        )
+    def __init__(self, validator: SchemaValidator):
+        self.validator = validator
+        self.logger = logging.getLogger("MessageFactory")
     
-    @staticmethod
-    def create_option_quote(symbol: str, underlying: str, strike: float, 
-                          expiry: str, option_type: str, **kwargs) -> SpyderBaseMessage:
-        """Create an option quote message."""
-        opt_quote = OptionQuoteMessage(
-            symbol=symbol,
-            underlying=underlying,
-            strike=strike,
-            expiry=expiry,
-            option_type=option_type,
-            bid=kwargs.get('bid', 0),
-            ask=kwargs.get('ask', 0),
-            bid_size=kwargs.get('bid_size', 0),
-            ask_size=kwargs.get('ask_size', 0),
-            last=kwargs.get('last', 0),
-            volume=kwargs.get('volume', 0),
-            timestamp=time.time(),
-            open_interest=kwargs.get('open_interest', 0),
-            implied_volatility=kwargs.get('implied_volatility'),
-            delta=kwargs.get('delta'),
-            gamma=kwargs.get('gamma'),
-            theta=kwargs.get('theta'),
-            vega=kwargs.get('vega')
-        )
-        
-        return SpyderBaseMessage(
-            header=MessageHeader(source=kwargs.get('source', 'OPTIONS_DATA')),
-            category=MessageCategory.MARKET,
-            msg_type=MarketDataType.GREEKS.value,
-            data=asdict(opt_quote)
-        )
-    
-    @staticmethod
-    def create_order(order: OrderMessage, source: str = "TRADING_ENGINE") -> SpyderBaseMessage:
-        """Create an order message."""
-        return SpyderBaseMessage(
-            header=MessageHeader(source=source),
-            category=MessageCategory.TRADE,
-            msg_type=TradeMessageType.ORDER_NEW.value,
-            data=asdict(order)
-        )
-    
-    @staticmethod
-    def create_fill(fill: FillMessage, source: str = "BROKER") -> SpyderBaseMessage:
-        """Create a fill message."""
-        return SpyderBaseMessage(
-            header=MessageHeader(source=source),
-            category=MessageCategory.TRADE,
-            msg_type=TradeMessageType.FILL.value,
-            data=asdict(fill)
-        )
-    
-    @staticmethod
-    def create_portfolio_greeks(greeks: PortfolioGreeksMessage, 
-                              source: str = "RISK_ENGINE") -> SpyderBaseMessage:
-        """Create a portfolio Greeks message."""
-        return SpyderBaseMessage(
-            header=MessageHeader(source=source),
-            category=MessageCategory.RISK,
-            msg_type=RiskMessageType.PORTFOLIO_GREEKS.value,
-            data=asdict(greeks)
-        )
-
-# ==============================================================================
-# SERIALIZATION
-# ==============================================================================
-class MessageSerializer:
-    """Handle message serialization/deserialization."""
-    
-    def __init__(self, format: SerializationFormat = DEFAULT_FORMAT):
-        """Initialize serializer."""
-        self.format = format
-        self.logger = logging.getLogger(__name__)
-        
-    def serialize(self, message: Union[SpyderBaseMessage, Dict]) -> bytes:
-        """Serialize message to bytes."""
-        # Convert to dict if needed
-        if isinstance(message, SpyderBaseMessage):
-            data = self._message_to_dict(message)
-        else:
-            data = message
-            
-        # Serialize based on format
-        if self.format == SerializationFormat.JSON:
-            return json.dumps(data, default=str).encode('utf-8')
-            
-        elif self.format == SerializationFormat.MSGPACK:
-            if MSGPACK_AVAILABLE:
-                return msgpack.packb(data, use_bin_type=True)
-            else:
-                # Fallback to JSON
-                return json.dumps(data, default=str).encode('utf-8')
-                
-        elif self.format == SerializationFormat.COMPRESSED_JSON:
-            json_bytes = json.dumps(data, default=str).encode('utf-8')
-            return zlib.compress(json_bytes)
-            
-        elif self.format == SerializationFormat.COMPRESSED_MSGPACK:
-            if MSGPACK_AVAILABLE:
-                msgpack_bytes = msgpack.packb(data, use_bin_type=True)
-                return zlib.compress(msgpack_bytes)
-            else:
-                # Fallback to compressed JSON
-                json_bytes = json.dumps(data, default=str).encode('utf-8')
-                return zlib.compress(json_bytes)
-                
-    def deserialize(self, data: bytes) -> Dict:
-        """Deserialize bytes to dictionary."""
-        try:
-            if self.format == SerializationFormat.JSON:
-                return json.loads(data.decode('utf-8'))
-                
-            elif self.format == SerializationFormat.MSGPACK:
-                if MSGPACK_AVAILABLE:
-                    return msgpack.unpackb(data, raw=False)
-                else:
-                    return json.loads(data.decode('utf-8'))
-                    
-            elif self.format == SerializationFormat.COMPRESSED_JSON:
-                decompressed = zlib.decompress(data)
-                return json.loads(decompressed.decode('utf-8'))
-                
-            elif self.format == SerializationFormat.COMPRESSED_MSGPACK:
-                decompressed = zlib.decompress(data)
-                if MSGPACK_AVAILABLE:
-                    return msgpack.unpackb(decompressed, raw=False)
-                else:
-                    return json.loads(decompressed.decode('utf-8'))
-                    
-        except Exception as e:
-            self.logger.error(f"Deserialization error: {e}")
-            raise
-            
-    def _message_to_dict(self, message: SpyderBaseMessage) -> Dict:
-        """Convert message object to dictionary."""
-        return {
-            'header': asdict(message.header),
-            'category': message.category.value,
-            'msg_type': message.msg_type,
-            'data': message.data
+    def create_market_data(self, 
+                          symbol: str,
+                          source: str,
+                          bid: Optional[float] = None,
+                          ask: Optional[float] = None,
+                          last: Optional[float] = None,
+                          volume: Optional[int] = None,
+                          **kwargs) -> ProtocolMessage:
+        """Create validated market data message."""
+        data = {
+            "symbol": symbol,
+            "timestamp": time.time(),
+            "bid": bid,
+            "ask": ask,
+            "last": last,
+            "volume": volume,
+            "bid_size": kwargs.get("bid_size"),
+            "ask_size": kwargs.get("ask_size")
         }
         
-    def _dict_to_message(self, data: Dict) -> SpyderBaseMessage:
-        """Convert dictionary to message object."""
-        header_data = data['header']
-        header = MessageHeader(**header_data)
-        
-        return SpyderBaseMessage(
-            header=header,
-            category=MessageCategory(data['category']),
-            msg_type=data['msg_type'],
-            data=data['data']
+        message = ProtocolMessage(
+            category=MessageCategory.MARKET,
+            message_type="MARKET_DATA",
+            source=source,
+            data=data,
+            priority=kwargs.get("priority", PRIORITY_HIGH)
         )
-
-# ==============================================================================
-# MESSAGE VALIDATION
-# ==============================================================================
-class MessageValidator:
-    """Validate messages against schemas."""
-    
-    # Required fields for each message type
-    SCHEMAS = {
-        MarketDataType.QUOTE.value: ['symbol', 'bid', 'ask', 'last', 'volume'],
-        MarketDataType.OPTION_CHAIN.value: ['underlying', 'underlying_price', 'chain'],
-        TradeMessageType.ORDER_NEW.value: ['order_id', 'symbol', 'quantity', 'side'],
-        TradeMessageType.FILL.value: ['fill_id', 'order_id', 'symbol', 'quantity', 'price'],
-        RiskMessageType.PORTFOLIO_GREEKS.value: ['total_delta', 'total_gamma', 'total_theta', 'total_vega'],
-    }
-    
-    @classmethod
-    def validate(cls, message: SpyderBaseMessage) -> bool:
-        """Validate message against schema."""
-        msg_type = message.msg_type
         
-        if msg_type not in cls.SCHEMAS:
-            return True  # No schema defined, assume valid
-            
-        required_fields = cls.SCHEMAS[msg_type]
-        message_fields = message.data.keys()
+        # Validate
+        valid, error = self.validator.validate_message(message)
+        if not valid:
+            raise ValueError(f"Invalid market data: {error}")
         
-        # Check all required fields are present
-        for field in required_fields:
-            if field not in message_fields:
-                logging.error(f"Missing required field '{field}' in {msg_type} message")
-                return False
-                
-        return True
+        return message
+    
+    def create_order(self,
+                     symbol: str,
+                     action: str,
+                     quantity: int,
+                     order_type: str,
+                     source: str,
+                     price: Optional[float] = None,
+                     **kwargs) -> ProtocolMessage:
+        """Create validated order message."""
+        data = {
+            "order_id": kwargs.get("order_id", str(uuid.uuid4())),
+            "symbol": symbol,
+            "action": action,
+            "quantity": quantity,
+            "order_type": order_type,
+            "price": price,
+            "stop_price": kwargs.get("stop_price"),
+            "time_in_force": kwargs.get("time_in_force", "DAY")
+        }
+        
+        message = ProtocolMessage(
+            category=MessageCategory.TRADE,
+            message_type="TRADE_ORDER",
+            source=source,
+            data=data,
+            priority=kwargs.get("priority", PRIORITY_CRITICAL)
+        )
+        
+        # Validate
+        valid, error = self.validator.validate_message(message)
+        if not valid:
+            raise ValueError(f"Invalid order: {error}")
+        
+        return message
+    
+    def create_risk_update(self,
+                          source: str,
+                          portfolio_delta: Optional[float] = None,
+                          portfolio_gamma: Optional[float] = None,
+                          portfolio_theta: Optional[float] = None,
+                          portfolio_vega: Optional[float] = None,
+                          **kwargs) -> ProtocolMessage:
+        """Create validated risk update message."""
+        data = {
+            "timestamp": time.time(),
+            "portfolio_delta": portfolio_delta,
+            "portfolio_gamma": portfolio_gamma,
+            "portfolio_theta": portfolio_theta,
+            "portfolio_vega": portfolio_vega,
+            "portfolio_value": kwargs.get("portfolio_value"),
+            "var_95": kwargs.get("var_95"),
+            "max_drawdown": kwargs.get("max_drawdown")
+        }
+        
+        message = ProtocolMessage(
+            category=MessageCategory.RISK,
+            message_type="RISK_UPDATE",
+            source=source,
+            data=data,
+            priority=kwargs.get("priority", PRIORITY_HIGH)
+        )
+        
+        # Validate
+        valid, error = self.validator.validate_message(message)
+        if not valid:
+            raise ValueError(f"Invalid risk update: {error}")
+        
+        return message
+    
+    def create_alert(self,
+                     alert_type: str,
+                     message: str,
+                     source: str,
+                     severity: str = "INFO",
+                     **kwargs) -> ProtocolMessage:
+        """Create alert message."""
+        data = {
+            "alert_type": alert_type,
+            "message": message,
+            "severity": severity,
+            "timestamp": time.time(),
+            "details": kwargs.get("details", {})
+        }
+        
+        # Set priority based on severity
+        priority_map = {
+            "CRITICAL": PRIORITY_CRITICAL,
+            "ERROR": PRIORITY_HIGH,
+            "WARNING": PRIORITY_NORMAL,
+            "INFO": PRIORITY_LOW
+        }
+        
+        message_obj = ProtocolMessage(
+            category=MessageCategory.ALERT,
+            message_type="ALERT",
+            source=source,
+            data=data,
+            priority=priority_map.get(severity, PRIORITY_NORMAL)
+        )
+        
+        return message_obj
 
 # ==============================================================================
 # PROTOCOL MANAGER
 # ==============================================================================
 class ProtocolManager:
-    """Central protocol management."""
+    """Central manager for protocol operations."""
     
-    def __init__(self, serialization_format: SerializationFormat = DEFAULT_FORMAT):
-        """Initialize protocol manager."""
-        self.serializer = MessageSerializer(serialization_format)
-        self.factory = MessageFactory()
-        self.validator = MessageValidator()
-        self.logger = logging.getLogger(__name__)
+    def __init__(self,
+                 validation_level: ValidationLevel = ValidationLevel.STRICT,
+                 default_format: SerializationFormat = SerializationFormat.COMPRESSED_JSON,
+                 encryption_key: Optional[bytes] = None):
+        self.validation_level = validation_level
+        self.validator = SchemaValidator()
+        self.serializer = SerializationManager(default_format, encryption_key)
+        self.version_manager = VersionManager()
+        self.factory = MessageFactory(self.validator)
+        self.logger = logging.getLogger("ProtocolManager")
         
-    def create_message(self, category: MessageCategory, msg_type: str, 
-                      data: Dict, source: str = "") -> SpyderBaseMessage:
-        """Create a validated message."""
-        message = SpyderBaseMessage(
-            header=MessageHeader(source=source),
+        # Statistics
+        self.stats = defaultdict(int)
+    
+    def create_message(self,
+                      category: Union[str, MessageCategory],
+                      message_type: str,
+                      source: str,
+                      data: Dict[str, Any],
+                      **kwargs) -> ProtocolMessage:
+        """Create a new protocol message."""
+        if isinstance(category, str):
+            category = MessageCategory(category)
+        
+        message = ProtocolMessage(
             category=category,
-            msg_type=msg_type,
-            data=data
+            message_type=message_type,
+            source=source,
+            data=data,
+            **kwargs
         )
         
-        if not self.validator.validate(message):
-            raise ValueError(f"Invalid message format for {msg_type}")
-            
+        # Validate if required
+        if self.validation_level >= ValidationLevel.STANDARD:
+            valid, error = self.validator.validate_message(message)
+            if not valid:
+                raise ValueError(f"Message validation failed: {error}")
+        
+        self.stats["messages_created"] += 1
         return message
-        
-    def serialize_message(self, message: SpyderBaseMessage) -> bytes:
-        """Serialize a message."""
-        return self.serializer.serialize(message)
-        
-    def deserialize_message(self, data: bytes) -> SpyderBaseMessage:
-        """Deserialize and validate a message."""
-        msg_dict = self.serializer.deserialize(data)
-        message = self.serializer._dict_to_message(msg_dict)
-        
-        if not self.validator.validate(message):
-            raise ValueError("Received invalid message")
+    
+    def serialize_message(self,
+                         message: ProtocolMessage,
+                         format: Optional[SerializationFormat] = None) -> bytes:
+        """Serialize a message to bytes."""
+        try:
+            serialized = self.serializer.serialize(message, format)
+            self.stats["messages_serialized"] += 1
+            self.stats["bytes_serialized"] += len(serialized)
+            return serialized
+        except Exception as e:
+            self.stats["serialization_errors"] += 1
+            self.logger.error(f"Serialization error: {e}")
+            raise
+    
+    def deserialize_message(self,
+                           data: bytes,
+                           format: Optional[SerializationFormat] = None) -> ProtocolMessage:
+        """Deserialize bytes to message."""
+        try:
+            message = self.serializer.deserialize(data, format)
             
-        return message
-        
-    def get_serialization_stats(self, message: SpyderBaseMessage) -> Dict[str, int]:
-        """Get size statistics for different serialization formats."""
-        stats = {}
-        
-        # JSON
-        json_bytes = json.dumps(asdict(message), default=str).encode('utf-8')
-        stats['json'] = len(json_bytes)
-        
-        # Compressed JSON
-        stats['compressed_json'] = len(zlib.compress(json_bytes))
-        
-        # MessagePack
-        if MSGPACK_AVAILABLE:
-            msgpack_bytes = msgpack.packb(asdict(message), use_bin_type=True)
-            stats['msgpack'] = len(msgpack_bytes)
-            stats['compressed_msgpack'] = len(zlib.compress(msgpack_bytes))
-        
-        return stats
+            # Check version and migrate if needed
+            if hasattr(message, 'metadata') and message.metadata.version != PROTOCOL_VERSION:
+                message_dict = message.to_dict()
+                migrated_dict = self.version_manager.migrate_message(message_dict)
+                message = ProtocolMessage.from_dict(migrated_dict)
+            
+            # Validate if required
+            if self.validation_level >= ValidationLevel.BASIC:
+                valid, error = self.validator.validate_message(message)
+                if not valid and self.validation_level >= ValidationLevel.STRICT:
+                    raise ValueError(f"Message validation failed: {error}")
+            
+            self.stats["messages_deserialized"] += 1
+            return message
+        except Exception as e:
+            self.stats["deserialization_errors"] += 1
+            self.logger.error(f"Deserialization error: {e}")
+            raise
+    
+    def get_stats(self) -> Dict[str, int]:
+        """Get protocol statistics."""
+        return dict(self.stats)
 
 # ==============================================================================
-# USAGE EXAMPLES
+# SPECIALIZED MESSAGE TYPES
+# ==============================================================================
+@dataclass
+class SystemStatusMessage:
+    """System status update message."""
+    component: str
+    status: str  # HEALTHY, DEGRADED, ERROR, OFFLINE
+    cpu_usage: float
+    memory_usage: float
+    active_connections: int
+    uptime_seconds: float
+    last_update: float = field(default_factory=time.time)
+    details: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class HeartbeatMessage:
+    """Heartbeat message for connection monitoring."""
+    source: str
+    timestamp: float = field(default_factory=time.time)
+    sequence: int = 0
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class ErrorMessage:
+    """Error notification message."""
+    error_code: str
+    error_message: str
+    source: str
+    severity: str  # CRITICAL, ERROR, WARNING
+    timestamp: float = field(default_factory=time.time)
+    stack_trace: Optional[str] = None
+    context: Dict[str, Any] = field(default_factory=dict)
+
+# ==============================================================================
+# EXAMPLE USAGE
 # ==============================================================================
 def example_usage():
     """Demonstrate protocol usage."""
+    print("\n" + "="*60)
+    print("SPYDER Message Protocol - Enhanced Version")
+    print("="*60)
+    
     # Create protocol manager
-    protocol = ProtocolManager(SerializationFormat.MSGPACK)
-    
-    # Example 1: Create and serialize a quote message
-    print("Example 1: Quote Message")
-    print("-" * 50)
-    
-    quote_msg = protocol.factory.create_quote(
-        symbol="SPY",
-        bid=450.25,
-        ask=450.30,
-        last=450.28,
-        volume=1234567,
-        bid_size=100,
-        ask_size=150,
-        source="IB_GATEWAY"
+    manager = ProtocolManager(
+        validation_level=ValidationLevel.STRICT,
+        default_format=SerializationFormat.COMPRESSED_JSON
     )
     
-    # Serialize
-    serialized = protocol.serialize_message(quote_msg)
-    print(f"Serialized size: {len(serialized)} bytes")
+    print("\n1. Creating Messages with Validation")
+    print("-" * 40)
     
-    # Get size comparison
-    stats = protocol.get_serialization_stats(quote_msg)
-    print(f"Size comparison: {stats}")
+    try:
+        # Create market data message
+        market_msg = manager.factory.create_market_data(
+            symbol="SPY",
+            source="MarketDataFeed",
+            bid=450.25,
+            ask=450.30,
+            last=450.28,
+            volume=1000000,
+            bid_size=100,
+            ask_size=150
+        )
+        print(f"✅ Market data message created: {market_msg.message_id}")
+        
+        # Create order message
+        order_msg = manager.factory.create_order(
+            symbol="SPY",
+            action="BUY",
+            quantity=100,
+            order_type="LIMIT",
+            price=450.00,
+            source="StrategyEngine"
+        )
+        print(f"✅ Order message created: {order_msg.message_id}")
+        
+        # Create risk update
+        risk_msg = manager.factory.create_risk_update(
+            source="RiskEngine",
+            portfolio_delta=125.5,
+            portfolio_gamma=-10.2,
+            portfolio_theta=-156.8,
+            portfolio_vega=-523.1,
+            portfolio_value=1000000.0
+        )
+        print(f"✅ Risk update created: {risk_msg.message_id}")
+        
+    except ValueError as e:
+        print(f"❌ Validation error: {e}")
     
-    # Deserialize
-    deserialized = protocol.deserialize_message(serialized)
-    print(f"Deserialized: {deserialized.data['symbol']} @ {deserialized.data['last']}")
+    print("\n2. Message Serialization")
+    print("-" * 40)
     
-    # Example 2: Option order message
-    print("\nExample 2: Option Order Message")
-    print("-" * 50)
+    # Test different formats
+    formats = [
+        SerializationFormat.JSON,
+        SerializationFormat.COMPRESSED_JSON,
+    ]
     
-    option_order = OptionOrderMessage(
-        order_id="ORD123456",
-        symbol="SPY230630C00450000",
-        underlying="SPY",
-        strike=450.0,
-        expiry="20230630",
-        option_type="CALL",
-        quantity=10,
-        side="BUY",
-        order_type="LIMIT",
-        price=2.50
+    if MSGPACK_AVAILABLE:
+        formats.extend([
+            SerializationFormat.MSGPACK,
+            SerializationFormat.COMPRESSED_MSGPACK
+        ])
+    
+    for format in formats:
+        serialized = manager.serialize_message(market_msg, format)
+        print(f"   {format.value}: {len(serialized)} bytes")
+    
+    print("\n3. Message Priorities")
+    print("-" * 40)
+    
+    # Create messages with different priorities
+    critical_alert = manager.factory.create_alert(
+        alert_type="RISK_BREACH",
+        message="Portfolio delta limit exceeded",
+        source="RiskMonitor",
+        severity="CRITICAL"
     )
+    print(f"   Critical alert priority: {critical_alert.priority}")
     
-    order_msg = protocol.factory.create_order(option_order, source="STRATEGY_ENGINE")
-    print(f"Order: {order_msg.data['symbol']} {order_msg.data['side']} {order_msg.data['quantity']}")
-    
-    # Example 3: Portfolio Greeks
-    print("\nExample 3: Portfolio Greeks Message")
-    print("-" * 50)
-    
-    greeks = PortfolioGreeksMessage(
-        timestamp=time.time(),
-        total_delta=245.5,
-        total_gamma=-12.3,
-        total_theta=-156.8,
-        total_vega=-523.1,
-        total_rho=45.2,
-        delta_dollars=24550.0,
-        gamma_dollars=-1230.0,
-        theta_dollars=-156.8,
-        vega_dollars=-523.1
+    info_alert = manager.factory.create_alert(
+        alert_type="SYSTEM_INFO",
+        message="Market data feed connected",
+        source="SystemMonitor",
+        severity="INFO"
     )
+    print(f"   Info alert priority: {info_alert.priority}")
     
-    greeks_msg = protocol.factory.create_portfolio_greeks(greeks)
-    print(f"Portfolio Greeks: {greeks.get_risk_summary()}")
+    print("\n4. Version Migration")
+    print("-" * 40)
     
-    # Example 4: Risk limit breach
-    print("\nExample 4: Risk Limit Message")
-    print("-" * 50)
+    # Simulate old version message
+    old_message = {
+        "version": "1.0",
+        "category": "MARKET",
+        "type": "MARKET_DATA",
+        "source": "LegacySystem",
+        "timestamp": time.time(),
+        "data": {"symbol": "SPY", "last": 450.0}
+    }
     
-    risk_limit = RiskLimitMessage(
-        limit_type="MAX_DELTA",
-        current_value=550.0,
-        limit_value=500.0,
-        severity="BREACH",
-        action_required="Reduce delta exposure immediately"
-    )
+    migrated = manager.version_manager.migrate_message(old_message)
+    print(f"   Migrated from v{old_message['version']} to v{migrated['version']}")
+    print(f"   Added fields: {set(migrated.keys()) - set(old_message.keys())}")
     
-    risk_msg = protocol.create_message(
-        MessageCategory.RISK,
-        RiskMessageType.RISK_LIMIT.value,
-        asdict(risk_limit),
-        source="RISK_MONITOR"
-    )
+    print("\n5. Protocol Statistics")
+    print("-" * 40)
     
-    print(f"Risk Limit Breach: {risk_limit.limit_type} = {risk_limit.current_value} "
-          f"(limit: {risk_limit.limit_value})")
-    print(f"Action: {risk_limit.action_required}")
+    stats = manager.get_stats()
+    for key, value in stats.items():
+        if value > 0:
+            print(f"   {key}: {value}")
+    
+    print("\n✅ Enhanced Protocol Features:")
+    print("   • Strict JSON Schema validation")
+    print("   • Multiple serialization formats")
+    print("   • Message compression for large payloads")
+    print("   • Priority-based message handling")
+    print("   • Protocol version control and migration")
+    print("   • Comprehensive error handling")
+    print("   • Performance statistics")
 
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
     example_usage()
+                                

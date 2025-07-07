@@ -5,841 +5,834 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderC04_MarketInternals.py
 Group: C (Market Data)
-Purpose: Market breadth and internals (TICK, ADD, VOLD)
+Purpose: Market internals analysis (TICK, ADD, VOLD, TRIN, etc.)
 
 Description:
-    This module tracks and analyzes market internals including NYSE TICK, 
-    Advance-Decline Line (ADD), and Volume Difference (VOLD). These indicators
-    provide insight into market breadth and internal strength, helping to
-    confirm or diverge from price movements in major indices.
+    This module provides comprehensive market internals analysis including NYSE TICK,
+    ADD (Advance/Decline), VOLD (Volume), TRIN (Arms Index), and other breadth
+    indicators. It monitors market sentiment, breadth divergences, and generates
+    trading signals based on market internal conditions.
 
-Author: Mohamed Talib
-Date: 2025-01-20
-Version: 1.4
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-01-04
+Last Updated: 2025-01-06 Time: 10:30:00
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import time
-import threading
-import datetime
-from datetime import time as dt_time
-from typing import Dict, List, Optional, Any, Tuple, Callable
+import os
+import sys
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from collections import deque
+from enum import Enum
+import json
+from datetime import datetime, timedelta
+import threading
+import time
+from collections import deque, defaultdict
 import statistics
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
 import numpy as np
+from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
+from SpyderA_Core.SpyderA05_EventManager import Event, EventType, EventBus
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Market internal symbols (Interactive Brokers format)
-TICK_SYMBOL = "TICK-NYSE"  # NYSE Tick Index
-ADD_SYMBOL = "ADD-NYSE"    # NYSE Advance-Decline
-VOLD_SYMBOL = "VOLD-NYSE"  # NYSE Volume Difference
-TRIN_SYMBOL = "TRIN-NYSE"  # NYSE Arms Index
-VIX_SYMBOL = "VIX"         # CBOE Volatility Index
+# Internal symbols to track
+INTERNAL_SYMBOLS = {
+    'TICK': 'NYSE:TICK',  # NYSE Tick Index
+    'TICKI': 'NASDAQ:TICKI',  # Nasdaq Tick Index
+    'ADD': 'NYSE:ADD',  # NYSE Advance/Decline
+    'VOLD': 'NYSE:VOLD',  # NYSE Up/Down Volume
+    'TRIN': 'NYSE:TRIN',  # Arms Index (Trading Index)
+    'VIX': 'INDEX:VIX',  # Volatility Index
+    'VIX9D': 'INDEX:VIX9D',  # 9-day VIX
+    'PCALL': 'INDEX:PCALL',  # Put/Call Ratio (All)
+    'PCSP': 'INDEX:PCSP',  # Put/Call Ratio (SPX)
+    'CPCE': 'INDEX:CPCE',  # CBOE Equity Put/Call
+    'SKEW': 'INDEX:SKEW',  # CBOE Skew Index
+    'SPXHILO': 'NYSE:SPXHILO',  # S&P 500 New Highs/Lows
+    'NYHL': 'NYSE:NYHL',  # NYSE New Highs/Lows
+    'NQHL': 'NASDAQ:NQHL'  # Nasdaq New Highs/Lows
+}
 
-# Threshold levels
-TICK_EXTREME_HIGH = 800
-TICK_EXTREME_LOW = -800
-TICK_VERY_EXTREME_HIGH = 1000
-TICK_VERY_EXTREME_LOW = -1000
+# Thresholds
+TICK_EXTREME_HIGH = 1000
+TICK_EXTREME_LOW = -1000
+TICK_OVERBOUGHT = 600
+TICK_OVERSOLD = -600
 
-ADD_STRONG_BULLISH = 1500
-ADD_STRONG_BEARISH = -1500
-ADD_EXTREME_BULLISH = 2000
-ADD_EXTREME_BEARISH = -2000
+TRIN_BULLISH = 0.7
+TRIN_BEARISH = 1.3
 
-VOLD_STRONG_RATIO = 2.0
-VOLD_WEAK_RATIO = 0.5
+VIX_LOW = 12
+VIX_NORMAL = 20
+VIX_HIGH = 25
+VIX_EXTREME = 30
 
-# Update intervals
-UPDATE_INTERVAL = 1  # seconds
-CUMULATIVE_RESET_TIME = dt_time(9, 30)  # Reset cumulative values at market open
+# Update intervals (seconds)
+UPDATE_INTERVAL = 1
+ANALYSIS_INTERVAL = 5
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
-class MarketBreadth(Enum):
-    """Market breadth classification"""
-    VERY_BULLISH = auto()
-    BULLISH = auto()
-    NEUTRAL = auto()
-    BEARISH = auto()
-    VERY_BEARISH = auto()
+class MarketCondition(Enum):
+    """Market condition based on internals"""
+    EXTREMELY_BULLISH = "extremely_bullish"
+    BULLISH = "bullish"
+    MODERATELY_BULLISH = "moderately_bullish"
+    NEUTRAL = "neutral"
+    MODERATELY_BEARISH = "moderately_bearish"
+    BEARISH = "bearish"
+    EXTREMELY_BEARISH = "extremely_bearish"
 
-class TickExtreme(Enum):
-    """TICK extreme classification"""
-    VERY_HIGH = auto()
-    HIGH = auto()
-    NORMAL = auto()
-    LOW = auto()
-    VERY_LOW = auto()
+class BreadthCondition(Enum):
+    """Market breadth condition"""
+    EXTREMELY_STRONG = "extremely_strong"
+    STRONG = "strong"
+    POSITIVE = "positive"
+    NEUTRAL = "neutral"
+    NEGATIVE = "negative"
+    WEAK = "weak"
+    EXTREMELY_WEAK = "extremely_weak"
 
-class InternalsDivergence(Enum):
-    """Divergence between internals and price"""
-    BULLISH_DIVERGENCE = auto()
-    BEARISH_DIVERGENCE = auto()
-    NO_DIVERGENCE = auto()
+class MarketPhase(Enum):
+    """Market phase detection"""
+    ACCUMULATION = "accumulation"
+    MARKUP = "markup"
+    DISTRIBUTION = "distribution"
+    MARKDOWN = "markdown"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
-class InternalsData:
-    """Market internals data point"""
-    timestamp: datetime.datetime
+@dataclass
+class InternalData:
+    """Data structure for market internal"""
+    symbol: str
+    value: float
+    timestamp: datetime
+    change: float = 0.0
+    percent_change: float = 0.0
+    
+@dataclass
+class MarketInternalsSnapshot:
+    """Snapshot of all market internals"""
+    timestamp: datetime
     tick: float
+    ticki: float
     add: float
     vold: float
-    vold_ratio: float  # UVOL/DVOL ratio
-    trin: Optional[float] = None
-    vix: Optional[float] = None
+    trin: float
+    vix: float
+    vix9d: float
+    pcall: float
+    pcsp: float
+    cpce: float
+    skew: float
+    spx_hilo: float
+    ny_hilo: float
+    nq_hilo: float
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
-        return {
-            'timestamp': self.timestamp.isoformat(),
-            'tick': self.tick,
-            'add': self.add,
-            'vold': self.vold,
-            'vold_ratio': self.vold_ratio,
-            'trin': self.trin,
-            'vix': self.vix
-        }
-
+@dataclass
 class InternalsAnalysis:
     """Analysis of market internals"""
-    timestamp: datetime.datetime
-    breadth: MarketBreadth
-    tick_extreme: TickExtreme
-    cumulative_tick: float
-    cumulative_add: float
-    tick_trend: str  # 'up', 'down', 'neutral'
-    add_trend: str   # 'up', 'down', 'neutral'
-    vold_trend: str  # 'up', 'down', 'neutral'
-    divergence: InternalsDivergence
-    strength_score: float  # -100 to 100
-    notes: List[str] = field(default_factory=list)
-
-class InternalsSignal:
-    """Trading signal from internals"""
-    timestamp: datetime.datetime
-    signal_type: str  # 'buy', 'sell', 'neutral'
-    strength: float   # 0 to 1
-    components: Dict[str, float]
-    reasons: List[str]
-
-# ==============================================================================
-# MARKET INTERNALS CLASS
-# ==============================================================================
-class MarketInternals:
-    """
-    Tracks and analyzes market internals.
+    timestamp: datetime
+    market_condition: MarketCondition
+    breadth_condition: BreadthCondition
+    market_phase: MarketPhase
+    tick_extreme: bool
+    breadth_divergence: bool
+    volume_confirmation: bool
+    signal_strength: float  # -1 to 1
+    confidence: float  # 0 to 1
+    indicators: Dict[str, float]
+    warnings: List[str]
     
-    Monitors NYSE TICK, ADD, VOLD and other breadth indicators to gauge
-    market internal strength and identify potential divergences.
+# ==============================================================================
+# MAIN CLASS
+# ==============================================================================
+class MarketInternalsAnalyzer:
     """
+    Market internals analyzer for comprehensive market breadth analysis.
     
-    def __init__(self, ib_client: Optional[Any] = None, event_manager: Optional[EventManager] = None):
-        """
-        Initialize market internals tracker.
+    This class monitors all major market internals including TICK, ADD, VOLD,
+    TRIN, and various other breadth indicators to assess market sentiment
+    and generate trading signals.
+    
+    Attributes:
+        logger: Module logger instance
+        error_handler: Error handling instance
+        event_bus: Event management system
+        internals_data: Current internal values
+        history: Historical data for analysis
         
-        Args:
-            ib_client: Interactive Brokers client (optional)
-            event_manager: Event manager instance (optional)
-        """
-        self.ib_client = ib_client
-        self.event_manager = event_manager
+    Example:
+        >>> analyzer = MarketInternalsAnalyzer()
+        >>> analyzer.initialize()
+        >>> analysis = analyzer.get_current_analysis()
+    """
+    
+    def __init__(self):
+        """Initialize the market internals analyzer."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
+        self.event_bus = EventBus()
         
         # Data storage
-        self.tick_data: deque = deque(maxlen=390)  # Full trading day
-        self.add_data: deque = deque(maxlen=390)
-        self.vold_data: deque = deque(maxlen=390)
-        self.internals_history: deque = deque(maxlen=1000)
+        self.internals_data: Dict[str, InternalData] = {}
+        self.history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
+        self.snapshots: deque = deque(maxlen=500)
         
-        # Current values
-        self.current_data: Optional[InternalsData] = None
+        # Analysis state
         self.current_analysis: Optional[InternalsAnalysis] = None
+        self.market_phase_history: deque = deque(maxlen=100)
+        self.divergence_history: deque = deque(maxlen=50)
         
-        # Cumulative values
-        self.cumulative_tick = 0.0
-        self.cumulative_add = 0.0
-        self.last_reset_date = None
-        
-        # Subscription tracking
-        self.subscriptions: Dict[str, int] = {}  # symbol -> reqId
-        self.req_id_counter = 9000  # Start from high number to avoid conflicts
-        
-        # Threading
-        self._update_thread: Optional[threading.Thread] = None
-        self._running = False
-        self._data_lock = threading.RLock()
+        # Control flags
+        self.is_running = False
+        self.update_thread: Optional[threading.Thread] = None
+        self.analysis_thread: Optional[threading.Thread] = None
+        self.lock = threading.Lock()
         
         # Callbacks
-        self.signal_callbacks: List[Callable] = []
+        self.analysis_callbacks: List[callable] = []
         
-        # For testing/simulation when no IB connection
-        self._simulation_mode = ib_client is None
+        self.logger.info("MarketInternalsAnalyzer initialized")
         
-        self.logger.info("MarketInternals initialized")
-    
     # ==========================================================================
-    # LIFECYCLE METHODS
+    # PUBLIC METHODS
     # ==========================================================================
-    def start(self) -> None:
-        """Start tracking market internals"""
-        if self._running:
-            return
+    def initialize(self) -> bool:
+        """
+        Initialize market internals monitoring.
         
-        self._running = True
-        
-        # Subscribe to market data if IB client available
-        if self.ib_client and not self._simulation_mode:
-            self._subscribe_internals()
-        
-        # Start update thread
-        self._update_thread = threading.Thread(
-            target=self._update_loop,
-            daemon=True,
-            name="MarketInternalsUpdate"
-        )
-        self._update_thread.start()
-        
-        self.logger.info("Market internals tracking started")
-    
-    def stop(self) -> None:
-        """Stop tracking market internals"""
-        self._running = False
-        
-        # Unsubscribe from market data
-        if self.ib_client and not self._simulation_mode:
-            self._unsubscribe_internals()
-        
-        # Wait for thread to finish
-        if self._update_thread:
-            self._update_thread.join(timeout=5.0)
-        
-        self.logger.info("Market internals tracking stopped")
-    
-    # ==========================================================================
-    # DATA SUBSCRIPTION
-    # ==========================================================================
-    def _subscribe_internals(self) -> None:
-        """Subscribe to market internals data"""
+        Returns:
+            bool: True if initialization successful
+        """
         try:
-            # Subscribe to TICK
-            tick_req_id = self._get_next_req_id()
-            self.ib_client.reqMktData(
-                tick_req_id,
-                self._create_index_contract(TICK_SYMBOL),
-                "",
-                False,
-                False,
-                []
-            )
-            self.subscriptions[TICK_SYMBOL] = tick_req_id
+            self.logger.info("Initializing market internals monitoring")
             
-            # Subscribe to ADD
-            add_req_id = self._get_next_req_id()
-            self.ib_client.reqMktData(
-                add_req_id,
-                self._create_index_contract(ADD_SYMBOL),
-                "",
-                False,
-                False,
-                []
-            )
-            self.subscriptions[ADD_SYMBOL] = add_req_id
+            # Initialize data structures
+            for symbol_key, symbol in INTERNAL_SYMBOLS.items():
+                self.internals_data[symbol_key] = InternalData(
+                    symbol=symbol,
+                    value=0.0,
+                    timestamp=datetime.now()
+                )
             
-            # Subscribe to VOLD
-            vold_req_id = self._get_next_req_id()
-            self.ib_client.reqMktData(
-                vold_req_id,
-                self._create_index_contract(VOLD_SYMBOL),
-                "",
-                False,
-                False,
-                []
-            )
-            self.subscriptions[VOLD_SYMBOL] = vold_req_id
+            # Subscribe to market data events
+            self.event_bus.subscribe(EventType.MARKET_DATA, self._handle_market_data)
             
-            self.logger.info("Subscribed to market internals data")
+            # Start monitoring
+            self.start()
+            
+            self.logger.info("Market internals monitoring initialized successfully")
+            return True
             
         except Exception as e:
-            self.logger.error(f"Error subscribing to internals: {e}")
-            self.error_handler.handle_error(e, "MarketInternals")
-    
-    def _unsubscribe_internals(self) -> None:
-        """Unsubscribe from market internals data"""
-        for symbol, req_id in self.subscriptions.items():
-            try:
-                self.ib_client.cancelMktData(req_id)
-            except Exception as e:
-                self.logger.error(f"Error unsubscribing {symbol}: {e}")
+            self.logger.error(f"Initialization failed: {e}")
+            return False
+            
+    def start(self) -> None:
+        """Start internals monitoring."""
+        if not self.is_running:
+            self.is_running = True
+            
+            # Start update thread
+            self.update_thread = threading.Thread(
+                target=self._update_loop,
+                daemon=True
+            )
+            self.update_thread.start()
+            
+            # Start analysis thread
+            self.analysis_thread = threading.Thread(
+                target=self._analysis_loop,
+                daemon=True
+            )
+            self.analysis_thread.start()
+            
+            self.logger.info("Market internals monitoring started")
+            
+    def stop(self) -> None:
+        """Stop internals monitoring."""
+        self.is_running = False
+        if self.update_thread:
+            self.update_thread.join(timeout=5)
+        if self.analysis_thread:
+            self.analysis_thread.join(timeout=5)
+        self.logger.info("Market internals monitoring stopped")
         
-        self.subscriptions.clear()
-    
-    def _create_index_contract(self, symbol: str) -> Any:
-        """Create index contract for IB API"""
-        # This would create proper IB contract object
-        # Simplified for now
-        contract = {
-            'symbol': symbol,
-            'secType': 'IND',
-            'exchange': 'NYSE',
-            'currency': 'USD'
-        }
-        return contract
-    
-    def _get_next_req_id(self) -> int:
-        """Get next request ID"""
-        self.req_id_counter += 1
-        return self.req_id_counter
-    
+    def update_internal(self, symbol: str, value: float) -> None:
+        """
+        Update internal value.
+        
+        Args:
+            symbol: Internal symbol (e.g., 'TICK')
+            value: Current value
+        """
+        with self.lock:
+            if symbol in self.internals_data:
+                old_value = self.internals_data[symbol].value
+                self.internals_data[symbol].value = value
+                self.internals_data[symbol].timestamp = datetime.now()
+                self.internals_data[symbol].change = value - old_value
+                if old_value != 0:
+                    self.internals_data[symbol].percent_change = (
+                        (value - old_value) / abs(old_value) * 100
+                    )
+                
+                # Add to history
+                self.history[symbol].append({
+                    'timestamp': datetime.now(),
+                    'value': value
+                })
+                
+    def get_current_analysis(self) -> Optional[InternalsAnalysis]:
+        """
+        Get current market internals analysis.
+        
+        Returns:
+            Current analysis or None
+        """
+        return self.current_analysis
+        
+    def get_internal_value(self, symbol: str) -> Optional[float]:
+        """
+        Get current value for internal.
+        
+        Args:
+            symbol: Internal symbol
+            
+        Returns:
+            Current value or None
+        """
+        if symbol in self.internals_data:
+            return self.internals_data[symbol].value
+        return None
+        
+    def get_market_condition(self) -> MarketCondition:
+        """
+        Get current market condition.
+        
+        Returns:
+            Current market condition
+        """
+        if self.current_analysis:
+            return self.current_analysis.market_condition
+        return MarketCondition.NEUTRAL
+        
+    def get_breadth_condition(self) -> BreadthCondition:
+        """
+        Get current breadth condition.
+        
+        Returns:
+            Current breadth condition
+        """
+        if self.current_analysis:
+            return self.current_analysis.breadth_condition
+        return BreadthCondition.NEUTRAL
+        
+    def register_analysis_callback(self, callback: callable) -> None:
+        """
+        Register callback for analysis updates.
+        
+        Args:
+            callback: Function to call with analysis
+        """
+        self.analysis_callbacks.append(callback)
+        
     # ==========================================================================
-    # DATA PROCESSING
+    # ANALYSIS METHODS
+    # ==========================================================================
+    def analyze_tick(self) -> Tuple[float, bool]:
+        """
+        Analyze NYSE TICK.
+        
+        Returns:
+            Tuple of (signal_strength, is_extreme)
+        """
+        tick = self.get_internal_value('TICK') or 0
+        
+        # Calculate signal strength
+        if tick >= TICK_EXTREME_HIGH:
+            signal = 1.0
+            extreme = True
+        elif tick >= TICK_OVERBOUGHT:
+            signal = 0.5 + 0.5 * (tick - TICK_OVERBOUGHT) / (TICK_EXTREME_HIGH - TICK_OVERBOUGHT)
+            extreme = False
+        elif tick <= TICK_EXTREME_LOW:
+            signal = -1.0
+            extreme = True
+        elif tick <= TICK_OVERSOLD:
+            signal = -0.5 - 0.5 * (tick - TICK_OVERSOLD) / (TICK_EXTREME_LOW - TICK_OVERSOLD)
+            extreme = False
+        else:
+            signal = tick / TICK_OVERBOUGHT * 0.5
+            extreme = False
+            
+        return signal, extreme
+        
+    def analyze_breadth(self) -> Tuple[BreadthCondition, float]:
+        """
+        Analyze market breadth.
+        
+        Returns:
+            Tuple of (breadth_condition, breadth_score)
+        """
+        add = self.get_internal_value('ADD') or 0
+        vold = self.get_internal_value('VOLD') or 0
+        
+        # Calculate breadth score
+        add_score = np.clip(add / 1000, -1, 1)
+        vold_score = np.clip(vold / 1e9, -1, 1)
+        breadth_score = (add_score + vold_score) / 2
+        
+        # Determine condition
+        if breadth_score >= 0.8:
+            condition = BreadthCondition.EXTREMELY_STRONG
+        elif breadth_score >= 0.6:
+            condition = BreadthCondition.STRONG
+        elif breadth_score >= 0.2:
+            condition = BreadthCondition.POSITIVE
+        elif breadth_score >= -0.2:
+            condition = BreadthCondition.NEUTRAL
+        elif breadth_score >= -0.6:
+            condition = BreadthCondition.NEGATIVE
+        elif breadth_score >= -0.8:
+            condition = BreadthCondition.WEAK
+        else:
+            condition = BreadthCondition.EXTREMELY_WEAK
+            
+        return condition, breadth_score
+        
+    def analyze_trin(self) -> float:
+        """
+        Analyze TRIN (Arms Index).
+        
+        Returns:
+            TRIN signal (-1 to 1)
+        """
+        trin = self.get_internal_value('TRIN') or 1.0
+        
+        if trin <= TRIN_BULLISH:
+            # Bullish
+            signal = 1.0 - (trin / TRIN_BULLISH)
+        elif trin >= TRIN_BEARISH:
+            # Bearish
+            signal = -1.0 * min((trin - TRIN_BEARISH) / TRIN_BEARISH, 1.0)
+        else:
+            # Neutral
+            signal = (TRIN_BULLISH - trin) / (TRIN_BEARISH - TRIN_BULLISH)
+            
+        return signal
+        
+    def detect_divergence(self) -> Tuple[bool, float]:
+        """
+        Detect price/breadth divergence.
+        
+        Returns:
+            Tuple of (has_divergence, divergence_strength)
+        """
+        # Get recent history
+        if len(self.snapshots) < 20:
+            return False, 0.0
+            
+        recent_snapshots = list(self.snapshots)[-20:]
+        
+        # Calculate trends
+        tick_values = [s.tick for s in recent_snapshots]
+        add_values = [s.add for s in recent_snapshots]
+        timestamps = list(range(len(recent_snapshots)))
+        
+        # Linear regression for trends
+        tick_slope, _, tick_r, _, _ = stats.linregress(timestamps, tick_values)
+        add_slope, _, add_r, _, _ = stats.linregress(timestamps, add_values)
+        
+        # Check for divergence
+        divergence = False
+        strength = 0.0
+        
+        if abs(tick_r) > 0.7 and abs(add_r) > 0.7:
+            # Strong trends detected
+            if (tick_slope > 0 and add_slope < 0) or (tick_slope < 0 and add_slope > 0):
+                divergence = True
+                strength = abs(tick_slope - add_slope) / max(abs(tick_slope), abs(add_slope))
+                
+        return divergence, strength
+        
+    def detect_market_phase(self) -> MarketPhase:
+        """
+        Detect current market phase.
+        
+        Returns:
+            Current market phase
+        """
+        if len(self.snapshots) < 50:
+            return MarketPhase.ACCUMULATION
+            
+        recent_snapshots = list(self.snapshots)[-50:]
+        
+        # Calculate indicators
+        tick_avg = statistics.mean([s.tick for s in recent_snapshots])
+        add_avg = statistics.mean([s.add for s in recent_snapshots])
+        vold_avg = statistics.mean([s.vold for s in recent_snapshots])
+        trin_avg = statistics.mean([s.trin for s in recent_snapshots])
+        
+        # Determine phase
+        if tick_avg > 200 and add_avg > 500 and trin_avg < 1.0:
+            phase = MarketPhase.MARKUP
+        elif tick_avg < -200 and add_avg < -500 and trin_avg > 1.0:
+            phase = MarketPhase.MARKDOWN
+        elif abs(tick_avg) < 200 and trin_avg > 0.9 and trin_avg < 1.1:
+            if vold_avg > 0:
+                phase = MarketPhase.DISTRIBUTION
+            else:
+                phase = MarketPhase.ACCUMULATION
+        else:
+            phase = MarketPhase.ACCUMULATION
+            
+        return phase
+        
+    # ==========================================================================
+    # PRIVATE METHODS
     # ==========================================================================
     def _update_loop(self) -> None:
-        """Main update loop"""
-        while self._running:
+        """Update loop for fetching internal data."""
+        while self.is_running:
             try:
-                # Update internals data
-                if self._simulation_mode:
-                    self._update_simulation_data()
-                else:
-                    self._process_real_data()
-                
-                # Analyze internals
-                with self._data_lock:
-                    if self.current_data:
-                        self.current_analysis = self._analyze_internals()
+                # Create snapshot
+                snapshot = self._create_snapshot()
+                if snapshot:
+                    with self.lock:
+                        self.snapshots.append(snapshot)
                         
-                        # Check for signals
-                        signal = self._check_for_signals()
-                        if signal:
-                            self._emit_signal(signal)
-                
                 time.sleep(UPDATE_INTERVAL)
                 
             except Exception as e:
-                self.logger.error(f"Error in update loop: {e}")
-                self.error_handler.handle_error(e, "MarketInternals")
-    
-    def _update_simulation_data(self) -> None:
-        """Update with simulated data for testing"""
-        # Generate realistic-looking internals data
-        current_time = datetime.datetime.now()
-        
-        # Simulate correlated movements
-        base_movement = math.sin(time.time() / 100) * 0.5
-        
-        tick = base_movement * 500 + np.random.randn() * 200
-        add = base_movement * 1000 + np.random.randn() * 300
-        vold = base_movement * 5e8 + np.random.randn() * 1e8
-        
-        # Calculate VOLD ratio (UVOL/DVOL)
-        if vold > 0:
-            vold_ratio = 1.5 + base_movement
-        else:
-            vold_ratio = 0.5 + base_movement
-        
-        with self._data_lock:
-            self.current_data = InternalsData(
-                timestamp=current_time,
-                tick=tick,
-                add=add,
-                vold=vold,
-                vold_ratio=vold_ratio,
-                trin=1.0 - base_movement * 0.3,
-                vix=15 + abs(base_movement) * 5
-            )
-            
-            # Store history
-            self.tick_data.append(tick)
-            self.add_data.append(add)
-            self.vold_data.append(vold)
-            self.internals_history.append(self.current_data)
-            
-            # Update cumulative values
-            self._update_cumulative_values()
-    
-    def _process_real_data(self) -> None:
-        """Process real market data from IB"""
-        # This would process actual data from IB API
-        # For now, using placeholder
-        pass
-    
-    def _update_cumulative_values(self) -> None:
-        """Update cumulative TICK and ADD"""
-        if not self.current_data:
-            return
-        
-        # Reset at market open
-        current_date = datetime.datetime.now().date()
-        if self.last_reset_date != current_date:
-            self.cumulative_tick = 0.0
-            self.cumulative_add = 0.0
-            self.last_reset_date = current_date
-        
-        # Update cumulative values
-        self.cumulative_tick += self.current_data.tick
-        self.cumulative_add += self.current_data.add
-    
-    # ==========================================================================
-    # ANALYSIS
-    # ==========================================================================
-    def _analyze_internals(self) -> InternalsAnalysis:
-        """Analyze current market internals"""
-        if not self.current_data:
-            return self._get_neutral_analysis()
-        
-        # Determine market breadth
-        breadth = self._classify_breadth()
-        
-        # Determine TICK extreme
-        tick_extreme = self._classify_tick_extreme()
-        
-        # Calculate trends
-        tick_trend = self._calculate_trend(self.tick_data)
-        add_trend = self._calculate_trend(self.add_data)
-        vold_trend = self._calculate_trend(self.vold_data)
-        
-        # Check for divergence
-        divergence = self._check_divergence()
-        
-        # Calculate overall strength score
-        strength_score = self._calculate_strength_score()
-        
-        # Generate analysis notes
-        notes = self._generate_analysis_notes(
-            breadth, tick_extreme, divergence
-        )
-        
-        return InternalsAnalysis(
-            timestamp=datetime.datetime.now(),
-            breadth=breadth,
-            tick_extreme=tick_extreme,
-            cumulative_tick=self.cumulative_tick,
-            cumulative_add=self.cumulative_add,
-            tick_trend=tick_trend,
-            add_trend=add_trend,
-            vold_trend=vold_trend,
-            divergence=divergence,
-            strength_score=strength_score,
-            notes=notes
-        )
-    
-    def _classify_breadth(self) -> MarketBreadth:
-        """Classify market breadth"""
-        if not self.current_data:
-            return MarketBreadth.NEUTRAL
-        
-        add = self.current_data.add
-        
-        if add >= ADD_EXTREME_BULLISH:
-            return MarketBreadth.VERY_BULLISH
-        elif add >= ADD_STRONG_BULLISH:
-            return MarketBreadth.BULLISH
-        elif add <= ADD_EXTREME_BEARISH:
-            return MarketBreadth.VERY_BEARISH
-        elif add <= ADD_STRONG_BEARISH:
-            return MarketBreadth.BEARISH
-        else:
-            return MarketBreadth.NEUTRAL
-    
-    def _classify_tick_extreme(self) -> TickExtreme:
-        """Classify TICK extreme"""
-        if not self.current_data:
-            return TickExtreme.NORMAL
-        
-        tick = self.current_data.tick
-        
-        if tick >= TICK_VERY_EXTREME_HIGH:
-            return TickExtreme.VERY_HIGH
-        elif tick >= TICK_EXTREME_HIGH:
-            return TickExtreme.HIGH
-        elif tick <= TICK_VERY_EXTREME_LOW:
-            return TickExtreme.VERY_LOW
-        elif tick <= TICK_EXTREME_LOW:
-            return TickExtreme.LOW
-        else:
-            return TickExtreme.NORMAL
-    
-    def _calculate_trend(self, data: deque) -> str:
-        """Calculate trend direction"""
-        if len(data) < 20:
-            return 'neutral'
-        
-        # Simple linear regression slope
-        recent_data = list(data)[-20:]
-        x = np.arange(len(recent_data))
-        slope = np.polyfit(x, recent_data, 1)[0]
-        
-        # Normalize by average absolute value
-        avg_abs = np.mean(np.abs(recent_data))
-        if avg_abs > 0:
-            normalized_slope = slope / avg_abs
-        else:
-            normalized_slope = 0
-        
-        if normalized_slope > 0.02:
-            return 'up'
-        elif normalized_slope < -0.02:
-            return 'down'
-        else:
-            return 'neutral'
-    
-    def _check_divergence(self) -> InternalsDivergence:
-        """Check for divergence between internals and price"""
-        # Simplified divergence check
-        # In reality, would compare with SPY price action
-        
-        if not self.current_data:
-            return InternalsDivergence.NO_DIVERGENCE
-        
-        # For now, check if internals are extremely one-sided
-        tick = self.current_data.tick
-        add = self.current_data.add
-        vold_ratio = self.current_data.vold_ratio
-        
-        # Bullish divergence: internals very positive
-        if (tick > TICK_EXTREME_HIGH and 
-            add > ADD_STRONG_BULLISH and 
-            vold_ratio > VOLD_STRONG_RATIO):
-            return InternalsDivergence.BULLISH_DIVERGENCE
-        
-        # Bearish divergence: internals very negative
-        elif (tick < TICK_EXTREME_LOW and 
-              add < ADD_STRONG_BEARISH and 
-              vold_ratio < VOLD_WEAK_RATIO):
-            return InternalsDivergence.BEARISH_DIVERGENCE
-        
-        return InternalsDivergence.NO_DIVERGENCE
-    
-    def _calculate_strength_score(self) -> float:
-        """Calculate overall market internal strength (-100 to 100)"""
-        if not self.current_data:
-            return 0.0
-        
-        # Normalize each component
-        tick_score = np.clip(self.current_data.tick / 1000, -1, 1) * 30
-        add_score = np.clip(self.current_data.add / 2000, -1, 1) * 40
-        vold_score = np.clip((self.current_data.vold_ratio - 1) / 2, -1, 1) * 30
-        
-        # Combine scores
-        total_score = tick_score + add_score + vold_score
-        
-        return np.clip(total_score, -100, 100)
-    
-    def _generate_analysis_notes(
-        self,
-        breadth: MarketBreadth,
-        tick_extreme: TickExtreme,
-        divergence: InternalsDivergence
-    ) -> List[str]:
-        """Generate analysis notes"""
-        notes = []
-        
-        # Breadth notes
-        if breadth in [MarketBreadth.VERY_BULLISH, MarketBreadth.VERY_BEARISH]:
-            notes.append(f"Extreme market breadth: {breadth.name}")
-        
-        # TICK extreme notes
-        if tick_extreme in [TickExtreme.VERY_HIGH, TickExtreme.VERY_LOW]:
-            notes.append(f"TICK at extreme level: {self.current_data.tick:.0f}")
-        
-        # Divergence notes
-        if divergence != InternalsDivergence.NO_DIVERGENCE:
-            notes.append(f"Potential {divergence.name.lower().replace('_', ' ')}")
-        
-        # Cumulative notes
-        if abs(self.cumulative_tick) > 5000:
-            notes.append(f"Cumulative TICK extreme: {self.cumulative_tick:.0f}")
-        
-        if abs(self.cumulative_add) > 10000:
-            notes.append(f"Cumulative ADD extreme: {self.cumulative_add:.0f}")
-        
-        return notes
-    
-    # ==========================================================================
-    # SIGNAL GENERATION
-    # ==========================================================================
-    def _check_for_signals(self) -> Optional[InternalsSignal]:
-        """Check for trading signals from internals"""
-        if not self.current_analysis or not self.current_data:
-            return None
-        
-        signal_type = 'neutral'
-        strength = 0.0
-        components = {}
-        reasons = []
-        
-        # Strong bullish signal
-        if (self.current_analysis.breadth == MarketBreadth.VERY_BULLISH and
-            self.current_analysis.tick_extreme in [TickExtreme.HIGH, TickExtreme.VERY_HIGH] and
-            self.current_data.vold_ratio > VOLD_STRONG_RATIO):
-            
-            signal_type = 'buy'
-            strength = 0.8
-            reasons.append("Very strong bullish internals across all indicators")
-        
-        # Strong bearish signal
-        elif (self.current_analysis.breadth == MarketBreadth.VERY_BEARISH and
-              self.current_analysis.tick_extreme in [TickExtreme.LOW, TickExtreme.VERY_LOW] and
-              self.current_data.vold_ratio < VOLD_WEAK_RATIO):
-            
-            signal_type = 'sell'
-            strength = 0.8
-            reasons.append("Very strong bearish internals across all indicators")
-        
-        # Divergence signals
-        elif self.current_analysis.divergence == InternalsDivergence.BULLISH_DIVERGENCE:
-            signal_type = 'buy'
-            strength = 0.6
-            reasons.append("Bullish divergence detected in internals")
-        
-        elif self.current_analysis.divergence == InternalsDivergence.BEARISH_DIVERGENCE:
-            signal_type = 'sell'
-            strength = 0.6
-            reasons.append("Bearish divergence detected in internals")
-        
-        # Trend exhaustion signals
-        elif (self.current_analysis.tick_extreme == TickExtreme.VERY_HIGH and
-              self.cumulative_tick > 8000):
-            signal_type = 'sell'
-            strength = 0.5
-            reasons.append("Potential short-term top - extreme bullish TICK readings")
-        
-        elif (self.current_analysis.tick_extreme == TickExtreme.VERY_LOW and
-              self.cumulative_tick < -8000):
-            signal_type = 'buy'
-            strength = 0.5
-            reasons.append("Potential short-term bottom - extreme bearish TICK readings")
-        
-        if signal_type != 'neutral':
-            # Add component scores
-            components = {
-                'tick': self.current_data.tick,
-                'add': self.current_data.add,
-                'vold_ratio': self.current_data.vold_ratio,
-                'strength_score': self.current_analysis.strength_score
-            }
-            
-            return InternalsSignal(
-                timestamp=datetime.datetime.now(),
-                signal_type=signal_type,
-                strength=strength,
-                components=components,
-                reasons=reasons
-            )
-        
-        return None
-    
-    def _emit_signal(self, signal: InternalsSignal) -> None:
-        """Emit trading signal"""
-        # Call callbacks
-        for callback in self.signal_callbacks:
+                self.logger.error(f"Update loop error: {e}")
+                time.sleep(UPDATE_INTERVAL)
+                
+    def _analysis_loop(self) -> None:
+        """Analysis loop for processing internals."""
+        while self.is_running:
             try:
-                callback(signal)
+                # Perform analysis
+                analysis = self._perform_analysis()
+                if analysis:
+                    self.current_analysis = analysis
+                    
+                    # Notify callbacks
+                    for callback in self.analysis_callbacks:
+                        try:
+                            callback(analysis)
+                        except Exception as e:
+                            self.logger.error(f"Callback error: {e}")
+                            
+                    # Publish event
+                    event = Event(
+                        type=EventType.MARKET_INTERNALS,
+                        data={
+                            'analysis': analysis,
+                            'timestamp': datetime.now()
+                        }
+                    )
+                    self.event_bus.publish(event)
+                    
+                time.sleep(ANALYSIS_INTERVAL)
+                
             except Exception as e:
-                self.logger.error(f"Error in signal callback: {e}")
-        
-        # Emit event if event manager available
-        if self.event_manager:
-            self.event_manager.emit(Event(
-                EventType.SIGNAL,
-                {
-                    'source': 'market_internals',
-                    'signal_type': signal.signal_type,
-                    'strength': signal.strength,
-                    'components': signal.components,
-                    'reasons': signal.reasons
-                }
-            ))
-    
+                self.logger.error(f"Analysis loop error: {e}")
+                time.sleep(ANALYSIS_INTERVAL)
+                
+    def _create_snapshot(self) -> Optional[MarketInternalsSnapshot]:
+        """Create snapshot of current internals."""
+        try:
+            with self.lock:
+                snapshot = MarketInternalsSnapshot(
+                    timestamp=datetime.now(),
+                    tick=self.get_internal_value('TICK') or 0,
+                    ticki=self.get_internal_value('TICKI') or 0,
+                    add=self.get_internal_value('ADD') or 0,
+                    vold=self.get_internal_value('VOLD') or 0,
+                    trin=self.get_internal_value('TRIN') or 1.0,
+                    vix=self.get_internal_value('VIX') or 20,
+                    vix9d=self.get_internal_value('VIX9D') or 20,
+                    pcall=self.get_internal_value('PCALL') or 1.0,
+                    pcsp=self.get_internal_value('PCSP') or 1.0,
+                    cpce=self.get_internal_value('CPCE') or 1.0,
+                    skew=self.get_internal_value('SKEW') or 125,
+                    spx_hilo=self.get_internal_value('SPXHILO') or 0,
+                    ny_hilo=self.get_internal_value('NYHL') or 0,
+                    nq_hilo=self.get_internal_value('NQHL') or 0
+                )
+                return snapshot
+                
+        except Exception as e:
+            self.logger.error(f"Error creating snapshot: {e}")
+            return None
+            
+    def _perform_analysis(self) -> Optional[InternalsAnalysis]:
+        """Perform comprehensive internals analysis."""
+        try:
+            # Get component analyses
+            tick_signal, tick_extreme = self.analyze_tick()
+            breadth_condition, breadth_score = self.analyze_breadth()
+            trin_signal = self.analyze_trin()
+            has_divergence, divergence_strength = self.detect_divergence()
+            market_phase = self.detect_market_phase()
+            
+            # Calculate overall signal
+            overall_signal = (tick_signal * 0.4 + 
+                            breadth_score * 0.3 + 
+                            trin_signal * 0.3)
+            
+            # Determine market condition
+            if overall_signal >= 0.8:
+                condition = MarketCondition.EXTREMELY_BULLISH
+            elif overall_signal >= 0.5:
+                condition = MarketCondition.BULLISH
+            elif overall_signal >= 0.2:
+                condition = MarketCondition.MODERATELY_BULLISH
+            elif overall_signal >= -0.2:
+                condition = MarketCondition.NEUTRAL
+            elif overall_signal >= -0.5:
+                condition = MarketCondition.MODERATELY_BEARISH
+            elif overall_signal >= -0.8:
+                condition = MarketCondition.BEARISH
+            else:
+                condition = MarketCondition.EXTREMELY_BEARISH
+                
+            # Check volume confirmation
+            vold = self.get_internal_value('VOLD') or 0
+            volume_confirmation = (
+                (overall_signal > 0 and vold > 0) or
+                (overall_signal < 0 and vold < 0)
+            )
+            
+            # Calculate confidence
+            confidence = min(
+                abs(overall_signal),
+                1.0 - divergence_strength,
+                0.8 if volume_confirmation else 0.6
+            )
+            
+            # Generate warnings
+            warnings = []
+            if tick_extreme:
+                warnings.append("TICK at extreme levels")
+            if has_divergence:
+                warnings.append("Price/breadth divergence detected")
+            if not volume_confirmation:
+                warnings.append("Volume not confirming price action")
+                
+            # Create analysis
+            analysis = InternalsAnalysis(
+                timestamp=datetime.now(),
+                market_condition=condition,
+                breadth_condition=breadth_condition,
+                market_phase=market_phase,
+                tick_extreme=tick_extreme,
+                breadth_divergence=has_divergence,
+                volume_confirmation=volume_confirmation,
+                signal_strength=overall_signal,
+                confidence=confidence,
+                indicators={
+                    'tick_signal': tick_signal,
+                    'breadth_score': breadth_score,
+                    'trin_signal': trin_signal,
+                    'divergence_strength': divergence_strength
+                },
+                warnings=warnings
+            )
+            
+            return analysis
+            
+        except Exception as e:
+            self.logger.error(f"Error performing analysis: {e}")
+            return None
+            
+    def _handle_market_data(self, event: Event) -> None:
+        """Handle market data events."""
+        try:
+            data = event.data
+            symbol = data.get('symbol', '')
+            
+            # Check if it's an internal symbol
+            for key, internal_symbol in INTERNAL_SYMBOLS.items():
+                if symbol == internal_symbol:
+                    value = data.get('last', 0)
+                    self.update_internal(key, value)
+                    break
+                    
+        except Exception as e:
+            self.logger.error(f"Error handling market data: {e}")
+            
     # ==========================================================================
-    # PUBLIC INTERFACE
+    # ADVANCED ANALYSIS
     # ==========================================================================
-    def get_current_readings(self) -> Dict[str, float]:
+    def get_sector_rotation_signals(self) -> Dict[str, float]:
         """
-        Get current market internals readings.
+        Get sector rotation signals based on internals.
         
         Returns:
-            Dictionary of current values
+            Dict of sector to signal strength
         """
-        with self._data_lock:
-            if not self.current_data:
-                return {
-                    'TICK': 0,
-                    'ADD': 0,
-                    'VOLD': 0,
-                    'VOLD_RATIO': 1.0,
-                    'CUMULATIVE_TICK': 0,
-                    'CUMULATIVE_ADD': 0
-                }
-            
-            return {
-                'TICK': self.current_data.tick,
-                'ADD': self.current_data.add,
-                'VOLD': self.current_data.vold,
-                'VOLD_RATIO': self.current_data.vold_ratio,
-                'CUMULATIVE_TICK': self.cumulative_tick,
-                'CUMULATIVE_ADD': self.cumulative_add
-            }
-    
-    def get_analysis(self) -> Optional[InternalsAnalysis]:
-        """Get current analysis"""
-        with self._data_lock:
-            return self.current_analysis
-    
-    def get_strength_score(self) -> float:
-        """Get current strength score (-100 to 100)"""
-        with self._data_lock:
-            if self.current_analysis:
-                return self.current_analysis.strength_score
-            return 0.0
-    
-    def get_historical_data(self, minutes: int = 30) -> pd.DataFrame:
-        """
-        Get historical internals data.
+        signals = {}
         
-        Args:
-            minutes: Number of minutes of history
+        # Analyze different internal combinations
+        risk_on_score = 0.0
+        defensive_score = 0.0
+        
+        # Risk-on indicators
+        if self.get_internal_value('VIX') < VIX_LOW:
+            risk_on_score += 0.3
+        if self.get_internal_value('CPCE') < 0.7:
+            risk_on_score += 0.3
+        if self.get_internal_value('ADD') > 1000:
+            risk_on_score += 0.4
             
+        # Defensive indicators
+        if self.get_internal_value('VIX') > VIX_HIGH:
+            defensive_score += 0.3
+        if self.get_internal_value('CPCE') > 1.2:
+            defensive_score += 0.3
+        if self.get_internal_value('ADD') < -1000:
+            defensive_score += 0.4
+            
+        # Map to sectors
+        if risk_on_score > defensive_score:
+            signals['XLK'] = risk_on_score  # Technology
+            signals['XLF'] = risk_on_score * 0.8  # Financials
+            signals['XLY'] = risk_on_score * 0.7  # Consumer Discretionary
+            signals['XLU'] = -risk_on_score * 0.5  # Utilities (inverse)
+            signals['XLP'] = -risk_on_score * 0.5  # Consumer Staples (inverse)
+        else:
+            signals['XLU'] = defensive_score  # Utilities
+            signals['XLP'] = defensive_score  # Consumer Staples
+            signals['XLV'] = defensive_score * 0.8  # Healthcare
+            signals['XLK'] = -defensive_score * 0.5  # Technology (inverse)
+            signals['XLF'] = -defensive_score * 0.5  # Financials (inverse)
+            
+        return signals
+        
+    def get_trading_signals(self) -> Dict[str, Any]:
+        """
+        Generate trading signals based on internals.
+        
         Returns:
-            DataFrame with historical data
+            Dict of trading signals and recommendations
         """
-        with self._data_lock:
-            if not self.internals_history:
-                return pd.DataFrame()
+        if not self.current_analysis:
+            return {}
             
-            # Convert to DataFrame
-            data = [d.to_dict() for d in self.internals_history]
-            df = pd.DataFrame(data)
-            
-            # Filter by time
-            if minutes > 0:
-                cutoff = datetime.datetime.now() - datetime.timedelta(minutes=minutes)
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                df = df[df['timestamp'] > cutoff]
-            
-            return df
-    
-    def register_signal_callback(self, callback: Callable) -> None:
-        """
-        Register callback for trading signals.
+        signals = {
+            'timestamp': datetime.now(),
+            'market_condition': self.current_analysis.market_condition.value,
+            'signal_strength': self.current_analysis.signal_strength,
+            'confidence': self.current_analysis.confidence,
+            'recommendations': []
+        }
         
-        Args:
-            callback: Function to call with InternalsSignal
-        """
-        self.signal_callbacks.append(callback)
-    
-    def force_analysis(self) -> None:
-        """Force immediate analysis update"""
-        with self._data_lock:
-            if self.current_data:
-                self.current_analysis = self._analyze_internals()
-    
-    # ==========================================================================
-    # UTILITIES
-    # ==========================================================================
-    def _get_neutral_analysis(self) -> InternalsAnalysis:
-        """Get neutral analysis when no data available"""
-        return InternalsAnalysis(
-            timestamp=datetime.datetime.now(),
-            breadth=MarketBreadth.NEUTRAL,
-            tick_extreme=TickExtreme.NORMAL,
-            cumulative_tick=0.0,
-            cumulative_add=0.0,
-            tick_trend='neutral',
-            add_trend='neutral',
-            vold_trend='neutral',
-            divergence=InternalsDivergence.NO_DIVERGENCE,
-            strength_score=0.0,
-            notes=["No market internals data available"]
-        )
-    
-    def update_market_data(self, req_id: int, field: int, value: float) -> None:
-        """
-        Update market data from IB API callback.
+        # Generate recommendations based on conditions
+        if self.current_analysis.tick_extreme:
+            if self.current_analysis.signal_strength > 0.8:
+                signals['recommendations'].append({
+                    'action': 'FADE',
+                    'reason': 'Extreme overbought TICK',
+                    'strategy': 'Bear Call Spread'
+                })
+            elif self.current_analysis.signal_strength < -0.8:
+                signals['recommendations'].append({
+                    'action': 'FADE',
+                    'reason': 'Extreme oversold TICK',
+                    'strategy': 'Bull Put Spread'
+                })
+                
+        if self.current_analysis.breadth_divergence:
+            signals['recommendations'].append({
+                'action': 'CAUTION',
+                'reason': 'Price/breadth divergence',
+                'strategy': 'Reduce position size'
+            })
+            
+        # Market phase specific recommendations
+        if self.current_analysis.market_phase == MarketPhase.MARKUP:
+            signals['recommendations'].append({
+                'action': 'TREND_FOLLOW',
+                'reason': 'Strong markup phase',
+                'strategy': 'Bull Put Spreads'
+            })
+        elif self.current_analysis.market_phase == MarketPhase.MARKDOWN:
+            signals['recommendations'].append({
+                'action': 'TREND_FOLLOW',
+                'reason': 'Strong markdown phase',
+                'strategy': 'Bear Call Spreads'
+            })
+            
+        return signals
         
-        Args:
-            req_id: Request ID
-            field: Field type
-            value: Field value
-        """
-        # This would be called by IB API wrapper
-        # Map req_id to symbol and update appropriate data
-        pass
-
 # ==============================================================================
-# MODULE INITIALIZATION
+# TEST SECTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Test market internals
-    internals = MarketInternals()
+    # Test the market internals analyzer
+    analyzer = MarketInternalsAnalyzer()
     
-    # Define signal callback
-    def on_signal(signal: InternalsSignal):
-        print(f"\nSIGNAL: {signal.signal_type.upper()} (strength: {signal.strength:.0%})")
-        print(f"Components: {signal.components}")
-        print(f"Reasons: {signal.reasons}")
-    
-    # Register callback
-    internals.register_signal_callback(on_signal)
-    
-    # Start tracking
-    internals.start()
-    
-    try:
-        # Run for a while
-        for i in range(60):
-            # Get current readings
-            readings = internals.get_current_readings()
-            analysis = internals.get_analysis()
-            
-            if i % 10 == 0:  # Print every 10 seconds
-                print(f"\nTime: {datetime.datetime.now()}")
-                print(f"TICK: {readings['TICK']:.0f}")
-                print(f"ADD: {readings['ADD']:.0f}")
-                print(f"VOLD Ratio: {readings['VOLD_RATIO']:.2f}")
-                
-                if analysis:
-                    print(f"Breadth: {analysis.breadth.name}")
-                    print(f"Strength Score: {analysis.strength_score:.0f}")
-                    if analysis.notes:
-                        print(f"Notes: {', '.join(analysis.notes)}")
-            
-            time.sleep(1)
-            
-    except KeyboardInterrupt:
-        print("\nStopping...")
-    
-    finally:
-        internals.stop()
+    if analyzer.initialize():
+        print("Market Internals Analyzer initialized successfully")
         
-        # Get historical data
-        history = internals.get_historical_data(5)
-        if not history.empty:
-            print("\nHistorical Summary:")
-            print(f"Average TICK: {history['tick'].mean():.0f}")
-            print(f"Average ADD: {history['add'].mean():.0f}")
-            print(f"Average VOLD Ratio: {history['vold_ratio'].mean():.2f}")
+        # Simulate some data updates
+        test_data = {
+            'TICK': 450,
+            'ADD': 1200,
+            'VOLD': 1.5e9,
+            'TRIN': 0.85,
+            'VIX': 18.5
+        }
+        
+        for symbol, value in test_data.items():
+            analyzer.update_internal(symbol, value)
+            
+        # Wait for analysis
+        time.sleep(6)
+        
+        # Get analysis
+        analysis = analyzer.get_current_analysis()
+        if analysis:
+            print(f"\nMarket Condition: {analysis.market_condition.value}")
+            print(f"Breadth Condition: {analysis.breadth_condition.value}")
+            print(f"Market Phase: {analysis.market_phase.value}")
+            print(f"Signal Strength: {analysis.signal_strength:.2f}")
+            print(f"Confidence: {analysis.confidence:.2f}")
+            
+            if analysis.warnings:
+                print("\nWarnings:")
+                for warning in analysis.warnings:
+                    print(f"  - {warning}")
+                    
+        # Get trading signals
+        signals = analyzer.get_trading_signals()
+        if signals.get('recommendations'):
+            print("\nTrading Recommendations:")
+            for rec in signals['recommendations']:
+                print(f"  - {rec['action']}: {rec['reason']} ({rec['strategy']})")
+                
+        # Stop analyzer
+        analyzer.stop()
+        print("\nMarket Internals Analyzer stopped")

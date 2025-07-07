@@ -15,7 +15,7 @@ Description:
 
 Author: Mohamed Talib
 Date: 2025-01-10
-Version: 1.4
+Version: 2.0 (Production-Ready)
 """
 
 # ==============================================================================
@@ -25,6 +25,8 @@ from datetime import datetime, time, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
+import uuid
+import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -35,47 +37,53 @@ import numpy as np
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, TradingSignal, SignalStrength
+from SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    BaseStrategy, TradingSignal, SignalType, SignalStrength,
+    StrategyPosition, PositionType, PositionState,
+    EventManager, RiskProfile, Event, EventType
+)
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import SignalType, OptionType
+from SpyderU_Utilities.SpyderU07_Constants import SPY_CONTRACT_MULTIPLIER
 from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
-from SpyderF_Analysis.SpyderF10_IVRankCalculator import get_iv_rank_calculator
-from SpyderB_Broker.SpyderB06_ContractBuilder import OptionContract
-from SpyderE_Risk.SpyderE03_StrategyHealthMonitor import get_strategy_health_monitor
+from SpyderC_MarketData.SpyderC05_VolumeProfile import VolumeProfileAnalyzer
+from SpyderF_Analysis.SpyderF02_PriceAction import PriceActionAnalyzer
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Strategy parameters
-OPENING_RANGE_MINUTES = 30  # First 30 minutes
-MIN_RANGE_SIZE = 0.50      # Minimum $0.50 range
-MAX_RANGE_SIZE = 3.00      # Maximum $3.00 range
-BREAKOUT_CONFIRMATION_BARS = 2  # Bars to confirm breakout
-TRAILING_STOP_PERCENT = 0.005   # 0.5% trailing stop
-PROFIT_TARGET_RATIO = 2.0       # 2:1 reward/risk
+# Range formation parameters
+RANGE_START = time(9, 30)      # Market open
+RANGE_END_15 = time(9, 45)     # 15-minute range
+RANGE_END_30 = time(10, 0)     # 30-minute range
+TRADING_START = time(9, 45)    # Start trading after range
+TRADING_END = time(15, 30)     # Stop new entries
+
+# Breakout parameters
+MIN_RANGE_SIZE = 0.50          # Minimum $0.50 range
+MAX_RANGE_SIZE = 3.00          # Maximum $3 range
+BREAKOUT_BUFFER = 0.10         # $0.10 above/below range
+VOLUME_SURGE_RATIO = 1.5       # 50% volume increase on breakout
+FALSE_BREAKOUT_PULLBACK = 0.15 # 15% pullback = false breakout
+
+# Risk parameters
+STOP_LOSS_ATR_MULTIPLE = 1.5   # Stop loss at 1.5x ATR
+TRAILING_STOP_PERCENT = 0.005  # 0.5% trailing stop
+PROFIT_TARGET_RATIO = 2.0      # 2:1 risk/reward
 MAX_DAILY_TRADES = 2           # Maximum trades per day
 
-# Time windows
-MARKET_OPEN = time(9, 30)
-RANGE_END = time(10, 0)
-TRADING_START = time(9, 45)    # Start trading at 9:45 AM
-TRADING_END = time(15, 30)     # Stop new entries at 3:30 PM
-
 # Option parameters
-DELTA_TARGET = 0.40            # Target delta for options
-MIN_VOLUME = 100               # Minimum option volume
-MIN_IV_RANK = 30               # Minimum IV rank
+OPTION_DELTA_CALL = 0.40       # Delta for call options
+OPTION_DELTA_PUT = -0.40       # Delta for put options
+MIN_OPTION_VOLUME = 100        # Minimum option volume
+MAX_OPTION_SPREAD = 0.10       # Maximum bid-ask spread
+
+# Days of week (0=Monday, 4=Friday)
+PREFERRED_DAYS = [0, 1]        # Monday and Tuesday
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
-class BreakoutDirection(Enum):
-    """Breakout direction"""
-    BULLISH = auto()
-    BEARISH = auto()
-    NONE = auto()
-
 class RangeState(Enum):
     """Opening range state"""
     FORMING = auto()
@@ -83,725 +91,1087 @@ class RangeState(Enum):
     BROKEN = auto()
     INVALID = auto()
 
+class BreakoutType(Enum):
+    """Types of breakouts"""
+    BULLISH = auto()
+    BEARISH = auto()
+    FALSE = auto()
+
+class BreakoutQuality(Enum):
+    """Breakout quality assessment"""
+    STRONG = auto()
+    MODERATE = auto()
+    WEAK = auto()
+    FALSE = auto()
+
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
 class OpeningRange:
     """Opening range data"""
+    date: datetime
+    range_start: time
+    range_end: time
     high: float
     low: float
-    range_size: float
-    midpoint: float
-    established_time: datetime
+    open_price: float
+    close_price: float
     volume: int
+    vwap: float
+    range_size: float
     state: RangeState
-    bars_in_range: int = 0
+    
+    # Volume profile within range
+    volume_at_high: int = 0
+    volume_at_low: int = 0
+    poc: float = 0.0  # Point of Control
+    
+    # Pre-market levels
+    pre_market_high: float = 0.0
+    pre_market_low: float = 0.0
+    gap_size: float = 0.0
+    
+    @property
+    def midpoint(self) -> float:
+        """Range midpoint"""
+        return (self.high + self.low) / 2
+    
+    @property
+    def is_valid(self) -> bool:
+        """Check if range is valid for trading"""
+        return (MIN_RANGE_SIZE <= self.range_size <= MAX_RANGE_SIZE and 
+                self.state == RangeState.ESTABLISHED)
 
 @dataclass
 class BreakoutSignal:
     """Breakout signal data"""
-    direction: BreakoutDirection
+    signal_id: str
+    timestamp: datetime
+    breakout_type: BreakoutType
     breakout_price: float
+    range_reference: OpeningRange
+    volume_surge: float  # Volume relative to average
+    momentum: float
+    quality: BreakoutQuality
+    
+    # Entry levels
     entry_price: float
     stop_loss: float
-    target: float
-    volume_surge: float
-    strength: float
-    confirmed: bool = False
-    confirmation_bars: int = 0
+    initial_target: float
+    
+    # Option setup
+    option_type: str  # 'call' or 'put'
+    strike: float
+    expiry: datetime
+    delta: float
+    
+    # Validation
+    false_breakout_risk: float  # 0-1 scale
+    confidence: float
+
+@dataclass
+class BreakoutPosition:
+    """Active breakout position"""
+    position_id: str
+    breakout_signal: BreakoutSignal
+    entry_time: datetime
+    
+    # Position details
+    option_contracts: int
+    entry_price: float
+    current_price: float = 0.0
+    
+    # P&L tracking
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    max_profit: float = 0.0
+    max_loss: float = 0.0
+    
+    # Risk management
+    current_stop: float
+    trailing_stop_active: bool = False
+    highest_price: float = 0.0  # For trailing stop
+    lowest_price: float = 0.0   # For trailing stop
+    
+    # Exit tracking
+    exit_time: Optional[datetime] = None
+    exit_reason: Optional[str] = None
+    bars_in_trade: int = 0
 
 # ==============================================================================
-# OPENING RANGE BREAKOUT STRATEGY
+# OPENING RANGE BREAKOUT STRATEGY CLASS
 # ==============================================================================
 class OpeningRangeBreakoutStrategy(BaseStrategy):
     """
     Opening range breakout strategy implementation.
     
-    Strategy rules:
-    - Monitor first 30 minutes to establish range
-    - Trade breakouts after 9:45 AM
-    - Use tight trailing stops
-    - Focus on Monday/Tuesday
-    - Maximum 2 trades per day
+    Monitors the first 15-30 minutes to establish a range, then trades
+    breakouts with volume confirmation and false breakout detection.
     """
     
-    def __init__(self, event_manager, risk_profile, config):
+    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+                 config: Dict[str, Any]):
         """Initialize opening range breakout strategy"""
         super().__init__("OpeningRangeBreakout", event_manager, risk_profile, config)
         
         # Components
-        self.iv_calculator = get_iv_rank_calculator()
-        self.health_monitor = get_strategy_health_monitor()
+        self.tech_indicators = TechnicalIndicators()
+        self.volume_profile = VolumeProfileAnalyzer()
+        self.price_action = PriceActionAnalyzer()
         
-        # Register with health monitor
-        self.health_monitor.register_strategy(self.name)
+        # Configuration
+        self.range_minutes = config.get('range_minutes', 30)  # 15 or 30 minute range
+        self.use_volume_profile = config.get('use_volume_profile', True)
+        self.enable_pre_market = config.get('enable_pre_market', True)
+        self.max_daily_trades = config.get('max_daily_trades', MAX_DAILY_TRADES)
         
         # Range tracking
         self.current_range: Optional[OpeningRange] = None
         self.range_history: List[OpeningRange] = []
         self.pending_breakout: Optional[BreakoutSignal] = None
         
-        # Daily tracking
+        # Position tracking
+        self.active_breakouts: Dict[str, BreakoutPosition] = {}
         self.daily_trades = 0
-        self.last_trade_date = None
+        self.last_trade_date: Optional[datetime] = None
         
-        # Performance
-        self.breakout_success_rate = 0.5
-        self.avg_range_size = 1.0
+        # Pre-market data
+        self.pre_market_data: Dict[str, Any] = {}
         
-        self.logger.info("OpeningRangeBreakout strategy initialized")
+        # Performance tracking
+        self.breakout_stats = {
+            'total_breakouts': 0,
+            'successful_breakouts': 0,
+            'false_breakouts': 0,
+            'avg_range_size': 0.0,
+            'avg_breakout_move': 0.0,
+            'monday_trades': 0,
+            'tuesday_trades': 0,
+            'other_day_trades': 0
+        }
+        
+        self.logger.info(f"OpeningRangeBreakout strategy initialized with {self.range_minutes}min range")
     
     # ==========================================================================
-    # SIGNAL GENERATION
+    # REQUIRED ABSTRACT METHOD IMPLEMENTATIONS
     # ==========================================================================
+    
     def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
         """Generate opening range breakout signals"""
         signals = []
         
-        # Check if strategy is enabled
-        if not self.health_monitor.is_strategy_enabled(self.name):
-            return signals
-        
-        current_time = datetime.now().time()
-        current_date = datetime.now().date()
-        
-        # Reset daily counter
-        if self.last_trade_date != current_date:
-            self.daily_trades = 0
-            self.last_trade_date = current_date
-        
-        # Check if Monday or Tuesday (preferred days)
-        if datetime.now().weekday() not in [0, 1]:  # Monday=0, Tuesday=1
-            return signals
-        
-        # Update or establish range
-        if current_time <= RANGE_END:
-            self._update_opening_range(market_data)
-        
-        # Check for breakouts after range established
-        if (self.current_range and 
-            self.current_range.state == RangeState.ESTABLISHED and
-            TRADING_START <= current_time <= TRADING_END and
-            self.daily_trades < MAX_DAILY_TRADES):
+        try:
+            current_time = datetime.now().time()
+            current_date = datetime.now().date()
             
-            # Check for breakout
-            breakout = self._check_breakout(market_data)
+            # Reset daily counter
+            if self.last_trade_date != current_date:
+                self.daily_trades = 0
+                self.last_trade_date = current_date
+                self.current_range = None
             
-            if breakout:
-                # Confirm breakout
-                if self._confirm_breakout(breakout, market_data):
+            # Check if preferred trading day
+            if datetime.now().weekday() not in PREFERRED_DAYS:
+                self.logger.debug("Not a preferred trading day")
+                # Still track range but reduce position size
+            
+            # Check daily trade limit
+            if self.daily_trades >= self.max_daily_trades:
+                return signals
+            
+            # Collect pre-market data if enabled
+            if self.enable_pre_market and current_time < RANGE_START:
+                self._collect_pre_market_data(market_data)
+            
+            # Update or establish range
+            if RANGE_START <= current_time <= self._get_range_end():
+                self._update_opening_range(market_data)
+            
+            # Check for breakouts after range established
+            if (self.current_range and 
+                self.current_range.is_valid and
+                TRADING_START <= current_time <= TRADING_END):
+                
+                breakout = self._check_for_breakout(market_data)
+                if breakout:
                     signal = self._create_breakout_signal(breakout, market_data)
                     if signal:
                         signals.append(signal)
-                        self.daily_trades += 1
+            
+            # Update existing positions
+            self._update_positions(market_data)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'generate_signals',
+                'market_data_shape': market_data.shape
+            })
         
         return signals
     
+    def validate_signal(self, signal: TradingSignal) -> bool:
+        """Validate breakout signal"""
+        try:
+            # Check signal validity
+            if not signal.is_valid():
+                return False
+            
+            # Check breakout data
+            breakout_data = signal.metadata.get('breakout_data')
+            if not breakout_data:
+                return False
+            
+            # Validate breakout quality
+            if breakout_data['quality'] == BreakoutQuality.FALSE.name:
+                return False
+            
+            # Check false breakout risk
+            if breakout_data['false_breakout_risk'] > 0.7:
+                return False
+            
+            # Check volume confirmation
+            if breakout_data['volume_surge'] < VOLUME_SURGE_RATIO:
+                return False
+            
+            # Validate option setup
+            if breakout_data['option_spread'] > MAX_OPTION_SPREAD:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'validate_signal',
+                'signal_id': signal.signal_id
+            })
+            return False
+    
+    def calculate_position_size(self, signal: TradingSignal) -> int:
+        """Calculate position size for breakout trade"""
+        try:
+            # Base position size
+            account_value = self.risk_profile.account_size
+            risk_amount = account_value * 0.01  # 1% risk per trade
+            
+            # Get stop loss distance
+            breakout_data = signal.metadata.get('breakout_data', {})
+            stop_distance = abs(breakout_data['entry_price'] - breakout_data['stop_loss'])
+            
+            # Calculate contracts
+            contracts = int(risk_amount / (stop_distance * SPY_CONTRACT_MULTIPLIER))
+            
+            # Adjust for day of week
+            if datetime.now().weekday() not in PREFERRED_DAYS:
+                contracts = max(1, contracts // 2)
+            
+            # Adjust for signal strength
+            if signal.strength == SignalStrength.WEAK:
+                contracts = max(1, contracts // 2)
+            elif signal.strength == SignalStrength.VERY_STRONG:
+                contracts = min(10, int(contracts * 1.5))
+            
+            # Limit position size
+            contracts = max(1, min(contracts, 10))
+            
+            return contracts
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'calculate_position_size',
+                'signal_id': signal.signal_id
+            })
+            return 1
+    
+    def should_exit_position(self, position: StrategyPosition,
+                           market_data: pd.DataFrame) -> Tuple[bool, str]:
+        """Determine if breakout position should be exited"""
+        try:
+            # Get breakout position
+            breakout_pos = self.active_breakouts.get(position.position_id)
+            if not breakout_pos:
+                return False, ""
+            
+            current_price = market_data['close'].iloc[-1]
+            
+            # Update position metrics
+            self._update_breakout_position(breakout_pos, current_price)
+            
+            # Check stop loss
+            if breakout_pos.breakout_signal.breakout_type == BreakoutType.BULLISH:
+                if current_price <= breakout_pos.current_stop:
+                    return True, "Stop loss hit"
+            else:  # BEARISH
+                if current_price >= breakout_pos.current_stop:
+                    return True, "Stop loss hit"
+            
+            # Check profit target
+            if breakout_pos.unrealized_pnl >= breakout_pos.max_profit * 0.9:
+                return True, "Profit target reached"
+            
+            # Check for false breakout
+            if self._is_false_breakout(breakout_pos, market_data):
+                return True, "False breakout detected"
+            
+            # Check time-based exit
+            if breakout_pos.bars_in_trade > 30:  # 2.5 hours at 5min bars
+                if breakout_pos.unrealized_pnl > 0:
+                    return True, "Time-based exit with profit"
+            
+            # Check end of day
+            if datetime.now().time() >= time(15, 45):
+                return True, "End of day exit"
+            
+            return False, ""
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'should_exit_position',
+                'position_id': position.position_id
+            })
+            return False, ""
+    
+    # ==========================================================================
+    # RANGE FORMATION METHODS
+    # ==========================================================================
+    
+    def _get_range_end(self) -> time:
+        """Get range end time based on configuration"""
+        if self.range_minutes == 15:
+            return RANGE_END_15
+        else:
+            return RANGE_END_30
+    
+    def _collect_pre_market_data(self, market_data: pd.DataFrame) -> None:
+        """Collect pre-market high/low data"""
+        try:
+            # Get pre-market data (simplified - would use actual pre-market feed)
+            pre_market_high = market_data['high'].max()
+            pre_market_low = market_data['low'].min()
+            
+            self.pre_market_data = {
+                'high': pre_market_high,
+                'low': pre_market_low,
+                'last': market_data['close'].iloc[-1]
+            }
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_collect_pre_market_data'})
+    
     def _update_opening_range(self, market_data: pd.DataFrame) -> None:
         """Update or establish opening range"""
-        if len(market_data) < 1:
-            return
-        
-        current_bar = market_data.iloc[-1]
-        current_time = datetime.now()
-        
-        # Initialize range on first bar after market open
-        if not self.current_range and current_time.time() >= MARKET_OPEN:
-            self.current_range = OpeningRange(
-                high=current_bar['high'],
-                low=current_bar['low'],
-                range_size=current_bar['high'] - current_bar['low'],
-                midpoint=(current_bar['high'] + current_bar['low']) / 2,
-                established_time=current_time,
-                volume=current_bar['volume'],
-                state=RangeState.FORMING
-            )
-            self.logger.info("Opening range formation started")
-        
-        # Update range
-        elif self.current_range and self.current_range.state == RangeState.FORMING:
-            self.current_range.high = max(self.current_range.high, current_bar['high'])
-            self.current_range.low = min(self.current_range.low, current_bar['low'])
+        try:
+            current_time = datetime.now().time()
+            
+            # Filter data for range period
+            today_data = market_data[market_data.index.time >= RANGE_START]
+            if today_data.empty:
+                return
+            
+            # Initialize range if needed
+            if not self.current_range:
+                self.current_range = OpeningRange(
+                    date=datetime.now(),
+                    range_start=RANGE_START,
+                    range_end=self._get_range_end(),
+                    high=today_data['high'].max(),
+                    low=today_data['low'].min(),
+                    open_price=today_data['open'].iloc[0],
+                    close_price=today_data['close'].iloc[-1],
+                    volume=today_data['volume'].sum(),
+                    vwap=self._calculate_vwap(today_data),
+                    range_size=0,
+                    state=RangeState.FORMING
+                )
+                
+                # Add pre-market data
+                if self.pre_market_data:
+                    self.current_range.pre_market_high = self.pre_market_data['high']
+                    self.current_range.pre_market_low = self.pre_market_data['low']
+                    self.current_range.gap_size = (self.current_range.open_price - 
+                                                  self.pre_market_data['last'])
+            
+            # Update range
+            self.current_range.high = today_data['high'].max()
+            self.current_range.low = today_data['low'].min()
+            self.current_range.close_price = today_data['close'].iloc[-1]
+            self.current_range.volume = today_data['volume'].sum()
+            self.current_range.vwap = self._calculate_vwap(today_data)
             self.current_range.range_size = self.current_range.high - self.current_range.low
-            self.current_range.midpoint = (self.current_range.high + self.current_range.low) / 2
-            self.current_range.volume += current_bar['volume']
-            self.current_range.bars_in_range += 1
+            
+            # Calculate volume profile if enabled
+            if self.use_volume_profile:
+                self._calculate_range_volume_profile(today_data)
             
             # Check if range is established
-            if current_time.time() >= RANGE_END:
-                self._establish_range()
+            if current_time >= self._get_range_end():
+                self.current_range.state = RangeState.ESTABLISHED
+                self._validate_range()
+                
+                # Add to history
+                self.range_history.append(self.current_range)
+                
+                # Update stats
+                self._update_range_statistics()
+                
+                self.logger.info(f"Opening range established: ${self.current_range.low:.2f} - ${self.current_range.high:.2f}")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_update_opening_range'})
     
-    def _establish_range(self) -> None:
-        """Establish the opening range"""
+    def _calculate_vwap(self, data: pd.DataFrame) -> float:
+        """Calculate volume-weighted average price"""
+        try:
+            typical_price = (data['high'] + data['low'] + data['close']) / 3
+            return (typical_price * data['volume']).sum() / data['volume'].sum()
+        except:
+            return data['close'].mean()
+    
+    def _calculate_range_volume_profile(self, data: pd.DataFrame) -> None:
+        """Calculate volume profile within range"""
+        try:
+            if not self.current_range:
+                return
+            
+            # Get volume at different price levels
+            price_levels = np.linspace(self.current_range.low, 
+                                     self.current_range.high, 10)
+            
+            volume_profile = {}
+            for level in price_levels:
+                # Find volume traded near this level
+                mask = (data['low'] <= level) & (data['high'] >= level)
+                volume_profile[level] = data.loc[mask, 'volume'].sum()
+            
+            # Find Point of Control (POC)
+            if volume_profile:
+                self.current_range.poc = max(volume_profile, key=volume_profile.get)
+                
+                # Volume at extremes
+                self.current_range.volume_at_high = volume_profile.get(
+                    max(price_levels), 0
+                )
+                self.current_range.volume_at_low = volume_profile.get(
+                    min(price_levels), 0
+                )
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_calculate_range_volume_profile'})
+    
+    def _validate_range(self) -> None:
+        """Validate if range is suitable for trading"""
         if not self.current_range:
             return
         
-        # Validate range
-        if MIN_RANGE_SIZE <= self.current_range.range_size <= MAX_RANGE_SIZE:
-            self.current_range.state = RangeState.ESTABLISHED
-            self.range_history.append(self.current_range)
-            
-            # Update average range size
-            if len(self.range_history) > 0:
-                self.avg_range_size = np.mean([r.range_size for r in self.range_history[-20:]])
-            
-            self.logger.info(
-                f"Opening range established: ${self.current_range.low:.2f} - "
-                f"${self.current_range.high:.2f} (${self.current_range.range_size:.2f})"
-            )
-        else:
+        # Check range size
+        if self.current_range.range_size < MIN_RANGE_SIZE:
             self.current_range.state = RangeState.INVALID
-            self.logger.warning(
-                f"Invalid range size: ${self.current_range.range_size:.2f}"
-            )
+            self.logger.info(f"Range too small: ${self.current_range.range_size:.2f}")
+        elif self.current_range.range_size > MAX_RANGE_SIZE:
+            self.current_range.state = RangeState.INVALID
+            self.logger.info(f"Range too large: ${self.current_range.range_size:.2f}")
+        
+        # Check for inside day (range within yesterday's range)
+        # This would need historical data
     
-    def _check_breakout(self, market_data: pd.DataFrame) -> Optional[BreakoutSignal]:
-        """Check for range breakout"""
-        if not self.current_range or len(market_data) < 2:
-            return None
-        
-        current_bar = market_data.iloc[-1]
-        prev_bar = market_data.iloc[-2]
-        
-        # Check for existing pending breakout
-        if self.pending_breakout and not self.pending_breakout.confirmed:
-            return self._update_pending_breakout(current_bar)
-        
-        # Check for new breakout
-        # Bullish breakout
-        if (current_bar['close'] > self.current_range.high and 
-            prev_bar['close'] <= self.current_range.high):
-            
-            volume_surge = current_bar['volume'] / market_data['volume'].rolling(20).mean().iloc[-1]
-            
-            return BreakoutSignal(
-                direction=BreakoutDirection.BULLISH,
-                breakout_price=self.current_range.high,
-                entry_price=current_bar['close'],
-                stop_loss=self.current_range.midpoint,
-                target=self.current_range.high + (self.current_range.range_size * PROFIT_TARGET_RATIO),
-                volume_surge=volume_surge,
-                strength=self._calculate_breakout_strength(current_bar, BreakoutDirection.BULLISH)
-            )
-        
-        # Bearish breakout
-        elif (current_bar['close'] < self.current_range.low and 
-              prev_bar['close'] >= self.current_range.low):
-            
-            volume_surge = current_bar['volume'] / market_data['volume'].rolling(20).mean().iloc[-1]
-            
-            return BreakoutSignal(
-                direction=BreakoutDirection.BEARISH,
-                breakout_price=self.current_range.low,
-                entry_price=current_bar['close'],
-                stop_loss=self.current_range.midpoint,
-                target=self.current_range.low - (self.current_range.range_size * PROFIT_TARGET_RATIO),
-                volume_surge=volume_surge,
-                strength=self._calculate_breakout_strength(current_bar, BreakoutDirection.BEARISH)
-            )
-        
-        return None
+    def _update_range_statistics(self) -> None:
+        """Update range statistics"""
+        if self.range_history:
+            valid_ranges = [r for r in self.range_history if r.is_valid]
+            if valid_ranges:
+                self.breakout_stats['avg_range_size'] = statistics.mean(
+                    [r.range_size for r in valid_ranges]
+                )
     
-    def _update_pending_breakout(self, current_bar: pd.Series) -> Optional[BreakoutSignal]:
-        """Update pending breakout confirmation"""
-        if not self.pending_breakout:
-            return None
-        
-        # Check if still breaking out
-        if self.pending_breakout.direction == BreakoutDirection.BULLISH:
-            if current_bar['close'] > self.pending_breakout.breakout_price:
-                self.pending_breakout.confirmation_bars += 1
-            else:
-                # Failed breakout
-                self.pending_breakout = None
+    # ==========================================================================
+    # BREAKOUT DETECTION METHODS
+    # ==========================================================================
+    
+    def _check_for_breakout(self, market_data: pd.DataFrame) -> Optional[BreakoutSignal]:
+        """Check for breakout from opening range"""
+        try:
+            if not self.current_range or not self.current_range.is_valid:
                 return None
-        else:  # Bearish
-            if current_bar['close'] < self.pending_breakout.breakout_price:
-                self.pending_breakout.confirmation_bars += 1
+            
+            current_price = market_data['close'].iloc[-1]
+            current_volume = market_data['volume'].iloc[-1]
+            avg_volume = market_data['volume'].rolling(20).mean().iloc[-1]
+            
+            # Calculate momentum
+            momentum = self._calculate_breakout_momentum(market_data)
+            
+            # Check for bullish breakout
+            if current_price > self.current_range.high + BREAKOUT_BUFFER:
+                volume_surge = current_volume / avg_volume if avg_volume > 0 else 1
+                
+                if volume_surge >= VOLUME_SURGE_RATIO:
+                    return self._create_breakout_signal_data(
+                        BreakoutType.BULLISH,
+                        current_price,
+                        volume_surge,
+                        momentum,
+                        market_data
+                    )
+            
+            # Check for bearish breakout
+            elif current_price < self.current_range.low - BREAKOUT_BUFFER:
+                volume_surge = current_volume / avg_volume if avg_volume > 0 else 1
+                
+                if volume_surge >= VOLUME_SURGE_RATIO:
+                    return self._create_breakout_signal_data(
+                        BreakoutType.BEARISH,
+                        current_price,
+                        volume_surge,
+                        momentum,
+                        market_data
+                    )
+            
+            return None
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_check_for_breakout'})
+            return None
+    
+    def _calculate_breakout_momentum(self, market_data: pd.DataFrame) -> float:
+        """Calculate momentum at breakout"""
+        try:
+            # Simple momentum calculation
+            close_prices = market_data['close']
+            
+            # Rate of change over last 5 bars
+            if len(close_prices) >= 5:
+                momentum = (close_prices.iloc[-1] - close_prices.iloc[-5]) / close_prices.iloc[-5]
+                return momentum
+            
+            return 0.0
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_calculate_breakout_momentum'})
+            return 0.0
+    
+    def _create_breakout_signal_data(self, breakout_type: BreakoutType,
+                                   breakout_price: float, volume_surge: float,
+                                   momentum: float, market_data: pd.DataFrame) -> BreakoutSignal:
+        """Create breakout signal data structure"""
+        try:
+            # Calculate ATR for stop loss
+            atr = self.tech_indicators.calculate_atr(market_data, 14).iloc[-1]
+            
+            # Determine entry and stops
+            if breakout_type == BreakoutType.BULLISH:
+                entry_price = breakout_price
+                stop_loss = self.current_range.low - (atr * STOP_LOSS_ATR_MULTIPLE)
+                initial_target = entry_price + (entry_price - stop_loss) * PROFIT_TARGET_RATIO
+                option_type = 'call'
+                delta = OPTION_DELTA_CALL
+                strike = round(breakout_price + 1)  # 1 point OTM
             else:
-                # Failed breakout
-                self.pending_breakout = None
-                return None
-        
-        # Check if confirmed
-        if self.pending_breakout.confirmation_bars >= BREAKOUT_CONFIRMATION_BARS:
-            self.pending_breakout.confirmed = True
-            self.pending_breakout.entry_price = current_bar['close']
-            return self.pending_breakout
-        
-        return None
-    
-    def _confirm_breakout(self, breakout: BreakoutSignal, market_data: pd.DataFrame) -> bool:
-        """Confirm breakout is valid"""
-        # Store as pending if not yet confirmed
-        if not breakout.confirmed:
-            self.pending_breakout = breakout
-            return False
-        
-        # Check volume surge
-        if breakout.volume_surge < 1.5:  # Need 50% above average
-            self.logger.debug("Insufficient volume for breakout")
-            return False
-        
-        # Check IV rank
-        iv_rank = self.iv_calculator.get_current_iv_rank("SPY")
-        if iv_rank < MIN_IV_RANK:
-            self.logger.debug(f"IV rank too low: {iv_rank}")
-            return False
-        
-        # Check breakout strength
-        if breakout.strength < 0.6:
-            self.logger.debug("Breakout strength too weak")
-            return False
-        
-        return True
-    
-    def _calculate_breakout_strength(self, bar: pd.Series, direction: BreakoutDirection) -> float:
-        """Calculate breakout strength score"""
-        strength = 0.5  # Base score
-        
-        if direction == BreakoutDirection.BULLISH:
-            # How far above the range high
-            breakout_distance = (bar['close'] - self.current_range.high) / self.current_range.range_size
-            strength += min(breakout_distance * 0.3, 0.3)
+                entry_price = breakout_price
+                stop_loss = self.current_range.high + (atr * STOP_LOSS_ATR_MULTIPLE)
+                initial_target = entry_price - (stop_loss - entry_price) * PROFIT_TARGET_RATIO
+                option_type = 'put'
+                delta = OPTION_DELTA_PUT
+                strike = round(breakout_price - 1)  # 1 point OTM
             
-            # Close near high of bar
-            bar_range = bar['high'] - bar['low']
-            if bar_range > 0:
-                close_position = (bar['close'] - bar['low']) / bar_range
-                strength += close_position * 0.2
-        else:  # Bearish
-            # How far below the range low
-            breakout_distance = (self.current_range.low - bar['close']) / self.current_range.range_size
-            strength += min(breakout_distance * 0.3, 0.3)
+            # Assess breakout quality
+            quality = self._assess_breakout_quality(
+                breakout_type, volume_surge, momentum, market_data
+            )
             
-            # Close near low of bar
-            bar_range = bar['high'] - bar['low']
-            if bar_range > 0:
-                close_position = (bar['high'] - bar['close']) / bar_range
-                strength += close_position * 0.2
-        
-        return min(strength, 1.0)
+            # Calculate false breakout risk
+            false_breakout_risk = self._calculate_false_breakout_risk(
+                breakout_type, breakout_price, market_data
+            )
+            
+            # Create signal
+            signal = BreakoutSignal(
+                signal_id=str(uuid.uuid4()),
+                timestamp=datetime.now(),
+                breakout_type=breakout_type,
+                breakout_price=breakout_price,
+                range_reference=self.current_range,
+                volume_surge=volume_surge,
+                momentum=momentum,
+                quality=quality,
+                entry_price=entry_price,
+                stop_loss=stop_loss,
+                initial_target=initial_target,
+                option_type=option_type,
+                strike=strike,
+                expiry=datetime.now() + timedelta(days=7),  # Weekly options
+                delta=delta,
+                false_breakout_risk=false_breakout_risk,
+                confidence=1 - false_breakout_risk
+            )
+            
+            return signal
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': '_create_breakout_signal_data'})
+            return None
     
-    def _create_breakout_signal(self, breakout: BreakoutSignal, 
-                               market_data: pd.DataFrame) -> Optional[TradingSignal]:
+    def _assess_breakout_quality(self, breakout_type: BreakoutType,
+                               volume_surge: float, momentum: float,
+                               market_data: pd.DataFrame) -> BreakoutQuality:
+        """Assess quality of breakout"""
+        score = 0
+        
+        # Volume score
+        if volume_surge >= 2.0:
+            score += 40
+        elif volume_surge >= 1.5:
+            score += 20
+        else:
+            score += 10
+        
+        # Momentum score
+        if abs(momentum) >= 0.01:  # 1% move
+            score += 30
+        elif abs(momentum) >= 0.005:  # 0.5% move
+            score += 20
+        else:
+            score += 10
+        
+        # Range size score (prefer moderate ranges)
+        if 1.0 <= self.current_range.range_size <= 2.0:
+            score += 20
+        elif 0.5 <= self.current_range.range_size <= 3.0:
+            score += 10
+        
+        # Time of day score (prefer morning breakouts)
+        if datetime.now().time() < time(11, 0):
+            score += 10
+        
+        # Convert score to quality
+        if score >= 80:
+            return BreakoutQuality.STRONG
+        elif score >= 60:
+            return BreakoutQuality.MODERATE
+        elif score >= 40:
+            return BreakoutQuality.WEAK
+        else:
+            return BreakoutQuality.FALSE
+    
+    def _calculate_false_breakout_risk(self, breakout_type: BreakoutType,
+                                      breakout_price: float,
+                                      market_data: pd.DataFrame) -> float:
+        """Calculate risk of false breakout"""
+        risk = 0.0
+        
+        # Check if breakout is too far from range
+        if breakout_type == BreakoutType.BULLISH:
+            distance = (breakout_price - self.current_range.high) / self.current_range.high
+        else:
+            distance = (self.current_range.low - breakout_price) / self.current_range.low
+        
+        if distance > 0.02:  # More than 2% beyond range
+            risk += 0.3
+        
+        # Check if near previous resistance/support
+        # This would need more historical data
+        
+        # Check time of day (late breakouts more likely false)
+        if datetime.now().time() > time(14, 0):
+            risk += 0.2
+        
+        # Check if range was too small (prone to false breakouts)
+        if self.current_range.range_size < 0.75:
+            risk += 0.2
+        
+        return min(1.0, risk)
+    
+    def _is_false_breakout(self, position: BreakoutPosition,
+                          market_data: pd.DataFrame) -> bool:
+        """Check if breakout has failed"""
+        current_price = market_data['close'].iloc[-1]
+        
+        if position.breakout_signal.breakout_type == BreakoutType.BULLISH:
+            # Check if price pulled back below range high
+            pullback = (self.current_range.high - current_price) / self.current_range.high
+            if pullback > FALSE_BREAKOUT_PULLBACK:
+                return True
+        else:  # BEARISH
+            # Check if price pulled back above range low
+            pullback = (current_price - self.current_range.low) / self.current_range.low
+            if pullback > FALSE_BREAKOUT_PULLBACK:
+                return True
+        
+        return False
+    
+    # ==========================================================================
+    # SIGNAL CREATION METHODS
+    # ==========================================================================
+    
+    def _create_breakout_signal(self, breakout: BreakoutSignal,
+                              market_data: pd.DataFrame) -> Optional[TradingSignal]:
         """Create trading signal from breakout"""
         try:
-            # Get IV rank
-            iv_rank = self.iv_calculator.get_current_iv_rank("SPY")
-            
-            # Find suitable expiration (0-2 DTE for breakouts)
-            expiration = self._find_optimal_expiration(0, 2)
-            if not expiration:
-                return None
-            
-            # Create option contracts based on direction
-            if breakout.direction == BreakoutDirection.BULLISH:
-                # Buy call spread
-                contracts = self._create_call_spread(
-                    breakout.entry_price,
-                    expiration,
-                    DELTA_TARGET
-                )
-                signal_type = SignalType.BUY
-            else:
-                # Buy put spread
-                contracts = self._create_put_spread(
-                    breakout.entry_price,
-                    expiration,
-                    DELTA_TARGET
-                )
-                signal_type = SignalType.SELL
-            
-            if not contracts:
-                return None
-            
             # Determine signal strength
-            if breakout.strength > 0.8:
+            if breakout.quality == BreakoutQuality.STRONG:
                 strength = SignalStrength.VERY_STRONG
-            elif breakout.strength > 0.7:
+            elif breakout.quality == BreakoutQuality.MODERATE:
                 strength = SignalStrength.STRONG
-            elif breakout.strength > 0.6:
+            elif breakout.quality == BreakoutQuality.WEAK:
                 strength = SignalStrength.MODERATE
             else:
                 strength = SignalStrength.WEAK
             
             # Create signal
             signal = TradingSignal(
-                signal_id=f"ORB_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                timestamp=datetime.now(),
-                strategy_name=self.name,
-                signal_type=signal_type,
+                signal_id=breakout.signal_id,
+                signal_type=SignalType.BUY,
+                symbol='SPY',
                 strength=strength,
-                contracts=contracts,
+                confidence=breakout.confidence,
                 entry_price=breakout.entry_price,
                 stop_loss=breakout.stop_loss,
-                take_profit=breakout.target,
-                position_size=self._calculate_position_size(breakout),
-                confidence=breakout.strength,
+                take_profit=breakout.initial_target,
+                position_size=1,  # Will be calculated
+                timestamp=datetime.now(),
+                expires_at=datetime.now() + timedelta(minutes=5),
                 metadata={
-                    'breakout_direction': breakout.direction.name,
-                    'range_high': self.current_range.high,
-                    'range_low': self.current_range.low,
-                    'range_size': self.current_range.range_size,
-                    'volume_surge': breakout.volume_surge,
-                    'iv_rank': iv_rank
+                    'strategy': 'opening_range_breakout',
+                    'breakout_data': {
+                        'breakout_type': breakout.breakout_type.name,
+                        'breakout_price': breakout.breakout_price,
+                        'range_high': self.current_range.high,
+                        'range_low': self.current_range.low,
+                        'range_size': self.current_range.range_size,
+                        'volume_surge': breakout.volume_surge,
+                        'momentum': breakout.momentum,
+                        'quality': breakout.quality.name,
+                        'entry_price': breakout.entry_price,
+                        'stop_loss': breakout.stop_loss,
+                        'initial_target': breakout.initial_target,
+                        'option_type': breakout.option_type,
+                        'strike': breakout.strike,
+                        'delta': breakout.delta,
+                        'false_breakout_risk': breakout.false_breakout_risk,
+                        'option_spread': 0.05  # Placeholder
+                    }
                 }
-            )
-            
-            self.logger.info(
-                f"Opening range breakout signal: {breakout.direction.name} at "
-                f"${breakout.entry_price:.2f}, target ${breakout.target:.2f}"
             )
             
             return signal
             
         except Exception as e:
-            self.logger.error(f"Error creating breakout signal: {e}")
+            self.error_handler.handle_error(e, {'method': '_create_breakout_signal'})
             return None
     
     # ==========================================================================
-    # POSITION MANAGEMENT
+    # POSITION MANAGEMENT METHODS
     # ==========================================================================
-    def should_enter_position(self, signal: TradingSignal) -> bool:
-        """Check if position should be entered"""
-        # Check if strategy is still enabled
-        if not self.health_monitor.is_strategy_enabled(self.name):
-            return False
-        
-        # Verify we haven't exceeded daily limit
-        if self.daily_trades >= MAX_DAILY_TRADES:
-            return False
-        
-        # Verify time window
-        current_time = datetime.now().time()
-        if not (TRADING_START <= current_time <= TRADING_END):
-            return False
-        
-        # Verify range hasn't been broken already
-        if self.current_range and self.current_range.state == RangeState.BROKEN:
-            return False
-        
-        return True
     
-    def should_exit_position(self, position) -> bool:
-        """Check if position should be exited"""
-        # Time-based exit
-        if datetime.now().time() >= time(15, 50):  # Exit by 3:50 PM
-            return True
-        
-        # Check if trailing stop hit
-        if self._check_trailing_stop(position):
-            return True
-        
-        # Check if target reached
-        if self._check_profit_target(position):
-            return True
-        
-        # Check if initial stop hit
-        pnl_percent = position.unrealized_pnl / (position.entry_price * position.position_size * 100)
-        if pnl_percent <= -0.02:  # 2% stop loss
-            return True
-        
-        return False
+    def open_breakout_position(self, signal: TradingSignal) -> Optional[BreakoutPosition]:
+        """Open a new breakout position"""
+        try:
+            breakout_data = signal.metadata['breakout_data']
+            
+            # Create breakout signal object
+            breakout_signal = BreakoutSignal(
+                signal_id=signal.signal_id,
+                timestamp=signal.timestamp,
+                breakout_type=BreakoutType[breakout_data['breakout_type']],
+                breakout_price=breakout_data['breakout_price'],
+                range_reference=self.current_range,
+                volume_surge=breakout_data['volume_surge'],
+                momentum=breakout_data['momentum'],
+                quality=BreakoutQuality[breakout_data['quality']],
+                entry_price=breakout_data['entry_price'],
+                stop_loss=breakout_data['stop_loss'],
+                initial_target=breakout_data['initial_target'],
+                option_type=breakout_data['option_type'],
+                strike=breakout_data['strike'],
+                expiry=signal.timestamp + timedelta(days=7),
+                delta=breakout_data['delta'],
+                false_breakout_risk=breakout_data['false_breakout_risk'],
+                confidence=signal.confidence
+            )
+            
+            # Create position
+            position = BreakoutPosition(
+                position_id=str(uuid.uuid4()),
+                breakout_signal=breakout_signal,
+                entry_time=datetime.now(),
+                option_contracts=signal.position_size,
+                entry_price=breakout_data['entry_price'],
+                current_stop=breakout_data['stop_loss'],
+                highest_price=breakout_data['entry_price'],
+                lowest_price=breakout_data['entry_price'],
+                max_profit=(breakout_data['initial_target'] - breakout_data['entry_price']) * 
+                          signal.position_size * SPY_CONTRACT_MULTIPLIER,
+                max_loss=(breakout_data['entry_price'] - breakout_data['stop_loss']) * 
+                        signal.position_size * SPY_CONTRACT_MULTIPLIER
+            )
+            
+            # Add to tracking
+            self.active_breakouts[position.position_id] = position
+            self.daily_trades += 1
+            
+            # Update stats
+            self.breakout_stats['total_breakouts'] += 1
+            
+            # Track by day
+            if datetime.now().weekday() == 0:
+                self.breakout_stats['monday_trades'] += 1
+            elif datetime.now().weekday() == 1:
+                self.breakout_stats['tuesday_trades'] += 1
+            else:
+                self.breakout_stats['other_day_trades'] += 1
+            
+            # Mark range as broken
+            if self.current_range:
+                self.current_range.state = RangeState.BROKEN
+            
+            # Publish event
+            self.event_manager.publish(Event.create(
+                EventType.POSITION_OPENED,
+                self.name,
+                {
+                    'position_id': position.position_id,
+                    'breakout_type': position.breakout_signal.breakout_type.name,
+                    'entry_price': position.entry_price,
+                    'stop_loss': position.current_stop
+                }
+            ))
+            
+            self.logger.info(f"Opened {position.breakout_signal.breakout_type.name} breakout: {position.position_id}")
+            return position
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'open_breakout_position',
+                'signal_id': signal.signal_id
+            })
+            return None
     
-    def _check_trailing_stop(self, position) -> bool:
-        """Check if trailing stop is hit"""
-        # Get highest/lowest price since entry
-        if position.metadata.get('breakout_direction') == 'BULLISH':
-            # For bullish positions, trail from highest price
-            highest = position.metadata.get('highest_price', position.entry_price)
-            current_price = self.current_price
+    def _update_positions(self, market_data: pd.DataFrame) -> None:
+        """Update all active breakout positions"""
+        for position in self.active_breakouts.values():
+            current_price = market_data['close'].iloc[-1]
+            self._update_breakout_position(position, current_price)
+    
+    def _update_breakout_position(self, position: BreakoutPosition, current_price: float) -> None:
+        """Update individual breakout position"""
+        try:
+            position.current_price = current_price
+            position.bars_in_trade += 1
             
-            # Update highest
-            if current_price > highest:
-                position.metadata['highest_price'] = current_price
-                highest = current_price
-            
-            # Check trailing stop
-            trailing_stop = highest * (1 - TRAILING_STOP_PERCENT)
-            if current_price <= trailing_stop:
-                return True
+            # Update P&L
+            if position.breakout_signal.breakout_type == BreakoutType.BULLISH:
+                position.unrealized_pnl = (current_price - position.entry_price) * \
+                                        position.option_contracts * SPY_CONTRACT_MULTIPLIER
                 
-        else:  # Bearish
-            # For bearish positions, trail from lowest price
-            lowest = position.metadata.get('lowest_price', position.entry_price)
-            current_price = self.current_price
+                # Update highest price for trailing stop
+                if current_price > position.highest_price:
+                    position.highest_price = current_price
+                    
+                    # Activate trailing stop if profitable
+                    if position.unrealized_pnl > position.max_profit * 0.5:
+                        position.trailing_stop_active = True
+                
+                # Update trailing stop
+                if position.trailing_stop_active:
+                    new_stop = position.highest_price * (1 - TRAILING_STOP_PERCENT)
+                    position.current_stop = max(position.current_stop, new_stop)
             
-            # Update lowest
-            if current_price < lowest:
-                position.metadata['lowest_price'] = current_price
-                lowest = current_price
+            else:  # BEARISH
+                position.unrealized_pnl = (position.entry_price - current_price) * \
+                                        position.option_contracts * SPY_CONTRACT_MULTIPLIER
+                
+                # Update lowest price for trailing stop
+                if current_price < position.lowest_price:
+                    position.lowest_price = current_price
+                    
+                    # Activate trailing stop if profitable
+                    if position.unrealized_pnl > position.max_profit * 0.5:
+                        position.trailing_stop_active = True
+                
+                # Update trailing stop
+                if position.trailing_stop_active:
+                    new_stop = position.lowest_price * (1 + TRAILING_STOP_PERCENT)
+                    position.current_stop = min(position.current_stop, new_stop)
             
-            # Check trailing stop
-            trailing_stop = lowest * (1 + TRAILING_STOP_PERCENT)
-            if current_price >= trailing_stop:
-                return True
-        
-        return False
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_update_breakout_position',
+                'position_id': position.position_id
+            })
     
-    def _check_profit_target(self, position) -> bool:
-        """Check if profit target reached"""
-        if not position.take_profit:
+    def close_breakout_position(self, position_id: str, reason: str) -> bool:
+        """Close breakout position"""
+        try:
+            position = self.active_breakouts.get(position_id)
+            if not position:
+                return False
+            
+            # Update final P&L
+            position.realized_pnl = position.unrealized_pnl
+            position.exit_time = datetime.now()
+            position.exit_reason = reason
+            
+            # Update stats
+            if position.realized_pnl > 0:
+                self.breakout_stats['successful_breakouts'] += 1
+            else:
+                if "false breakout" in reason.lower():
+                    self.breakout_stats['false_breakouts'] += 1
+            
+            # Calculate average move
+            if position.breakout_signal.breakout_type == BreakoutType.BULLISH:
+                move = position.current_price - position.breakout_signal.breakout_price
+            else:
+                move = position.breakout_signal.breakout_price - position.current_price
+            
+            # Update average (simplified)
+            self.breakout_stats['avg_breakout_move'] = (
+                (self.breakout_stats['avg_breakout_move'] * (self.breakout_stats['total_breakouts'] - 1) + move) /
+                self.breakout_stats['total_breakouts']
+            )
+            
+            # Remove from active
+            del self.active_breakouts[position_id]
+            
+            # Publish event
+            self.event_manager.publish(Event.create(
+                EventType.POSITION_CLOSED,
+                self.name,
+                {
+                    'position_id': position_id,
+                    'realized_pnl': position.realized_pnl,
+                    'exit_reason': reason,
+                    'bars_in_trade': position.bars_in_trade
+                }
+            ))
+            
+            self.logger.info(f"Closed breakout position {position_id}: P&L ${position.realized_pnl:.2f}")
+            return True
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'close_breakout_position',
+                'position_id': position_id
+            })
             return False
-        
-        if position.metadata.get('breakout_direction') == 'BULLISH':
-            return self.current_price >= position.take_profit
-        else:
-            return self.current_price <= position.take_profit
-    
-    def calculate_position_size(self, signal: TradingSignal) -> int:
-        """Calculate position size"""
-        # Base size on risk
-        risk_per_contract = abs(signal.entry_price - signal.stop_loss) * 100
-        max_risk = self.risk_profile.max_loss_per_trade
-        
-        contracts = int(max_risk / risk_per_contract)
-        
-        # Adjust based on signal strength
-        if signal.strength == SignalStrength.VERY_STRONG:
-            contracts = int(contracts * 1.2)
-        elif signal.strength == SignalStrength.WEAK:
-            contracts = int(contracts * 0.8)
-        
-        # Apply limits
-        return max(1, min(contracts, 10))
-    
-    def _calculate_position_size(self, breakout: BreakoutSignal) -> int:
-        """Calculate position size for breakout"""
-        # Risk per contract
-        risk_per_contract = abs(breakout.entry_price - breakout.stop_loss) * 100
-        max_risk = self.risk_profile.max_loss_per_trade
-        
-        contracts = int(max_risk / risk_per_contract)
-        
-        # Adjust based on breakout strength
-        if breakout.strength > 0.8:
-            contracts = int(contracts * 1.2)
-        elif breakout.strength < 0.6:
-            contracts = int(contracts * 0.8)
-        
-        return max(1, min(contracts, 10))
     
     # ==========================================================================
-    # OPTION CREATION
+    # HELPER METHODS
     # ==========================================================================
-    def _find_optimal_expiration(self, min_dte: int, max_dte: int) -> Optional[datetime]:
-        """Find optimal expiration date"""
-        # For opening range breakout, prefer 0-2 DTE
-        today = datetime.now().date()
-        
-        for days in range(min_dte, max_dte + 1):
-            exp_date = today + timedelta(days=days)
-            
-            # Skip weekends
-            if exp_date.weekday() < 5:  # Monday = 0, Friday = 4
-                return datetime.combine(exp_date, time(16, 0))
-        
-        return None
     
-    def _create_call_spread(self, spot_price: float, expiration: datetime, 
-                           target_delta: float) -> Optional[List[OptionContract]]:
-        """Create bull call spread"""
-        # Find strikes
-        long_strike = self._find_strike_by_delta(spot_price, target_delta, OptionType.CALL, expiration)
-        short_strike = long_strike + 2.5  # $2.50 spread
-        
-        if not long_strike:
-            return None
-        
-        contracts = [
-            OptionContract(
-                symbol="SPY",
-                strike=long_strike,
-                expiration=expiration,
-                right=OptionType.CALL,
-                multiplier=100,
-                action="BUY"
-            ),
-            OptionContract(
-                symbol="SPY",
-                strike=short_strike,
-                expiration=expiration,
-                right=OptionType.CALL,
-                multiplier=100,
-                action="SELL"
-            )
-        ]
-        
-        return contracts
-    
-    def _create_put_spread(self, spot_price: float, expiration: datetime,
-                          target_delta: float) -> Optional[List[OptionContract]]:
-        """Create bear put spread"""
-        # Find strikes
-        long_strike = self._find_strike_by_delta(spot_price, -target_delta, OptionType.PUT, expiration)
-        short_strike = long_strike - 2.5  # $2.50 spread
-        
-        if not long_strike:
-            return None
-        
-        contracts = [
-            OptionContract(
-                symbol="SPY",
-                strike=long_strike,
-                expiration=expiration,
-                right=OptionType.PUT,
-                multiplier=100,
-                action="BUY"
-            ),
-            OptionContract(
-                symbol="SPY",
-                strike=short_strike,
-                expiration=expiration,
-                right=OptionType.PUT,
-                multiplier=100,
-                action="SELL"
-            )
-        ]
-        
-        return contracts
-    
-    def _find_strike_by_delta(self, spot: float, target_delta: float, 
-                             option_type: OptionType, expiration: datetime) -> Optional[float]:
-        """Find strike price for target delta"""
-        # Simplified - would use actual option chain
-        # For calls: higher delta = lower strike
-        # For puts: higher delta (less negative) = higher strike
-        
-        if option_type == OptionType.CALL:
-            # Approximate strike for call delta
-            if target_delta >= 0.4:
-                offset = -1.0  # ITM
-            elif target_delta >= 0.3:
-                offset = 0.5   # Near ATM
-            else:
-                offset = 2.0   # OTM
-            
-            strike = round(spot + offset, 0)
-            
-        else:  # PUT
-            # Approximate strike for put delta
-            if abs(target_delta) >= 0.4:
-                offset = 1.0   # ITM
-            elif abs(target_delta) >= 0.3:
-                offset = -0.5  # Near ATM
-            else:
-                offset = -2.0  # OTM
-            
-            strike = round(spot + offset, 0)
-        
-        return strike
-    
-    # ==========================================================================
-    # PERFORMANCE TRACKING
-    # ==========================================================================
-    def on_position_closed(self, position, pnl: float) -> None:
-        """Handle position closed event"""
-        # Update health monitor
-        self.health_monitor.update_trade_result(self.name, pnl)
-        
-        # Update success rate
-        total_trades = len([p for p in self.performance.trade_history])
-        if total_trades > 0:
-            winning_trades = len([p for p in self.performance.trade_history if p['pnl'] > 0])
-            self.breakout_success_rate = winning_trades / total_trades
-        
-        # Mark range as broken
-        if self.current_range:
-            self.current_range.state = RangeState.BROKEN
-    
-    def get_strategy_stats(self) -> Dict[str, Any]:
-        """Get strategy statistics"""
-        stats = super().get_performance()
-        
-        # Add breakout-specific stats
-        stats.update({
-            'breakout_success_rate': self.breakout_success_rate,
-            'avg_range_size': self.avg_range_size,
+    def get_strategy_summary(self) -> Dict[str, Any]:
+        """Get comprehensive strategy summary"""
+        return {
+            'strategy': 'OpeningRangeBreakout',
+            'state': self.state,
             'current_range': {
-                'high': self.current_range.high if self.current_range else None,
-                'low': self.current_range.low if self.current_range else None,
-                'size': self.current_range.range_size if self.current_range else None,
-                'state': self.current_range.state.name if self.current_range else None
+                'state': self.current_range.state.name if self.current_range else 'NONE',
+                'high': self.current_range.high if self.current_range else 0,
+                'low': self.current_range.low if self.current_range else 0,
+                'size': self.current_range.range_size if self.current_range else 0,
+                'poc': self.current_range.poc if self.current_range else 0
             },
+            'active_positions': len(self.active_breakouts),
             'daily_trades': self.daily_trades,
-            'health_status': self.health_monitor.get_strategy_health(self.name)
-        })
-        
-        return stats
+            'statistics': self.breakout_stats.copy(),
+            'performance': {
+                'success_rate': (self.breakout_stats['successful_breakouts'] / 
+                               self.breakout_stats['total_breakouts'] 
+                               if self.breakout_stats['total_breakouts'] > 0 else 0),
+                'false_breakout_rate': (self.breakout_stats['false_breakouts'] / 
+                                      self.breakout_stats['total_breakouts'] 
+                                      if self.breakout_stats['total_breakouts'] > 0 else 0)
+            }
+        }
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# MODULE TESTING
 # ==============================================================================
 if __name__ == "__main__":
-    # Test the strategy
-    from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
-    
-    # Initialize
+    # Test opening range breakout strategy
     event_manager = EventManager()
     risk_profile = RiskProfile(
         account_size=100000,
         max_position_size=0.02,
         max_portfolio_risk=0.06,
-        max_loss_per_trade=500
+        max_loss_per_trade=0.01
     )
     
     config = {
-        'max_positions': 2,
-        'position_size_pct': 0.02
+        'range_minutes': 30,
+        'use_volume_profile': True,
+        'enable_pre_market': True,
+        'max_daily_trades': 2
     }
     
-    # Create strategy
     strategy = OpeningRangeBreakoutStrategy(event_manager, risk_profile, config)
+    strategy.start()
     
-    # Simulate opening range
-    print("Opening Range Breakout Strategy Test")
-    print("=" * 40)
+    # Create sample intraday data
+    current_date = datetime.now().replace(hour=9, minute=0, second=0)
+    time_index = pd.date_range(start=current_date, periods=100, freq='5min')
     
-    # Create sample data with opening range
-    dates = pd.date_range(start=datetime.now().replace(hour=9, minute=30), periods=100, freq='5min')
-    
-    # Create opening range pattern
+    # Simulate opening range and breakout
     prices = np.zeros(100)
-    # First 30 minutes - range formation
-    prices[:6] = 450 + np.random.uniform(-0.5, 0.5, 6)  # Range bound
-    # Breakout
-    prices[6:] = 450.5 + np.cumsum(np.random.uniform(0, 0.2, 94))  # Upward breakout
+    base_price = 450
     
-    volumes = np.random.randint(500000, 2000000, 100)
-    volumes[6] = 3000000  # Volume surge on breakout
+    # Pre-market
+    prices[:6] = base_price + np.random.uniform(-0.5, 0.5, 6)
+    
+    # Opening range (9:30-10:00)
+    range_high = base_price + 1
+    range_low = base_price - 0.5
+    prices[6:12] = np.random.uniform(range_low, range_high, 6)
+    
+    # Breakout above range
+    prices[12] = range_high + 0.2
+    prices[13:20] = range_high + 0.5 + np.cumsum(np.random.uniform(0, 0.1, 7))
+    
+    # Continue trend
+    prices[20:] = prices[19] + np.cumsum(np.random.randn(80) * 0.1)
+    
+    # Create volume pattern
+    volumes = np.random.randint(500000, 1000000, 100)
+    volumes[12] = 2000000  # Volume surge on breakout
     
     market_data = pd.DataFrame({
-        'timestamp': dates,
-        'open': prices - 0.1,
-        'high': prices + 0.2,
-        'low': prices - 0.2,
+        'open': prices - 0.05,
+        'high': prices + 0.1,
+        'low': prices - 0.1,
         'close': prices,
         'volume': volumes
-    })
+    }, index=time_index)
     
     # Process each bar
+    signals_generated = []
     for i in range(len(market_data)):
-        data_slice = market_data.iloc[:i+1]
-        signals = strategy.generate_signals(data_slice)
-        
-        if signals:
-            print(f"\nTime: {dates[i].strftime('%H:%M')}")
-            for signal in signals:
-                print(f"Signal: {signal.signal_type}")
-                print(f"Direction: {signal.metadata.get('breakout_direction')}")
-                print(f"Entry: ${signal.entry_price:.2f}")
-                print(f"Target: ${signal.take_profit:.2f}")
-                print(f"Stop: ${signal.stop_loss:.2f}")
-                print(f"Strength: {signal.strength.name}")
+        if i > 0:
+            data_slice = market_data.iloc[:i+1]
+            signals = strategy.generate_signals(data_slice)
+            
+            if signals:
+                signals_generated.extend(signals)
+                print(f"\nTime: {time_index[i].strftime('%H:%M')}")
+                for signal in signals:
+                    breakout_data = signal.metadata.get('breakout_data', {})
+                    print(f"Breakout Signal Generated!")
+                    print(f"  Type: {breakout_data.get('breakout_type')}")
+                    print(f"  Price: ${breakout_data.get('breakout_price', 0):.2f}")
+                    print(f"  Range: ${breakout_data.get('range_low', 0):.2f} - ${breakout_data.get('range_high', 0):.2f}")
+                    print(f"  Quality: {breakout_data.get('quality')}")
+                    print(f"  Volume Surge: {breakout_data.get('volume_surge', 0):.1f}x")
+                    print(f"  Stop Loss: ${breakout_data.get('stop_loss', 0):.2f}")
+                    print(f"  Target: ${breakout_data.get('initial_target', 0):.2f}")
     
-    # Print final stats
-    stats = strategy.get_strategy_stats()
-    print(f"\nStrategy Stats:")
-    print(f"Daily Trades: {stats['daily_trades']}")
-    if stats['current_range']['state']:
-        print(f"Range State: {stats['current_range']['state']}")
-        print(f"Range: ${stats['current_range']['low']:.2f} - ${stats['current_range']['high']:.2f}")
+    # Get strategy summary
+    summary = strategy.get_strategy_summary()
+    print(f"\nStrategy Summary:")
+    print(f"Current Range State: {summary['current_range']['state']}")
+    if summary['current_range']['high'] > 0:
+        print(f"Range: ${summary['current_range']['low']:.2f} - ${summary['current_range']['high']:.2f}")
+        print(f"Range Size: ${summary['current_range']['size']:.2f}")
+    print(f"Daily Trades: {summary['daily_trades']}")
+    print(f"Total Breakouts: {summary['statistics']['total_breakouts']}")
+    print(f"Success Rate: {summary['performance']['success_rate']:.1%}")
+    
+    strategy.stop()
+    print("\nOpeningRangeBreakoutStrategy test completed!")

@@ -2,78 +2,176 @@
 # -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System
+
 Module: SpyderC07_OPRAFeed.py
 Group: C (Market Data)
 Purpose: OPRA (Options Price Reporting Authority) real-time options data feed
 
 Description:
-This module provides high-quality real-time options data feed from OPRA for SPY
-options trading. It handles options quotes, trades, volume, open interest, and
-Greeks calculations from live market data. The module supports Level 2 options
-market data, real-time options chain updates, and integrates with the broader
-Spyder market data infrastructure for comprehensive options analytics.
+    This module provides high-quality real-time options data feed from OPRA for SPY
+    options trading. It handles options quotes, trades, volume, open interest, and
+    Greeks calculations from live market data. The module supports Level 2 options
+    market data, real-time options chain updates, and integrates with the broader
+    Spyder market data infrastructure for comprehensive options analytics.
 
-Author: Mohamed Talib
-Created: 2025-06-09
-Version: 1.4
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-07-06
+Last Updated: 2025-07-06 Time: 16:30:00
 """
 
-# =============================================================================
-# Standard Library Imports
-# =============================================================================
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
+import os
+import sys
 import time
 import threading
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable, Any
+import json
+import asyncio
+from datetime import datetime, timedelta, date
+from typing import Dict, List, Optional, Tuple, Any, Set, Callable, Union
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
-import asyncio
+from enum import Enum, auto
+import bisect
+import math
 
-# =============================================================================
-# Third-Party Imports
-# =============================================================================
-import pandas as pd
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import numpy as np
+import pandas as pd
 from ib_insync import *
 import pytz
+from scipy import stats
+from py_vollib.black_scholes import black_scholes
+from py_vollib.black_scholes.greeks import delta, gamma, theta, vega, rho
 
-# =============================================================================
-# Local Application Imports
-# =============================================================================
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, TradingError
-from SpyderU_Utilities.SpyderU03_DateTimeUtils import MarketTimeUtils
-from SpyderU_Utilities.SpyderU07_Constants import TRADING_CONSTANTS
+from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils, MarketSession
+from SpyderU_Utilities.SpyderU07_Constants import TimeFrame
+from SpyderU_Utilities.SpyderU16_TechnicalAnalysis import ImpliedVolatilityCalculator
+from SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager
 from SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
+from SpyderB_Broker.SpyderB01_SpyderClient import IBClient
+from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# =============================================================================
-# Constants
-# =============================================================================
-DEFAULT_SYMBOL = "SPY"
-DEFAULT_EXCHANGES = ["SMART", "CBOE", "ISE", "AMEX", "PHLX"]
-DEFAULT_UPDATE_INTERVAL = 100  # milliseconds
-DEFAULT_CACHE_SIZE = 10000
-DEFAULT_HISTORY_DEPTH = 1000
-OPRA_FEED_ID = "OPRA_FEED"
-OPTIONS_EXPIRY_WINDOW = 60  # days
-MIN_VOLUME_THRESHOLD = 10
-MAX_SPREAD_THRESHOLD = 0.50  # 50 cents max bid-ask spread
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+# OPRA Configuration
+OPRA_EXCHANGE_CODES = {
+    'A': 'AMEX',
+    'B': 'BOX',
+    'C': 'CBOE',
+    'H': 'ISE_GEMINI',
+    'I': 'ISE',
+    'M': 'MIAX',
+    'N': 'NYSE',
+    'O': 'OPRA',
+    'P': 'PHLX',
+    'Q': 'NASDAQ',
+    'T': 'BATS',
+    'W': 'CBOE_BZX',
+    'X': 'PHLX',
+    'Z': 'BATS_BZX'
+}
 
-# Greeks calculation constants
-RISK_FREE_RATE = 0.05  # 5% risk-free rate
-VOLATILITY_WINDOW = 252  # trading days
+# Options Configuration
+SPY_OPTION_SYMBOL = "SPY"
+OPTION_MULTIPLIER = 100
+MIN_OPTION_PRICE = 0.01
+MAX_OPTION_PRICE = 1000.0
+MIN_VOLUME = 1
+DEFAULT_DTE_FILTER = [0, 1, 2, 3, 5, 7, 14, 21, 30, 45, 60, 90]
 
-# =============================================================================
-# Data Classes
-# =============================================================================
+# Greeks Configuration
+RISK_FREE_RATE = 0.05  # 5% default risk-free rate
+MIN_IMPLIED_VOL = 0.01  # 1% minimum IV
+MAX_IMPLIED_VOL = 5.0   # 500% maximum IV
+GREEKS_UPDATE_INTERVAL = 1.0  # Update Greeks every second
+
+# Data Quality
+STALE_DATA_THRESHOLD = 30  # seconds
+MAX_BID_ASK_SPREAD = 5.0  # Maximum spread ratio
+MIN_TIME_TO_EXPIRY = 0.001  # Minimum time to expiry (hours)
+
+# Performance
+MAX_OPTION_CONTRACTS = 10000  # Maximum contracts to track
+TICK_BUFFER_SIZE = 50000
+QUOTE_BUFFER_SIZE = 20000
+TRADE_BUFFER_SIZE = 10000
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+class OptionType(Enum):
+    """Option contract type."""
+    CALL = "C"
+    PUT = "P"
+
+class QuoteType(Enum):
+    """Quote type classification."""
+    BID = "bid"
+    ASK = "ask"
+    TRADE = "trade"
+    IMPLIED_BID = "implied_bid"
+    IMPLIED_ASK = "implied_ask"
+
+class DataQuality(Enum):
+    """Data quality levels."""
+    EXCELLENT = "excellent"
+    GOOD = "good"
+    FAIR = "fair"
+    POOR = "poor"
+    STALE = "stale"
+    INVALID = "invalid"
+
+class FlowDirection(Enum):
+    """Options flow direction."""
+    BULLISH = "bullish"
+    BEARISH = "bearish"
+    NEUTRAL = "neutral"
+
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
 @dataclass
-class OptionsQuote:
-    """Real-time options quote data structure."""
-    
+class OptionContract:
+    """Option contract specification."""
     symbol: str
+    expiration: date
     strike: float
-    expiry: datetime
-    option_type: str  # 'C' for Call, 'P' for Put
+    option_type: OptionType
+    multiplier: int = OPTION_MULTIPLIER
+    
+    @property
+    def contract_symbol(self) -> str:
+        """Generate standard option symbol."""
+        exp_str = self.expiration.strftime("%y%m%d")
+        strike_str = f"{int(self.strike * 1000):08d}"
+        return f"{self.symbol}{exp_str}{self.option_type.value}{strike_str}"
+    
+    @property
+    def dte(self) -> int:
+        """Days to expiration."""
+        return (self.expiration - date.today()).days
+    
+    @property
+    def tte(self) -> float:
+        """Time to expiration in years."""
+        days = max(self.dte, 0)
+        return days / 365.25
+
+@dataclass
+class OptionQuote:
+    """Option quote data."""
+    contract: OptionContract
     bid: float
     ask: float
     bid_size: int
@@ -82,21 +180,23 @@ class OptionsQuote:
     last_size: int
     volume: int
     open_interest: int
-    implied_volatility: float
-    delta: float
-    gamma: float
-    theta: float
-    vega: float
-    rho: float
     timestamp: datetime
     exchange: str
+    implied_vol: Optional[float] = None
+    delta: Optional[float] = None
+    gamma: Optional[float] = None
+    theta: Optional[float] = None
+    vega: Optional[float] = None
+    rho: Optional[float] = None
     
     @property
-    def mid_price(self) -> float:
-        """Calculate mid price from bid/ask."""
+    def mid(self) -> float:
+        """Calculate mid price."""
         if self.bid > 0 and self.ask > 0:
             return (self.bid + self.ask) / 2.0
-        return self.last if self.last > 0 else 0.0
+        elif self.last > 0:
+            return self.last
+        return 0.0
     
     @property
     def spread(self) -> float:
@@ -106,642 +206,1225 @@ class OptionsQuote:
         return 0.0
     
     @property
-    def spread_percent(self) -> float:
-        """Calculate spread as percentage of mid price."""
-        mid = self.mid_price
-        if mid > 0:
-            return (self.spread / mid) * 100.0
+    def spread_pct(self) -> float:
+        """Calculate spread percentage."""
+        mid = self.mid
+        if mid > 0 and self.spread > 0:
+            return self.spread / mid
         return 0.0
 
+@dataclass
+class OptionTrade:
+    """Option trade data."""
+    contract: OptionContract
+    price: float
+    size: int
+    timestamp: datetime
+    exchange: str
+    conditions: List[str] = field(default_factory=list)
+    
+    @property
+    def notional_value(self) -> float:
+        """Calculate notional value of trade."""
+        return self.price * self.size * self.contract.multiplier
 
 @dataclass
 class OptionsChainSnapshot:
-    """Complete options chain snapshot for a given expiry."""
-    
+    """Complete options chain snapshot."""
     underlying_symbol: str
-    expiry: datetime
     underlying_price: float
-    calls: Dict[float, OptionsQuote] = field(default_factory=dict)  # strike -> quote
-    puts: Dict[float, OptionsQuote] = field(default_factory=dict)   # strike -> quote
-    timestamp: datetime = field(default_factory=datetime.now)
+    expiration: date
+    calls: Dict[float, OptionQuote]
+    puts: Dict[float, OptionQuote]
+    timestamp: datetime
     
-    def get_atm_strike(self) -> float:
-        """Get the at-the-money strike price."""
-        if not self.calls and not self.puts:
-            return 0.0
-        
-        all_strikes = set(self.calls.keys()) | set(self.puts.keys())
-        if not all_strikes:
-            return 0.0
-        
-        return min(all_strikes, key=lambda x: abs(x - self.underlying_price))
+    @property
+    def all_strikes(self) -> List[float]:
+        """Get all strike prices."""
+        strikes = set(self.calls.keys()) | set(self.puts.keys())
+        return sorted(strikes)
     
-    def get_liquid_options(self, min_volume: int = MIN_VOLUME_THRESHOLD) -> List[OptionsQuote]:
-        """Get liquid options based on volume threshold."""
-        liquid_options = []
-        
-        for quote in list(self.calls.values()) + list(self.puts.values()):
-            if quote.volume >= min_volume and quote.spread <= MAX_SPREAD_THRESHOLD:
-                liquid_options.append(quote)
-        
-        return sorted(liquid_options, key=lambda x: x.volume, reverse=True)
+    @property
+    def atm_strike(self) -> float:
+        """Get at-the-money strike."""
+        strikes = self.all_strikes
+        if not strikes:
+            return 0.0
+        return min(strikes, key=lambda x: abs(x - self.underlying_price))
 
+@dataclass
+class OptionsFlow:
+    """Options flow analysis."""
+    symbol: str
+    direction: FlowDirection
+    volume: int
+    premium: float
+    avg_price: float
+    trades: int
+    call_volume: int
+    put_volume: int
+    call_premium: float
+    put_premium: float
+    timestamp: datetime
+    
+    @property
+    def call_put_ratio(self) -> float:
+        """Calculate call/put volume ratio."""
+        if self.put_volume > 0:
+            return self.call_volume / self.put_volume
+        return float('inf') if self.call_volume > 0 else 0.0
 
-# =============================================================================
-# Main OPRA Feed Class
-# =============================================================================
-class OPRAFeed:
+# ==============================================================================
+# MAIN CLASS
+# ==============================================================================
+class OPRADataFeed:
     """
-    OPRA (Options Price Reporting Authority) real-time data feed handler.
+    OPRA real-time options data feed manager.
     
-    This class provides comprehensive real-time options market data including:
-    - Real-time options quotes and trades
-    - Level 2 options market data
-    - Options volume and open interest tracking
-    - Live Greeks calculations
-    - Options chain management
-    - Market data validation and quality control
+    This class provides comprehensive real-time options data from OPRA including
+    quotes, trades, volume, open interest, and calculated Greeks. It manages
+    multiple option chains, performs real-time Greeks calculations, and provides
+    institutional flow analysis for options trading strategies.
     
     Attributes:
-        symbol (str): Primary underlying symbol (SPY)
-        ib_client (IB): Interactive Brokers client connection
-        is_running (bool): Feed running state
-        data_callbacks (Dict): Registered data callbacks
-        options_cache (Dict): Cached options data
-        quotes_history (deque): Historical quotes buffer
-        chain_snapshots (Dict): Options chain snapshots by expiry
-        logger (SpyderLogger): Application logger
-        error_handler (SpyderErrorHandler): Error handler
-        data_validator (DataValidator): Data validation
-        update_thread (threading.Thread): Data update thread
-        market_time_utils (MarketTimeUtils): Market time utilities
+        logger: Module logger instance
+        error_handler: Error handling instance
+        data_validator: Data validation instance
+        ib_client: Interactive Brokers client
+        option_chains: Current option chain data
+        active_contracts: Currently tracked option contracts
+        quotes_cache: Real-time quotes cache
+        trades_cache: Recent trades cache
+        
+    Example:
+        >>> opra_feed = OPRADataFeed()
+        >>> opra_feed.initialize()
+        >>> opra_feed.start_feed()
+        >>> chain = opra_feed.get_option_chain("SPY", date(2025, 7, 18))
+        >>> flow = opra_feed.get_options_flow("SPY")
     """
     
-    def __init__(self, ib_client: IB, symbol: str = DEFAULT_SYMBOL):
-        """
-        Initialize the OPRA feed handler.
-        
-        Args:
-            ib_client: Interactive Brokers client connection
-            symbol: Primary underlying symbol for options
-        """
-        self.symbol = symbol.upper()
-        self.ib_client = ib_client
-        self.is_running = False
-        
-        # Data storage
-        self.data_callbacks: Dict[str, Callable] = {}
-        self.options_cache: Dict[str, OptionsQuote] = {}
-        self.quotes_history: deque = deque(maxlen=DEFAULT_HISTORY_DEPTH)
-        self.chain_snapshots: Dict[datetime, OptionsChainSnapshot] = {}
-        
-        # Subscriptions tracking
-        self.active_contracts: Dict[str, Contract] = {}
-        self.subscription_requests: Dict[str, bool] = {}
-        
-        # Threading
-        self.update_thread: Optional[threading.Thread] = None
-        self.data_lock = threading.RLock()
-        
-        # Utilities
-        self.logger = SpyderLogger.get_logger(__name__)
+    def __init__(self, config: Optional[Dict] = None):
+        """Initialize OPRA data feed."""
+        self.logger = SpyderLogger.get_logger("OPRADataFeed")
         self.error_handler = SpyderErrorHandler()
         self.data_validator = DataValidator()
-        self.market_time_utils = MarketTimeUtils()
         
-        self.logger.info(f"OPRA Feed initialized for {self.symbol}")
-    
-    def start(self) -> bool:
+        # Configuration
+        self.config = config or {}
+        self.dte_filter = self.config.get('dte_filter', DEFAULT_DTE_FILTER)
+        self.max_contracts = self.config.get('max_contracts', MAX_OPTION_CONTRACTS)
+        self.risk_free_rate = self.config.get('risk_free_rate', RISK_FREE_RATE)
+        
+        # Interactive Brokers client
+        self.ib_client: Optional[IBClient] = None
+        
+        # Data storage
+        self.option_chains: Dict[str, Dict[date, OptionsChainSnapshot]] = defaultdict(dict)
+        self.active_contracts: Dict[str, OptionContract] = {}
+        self.quotes_cache: Dict[str, OptionQuote] = {}
+        self.trades_cache: deque = deque(maxlen=TRADE_BUFFER_SIZE)
+        self.tick_data: deque = deque(maxlen=TICK_BUFFER_SIZE)
+        
+        # Greeks calculation
+        self.underlying_prices: Dict[str, float] = {}
+        self.implied_vols: Dict[str, float] = {}
+        self.greeks_cache: Dict[str, Dict] = {}
+        
+        # Flow analysis
+        self.options_flow: Dict[str, OptionsFlow] = {}
+        self.flow_history: deque = deque(maxlen=1000)
+        
+        # State management
+        self.is_running = False
+        self.last_update = None
+        self.request_counter = 0
+        
+        # Threading
+        self._lock = threading.RLock()
+        self._feed_thread = None
+        self._greeks_thread = None
+        self._stop_event = threading.Event()
+        
+        # Event manager integration
+        self.event_manager = get_event_manager()
+        
+        # Performance tracking
+        self.stats = {
+            'quotes_received': 0,
+            'trades_received': 0,
+            'greeks_calculated': 0,
+            'errors': 0,
+            'last_performance_check': time.time()
+        }
+        
+        self.logger.info("OPRA data feed initialized")
+
+    # ==========================================================================
+    # INITIALIZATION METHODS
+    # ==========================================================================
+    def initialize(self) -> bool:
         """
-        Start the OPRA data feed.
+        Initialize the OPRA data feed.
         
         Returns:
-            bool: True if started successfully, False otherwise
+            True if initialization successful, False otherwise
         """
         try:
-            if self.is_running:
-                self.logger.warning("OPRA feed is already running")
-                return True
+            # Initialize IB client connection
+            if not self._initialize_ib_client():
+                self.logger.error("Failed to initialize IB client")
+                return False
             
-            if not self.ib_client.isConnected():
-                raise TradingError("IB client not connected - cannot start OPRA feed")
+            # Register event callbacks
+            self._register_event_callbacks()
             
-            self.logger.info(f"🚀 Starting OPRA feed for {self.symbol}")
-            self.is_running = True
+            # Initialize option chains for key expirations
+            self._initialize_option_chains()
             
-            # Start data processing thread
-            self.update_thread = threading.Thread(target=self._data_processing_loop, daemon=True)
-            self.update_thread.start()
+            # Setup Greeks calculation
+            self._initialize_greeks_calculator()
             
-            # Subscribe to options chain
-            self._subscribe_to_options_chain()
-            
-            self.logger.info(f"✅ OPRA feed started successfully for {self.symbol}")
+            self.logger.info("OPRA data feed initialized successfully")
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start OPRA feed: {e}")
-            self.error_handler.handle_error(e, context="OPRA Feed Start")
-            self.is_running = False
+            self.error_handler.handle_error(e, {
+                'method': 'initialize',
+                'class': 'OPRADataFeed'
+            })
             return False
     
-    def stop(self):
-        """Stop the OPRA data feed."""
+    def _initialize_ib_client(self) -> bool:
+        """Initialize Interactive Brokers client for options data."""
         try:
-            if not self.is_running:
-                self.logger.info("OPRA feed is already stopped")
+            # Get IB client from broker module
+            from SpyderB_Broker.SpyderB01_SpyderClient import get_ib_client
+            self.ib_client = get_ib_client()
+            
+            if not self.ib_client or not self.ib_client.is_connected():
+                self.logger.warning("IB client not connected, using simulation mode")
+                return True  # Allow running in simulation mode
+            
+            # Register callbacks for options data
+            self.ib_client.register_callback('tickPrice', self._on_tick_price)
+            self.ib_client.register_callback('tickSize', self._on_tick_size)
+            self.ib_client.register_callback('tickOptionComputation', self._on_option_computation)
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"IB client initialization failed: {e}")
+            return True  # Continue in simulation mode
+    
+    def _register_event_callbacks(self) -> None:
+        """Register event manager callbacks."""
+        if self.event_manager:
+            self.event_manager.subscribe(EventType.MARKET_DATA, self._on_market_data_event)
+            self.event_manager.subscribe(EventType.OPTION_DATA, self._on_option_data_event)
+    
+    def _initialize_option_chains(self) -> None:
+        """Initialize option chains for key symbols and expirations."""
+        symbols = [SPY_OPTION_SYMBOL]
+        
+        for symbol in symbols:
+            self.option_chains[symbol] = {}
+            self.underlying_prices[symbol] = 0.0
+            self.options_flow[symbol] = OptionsFlow(
+                symbol=symbol,
+                direction=FlowDirection.NEUTRAL,
+                volume=0,
+                premium=0.0,
+                avg_price=0.0,
+                trades=0,
+                call_volume=0,
+                put_volume=0,
+                call_premium=0.0,
+                put_premium=0.0,
+                timestamp=datetime.now()
+            )
+    
+    def _initialize_greeks_calculator(self) -> None:
+        """Initialize Greeks calculation system."""
+        self.greeks_cache.clear()
+        self.implied_vols.clear()
+
+    # ==========================================================================
+    # LIFECYCLE METHODS
+    # ==========================================================================
+    def start_feed(self) -> None:
+        """Start OPRA data feed."""
+        if self.is_running:
+            self.logger.warning("OPRA feed already running")
+            return
+        
+        try:
+            self.is_running = True
+            self._stop_event.clear()
+            
+            # Start data feed thread
+            self._feed_thread = threading.Thread(
+                target=self._feed_loop,
+                name="OPRADataFeed",
+                daemon=True
+            )
+            self._feed_thread.start()
+            
+            # Start Greeks calculation thread
+            self._greeks_thread = threading.Thread(
+                target=self._greeks_loop,
+                name="OPRAGreeksCalculation",
+                daemon=True
+            )
+            self._greeks_thread.start()
+            
+            # Request market data for key options
+            self._request_options_data()
+            
+            self.logger.info("OPRA data feed started")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'start_feed'
+            })
+            self.is_running = False
+    
+    def stop_feed(self) -> None:
+        """Stop OPRA data feed."""
+        if not self.is_running:
+            return
+        
+        try:
+            self.is_running = False
+            self._stop_event.set()
+            
+            # Stop market data requests
+            self._stop_market_data_requests()
+            
+            # Wait for threads to finish
+            if self._feed_thread and self._feed_thread.is_alive():
+                self._feed_thread.join(timeout=5.0)
+            
+            if self._greeks_thread and self._greeks_thread.is_alive():
+                self._greeks_thread.join(timeout=5.0)
+            
+            self.logger.info("OPRA data feed stopped")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'stop_feed'
+            })
+
+    # ==========================================================================
+    # DATA REQUEST METHODS
+    # ==========================================================================
+    def _request_options_data(self) -> None:
+        """Request market data for option contracts."""
+        if not self.ib_client:
+            return
+        
+        try:
+            # Get option chains for key expirations
+            for symbol in [SPY_OPTION_SYMBOL]:
+                expirations = self._get_target_expirations(symbol)
+                
+                for expiration in expirations:
+                    self._request_option_chain(symbol, expiration)
+                    
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_request_options_data'
+            })
+    
+    def _request_option_chain(self, symbol: str, expiration: date) -> None:
+        """Request option chain for specific expiration."""
+        try:
+            # Get underlying price first
+            underlying_price = self._get_underlying_price(symbol)
+            if underlying_price <= 0:
                 return
             
-            self.logger.info(f"🛑 Stopping OPRA feed for {self.symbol}")
-            self.is_running = False
+            # Calculate strike range
+            strikes = self._calculate_strike_range(underlying_price, expiration)
             
-            # Cancel all subscriptions
-            self._cancel_all_subscriptions()
-            
-            # Wait for processing thread to finish
-            if self.update_thread and self.update_thread.is_alive():
-                self.update_thread.join(timeout=5.0)
-            
-            self.logger.info(f"✅ OPRA feed stopped for {self.symbol}")
-            
+            # Request data for calls and puts
+            for strike in strikes:
+                for option_type in [OptionType.CALL, OptionType.PUT]:
+                    contract = OptionContract(
+                        symbol=symbol,
+                        expiration=expiration,
+                        strike=strike,
+                        option_type=option_type
+                    )
+                    
+                    self._request_option_quote(contract)
+                    
         except Exception as e:
-            self.logger.error(f"Error stopping OPRA feed: {e}")
-            self.error_handler.handle_error(e, context="OPRA Feed Stop")
+            self.error_handler.handle_error(e, {
+                'method': '_request_option_chain',
+                'symbol': symbol,
+                'expiration': str(expiration)
+            })
     
-    def register_callback(self, callback_name: str, callback_func: Callable):
-        """
-        Register a callback for data updates.
+    def _request_option_quote(self, contract: OptionContract) -> None:
+        """Request real-time quote for option contract."""
+        if not self.ib_client:
+            return
         
-        Args:
-            callback_name: Unique name for the callback
-            callback_func: Function to call with data updates
-        """
-        with self.data_lock:
-            self.data_callbacks[callback_name] = callback_func
-            self.logger.info(f"Registered callback: {callback_name}")
-    
-    def unregister_callback(self, callback_name: str):
-        """
-        Unregister a data callback.
-        
-        Args:
-            callback_name: Name of callback to remove
-        """
-        with self.data_lock:
-            if callback_name in self.data_callbacks:
-                del self.data_callbacks[callback_name]
-                self.logger.info(f"Unregistered callback: {callback_name}")
-    
-    def get_options_chain(self, expiry: Optional[datetime] = None) -> Optional[OptionsChainSnapshot]:
-        """
-        Get current options chain snapshot.
-        
-        Args:
-            expiry: Specific expiry date, or None for nearest expiry
-            
-        Returns:
-            Options chain snapshot or None if not available
-        """
         try:
-            with self.data_lock:
-                if not self.chain_snapshots:
-                    return None
-                
-                if expiry is None:
-                    # Return nearest expiry
-                    expiry = min(self.chain_snapshots.keys())
-                
-                return self.chain_snapshots.get(expiry)
-                
-        except Exception as e:
-            self.logger.error(f"Error getting options chain: {e}")
-            return None
-    
-    def get_option_quote(self, strike: float, expiry: datetime, option_type: str) -> Optional[OptionsQuote]:
-        """
-        Get specific option quote.
-        
-        Args:
-            strike: Strike price
-            expiry: Expiration date
-            option_type: 'C' for Call, 'P' for Put
-            
-        Returns:
-            Options quote or None if not found
-        """
-        try:
-            chain = self.get_options_chain(expiry)
-            if not chain:
-                return None
-            
-            if option_type.upper() == 'C':
-                return chain.calls.get(strike)
-            elif option_type.upper() == 'P':
-                return chain.puts.get(strike)
-            
-            return None
-            
-        except Exception as e:
-            self.logger.error(f"Error getting option quote: {e}")
-            return None
-    
-    def get_liquid_options(self, expiry: Optional[datetime] = None, 
-                          min_volume: int = MIN_VOLUME_THRESHOLD) -> List[OptionsQuote]:
-        """
-        Get liquid options for trading.
-        
-        Args:
-            expiry: Specific expiry or None for all
-            min_volume: Minimum volume threshold
-            
-        Returns:
-            List of liquid options quotes
-        """
-        try:
-            liquid_options = []
-            
-            chains_to_check = []
-            if expiry:
-                chain = self.get_options_chain(expiry)
-                if chain:
-                    chains_to_check = [chain]
-            else:
-                chains_to_check = list(self.chain_snapshots.values())
-            
-            for chain in chains_to_check:
-                liquid_options.extend(chain.get_liquid_options(min_volume))
-            
-            return sorted(liquid_options, key=lambda x: x.volume, reverse=True)
-            
-        except Exception as e:
-            self.logger.error(f"Error getting liquid options: {e}")
-            return []
-    
-    def _subscribe_to_options_chain(self):
-        """Subscribe to options chain data."""
-        try:
-            # Get available option expiries
-            expiry_dates = self._get_option_expiries()
-            
-            for expiry in expiry_dates[:4]:  # Limit to first 4 expiries
-                self._subscribe_to_expiry(expiry)
-            
-        except Exception as e:
-            self.logger.error(f"Error subscribing to options chain: {e}")
-            self.error_handler.handle_error(e, context="Options Chain Subscription")
-    
-    def _get_option_expiries(self) -> List[datetime]:
-        """Get available option expiration dates."""
-        try:
-            # Create underlying contract
-            underlying = Stock(self.symbol, 'SMART', 'USD')
-            self.ib_client.qualifyContracts(underlying)
-            
-            # Get option chain
-            chains = self.ib_client.reqSecDefOptParams(
-                underlying.symbol, '', underlying.secType, underlying.conId
+            # Create IB contract
+            ib_contract = Option(
+                symbol=contract.symbol,
+                lastTradeDateOrContractMonth=contract.expiration.strftime("%Y%m%d"),
+                strike=contract.strike,
+                right=contract.option_type.value,
+                exchange="SMART"
             )
             
-            expiry_dates = []
-            for chain in chains:
-                for expiry_str in chain.expirations:
-                    expiry_date = datetime.strptime(expiry_str, '%Y%m%d')
-                    
-                    # Only include expiries within our window
-                    days_to_expiry = (expiry_date - datetime.now()).days
-                    if 0 < days_to_expiry <= OPTIONS_EXPIRY_WINDOW:
-                        expiry_dates.append(expiry_date)
-            
-            return sorted(expiry_dates)
-            
-        except Exception as e:
-            self.logger.error(f"Error getting option expiries: {e}")
-            return []
-    
-    def _subscribe_to_expiry(self, expiry: datetime):
-        """Subscribe to all options for a specific expiry."""
-        try:
-            expiry_str = expiry.strftime('%Y%m%d')
-            
-            # Get underlying price for strike selection
-            underlying = Stock(self.symbol, 'SMART', 'USD')
-            self.ib_client.qualifyContracts(underlying)
-            
-            underlying_data = self.ib_client.reqMktData(underlying, '', False, False)
-            self.ib_client.sleep(1)  # Wait for data
-            
-            if hasattr(underlying_data, 'last') and underlying_data.last:
-                underlying_price = underlying_data.last
-            else:
-                self.logger.warning(f"Could not get underlying price for {self.symbol}")
-                return
-            
-            # Calculate strike range around current price
-            strike_range = self._calculate_strike_range(underlying_price)
-            
-            # Subscribe to calls and puts
-            for strike in strike_range:
-                self._subscribe_to_option(strike, expiry_str, 'C')  # Calls
-                self._subscribe_to_option(strike, expiry_str, 'P')  # Puts
-            
-            self.logger.info(f"Subscribed to {len(strike_range) * 2} options for expiry {expiry_str}")
-            
-        except Exception as e:
-            self.logger.error(f"Error subscribing to expiry {expiry}: {e}")
-    
-    def _calculate_strike_range(self, underlying_price: float) -> List[float]:
-        """Calculate relevant strike range around current price."""
-        try:
-            # Calculate range: ±20% around current price, in $1 increments for SPY
-            range_percent = 0.20
-            lower_bound = underlying_price * (1 - range_percent)
-            upper_bound = underlying_price * (1 + range_percent)
-            
-            # Round to nearest dollar for SPY
-            lower_strike = int(lower_bound)
-            upper_strike = int(upper_bound) + 1
-            
-            strikes = list(range(lower_strike, upper_strike + 1))
-            return strikes
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating strike range: {e}")
-            return []
-    
-    def _subscribe_to_option(self, strike: float, expiry_str: str, right: str):
-        """Subscribe to a specific option contract."""
-        try:
-            # Create option contract
-            option = Option(self.symbol, expiry_str, strike, right, 'SMART')
-            self.ib_client.qualifyContracts(option)
-            
             # Request market data
-            contract_key = f"{self.symbol}_{expiry_str}_{strike}_{right}"
+            request_id = self._get_next_request_id()
+            self.active_contracts[str(request_id)] = contract
             
-            if contract_key not in self.active_contracts:
-                ticker = self.ib_client.reqMktData(
-                    option, 
-                    '100,101,104,105,106,225',  # Bid, Ask, Last, Volume, IV, Greeks
-                    False, 
-                    False
-                )
-                
-                self.active_contracts[contract_key] = option
-                self.subscription_requests[contract_key] = True
-                
-                # Set up callback for this ticker
-                ticker.updateEvent += lambda t=ticker, k=contract_key: self._on_option_data_update(t, k)
+            # Request real-time data
+            self.ib_client.reqMktData(
+                tickerId=request_id,
+                contract=ib_contract,
+                genericTickList="100,101,105,106,107,221,225",  # Greeks and IV
+                snapshot=False,
+                regulatorySnapshot=False,
+                mktDataOptions=[]
+            )
             
         except Exception as e:
-            self.logger.error(f"Error subscribing to option {strike} {right} {expiry_str}: {e}")
-    
-    def _on_option_data_update(self, ticker, contract_key: str):
-        """Handle option data updates."""
+            self.error_handler.handle_error(e, {
+                'method': '_request_option_quote',
+                'contract': contract.contract_symbol
+            })
+
+    # ==========================================================================
+    # DATA CALLBACK METHODS
+    # ==========================================================================
+    def _on_tick_price(self, req_id: int, tick_type: int, price: float, attrib) -> None:
+        """Handle tick price updates."""
         try:
-            if not self.is_running:
-                return
-            
-            contract = self.active_contracts.get(contract_key)
+            contract = self.active_contracts.get(str(req_id))
             if not contract:
                 return
             
-            # Extract data from ticker
-            quote = self._create_options_quote(ticker, contract)
-            if quote and self.data_validator.validate_options_quote(quote):
-                
-                with self.data_lock:
-                    # Update cache
-                    self.options_cache[contract_key] = quote
-                    self.quotes_history.append(quote)
-                    
-                    # Update chain snapshot
-                    self._update_chain_snapshot(quote)
-                    
-                    # Notify callbacks
-                    self._notify_callbacks('option_update', quote)
+            contract_symbol = contract.contract_symbol
             
-        except Exception as e:
-            self.logger.error(f"Error processing option data update: {e}")
-            self.error_handler.handle_error(e, context="Option Data Update")
-    
-    def _create_options_quote(self, ticker, contract: Option) -> Optional[OptionsQuote]:
-        """Create OptionsQuote from ticker data."""
-        try:
-            # Extract basic data
-            bid = getattr(ticker, 'bid', 0.0) if hasattr(ticker, 'bid') else 0.0
-            ask = getattr(ticker, 'ask', 0.0) if hasattr(ticker, 'ask') else 0.0
-            last = getattr(ticker, 'last', 0.0) if hasattr(ticker, 'last') else 0.0
-            
-            # Check for valid data
-            if bid <= 0 and ask <= 0 and last <= 0:
-                return None
-            
-            # Create quote
-            quote = OptionsQuote(
-                symbol=contract.symbol,
-                strike=contract.strike,
-                expiry=datetime.strptime(contract.lastTradeDateOrContractMonth, '%Y%m%d'),
-                option_type=contract.right,
-                bid=bid,
-                ask=ask,
-                bid_size=getattr(ticker, 'bidSize', 0),
-                ask_size=getattr(ticker, 'askSize', 0),
-                last=last,
-                last_size=getattr(ticker, 'lastSize', 0),
-                volume=getattr(ticker, 'volume', 0),
-                open_interest=getattr(ticker, 'openInterest', 0),
-                implied_volatility=getattr(ticker, 'impliedVolatility', 0.0),
-                delta=getattr(ticker, 'delta', 0.0),
-                gamma=getattr(ticker, 'gamma', 0.0),
-                theta=getattr(ticker, 'theta', 0.0),
-                vega=getattr(ticker, 'vega', 0.0),
-                rho=getattr(ticker, 'rho', 0.0),
-                timestamp=datetime.now(),
-                exchange=getattr(ticker, 'exchange', 'SMART')
-            )
-            
-            return quote
-            
-        except Exception as e:
-            self.logger.error(f"Error creating options quote: {e}")
-            return None
-    
-    def _update_chain_snapshot(self, quote: OptionsQuote):
-        """Update options chain snapshot with new quote."""
-        try:
-            expiry = quote.expiry
-            
-            if expiry not in self.chain_snapshots:
-                # Create new chain snapshot
-                underlying_price = self._get_current_underlying_price()
-                self.chain_snapshots[expiry] = OptionsChainSnapshot(
-                    underlying_symbol=self.symbol,
-                    expiry=expiry,
-                    underlying_price=underlying_price
+            # Update quote cache
+            if contract_symbol not in self.quotes_cache:
+                self.quotes_cache[contract_symbol] = OptionQuote(
+                    contract=contract,
+                    bid=0.0,
+                    ask=0.0,
+                    bid_size=0,
+                    ask_size=0,
+                    last=0.0,
+                    last_size=0,
+                    volume=0,
+                    open_interest=0,
+                    timestamp=datetime.now(),
+                    exchange="SMART"
                 )
             
-            # Update the appropriate strike
-            chain = self.chain_snapshots[expiry]
-            if quote.option_type == 'C':
-                chain.calls[quote.strike] = quote
-            elif quote.option_type == 'P':
-                chain.puts[quote.strike] = quote
+            quote = self.quotes_cache[contract_symbol]
             
-            chain.timestamp = datetime.now()
+            # Update based on tick type
+            if tick_type == 1:  # Bid
+                quote.bid = price
+            elif tick_type == 2:  # Ask
+                quote.ask = price
+            elif tick_type == 4:  # Last
+                quote.last = price
+                # Create trade record
+                self._record_option_trade(contract, price)
+            
+            quote.timestamp = datetime.now()
+            self.stats['quotes_received'] += 1
+            
+            # Trigger quote update event
+            self._emit_quote_update(quote)
             
         except Exception as e:
-            self.logger.error(f"Error updating chain snapshot: {e}")
+            self.error_handler.handle_error(e, {
+                'method': '_on_tick_price',
+                'req_id': req_id,
+                'tick_type': tick_type
+            })
     
-    def _get_current_underlying_price(self) -> float:
-        """Get current underlying price."""
+    def _on_tick_size(self, req_id: int, tick_type: int, size: int) -> None:
+        """Handle tick size updates."""
         try:
-            # This would integrate with SpyderC08_SPYFeed
-            # For now, return a placeholder
-            return 450.0  # Placeholder SPY price
+            contract = self.active_contracts.get(str(req_id))
+            if not contract:
+                return
+            
+            contract_symbol = contract.contract_symbol
+            quote = self.quotes_cache.get(contract_symbol)
+            if not quote:
+                return
+            
+            # Update based on tick type
+            if tick_type == 0:  # Bid size
+                quote.bid_size = size
+            elif tick_type == 3:  # Ask size
+                quote.ask_size = size
+            elif tick_type == 5:  # Last size
+                quote.last_size = size
+            elif tick_type == 8:  # Volume
+                quote.volume = size
+            
+            quote.timestamp = datetime.now()
             
         except Exception as e:
-            self.logger.error(f"Error getting underlying price: {e}")
-            return 0.0
+            self.error_handler.handle_error(e, {
+                'method': '_on_tick_size',
+                'req_id': req_id,
+                'tick_type': tick_type
+            })
     
-    def _notify_callbacks(self, event_type: str, data: Any):
-        """Notify registered callbacks of data updates."""
+    def _on_option_computation(self, req_id: int, tick_type: int, implied_vol: float,
+                              delta: float, opt_price: float, pv_dividend: float,
+                              gamma: float, vega: float, theta: float, under_price: float) -> None:
+        """Handle option Greeks and implied volatility updates."""
         try:
-            with self.data_lock:
-                for callback_name, callback_func in self.data_callbacks.items():
-                    try:
-                        callback_func(event_type, data)
-                    except Exception as e:
-                        self.logger.error(f"Error in callback {callback_name}: {e}")
-                        
+            contract = self.active_contracts.get(str(req_id))
+            if not contract:
+                return
+            
+            contract_symbol = contract.contract_symbol
+            quote = self.quotes_cache.get(contract_symbol)
+            if not quote:
+                return
+            
+            # Update Greeks and IV
+            if implied_vol > 0 and implied_vol < MAX_IMPLIED_VOL:
+                quote.implied_vol = implied_vol
+                self.implied_vols[contract_symbol] = implied_vol
+            
+            if abs(delta) <= 1.0:
+                quote.delta = delta
+            
+            if gamma >= 0:
+                quote.gamma = gamma
+            
+            if vega >= 0:
+                quote.vega = vega
+            
+            quote.theta = theta
+            
+            # Update underlying price
+            if under_price > 0:
+                self.underlying_prices[contract.symbol] = under_price
+            
+            quote.timestamp = datetime.now()
+            self.stats['greeks_calculated'] += 1
+            
         except Exception as e:
-            self.logger.error(f"Error notifying callbacks: {e}")
+            self.error_handler.handle_error(e, {
+                'method': '_on_option_computation',
+                'req_id': req_id
+            })
+
+    # ==========================================================================
+    # EVENT HANDLERS
+    # ==========================================================================
+    def _on_market_data_event(self, event: Event) -> None:
+        """Handle market data events."""
+        try:
+            data = event.data
+            if data.get('symbol') in self.underlying_prices:
+                symbol = data['symbol']
+                price = float(data.get('price', 0))
+                if price > 0:
+                    self.underlying_prices[symbol] = price
+                    
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_on_market_data_event'
+            })
     
-    def _data_processing_loop(self):
-        """Main data processing loop."""
-        while self.is_running:
+    def _on_option_data_event(self, event: Event) -> None:
+        """Handle option-specific data events."""
+        try:
+            # Process external option data if needed
+            pass
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_on_option_data_event'
+            })
+
+    # ==========================================================================
+    # ANALYSIS METHODS
+    # ==========================================================================
+    def _feed_loop(self) -> None:
+        """Main data feed processing loop."""
+        while not self._stop_event.is_set() and self.is_running:
             try:
-                # Periodic maintenance tasks
-                self._cleanup_expired_data()
-                self._validate_subscriptions()
+                # Update option chains
+                self._update_option_chains()
                 
-                time.sleep(1)  # Run every second
+                # Analyze options flow
+                self._analyze_options_flow()
+                
+                # Clean stale data
+                self._clean_stale_data()
+                
+                # Performance monitoring
+                self._monitor_performance()
+                
+                # Sleep
+                time.sleep(1.0)
                 
             except Exception as e:
-                self.logger.error(f"Error in data processing loop: {e}")
-                time.sleep(5)
+                self.error_handler.handle_error(e, {
+                    'method': '_feed_loop'
+                })
+                time.sleep(5.0)  # Longer sleep on error
     
-    def _cleanup_expired_data(self):
-        """Clean up expired options data."""
-        try:
-            current_time = datetime.now()
-            expired_expiries = []
-            
-            with self.data_lock:
-                for expiry in self.chain_snapshots:
-                    if expiry < current_time:
-                        expired_expiries.append(expiry)
+    def _greeks_loop(self) -> None:
+        """Greeks calculation loop."""
+        while not self._stop_event.is_set() and self.is_running:
+            try:
+                # Calculate Greeks for all active contracts
+                self._calculate_all_greeks()
                 
-                for expiry in expired_expiries:
-                    del self.chain_snapshots[expiry]
-                    self.logger.info(f"Cleaned up expired options data for {expiry}")
-                    
-        except Exception as e:
-            self.logger.error(f"Error cleaning up expired data: {e}")
-    
-    def _validate_subscriptions(self):
-        """Validate active subscriptions."""
-        try:
-            # Check if subscriptions are still active
-            inactive_contracts = []
-            
-            for contract_key in self.active_contracts:
-                if not self.subscription_requests.get(contract_key, False):
-                    inactive_contracts.append(contract_key)
-            
-            # Clean up inactive contracts
-            for contract_key in inactive_contracts:
-                if contract_key in self.active_contracts:
-                    del self.active_contracts[contract_key]
-                if contract_key in self.subscription_requests:
-                    del self.subscription_requests[contract_key]
-                    
-        except Exception as e:
-            self.logger.error(f"Error validating subscriptions: {e}")
-    
-    def _cancel_all_subscriptions(self):
-        """Cancel all active subscriptions."""
-        try:
-            with self.data_lock:
-                for contract_key in list(self.active_contracts.keys()):
-                    try:
-                        contract = self.active_contracts[contract_key]
-                        self.ib_client.cancelMktData(contract)
-                    except Exception as e:
-                        self.logger.error(f"Error canceling subscription {contract_key}: {e}")
+                # Sleep
+                time.sleep(GREEKS_UPDATE_INTERVAL)
                 
-                self.active_contracts.clear()
-                self.subscription_requests.clear()
+            except Exception as e:
+                self.error_handler.handle_error(e, {
+                    'method': '_greeks_loop'
+                })
+                time.sleep(5.0)
+    
+    def _update_option_chains(self) -> None:
+        """Update option chain snapshots."""
+        with self._lock:
+            for symbol in self.option_chains.keys():
+                underlying_price = self.underlying_prices.get(symbol, 0.0)
+                if underlying_price <= 0:
+                    continue
+                
+                # Group quotes by expiration
+                quotes_by_exp = defaultdict(lambda: {'calls': {}, 'puts': {}})
+                
+                for contract_symbol, quote in self.quotes_cache.items():
+                    if quote.contract.symbol == symbol:
+                        exp = quote.contract.expiration
+                        strike = quote.contract.strike
+                        
+                        if quote.contract.option_type == OptionType.CALL:
+                            quotes_by_exp[exp]['calls'][strike] = quote
+                        else:
+                            quotes_by_exp[exp]['puts'][strike] = quote
+                
+                # Create chain snapshots
+                for expiration, data in quotes_by_exp.items():
+                    chain = OptionsChainSnapshot(
+                        underlying_symbol=symbol,
+                        underlying_price=underlying_price,
+                        expiration=expiration,
+                        calls=data['calls'],
+                        puts=data['puts'],
+                        timestamp=datetime.now()
+                    )
+                    self.option_chains[symbol][expiration] = chain
+    
+    def _analyze_options_flow(self) -> None:
+        """Analyze options flow for institutional activity."""
+        try:
+            # Get recent trades (last 5 minutes)
+            cutoff_time = datetime.now() - timedelta(minutes=5)
+            recent_trades = [trade for trade in self.trades_cache if trade.timestamp >= cutoff_time]
+            
+            # Group by underlying symbol
+            trades_by_symbol = defaultdict(list)
+            for trade in recent_trades:
+                trades_by_symbol[trade.contract.symbol].append(trade)
+            
+            # Analyze flow for each symbol
+            for symbol, trades in trades_by_symbol.items():
+                if not trades:
+                    continue
+                
+                # Calculate flow metrics
+                total_volume = sum(trade.size for trade in trades)
+                total_premium = sum(trade.notional_value for trade in trades)
+                avg_price = total_premium / (total_volume * OPTION_MULTIPLIER) if total_volume > 0 else 0.0
+                
+                call_trades = [t for t in trades if t.contract.option_type == OptionType.CALL]
+                put_trades = [t for t in trades if t.contract.option_type == OptionType.PUT]
+                
+                call_volume = sum(trade.size for trade in call_trades)
+                put_volume = sum(trade.size for trade in put_trades)
+                call_premium = sum(trade.notional_value for trade in call_trades)
+                put_premium = sum(trade.notional_value for trade in put_trades)
+                
+                # Determine flow direction
+                direction = FlowDirection.NEUTRAL
+                if call_volume > put_volume * 1.5:
+                    direction = FlowDirection.BULLISH
+                elif put_volume > call_volume * 1.5:
+                    direction = FlowDirection.BEARISH
+                
+                # Update flow analysis
+                self.options_flow[symbol] = OptionsFlow(
+                    symbol=symbol,
+                    direction=direction,
+                    volume=total_volume,
+                    premium=total_premium,
+                    avg_price=avg_price,
+                    trades=len(trades),
+                    call_volume=call_volume,
+                    put_volume=put_volume,
+                    call_premium=call_premium,
+                    put_premium=put_premium,
+                    timestamp=datetime.now()
+                )
                 
         except Exception as e:
-            self.logger.error(f"Error canceling all subscriptions: {e}")
+            self.error_handler.handle_error(e, {
+                'method': '_analyze_options_flow'
+            })
     
-    def get_feed_status(self) -> Dict[str, Any]:
-        """
-        Get current feed status and statistics.
+    def _calculate_all_greeks(self) -> None:
+        """Calculate Greeks for all active option contracts."""
+        for contract_symbol, quote in self.quotes_cache.items():
+            try:
+                self._calculate_greeks(quote)
+            except Exception as e:
+                self.error_handler.handle_error(e, {
+                    'method': '_calculate_all_greeks',
+                    'contract': contract_symbol
+                })
+    
+    def _calculate_greeks(self, quote: OptionQuote) -> None:
+        """Calculate Greeks for option quote."""
+        try:
+            contract = quote.contract
+            underlying_price = self.underlying_prices.get(contract.symbol, 0.0)
+            
+            if underlying_price <= 0 or quote.mid <= 0 or contract.tte <= MIN_TIME_TO_EXPIRY:
+                return
+            
+            # Use existing implied volatility or calculate from price
+            iv = quote.implied_vol
+            if not iv or iv <= 0:
+                iv = self._calculate_implied_volatility(quote, underlying_price)
+            
+            if not iv or iv <= MIN_IMPLIED_VOL or iv >= MAX_IMPLIED_VOL:
+                return
+            
+            # Calculate Greeks using py_vollib
+            flag = 'c' if contract.option_type == OptionType.CALL else 'p'
+            
+            try:
+                quote.delta = delta(flag, underlying_price, contract.strike, contract.tte, self.risk_free_rate, iv)
+                quote.gamma = gamma(flag, underlying_price, contract.strike, contract.tte, self.risk_free_rate, iv)
+                quote.theta = theta(flag, underlying_price, contract.strike, contract.tte, self.risk_free_rate, iv) / 365.25
+                quote.vega = vega(flag, underlying_price, contract.strike, contract.tte, self.risk_free_rate, iv) / 100
+                quote.rho = rho(flag, underlying_price, contract.strike, contract.tte, self.risk_free_rate, iv) / 100
+                
+                if not quote.implied_vol:
+                    quote.implied_vol = iv
+                
+            except Exception as e:
+                self.logger.debug(f"Greeks calculation failed for {contract.contract_symbol}: {e}")
+                
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': '_calculate_greeks',
+                'contract': quote.contract.contract_symbol
+            })
+
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+    def _get_underlying_price(self, symbol: str) -> float:
+        """Get current underlying price."""
+        return self.underlying_prices.get(symbol, 0.0)
+    
+    def _get_target_expirations(self, symbol: str) -> List[date]:
+        """Get target expiration dates for options chains."""
+        today = date.today()
+        expirations = []
         
+        for dte in self.dte_filter:
+            exp_date = today + timedelta(days=dte)
+            # Adjust to nearest Friday (typical option expiration)
+            days_until_friday = (4 - exp_date.weekday()) % 7
+            if days_until_friday == 0 and exp_date == today:
+                days_until_friday = 7  # Next Friday if today is Friday
+            exp_date += timedelta(days=days_until_friday)
+            expirations.append(exp_date)
+        
+        return sorted(set(expirations))
+    
+    def _calculate_strike_range(self, underlying_price: float, expiration: date) -> List[float]:
+        """Calculate relevant strike range for option chain."""
+        dte = (expiration - date.today()).days
+        
+        # Adjust range based on DTE
+        if dte <= 1:  # 0-1 DTE
+            range_pct = 0.02  # ±2%
+        elif dte <= 7:  # Weekly
+            range_pct = 0.05  # ±5%
+        elif dte <= 30:  # Monthly
+            range_pct = 0.10  # ±10%
+        else:  # Quarterly
+            range_pct = 0.15  # ±15%
+        
+        # Calculate strike range
+        range_amount = underlying_price * range_pct
+        min_strike = underlying_price - range_amount
+        max_strike = underlying_price + range_amount
+        
+        # Round to nearest dollar or half-dollar
+        strike_increment = 1.0 if underlying_price > 200 else 0.5
+        
+        strikes = []
+        strike = math.floor(min_strike / strike_increment) * strike_increment
+        while strike <= max_strike:
+            strikes.append(strike)
+            strike += strike_increment
+        
+        return strikes
+    
+    def _calculate_implied_volatility(self, quote: OptionQuote, underlying_price: float) -> Optional[float]:
+        """Calculate implied volatility from option price."""
+        try:
+            if quote.mid <= 0 or underlying_price <= 0:
+                return None
+            
+            contract = quote.contract
+            flag = 'c' if contract.option_type == OptionType.CALL else 'p'
+            
+            # Use py_vollib for IV calculation
+            from py_vollib.black_scholes.implied_volatility import implied_volatility
+            
+            iv = implied_volatility(
+                price=quote.mid,
+                S=underlying_price,
+                K=contract.strike,
+                T=contract.tte,
+                r=self.risk_free_rate,
+                flag=flag
+            )
+            
+            return iv if MIN_IMPLIED_VOL <= iv <= MAX_IMPLIED_VOL else None
+            
+        except Exception:
+            return None
+    
+    def _record_option_trade(self, contract: OptionContract, price: float, size: int = 1) -> None:
+        """Record option trade for flow analysis."""
+        trade = OptionTrade(
+            contract=contract,
+            price=price,
+            size=size,
+            timestamp=datetime.now(),
+            exchange="SMART"
+        )
+        
+        self.trades_cache.append(trade)
+        self.stats['trades_received'] += 1
+    
+    def _emit_quote_update(self, quote: OptionQuote) -> None:
+        """Emit quote update event."""
+        if self.event_manager:
+            event = Event(
+                event_type=EventType.OPTION_DATA,
+                data={
+                    'type': 'quote_update',
+                    'contract_symbol': quote.contract.contract_symbol,
+                    'bid': quote.bid,
+                    'ask': quote.ask,
+                    'last': quote.last,
+                    'volume': quote.volume,
+                    'implied_vol': quote.implied_vol,
+                    'delta': quote.delta,
+                    'gamma': quote.gamma,
+                    'theta': quote.theta,
+                    'vega': quote.vega,
+                    'timestamp': quote.timestamp.isoformat()
+                },
+                timestamp=quote.timestamp
+            )
+            self.event_manager.emit(event)
+    
+    def _clean_stale_data(self) -> None:
+        """Clean stale data from caches."""
+        current_time = datetime.now()
+        cutoff_time = current_time - timedelta(seconds=STALE_DATA_THRESHOLD)
+        
+        with self._lock:
+            # Remove stale quotes
+            stale_contracts = [
+                contract_symbol for contract_symbol, quote in self.quotes_cache.items()
+                if quote.timestamp < cutoff_time
+            ]
+            
+            for contract_symbol in stale_contracts:
+                del self.quotes_cache[contract_symbol]
+                
+            # Clean old trades
+            while self.trades_cache and self.trades_cache[0].timestamp < cutoff_time:
+                self.trades_cache.popleft()
+    
+    def _monitor_performance(self) -> None:
+        """Monitor feed performance."""
+        current_time = time.time()
+        if current_time - self.stats['last_performance_check'] >= 60:  # Every minute
+            self.logger.debug(f"OPRA Feed Stats: "
+                            f"Quotes: {self.stats['quotes_received']}, "
+                            f"Trades: {self.stats['trades_received']}, "
+                            f"Greeks: {self.stats['greeks_calculated']}, "
+                            f"Errors: {self.stats['errors']}")
+            
+            self.stats['last_performance_check'] = current_time
+    
+    def _get_next_request_id(self) -> int:
+        """Get next unique request ID."""
+        self.request_counter += 1
+        return self.request_counter
+    
+    def _stop_market_data_requests(self) -> None:
+        """Stop all market data requests."""
+        if self.ib_client:
+            for req_id in self.active_contracts.keys():
+                try:
+                    self.ib_client.cancelMktData(int(req_id))
+                except Exception:
+                    pass
+
+    # ==========================================================================
+    # PUBLIC API METHODS
+    # ==========================================================================
+    def get_option_chain(self, symbol: str, expiration: date) -> Optional[OptionsChainSnapshot]:
+        """
+        Get option chain for specific symbol and expiration.
+        
+        Args:
+            symbol: Underlying symbol
+            expiration: Option expiration date
+            
         Returns:
-            dict: Feed status information
+            OptionsChainSnapshot if available, None otherwise
         """
-        try:
-            with self.data_lock:
-                return {
-                    "feed_id": OPRA_FEED_ID,
-                    "symbol": self.symbol,
-                    "is_running": self.is_running,
-                    "active_contracts": len(self.active_contracts),
-                    "cached_quotes": len(self.options_cache),
-                    "chain_expiries": len(self.chain_snapshots),
-                    "quotes_history_size": len(self.quotes_history),
-                    "callbacks_registered": len(self.data_callbacks),
-                    "last_update": datetime.now().isoformat()
-                }
-                
-        except Exception as e:
-            self.logger.error(f"Error getting feed status: {e}")
-            return {"error": str(e)}
-
-
-# =============================================================================
-# Main Execution
-# =============================================================================
-if __name__ == "__main__":
-    # Example usage
-    from ib_insync import IB
+        return self.option_chains.get(symbol, {}).get(expiration)
     
-    # Create IB connection
-    ib = IB()
-    ib.connect('127.0.0.1', 4002, clientId=1)
-    
-    # Create OPRA feed
-    opra_feed = OPRAFeed(ib, "SPY")
-    
-    # Register a sample callback
-    def on_option_update(event_type, data):
-        print(f"Option Update: {data.symbol} {data.strike} {data.option_type} - Bid: {data.bid}, Ask: {data.ask}")
-    
-    opra_feed.register_callback("sample_callback", on_option_update)
-    
-    try:
-        # Start the feed
-        opra_feed.start()
+    def get_option_quote(self, contract: OptionContract) -> Optional[OptionQuote]:
+        """
+        Get current quote for option contract.
         
-        # Keep running
-        while True:
-            time.sleep(60)
-            status = opra_feed.get_feed_status()
-            print(f"Feed Status: {status}")
+        Args:
+            contract: Option contract
             
-    except KeyboardInterrupt:
-        print("Shutting down OPRA feed...")
-        opra_feed.stop()
-        ib.disconnect()
+        Returns:
+            OptionQuote if available, None otherwise
+        """
+        return self.quotes_cache.get(contract.contract_symbol)
+    
+    def get_options_flow(self, symbol: str) -> Optional[OptionsFlow]:
+        """
+        Get current options flow analysis for symbol.
+        
+        Args:
+            symbol: Underlying symbol
+            
+        Returns:
+            OptionsFlow if available, None otherwise
+        """
+        return self.options_flow.get(symbol)
+    
+    def get_all_option_chains(self, symbol: str) -> Dict[date, OptionsChainSnapshot]:
+        """
+        Get all option chains for symbol.
+        
+        Args:
+            symbol: Underlying symbol
+            
+        Returns:
+            Dictionary of expiration dates to option chains
+        """
+        return self.option_chains.get(symbol, {}).copy()
+    
+    def get_atm_options(self, symbol: str, expiration: date) -> Dict[str, OptionQuote]:
+        """
+        Get at-the-money call and put options.
+        
+        Args:
+            symbol: Underlying symbol
+            expiration: Option expiration date
+            
+        Returns:
+            Dictionary with 'call' and 'put' ATM quotes
+        """
+        chain = self.get_option_chain(symbol, expiration)
+        if not chain:
+            return {}
+        
+        atm_strike = chain.atm_strike
+        result = {}
+        
+        if atm_strike in chain.calls:
+            result['call'] = chain.calls[atm_strike]
+        
+        if atm_strike in chain.puts:
+            result['put'] = chain.puts[atm_strike]
+        
+        return result
+    
+    def get_option_volume(self, symbol: str, expiration: date) -> Dict[str, int]:
+        """
+        Get total option volume for expiration.
+        
+        Args:
+            symbol: Underlying symbol
+            expiration: Option expiration date
+            
+        Returns:
+            Dictionary with call and put volumes
+        """
+        chain = self.get_option_chain(symbol, expiration)
+        if not chain:
+            return {'call_volume': 0, 'put_volume': 0}
+        
+        call_volume = sum(quote.volume for quote in chain.calls.values())
+        put_volume = sum(quote.volume for quote in chain.puts.values())
+        
+        return {
+            'call_volume': call_volume,
+            'put_volume': put_volume,
+            'total_volume': call_volume + put_volume,
+            'call_put_ratio': call_volume / put_volume if put_volume > 0 else float('inf')
+        }
+    
+    def get_greeks_summary(self, symbol: str, expiration: date) -> Dict[str, float]:
+        """
+        Get aggregated Greeks for option chain.
+        
+        Args:
+            symbol: Underlying symbol
+            expiration: Option expiration date
+            
+        Returns:
+            Dictionary with aggregated Greeks
+        """
+        chain = self.get_option_chain(symbol, expiration)
+        if not chain:
+            return {}
+        
+        total_delta = 0.0
+        total_gamma = 0.0
+        total_theta = 0.0
+        total_vega = 0.0
+        
+        all_quotes = list(chain.calls.values()) + list(chain.puts.values())
+        
+        for quote in all_quotes:
+            if quote.delta is not None:
+                total_delta += quote.delta * quote.volume
+            if quote.gamma is not None:
+                total_gamma += quote.gamma * quote.volume
+            if quote.theta is not None:
+                total_theta += quote.theta * quote.volume
+            if quote.vega is not None:
+                total_vega += quote.vega * quote.volume
+        
+        return {
+            'total_delta': total_delta,
+            'total_gamma': total_gamma,
+            'total_theta': total_theta,
+            'total_vega': total_vega
+        }
+    
+    def get_implied_volatility_smile(self, symbol: str, expiration: date) -> pd.DataFrame:
+        """
+        Get implied volatility smile for expiration.
+        
+        Args:
+            symbol: Underlying symbol
+            expiration: Option expiration date
+            
+        Returns:
+            DataFrame with strike, call IV, put IV
+        """
+        chain = self.get_option_chain(symbol, expiration)
+        if not chain:
+            return pd.DataFrame()
+        
+        data = []
+        all_strikes = chain.all_strikes
+        
+        for strike in all_strikes:
+            row = {'strike': strike}
+            
+            if strike in chain.calls and chain.calls[strike].implied_vol:
+                row['call_iv'] = chain.calls[strike].implied_vol
+            
+            if strike in chain.puts and chain.puts[strike].implied_vol:
+                row['put_iv'] = chain.puts[strike].implied_vol
+            
+            if 'call_iv' in row or 'put_iv' in row:
+                data.append(row)
+        
+        return pd.DataFrame(data)
+
+    # ==========================================================================
+    # CLEANUP METHODS
+    # ==========================================================================
+    def cleanup(self) -> None:
+        """Clean up OPRA data feed resources."""
+        try:
+            # Stop feed
+            self.stop_feed()
+            
+            # Clear data structures
+            with self._lock:
+                self.option_chains.clear()
+                self.active_contracts.clear()
+                self.quotes_cache.clear()
+                self.trades_cache.clear()
+                self.tick_data.clear()
+                self.underlying_prices.clear()
+                self.implied_vols.clear()
+                self.greeks_cache.clear()
+                self.options_flow.clear()
+                self.flow_history.clear()
+            
+            self.logger.info("OPRA data feed cleanup completed")
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'cleanup'
+            })
+
+# ==============================================================================
+# MODULE FUNCTIONS
+# ==============================================================================
+def get_opra_feed(config: Optional[Dict] = None) -> OPRADataFeed:
+    """
+    Get singleton instance of OPRA data feed.
+    
+    Args:
+        config: Optional configuration dictionary
+        
+    Returns:
+        OPRADataFeed instance
+    """
+    global _opra_feed_instance
+    if _opra_feed_instance is None:
+        _opra_feed_instance = OPRADataFeed(config)
+    return _opra_feed_instance
+
+def create_option_contract(symbol: str, expiration: date, strike: float, 
+                          option_type: str) -> OptionContract:
+    """
+    Create option contract helper function.
+    
+    Args:
+        symbol: Underlying symbol
+        expiration: Expiration date
+        strike: Strike price
+        option_type: 'C' for call, 'P' for put
+        
+    Returns:
+        OptionContract instance
+    """
+    return OptionContract(
+        symbol=symbol,
+        expiration=expiration,
+        strike=strike,
+        option_type=OptionType.CALL if option_type.upper() == 'C' else OptionType.PUT
+    )
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+# Global instance
+_opra_feed_instance: Optional[OPRADataFeed] = None
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
+if __name__ == "__main__":
+    # Module testing code
+    print("📡 Testing OPRA Data Feed...")
+    
+    feed = OPRADataFeed()
+    
+    if feed.initialize():
+        print("✅ OPRA Feed initialized successfully")
+        
+        # Start feed
+        feed.start_feed()
+        
+        # Test contract creation
+        contract = create_option_contract("SPY", date(2025, 7, 18), 450.0, "C")
+        print(f"📋 Test Contract: {contract.contract_symbol}")
+        print(f"   DTE: {contract.dte}")
+        print(f"   TTE: {contract.tte:.4f}")
+        
+        # Simulate some option data
+        quote = OptionQuote(
+            contract=contract,
+            bid=5.10,
+            ask=5.20,
+            bid_size=10,
+            ask_size=15,
+            last=5.15,
+            last_size=5,
+            volume=1000,
+            open_interest=5000,
+            timestamp=datetime.now(),
+            exchange="CBOE",
+            implied_vol=0.25,
+            delta=0.55,
+            gamma=0.08,
+            theta=-0.05,
+            vega=0.12
+        )
+        
+        print(f"📊 Test Quote:")
+        print(f"   Bid/Ask: ${quote.bid:.2f} / ${quote.ask:.2f}")
+        print(f"   Mid: ${quote.mid:.2f}")
+        print(f"   IV: {quote.implied_vol:.1%}")
+        print(f"   Delta: {quote.delta:.3f}")
+        print(f"   Gamma: {quote.gamma:.3f}")
+        print(f"   Volume: {quote.volume:,}")
+        
+        # Test flow analysis
+        flow = OptionsFlow(
+            symbol="SPY",
+            direction=FlowDirection.BULLISH,
+            volume=10000,
+            premium=500000.0,
+            avg_price=5.0,
+            trades=50,
+            call_volume=7000,
+            put_volume=3000,
+            call_premium=350000.0,
+            put_premium=150000.0,
+            timestamp=datetime.now()
+        )
+        
+        print(f"🌊 Test Flow:")
+        print(f"   Direction: {flow.direction.value}")
+        print(f"   C/P Ratio: {flow.call_put_ratio:.2f}")
+        print(f"   Volume: {flow.volume:,}")
+        print(f"   Premium: ${flow.premium:,.0f}")
+        
+        time.sleep(3)
+        
+        # Cleanup
+        feed.cleanup()
+        print("🧹 Cleanup completed")
+        
+    else:
+        print("❌ OPRA Feed initialization failed")
+                

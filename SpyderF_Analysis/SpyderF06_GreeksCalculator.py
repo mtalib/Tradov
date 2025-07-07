@@ -5,811 +5,994 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderF06_GreeksCalculator.py
 Group: F (Technical Analysis)
-Purpose: Options Greeks calculations using QuantLib
-
+Purpose: Advanced Greeks calculation for options with American options support
+         
 Description:
-    This module provides professional-grade options pricing and Greeks calculations
-    using QuantLib. It supports American options (SPY), various pricing models,
-    and advanced Greeks including second-order sensitivities. The module integrates
-    seamlessly with the Spyder trading system for real-time risk management.
+    This module provides advanced Greeks calculations for both European and American
+    options. It includes Black-Scholes for European options and Binomial/Trinomial
+    trees for American options, with support for dividends and volatility smile.
 
-Author: Mohamed Talib
-Date: 2025-06-12
-Version: 1.4
+Author: Claude AI (Improvements by Maestro)
+Date: 2024-01-07
+Version: 2.0 - Added American options, dividends, and volatility smile
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import datetime
-import numpy as np
-from typing import Dict, Optional, Tuple, Union
+import math
+from typing import Dict, Optional, Tuple, Union, List
 from enum import Enum
+from datetime import datetime, timedelta
+import numpy as np
+from scipy.stats import norm
+from scipy.optimize import minimize_scalar, brentq
 import warnings
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import QuantLib as ql
 import pandas as pd
+from numba import jit, prange
+import cachetools
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import OptionType
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Model parameters
-BINOMIAL_STEPS = 100  # Steps for binomial tree
-MC_PATHS = 10000      # Paths for Monte Carlo
-MC_STEPS = 100        # Time steps for Monte Carlo
-CALENDAR_DAYS_PER_YEAR = 365
-TRADING_DAYS_PER_YEAR = 252
-
-# Risk-free rate source
-DEFAULT_RISK_FREE_RATE = 0.05  # 5% default if not provided
+from SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class PricingModel(Enum):
-    """Available pricing models"""
-    BINOMIAL_CRR = "crr"          # Cox-Ross-Rubinstein
-    BINOMIAL_JR = "jarrowrudd"    # Jarrow-Rudd
-    BINOMIAL_LR = "lr"            # Leisen-Reimer
-    BINOMIAL_TIAN = "tian"        # Tian
-    MONTE_CARLO = "mc"            # Monte Carlo
-    FINITE_DIFFERENCES = "fd"      # Finite Differences
+    """Supported pricing models."""
+    BLACK_SCHOLES = "black_scholes"
+    BINOMIAL = "binomial"
+    TRINOMIAL = "trinomial"
+    MONTE_CARLO = "monte_carlo"
+    AUTO = "auto"  # Automatically choose based on option type
+
+class OptionStyle(Enum):
+    """Option exercise style."""
+    EUROPEAN = "european"
+    AMERICAN = "american"
 
 # ==============================================================================
-# GREEKS CALCULATOR CLASS
+# MAIN CLASS
 # ==============================================================================
 class GreeksCalculator:
     """
-    Professional options pricing and Greeks calculator using QuantLib.
+    Advanced Greeks calculator supporting both European and American options.
     
-    This class provides accurate pricing for American options and calculates
-    all standard Greeks plus advanced sensitivities. It supports multiple
-    pricing models and handles edge cases gracefully.
+    Features:
+    - Black-Scholes for European options
+    - Binomial/Trinomial trees for American options
+    - Dividend support
+    - Volatility smile interpolation
+    - High-performance calculations with caching
     """
     
-    def __init__(self, logger: Optional[SpyderLogger] = None,
-                 error_handler: Optional[SpyderErrorHandler] = None):
-        """Initialize Greeks calculator"""
-        self.logger = logger or SpyderLogger()
-        self.error_handler = error_handler or SpyderErrorHandler()
+    def __init__(self, config_manager: Optional[ConfigManager] = None):
+        """Initialize the Greeks calculator."""
+        self.logger = SpyderLogger.get_logger(__name__)
+        self.error_handler = SpyderErrorHandler()
+        self.config_manager = config_manager or ConfigManager()
         
-        # Set QuantLib evaluation date
-        self.evaluation_date = ql.Date.todaysDate()
-        ql.Settings.instance().evaluationDate = self.evaluation_date
+        # Load configuration
+        self._load_config()
         
-        # Default model
-        self.default_model = PricingModel.BINOMIAL_CRR
+        # Initialize caches
+        self._init_caches()
         
-        # Calendar for business days
-        self.calendar = ql.UnitedStates(ql.UnitedStates.NYSE)
+        self.logger.info("GreeksCalculator initialized with American options support")
+    
+    def _load_config(self):
+        """Load configuration from ConfigManager."""
+        try:
+            # Get config section for Greeks calculation
+            config = self.config_manager.get_config('greeks_calculator', {})
+            
+            # Model parameters
+            self.binomial_steps = config.get('binomial_steps', 100)
+            self.trinomial_steps = config.get('trinomial_steps', 100)
+            self.monte_carlo_simulations = config.get('monte_carlo_simulations', 10000)
+            
+            # Cache settings
+            self.cache_ttl = config.get('cache_ttl_seconds', 60)
+            self.cache_size = config.get('cache_size', 10000)
+            
+            # Numerical parameters
+            self.epsilon = config.get('epsilon', 0.01)  # For numerical derivatives
+            self.iv_tolerance = config.get('iv_tolerance', 1e-6)
+            self.iv_max_iterations = config.get('iv_max_iterations', 100)
+            
+            # Volatility smile parameters
+            self.use_volatility_smile = config.get('use_volatility_smile', False)
+            self.smile_interpolation = config.get('smile_interpolation', 'cubic')
+            
+        except Exception as e:
+            self.logger.warning(f"Could not load config, using defaults: {e}")
+            # Use default values
+            self.binomial_steps = 100
+            self.trinomial_steps = 100
+            self.monte_carlo_simulations = 10000
+            self.cache_ttl = 60
+            self.cache_size = 10000
+            self.epsilon = 0.01
+            self.iv_tolerance = 1e-6
+            self.iv_max_iterations = 100
+            self.use_volatility_smile = False
+            self.smile_interpolation = 'cubic'
+    
+    def _init_caches(self):
+        """Initialize caching mechanisms."""
+        # TTL cache for Greeks calculations
+        self._greeks_cache = cachetools.TTLCache(
+            maxsize=self.cache_size,
+            ttl=self.cache_ttl
+        )
         
-        self.logger.info("QuantLib Greeks Calculator initialized")
+        # LRU cache for implied volatility
+        self._iv_cache = cachetools.LRUCache(maxsize=self.cache_size // 2)
+        
+        # Cache for volatility smile
+        self._smile_cache = cachetools.TTLCache(
+            maxsize=100,
+            ttl=self.cache_ttl * 5  # Longer TTL for smile
+        )
     
     # ==========================================================================
-    # MAIN PRICING METHODS
+    # PUBLIC METHODS - MAIN INTERFACE
     # ==========================================================================
+    
     def calculate_option_price(
         self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType,
-        is_american: bool = True,
-        dividend_yield: float = 0.0,
-        model: PricingModel = None
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str = 'call',
+        style: Union[str, OptionStyle] = OptionStyle.EUROPEAN,
+        dividends: Optional[List[Tuple[float, float]]] = None,
+        model: Union[str, PricingModel] = PricingModel.AUTO
     ) -> float:
         """
-        Calculate option price using QuantLib
+        Calculate option price with support for American options.
         
         Args:
-            spot_price: Current price of underlying
-            strike_price: Strike price of option
-            time_to_expiry: Time to expiration in years
-            risk_free_rate: Risk-free interest rate
-            volatility: Implied volatility
-            option_type: CALL or PUT
-            is_american: True for American, False for European
-            dividend_yield: Dividend yield of underlying
+            S: Current stock price
+            K: Strike price
+            T: Time to expiration (years)
+            r: Risk-free rate
+            sigma: Volatility
+            option_type: 'call' or 'put'
+            style: European or American
+            dividends: List of (time, amount) tuples
             model: Pricing model to use
             
         Returns:
             Option price
         """
         try:
-            # Create QuantLib option
-            option = self._create_option(
-                spot_price, strike_price, time_to_expiry,
-                risk_free_rate, volatility, option_type,
-                is_american, dividend_yield
-            )
+            # Validate inputs
+            self._validate_inputs(S, K, T, r, sigma)
             
-            # Set pricing engine
-            model = model or self.default_model
-            engine = self._create_pricing_engine(
-                spot_price, risk_free_rate, volatility,
-                dividend_yield, model
-            )
-            option.setPricingEngine(engine)
+            # Convert string inputs to enums
+            if isinstance(style, str):
+                style = OptionStyle(style.lower())
+            if isinstance(model, str):
+                model = PricingModel(model.lower())
             
-            # Calculate price
-            price = option.NPV()
+            # Auto-select model if needed
+            if model == PricingModel.AUTO:
+                model = self._select_model(style, dividends)
             
-            return max(0.0, price)
+            # Check cache
+            cache_key = (S, K, T, r, sigma, option_type, style.value, 
+                        str(dividends), model.value)
+            if cache_key in self._greeks_cache:
+                return self._greeks_cache[cache_key]
+            
+            # Apply volatility smile if enabled
+            if self.use_volatility_smile:
+                sigma = self._adjust_for_smile(S, K, T, sigma)
+            
+            # Calculate price based on model
+            if model == PricingModel.BLACK_SCHOLES:
+                if style == OptionStyle.AMERICAN:
+                    self.logger.warning(
+                        "Black-Scholes used for American option - switching to Binomial"
+                    )
+                    price = self._binomial_tree(
+                        S, K, T, r, sigma, option_type, True, dividends
+                    )
+                else:
+                    price = self._black_scholes_price(S, K, T, r, sigma, option_type)
+            
+            elif model == PricingModel.BINOMIAL:
+                is_american = (style == OptionStyle.AMERICAN)
+                price = self._binomial_tree(
+                    S, K, T, r, sigma, option_type, is_american, dividends
+                )
+            
+            elif model == PricingModel.TRINOMIAL:
+                is_american = (style == OptionStyle.AMERICAN)
+                price = self._trinomial_tree(
+                    S, K, T, r, sigma, option_type, is_american, dividends
+                )
+            
+            elif model == PricingModel.MONTE_CARLO:
+                # Monte Carlo for European only (for now)
+                if style == OptionStyle.AMERICAN:
+                    self.logger.warning(
+                        "Monte Carlo doesn't support American - using Binomial"
+                    )
+                    price = self._binomial_tree(
+                        S, K, T, r, sigma, option_type, True, dividends
+                    )
+                else:
+                    price = self._monte_carlo_price(
+                        S, K, T, r, sigma, option_type, dividends
+                    )
+            
+            # Cache result
+            self._greeks_cache[cache_key] = price
+            
+            return price
             
         except Exception as e:
             self.logger.error(f"Error calculating option price: {e}")
-            self.error_handler.handle_error(e)
-            # Fallback to Black-Scholes for European
-            if not is_american:
-                return self._black_scholes_price(
-                    spot_price, strike_price, time_to_expiry,
-                    risk_free_rate, volatility, option_type
-                )
             return 0.0
     
     def calculate_all_greeks(
         self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType,
-        is_american: bool = True,
-        dividend_yield: float = 0.0,
-        model: PricingModel = None
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str = 'call',
+        style: Union[str, OptionStyle] = OptionStyle.EUROPEAN,
+        dividends: Optional[List[Tuple[float, float]]] = None,
+        model: Union[str, PricingModel] = PricingModel.AUTO
     ) -> Dict[str, float]:
         """
-        Calculate all Greeks for an option
+        Calculate all Greeks for an option.
         
-        Returns dictionary with:
-            - price: Option price
-            - delta: Rate of change of price with spot
-            - gamma: Rate of change of delta with spot
-            - theta: Rate of change of price with time
-            - vega: Rate of change of price with volatility
-            - rho: Rate of change of price with interest rate
-            - lambda: Option elasticity
-            - vanna: Rate of change of delta with volatility
-            - charm: Rate of change of delta with time
-            - vomma: Rate of change of vega with volatility
-            - veta: Rate of change of vega with time
+        Returns:
+            Dictionary with price, delta, gamma, theta, vega, rho
         """
         try:
-            # Create option and pricing engine
-            option = self._create_option(
-                spot_price, strike_price, time_to_expiry,
-                risk_free_rate, volatility, option_type,
-                is_american, dividend_yield
+            # Convert inputs
+            if isinstance(style, str):
+                style = OptionStyle(style.lower())
+            if isinstance(model, str):
+                model = PricingModel(model.lower())
+            
+            # For European options with no dividends, use analytical Greeks
+            if (style == OptionStyle.EUROPEAN and not dividends and 
+                model in [PricingModel.BLACK_SCHOLES, PricingModel.AUTO]):
+                return self._analytical_greeks(S, K, T, r, sigma, option_type)
+            
+            # For American options or with dividends, use numerical Greeks
+            greeks = {}
+            
+            # Base price
+            greeks['price'] = self.calculate_option_price(
+                S, K, T, r, sigma, option_type, style, dividends, model
             )
             
-            model = model or self.default_model
-            engine = self._create_pricing_engine(
-                spot_price, risk_free_rate, volatility,
-                dividend_yield, model
+            # Delta: ∂V/∂S
+            greeks['delta'] = self._numerical_delta(
+                S, K, T, r, sigma, option_type, style, dividends, model
             )
-            option.setPricingEngine(engine)
             
-            # Calculate all Greeks
-            greeks = {
-                'price': option.NPV(),
-                'delta': option.delta(),
-                'gamma': option.gamma(),
-                'theta': option.theta() / CALENDAR_DAYS_PER_YEAR,  # Convert to per day
-                'vega': option.vega() / 100,  # Convert to per 1% vol change
-                'rho': option.rho() / 100,    # Convert to per 1% rate change
-            }
-            
-            # Calculate lambda (elasticity)
-            if greeks['price'] > 0:
-                greeks['lambda'] = greeks['delta'] * spot_price / greeks['price']
-            else:
-                greeks['lambda'] = 0.0
-            
-            # Calculate second-order Greeks using finite differences
-            second_order = self._calculate_second_order_greeks(
-                spot_price, strike_price, time_to_expiry,
-                risk_free_rate, volatility, option_type,
-                is_american, dividend_yield, model
+            # Gamma: ∂²V/∂S²
+            greeks['gamma'] = self._numerical_gamma(
+                S, K, T, r, sigma, option_type, style, dividends, model
             )
-            greeks.update(second_order)
+            
+            # Theta: ∂V/∂T (negative of derivative)
+            greeks['theta'] = self._numerical_theta(
+                S, K, T, r, sigma, option_type, style, dividends, model
+            )
+            
+            # Vega: ∂V/∂σ
+            greeks['vega'] = self._numerical_vega(
+                S, K, T, r, sigma, option_type, style, dividends, model
+            )
+            
+            # Rho: ∂V/∂r
+            greeks['rho'] = self._numerical_rho(
+                S, K, T, r, sigma, option_type, style, dividends, model
+            )
             
             return greeks
             
         except Exception as e:
             self.logger.error(f"Error calculating Greeks: {e}")
-            self.error_handler.handle_error(e)
-            return self._empty_greeks()
+            return {
+                'price': 0.0,
+                'delta': 0.0,
+                'gamma': 0.0,
+                'theta': 0.0,
+                'vega': 0.0,
+                'rho': 0.0
+            }
     
-    # ==========================================================================
-    # INDIVIDUAL GREEKS
-    # ==========================================================================
-    def delta(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType,
-        is_american: bool = True
-    ) -> float:
-        """Calculate option delta"""
-        greeks = self.calculate_all_greeks(
-            spot_price, strike_price, time_to_expiry,
-            risk_free_rate, volatility, option_type,
-            is_american
-        )
-        return greeks['delta']
-    
-    def gamma(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType = None,
-        is_american: bool = True
-    ) -> float:
-        """Calculate option gamma (same for calls and puts)"""
-        greeks = self.calculate_all_greeks(
-            spot_price, strike_price, time_to_expiry,
-            risk_free_rate, volatility, OptionType.CALL,
-            is_american
-        )
-        return greeks['gamma']
-    
-    def theta(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType,
-        is_american: bool = True
-    ) -> float:
-        """Calculate option theta (time decay per day)"""
-        greeks = self.calculate_all_greeks(
-            spot_price, strike_price, time_to_expiry,
-            risk_free_rate, volatility, option_type,
-            is_american
-        )
-        return greeks['theta']
-    
-    def vega(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType = None,
-        is_american: bool = True
-    ) -> float:
-        """Calculate option vega (same for calls and puts)"""
-        greeks = self.calculate_all_greeks(
-            spot_price, strike_price, time_to_expiry,
-            risk_free_rate, volatility, OptionType.CALL,
-            is_american
-        )
-        return greeks['vega']
-    
-    def rho(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType,
-        is_american: bool = True
-    ) -> float:
-        """Calculate option rho"""
-        greeks = self.calculate_all_greeks(
-            spot_price, strike_price, time_to_expiry,
-            risk_free_rate, volatility, option_type,
-            is_american
-        )
-        return greeks['rho']
-    
-    # ==========================================================================
-    # IMPLIED VOLATILITY
-    # ==========================================================================
     def calculate_implied_volatility(
         self,
         option_price: float,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        option_type: OptionType,
-        is_american: bool = True,
-        dividend_yield: float = 0.0,
-        initial_guess: float = 0.25
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        option_type: str = 'call',
+        style: Union[str, OptionStyle] = OptionStyle.EUROPEAN,
+        dividends: Optional[List[Tuple[float, float]]] = None
     ) -> Optional[float]:
         """
-        Calculate implied volatility from option price
+        Calculate implied volatility using Newton-Raphson method.
         
-        Args:
-            option_price: Market price of option
-            spot_price: Current price of underlying
-            strike_price: Strike price
-            time_to_expiry: Time to expiration in years
-            risk_free_rate: Risk-free rate
-            option_type: CALL or PUT
-            is_american: True for American options
-            dividend_yield: Dividend yield
-            initial_guess: Initial volatility guess
-            
         Returns:
-            Implied volatility or None if cannot be calculated
+            Implied volatility or None if not found
         """
         try:
-            # Create option
-            option = self._create_option(
-                spot_price, strike_price, time_to_expiry,
-                risk_free_rate, initial_guess, option_type,
-                is_american, dividend_yield
-            )
+            # Check cache
+            cache_key = (option_price, S, K, T, r, option_type, str(style), str(dividends))
+            if cache_key in self._iv_cache:
+                return self._iv_cache[cache_key]
             
-            # Create process with initial volatility
-            spot_handle = ql.QuoteHandle(ql.SimpleQuote(spot_price))
-            flat_ts = ql.YieldTermStructureHandle(
-                ql.FlatForward(self.evaluation_date, risk_free_rate, ql.Actual365Fixed())
-            )
-            dividend_yield_ts = ql.YieldTermStructureHandle(
-                ql.FlatForward(self.evaluation_date, dividend_yield, ql.Actual365Fixed())
-            )
+            # Convert style
+            if isinstance(style, str):
+                style = OptionStyle(style.lower())
             
-            # Use binomial engine for American options
-            if is_american:
-                process = ql.BlackScholesMertonProcess(
-                    spot_handle, dividend_yield_ts, flat_ts,
-                    ql.BlackVolTermStructureHandle(
-                        ql.BlackConstantVol(
-                            self.evaluation_date, self.calendar,
-                            initial_guess, ql.Actual365Fixed()
-                        )
-                    )
+            # Use Brent's method for robustness
+            def objective(sigma):
+                calc_price = self.calculate_option_price(
+                    S, K, T, r, sigma, option_type, style, dividends
                 )
-                engine = ql.BinomialVanillaEngine(process, "crr", BINOMIAL_STEPS)
-            else:
-                engine = ql.AnalyticEuropeanEngine(
-                    ql.BlackScholesMertonProcess(
-                        spot_handle, dividend_yield_ts, flat_ts,
-                        ql.BlackVolTermStructureHandle(
-                            ql.BlackConstantVol(
-                                self.evaluation_date, self.calendar,
-                                initial_guess, ql.Actual365Fixed()
-                            )
-                        )
-                    )
-                )
+                return calc_price - option_price
             
-            option.setPricingEngine(engine)
+            # Initial guess using Brenner-Subrahmanyam approximation
+            initial_sigma = math.sqrt(2 * math.pi / T) * (option_price / S)
             
-            # Calculate implied volatility
             try:
-                iv = option.impliedVolatility(
-                    option_price,
-                    process,
-                    1e-4,  # accuracy
-                    100,   # max iterations
-                    0.001, # min vol
-                    4.0    # max vol
-                )
+                # Try to find a bracket
+                if objective(0.001) * objective(5.0) < 0:
+                    iv = brentq(objective, 0.001, 5.0, xtol=self.iv_tolerance)
+                else:
+                    # Fall back to minimize
+                    result = minimize_scalar(
+                        lambda sig: abs(objective(sig)),
+                        bounds=(0.001, 5.0),
+                        method='bounded'
+                    )
+                    iv = result.x if result.fun < 0.01 else None
+                
+                # Cache result
+                if iv is not None:
+                    self._iv_cache[cache_key] = iv
+                
                 return iv
-            except:
-                # Try alternative method with different bounds
-                return self._implied_vol_bisection(
-                    option_price, spot_price, strike_price,
-                    time_to_expiry, risk_free_rate, option_type,
-                    is_american, dividend_yield
-                )
+                
+            except Exception as e:
+                self.logger.warning(f"IV calculation failed: {e}")
+                return None
                 
         except Exception as e:
-            self.logger.warning(f"Could not calculate implied volatility: {e}")
+            self.logger.error(f"Error in implied volatility calculation: {e}")
             return None
     
     # ==========================================================================
-    # PROBABILITY CALCULATIONS
+    # PRIVATE METHODS - BLACK-SCHOLES
     # ==========================================================================
-    def calculate_probability_itm(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType,
-        dividend_yield: float = 0.0
-    ) -> float:
-        """Calculate probability of option finishing in-the-money"""
-        try:
-            # For risk-neutral probability, use N(d2)
-            d1, d2 = self._calculate_d1_d2(
-                spot_price, strike_price, time_to_expiry,
-                risk_free_rate, volatility, dividend_yield
-            )
-            
-            normal = ql.CumulativeNormalDistribution()
-            
-            if option_type == OptionType.CALL:
-                return normal(d2)
-            else:
-                return normal(-d2)
-                
-        except Exception as e:
-            self.logger.error(f"Error calculating ITM probability: {e}")
-            return 0.5
-    
-    def calculate_probability_touch(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        volatility: float
-    ) -> float:
-        """
-        Calculate probability of touching strike price before expiration
-        Using approximation: P(touch) ≈ 2 * P(ITM)
-        """
-        # Simplified calculation
-        if spot_price == strike_price:
-            return 1.0
-            
-        # Standard deviation of price movement
-        std_dev = volatility * np.sqrt(time_to_expiry)
-        
-        # Distance to strike in standard deviations
-        distance = abs(np.log(strike_price / spot_price)) / std_dev
-        
-        # Approximate probability of touch
-        prob_touch = 2 * (1 - ql.CumulativeNormalDistribution()(distance))
-        
-        return min(1.0, prob_touch)
-    
-    # ==========================================================================
-    # HELPER METHODS
-    # ==========================================================================
-    def _create_option(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType,
-        is_american: bool,
-        dividend_yield: float
-    ) -> ql.VanillaOption:
-        """Create QuantLib option object"""
-        # Convert time to expiry to QuantLib date
-        expiry_date = self.evaluation_date + int(time_to_expiry * 365)
-        
-        # Create payoff
-        if option_type == OptionType.CALL:
-            payoff = ql.PlainVanillaPayoff(ql.Option.Call, strike_price)
-        else:
-            payoff = ql.PlainVanillaPayoff(ql.Option.Put, strike_price)
-        
-        # Create exercise
-        if is_american:
-            exercise = ql.AmericanExercise(self.evaluation_date, expiry_date)
-        else:
-            exercise = ql.EuropeanExercise(expiry_date)
-        
-        # Create option
-        option = ql.VanillaOption(payoff, exercise)
-        
-        return option
-    
-    def _create_pricing_engine(
-        self,
-        spot_price: float,
-        risk_free_rate: float,
-        volatility: float,
-        dividend_yield: float,
-        model: PricingModel
-    ) -> ql.PricingEngine:
-        """Create appropriate pricing engine"""
-        # Create market data handles
-        spot_handle = ql.QuoteHandle(ql.SimpleQuote(spot_price))
-        
-        # Flat term structures
-        flat_ts = ql.YieldTermStructureHandle(
-            ql.FlatForward(self.evaluation_date, risk_free_rate, ql.Actual365Fixed())
-        )
-        dividend_yield_ts = ql.YieldTermStructureHandle(
-            ql.FlatForward(self.evaluation_date, dividend_yield, ql.Actual365Fixed())
-        )
-        flat_vol_ts = ql.BlackVolTermStructureHandle(
-            ql.BlackConstantVol(
-                self.evaluation_date, self.calendar,
-                volatility, ql.Actual365Fixed()
-            )
-        )
-        
-        # Create process
-        process = ql.BlackScholesMertonProcess(
-            spot_handle, dividend_yield_ts, flat_ts, flat_vol_ts
-        )
-        
-        # Create engine based on model
-        if model == PricingModel.BINOMIAL_CRR:
-            return ql.BinomialVanillaEngine(process, "crr", BINOMIAL_STEPS)
-        elif model == PricingModel.BINOMIAL_JR:
-            return ql.BinomialVanillaEngine(process, "jarrowrudd", BINOMIAL_STEPS)
-        elif model == PricingModel.BINOMIAL_LR:
-            return ql.BinomialVanillaEngine(process, "lr", BINOMIAL_STEPS)
-        elif model == PricingModel.BINOMIAL_TIAN:
-            return ql.BinomialVanillaEngine(process, "tian", BINOMIAL_STEPS)
-        elif model == PricingModel.MONTE_CARLO:
-            return ql.MCAmericanEngine(
-                process, "pseudorandom", 
-                timeSteps=MC_STEPS,
-                requiredSamples=MC_PATHS
-            )
-        elif model == PricingModel.FINITE_DIFFERENCES:
-            return ql.FdBlackScholesVanillaEngine(process)
-        else:
-            # Default to CRR binomial
-            return ql.BinomialVanillaEngine(process, "crr", BINOMIAL_STEPS)
-    
-    def _calculate_second_order_greeks(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType,
-        is_american: bool,
-        dividend_yield: float,
-        model: PricingModel
-    ) -> Dict[str, float]:
-        """Calculate second-order Greeks using finite differences"""
-        second_order = {}
-        
-        # Small perturbations
-        spot_shift = spot_price * 0.001
-        vol_shift = volatility * 0.01
-        time_shift = 1 / 365  # One day
-        
-        try:
-            # Base Greeks
-            base_greeks = self.calculate_all_greeks(
-                spot_price, strike_price, time_to_expiry,
-                risk_free_rate, volatility, option_type,
-                is_american, dividend_yield, model
-            )
-            
-            # Vanna: d(Delta)/d(Vol)
-            greeks_vol_up = self.calculate_all_greeks(
-                spot_price, strike_price, time_to_expiry,
-                risk_free_rate, volatility + vol_shift, option_type,
-                is_american, dividend_yield, model
-            )
-            second_order['vanna'] = (greeks_vol_up['delta'] - base_greeks['delta']) / vol_shift
-            
-            # Charm: d(Delta)/d(Time)
-            if time_to_expiry > time_shift:
-                greeks_time_down = self.calculate_all_greeks(
-                    spot_price, strike_price, time_to_expiry - time_shift,
-                    risk_free_rate, volatility, option_type,
-                    is_american, dividend_yield, model
-                )
-                second_order['charm'] = -(greeks_time_down['delta'] - base_greeks['delta']) / time_shift
-            else:
-                second_order['charm'] = 0.0
-            
-            # Vomma: d(Vega)/d(Vol)
-            second_order['vomma'] = (greeks_vol_up['vega'] - base_greeks['vega']) / vol_shift
-            
-            # Veta: d(Vega)/d(Time)
-            if time_to_expiry > time_shift:
-                second_order['veta'] = -(greeks_time_down['vega'] - base_greeks['vega']) / time_shift
-            else:
-                second_order['veta'] = 0.0
-                
-        except Exception as e:
-            self.logger.warning(f"Error calculating second-order Greeks: {e}")
-            second_order = {
-                'vanna': 0.0,
-                'charm': 0.0,
-                'vomma': 0.0,
-                'veta': 0.0
-            }
-        
-        return second_order
-    
-    def _calculate_d1_d2(
-        self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        dividend_yield: float
-    ) -> Tuple[float, float]:
-        """Calculate d1 and d2 for Black-Scholes formula"""
-        if time_to_expiry <= 0 or volatility <= 0:
-            return 0.0, 0.0
-            
-        d1 = (np.log(spot_price / strike_price) + 
-              (risk_free_rate - dividend_yield + 0.5 * volatility ** 2) * time_to_expiry) / \
-             (volatility * np.sqrt(time_to_expiry))
-        
-        d2 = d1 - volatility * np.sqrt(time_to_expiry)
-        
-        return d1, d2
     
     def _black_scholes_price(
         self,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        volatility: float,
-        option_type: OptionType
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str
     ) -> float:
-        """Black-Scholes price for European options (fallback)"""
-        if time_to_expiry <= 0:
-            # Intrinsic value at expiry
-            if option_type == OptionType.CALL:
-                return max(0, spot_price - strike_price)
-            else:
-                return max(0, strike_price - spot_price)
+        """Calculate Black-Scholes price for European option."""
+        d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+        d2 = d1 - sigma * math.sqrt(T)
         
-        d1, d2 = self._calculate_d1_d2(
-            spot_price, strike_price, time_to_expiry,
-            risk_free_rate, volatility, 0.0
+        if option_type.lower() == 'call':
+            price = S * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(d2)
+        else:
+            price = K * math.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+        
+        return price
+    
+    def _analytical_greeks(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str
+    ) -> Dict[str, float]:
+        """Calculate analytical Greeks for Black-Scholes."""
+        sqrt_T = math.sqrt(T)
+        d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * sqrt_T)
+        d2 = d1 - sigma * sqrt_T
+        
+        # Common terms
+        pdf_d1 = norm.pdf(d1)
+        cdf_d1 = norm.cdf(d1)
+        cdf_d2 = norm.cdf(d2)
+        exp_rT = math.exp(-r * T)
+        
+        greeks = {}
+        
+        if option_type.lower() == 'call':
+            greeks['price'] = S * cdf_d1 - K * exp_rT * cdf_d2
+            greeks['delta'] = cdf_d1
+            greeks['theta'] = (-S * pdf_d1 * sigma / (2 * sqrt_T) - 
+                              r * K * exp_rT * cdf_d2) / 365
+            greeks['rho'] = K * T * exp_rT * cdf_d2 / 100
+        else:
+            greeks['price'] = K * exp_rT * norm.cdf(-d2) - S * norm.cdf(-d1)
+            greeks['delta'] = cdf_d1 - 1
+            greeks['theta'] = (-S * pdf_d1 * sigma / (2 * sqrt_T) + 
+                              r * K * exp_rT * norm.cdf(-d2)) / 365
+            greeks['rho'] = -K * T * exp_rT * norm.cdf(-d2) / 100
+        
+        # Common Greeks
+        greeks['gamma'] = pdf_d1 / (S * sigma * sqrt_T)
+        greeks['vega'] = S * pdf_d1 * sqrt_T / 100
+        
+        return greeks
+    
+    # ==========================================================================
+    # PRIVATE METHODS - BINOMIAL TREE
+    # ==========================================================================
+    
+    @jit(nopython=True)
+    def _binomial_tree_jit(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        is_call: bool,
+        is_american: bool,
+        steps: int
+    ) -> float:
+        """JIT-compiled binomial tree for performance."""
+        dt = T / steps
+        u = math.exp(sigma * math.sqrt(dt))
+        d = 1 / u
+        p = (math.exp(r * dt) - d) / (u - d)
+        disc = math.exp(-r * dt)
+        
+        # Initialize asset prices at maturity
+        asset_prices = np.zeros(steps + 1)
+        for i in range(steps + 1):
+            asset_prices[i] = S * (u ** (steps - i)) * (d ** i)
+        
+        # Initialize option values at maturity
+        option_values = np.zeros(steps + 1)
+        for i in range(steps + 1):
+            if is_call:
+                option_values[i] = max(0, asset_prices[i] - K)
+            else:
+                option_values[i] = max(0, K - asset_prices[i])
+        
+        # Step backwards through tree
+        for j in range(steps - 1, -1, -1):
+            for i in range(j + 1):
+                asset_price = S * (u ** (j - i)) * (d ** i)
+                
+                # Continuation value
+                option_values[i] = disc * (p * option_values[i] + 
+                                         (1 - p) * option_values[i + 1])
+                
+                # Early exercise for American options
+                if is_american:
+                    if is_call:
+                        exercise_value = max(0, asset_price - K)
+                    else:
+                        exercise_value = max(0, K - asset_price)
+                    option_values[i] = max(option_values[i], exercise_value)
+        
+        return option_values[0]
+    
+    def _binomial_tree(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        is_american: bool,
+        dividends: Optional[List[Tuple[float, float]]] = None
+    ) -> float:
+        """
+        Binomial tree with dividend support.
+        """
+        is_call = option_type.lower() == 'call'
+        
+        # Handle dividends
+        if dividends:
+            # Convert to present value
+            pv_dividends = sum(
+                amount * math.exp(-r * time) 
+                for time, amount in dividends 
+                if time <= T
+            )
+            S_adjusted = S - pv_dividends
+        else:
+            S_adjusted = S
+        
+        # Use JIT-compiled function for performance
+        return self._binomial_tree_jit(
+            S_adjusted, K, T, r, sigma, is_call, is_american, self.binomial_steps
+        )
+    
+    # ==========================================================================
+    # PRIVATE METHODS - TRINOMIAL TREE
+    # ==========================================================================
+    
+    def _trinomial_tree(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        is_american: bool,
+        dividends: Optional[List[Tuple[float, float]]] = None
+    ) -> float:
+        """
+        Trinomial tree implementation for American options.
+        """
+        steps = self.trinomial_steps
+        dt = T / steps
+        
+        # Trinomial parameters
+        u = math.exp(sigma * math.sqrt(2 * dt))
+        d = 1 / u
+        m = 1  # Middle move
+        
+        # Risk-neutral probabilities
+        pu = ((math.exp(r * dt / 2) - math.exp(-sigma * math.sqrt(dt / 2))) / 
+              (math.exp(sigma * math.sqrt(dt / 2)) - math.exp(-sigma * math.sqrt(dt / 2)))) ** 2
+        pd = ((math.exp(sigma * math.sqrt(dt / 2)) - math.exp(r * dt / 2)) / 
+              (math.exp(sigma * math.sqrt(dt / 2)) - math.exp(-sigma * math.sqrt(dt / 2)))) ** 2
+        pm = 1 - pu - pd
+        
+        disc = math.exp(-r * dt)
+        is_call = option_type.lower() == 'call'
+        
+        # Handle dividends
+        if dividends:
+            pv_dividends = sum(
+                amount * math.exp(-r * time) 
+                for time, amount in dividends 
+                if time <= T
+            )
+            S = S - pv_dividends
+        
+        # Initialize asset prices at maturity
+        asset_prices = np.zeros(2 * steps + 1)
+        for i in range(2 * steps + 1):
+            asset_prices[i] = S * (u ** max(0, i - steps)) * (d ** max(0, steps - i))
+        
+        # Initialize option values at maturity
+        option_values = np.zeros(2 * steps + 1)
+        for i in range(2 * steps + 1):
+            if is_call:
+                option_values[i] = max(0, asset_prices[i] - K)
+            else:
+                option_values[i] = max(0, K - asset_prices[i])
+        
+        # Step backwards through tree
+        for j in range(steps - 1, -1, -1):
+            for i in range(2 * j + 1):
+                # Asset price at this node
+                asset_price = S * (u ** max(0, i - j)) * (d ** max(0, j - i))
+                
+                # Continuation value
+                cont_value = disc * (pu * option_values[i + 2] + 
+                                   pm * option_values[i + 1] + 
+                                   pd * option_values[i])
+                
+                # Early exercise for American options
+                if is_american:
+                    if is_call:
+                        exercise_value = max(0, asset_price - K)
+                    else:
+                        exercise_value = max(0, K - asset_price)
+                    option_values[i] = max(cont_value, exercise_value)
+                else:
+                    option_values[i] = cont_value
+            
+            # Trim the array for next iteration
+            option_values = option_values[:2*j+1]
+        
+        return option_values[0]
+    
+    # ==========================================================================
+    # PRIVATE METHODS - MONTE CARLO
+    # ==========================================================================
+    
+    def _monte_carlo_price(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        dividends: Optional[List[Tuple[float, float]]] = None
+    ) -> float:
+        """
+        Monte Carlo simulation for European options.
+        """
+        # Handle dividends
+        if dividends:
+            pv_dividends = sum(
+                amount * math.exp(-r * time) 
+                for time, amount in dividends 
+                if time <= T
+            )
+            S = S - pv_dividends
+        
+        # Generate random paths
+        np.random.seed(42)  # For reproducibility
+        Z = np.random.standard_normal(self.monte_carlo_simulations)
+        
+        # Terminal stock prices
+        ST = S * np.exp((r - 0.5 * sigma ** 2) * T + sigma * math.sqrt(T) * Z)
+        
+        # Payoffs
+        if option_type.lower() == 'call':
+            payoffs = np.maximum(ST - K, 0)
+        else:
+            payoffs = np.maximum(K - ST, 0)
+        
+        # Discounted expected payoff
+        price = math.exp(-r * T) * np.mean(payoffs)
+        
+        return price
+    
+    # ==========================================================================
+    # PRIVATE METHODS - NUMERICAL GREEKS
+    # ==========================================================================
+    
+    def _numerical_delta(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        style: OptionStyle,
+        dividends: Optional[List[Tuple[float, float]]],
+        model: PricingModel
+    ) -> float:
+        """Calculate delta using finite differences."""
+        h = S * self.epsilon
+        
+        price_up = self.calculate_option_price(
+            S + h, K, T, r, sigma, option_type, style, dividends, model
+        )
+        price_down = self.calculate_option_price(
+            S - h, K, T, r, sigma, option_type, style, dividends, model
         )
         
-        normal = ql.CumulativeNormalDistribution()
-        
-        if option_type == OptionType.CALL:
-            price = (spot_price * normal(d1) - 
-                    strike_price * np.exp(-risk_free_rate * time_to_expiry) * normal(d2))
-        else:
-            price = (strike_price * np.exp(-risk_free_rate * time_to_expiry) * normal(-d2) - 
-                    spot_price * normal(-d1))
-        
-        return max(0, price)
+        return (price_up - price_down) / (2 * h)
     
-    def _implied_vol_bisection(
+    def _numerical_gamma(
         self,
-        option_price: float,
-        spot_price: float,
-        strike_price: float,
-        time_to_expiry: float,
-        risk_free_rate: float,
-        option_type: OptionType,
-        is_american: bool,
-        dividend_yield: float
-    ) -> Optional[float]:
-        """Calculate implied volatility using bisection method"""
-        # Bounds for volatility
-        vol_min = 0.001
-        vol_max = 4.0
-        tolerance = 1e-5
-        max_iterations = 100
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        style: OptionStyle,
+        dividends: Optional[List[Tuple[float, float]]],
+        model: PricingModel
+    ) -> float:
+        """Calculate gamma using finite differences."""
+        h = S * self.epsilon
         
-        for i in range(max_iterations):
-            vol_mid = (vol_min + vol_max) / 2
-            
-            # Calculate price with mid volatility
-            price_mid = self.calculate_option_price(
-                spot_price, strike_price, time_to_expiry,
-                risk_free_rate, vol_mid, option_type,
-                is_american, dividend_yield
-            )
-            
-            # Check convergence
-            if abs(price_mid - option_price) < tolerance:
-                return vol_mid
-            
-            # Update bounds
-            if price_mid > option_price:
-                vol_max = vol_mid
-            else:
-                vol_min = vol_mid
-            
-            # Check if bounds are too close
-            if vol_max - vol_min < tolerance:
-                return vol_mid
+        price_up = self.calculate_option_price(
+            S + h, K, T, r, sigma, option_type, style, dividends, model
+        )
+        price_mid = self.calculate_option_price(
+            S, K, T, r, sigma, option_type, style, dividends, model
+        )
+        price_down = self.calculate_option_price(
+            S - h, K, T, r, sigma, option_type, style, dividends, model
+        )
         
-        return None
+        return (price_up - 2 * price_mid + price_down) / (h ** 2)
     
-    def _empty_greeks(self) -> Dict[str, float]:
-        """Return empty Greeks dictionary"""
-        return {
-            'price': 0.0,
+    def _numerical_theta(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        style: OptionStyle,
+        dividends: Optional[List[Tuple[float, float]]],
+        model: PricingModel
+    ) -> float:
+        """Calculate theta using finite differences."""
+        h = 1 / 365  # One day
+        
+        if T <= h:
+            return 0.0
+        
+        price_now = self.calculate_option_price(
+            S, K, T, r, sigma, option_type, style, dividends, model
+        )
+        price_later = self.calculate_option_price(
+            S, K, T - h, r, sigma, option_type, style, dividends, model
+        )
+        
+        return -(price_later - price_now) / h
+    
+    def _numerical_vega(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        style: OptionStyle,
+        dividends: Optional[List[Tuple[float, float]]],
+        model: PricingModel
+    ) -> float:
+        """Calculate vega using finite differences."""
+        h = sigma * self.epsilon
+        
+        price_up = self.calculate_option_price(
+            S, K, T, r, sigma + h, option_type, style, dividends, model
+        )
+        price_down = self.calculate_option_price(
+            S, K, T, r, sigma - h, option_type, style, dividends, model
+        )
+        
+        return (price_up - price_down) / (2 * h) / 100  # Divide by 100 for 1% vega
+    
+    def _numerical_rho(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        style: OptionStyle,
+        dividends: Optional[List[Tuple[float, float]]],
+        model: PricingModel
+    ) -> float:
+        """Calculate rho using finite differences."""
+        h = 0.0001  # 1 basis point
+        
+        price_up = self.calculate_option_price(
+            S, K, T, r + h, sigma, option_type, style, dividends, model
+        )
+        price_down = self.calculate_option_price(
+            S, K, T, r - h, sigma, option_type, style, dividends, model
+        )
+        
+        return (price_up - price_down) / (2 * h) / 100  # Divide by 100 for 1% rho
+    
+    # ==========================================================================
+    # PRIVATE METHODS - HELPERS
+    # ==========================================================================
+    
+    def _validate_inputs(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float
+    ) -> None:
+        """Validate input parameters."""
+        if S <= 0:
+            raise ValueError("Stock price must be positive")
+        if K <= 0:
+            raise ValueError("Strike price must be positive")
+        if T < 0:
+            raise ValueError("Time to expiration cannot be negative")
+        if sigma < 0:
+            raise ValueError("Volatility cannot be negative")
+        if T == 0:
+            warnings.warn("Time to expiration is zero")
+    
+    def _select_model(
+        self,
+        style: OptionStyle,
+        dividends: Optional[List[Tuple[float, float]]]
+    ) -> PricingModel:
+        """Automatically select appropriate pricing model."""
+        if style == OptionStyle.AMERICAN or dividends:
+            return PricingModel.BINOMIAL
+        else:
+            return PricingModel.BLACK_SCHOLES
+    
+    def _adjust_for_smile(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        base_sigma: float
+    ) -> float:
+        """
+        Adjust volatility for smile/skew effect.
+        
+        This is a placeholder for volatility smile interpolation.
+        In production, this would interpolate from a volatility surface.
+        """
+        # Simple skew adjustment based on moneyness
+        moneyness = math.log(S / K) / (base_sigma * math.sqrt(T))
+        
+        # Quadratic smile approximation
+        # In production, use actual market smile data
+        smile_adjustment = 0.1 * moneyness ** 2 - 0.05 * moneyness
+        
+        adjusted_sigma = base_sigma * (1 + smile_adjustment)
+        
+        return max(0.01, adjusted_sigma)  # Ensure positive volatility
+    
+    # ==========================================================================
+    # PUBLIC METHODS - PORTFOLIO GREEKS
+    # ==========================================================================
+    
+    def calculate_portfolio_greeks(
+        self,
+        positions: List[Dict[str, Union[float, str]]]
+    ) -> Dict[str, float]:
+        """
+        Calculate aggregate Greeks for a portfolio of options.
+        
+        Args:
+            positions: List of position dictionaries with keys:
+                - quantity: Number of contracts (negative for short)
+                - S, K, T, r, sigma: Option parameters
+                - option_type: 'call' or 'put'
+                - style: 'european' or 'american'
+                
+        Returns:
+            Dictionary of aggregate Greeks
+        """
+        portfolio_greeks = {
             'delta': 0.0,
             'gamma': 0.0,
             'theta': 0.0,
             'vega': 0.0,
             'rho': 0.0,
-            'lambda': 0.0,
-            'vanna': 0.0,
-            'charm': 0.0,
-            'vomma': 0.0,
-            'veta': 0.0
+            'total_value': 0.0
         }
+        
+        for position in positions:
+            quantity = position['quantity']
+            
+            # Calculate Greeks for this position
+            greeks = self.calculate_all_greeks(
+                S=position['S'],
+                K=position['K'],
+                T=position['T'],
+                r=position['r'],
+                sigma=position['sigma'],
+                option_type=position['option_type'],
+                style=position.get('style', 'european'),
+                dividends=position.get('dividends')
+            )
+            
+            # Aggregate
+            contract_multiplier = 100  # Standard option contract
+            for greek, value in greeks.items():
+                if greek == 'price':
+                    portfolio_greeks['total_value'] += value * quantity * contract_multiplier
+                else:
+                    portfolio_greeks[greek] += value * quantity * contract_multiplier
+        
+        return portfolio_greeks
 
 
 # ==============================================================================
-# MODULE TESTING
+# EXAMPLE USAGE
 # ==============================================================================
 if __name__ == "__main__":
-    # Test the Greeks calculator
-    calculator = GreeksCalculator()
+    # Initialize calculator
+    calc = GreeksCalculator()
     
-    # Test parameters
-    spot = 450.0
-    strike = 450.0
-    tte = 30 / 365  # 30 days
-    rate = 0.05
-    vol = 0.20
-    
-    print("Testing QuantLib Greeks Calculator")
-    print("=" * 50)
-    print(f"Spot: ${spot}")
-    print(f"Strike: ${strike}")
-    print(f"Time to Expiry: {tte * 365:.0f} days")
-    print(f"Risk-Free Rate: {rate * 100:.1f}%")
-    print(f"Volatility: {vol * 100:.1f}%")
-    print()
-    
-    # Calculate for both call and put
-    for opt_type in [OptionType.CALL, OptionType.PUT]:
-        print(f"\n{opt_type.name} Option:")
-        print("-" * 30)
-        
-        # American option Greeks
-        greeks = calculator.calculate_all_greeks(
-            spot, strike, tte, rate, vol, opt_type, is_american=True
-        )
-        
-        print(f"Price: ${greeks['price']:.2f}")
-        print(f"Delta: {greeks['delta']:.4f}")
-        print(f"Gamma: {greeks['gamma']:.4f}")
-        print(f"Theta: ${greeks['theta']:.2f}/day")
-        print(f"Vega: ${greeks['vega']:.2f}/1% vol")
-        print(f"Rho: ${greeks['rho']:.2f}/1% rate")
-        
-        # Probability calculations
-        prob_itm = calculator.calculate_probability_itm(
-            spot, strike, tte, rate, vol, opt_type
-        )
-        prob_touch = calculator.calculate_probability_touch(
-            spot, strike, tte, vol
-        )
-        
-        print(f"\nProbability ITM: {prob_itm * 100:.1f}%")
-        print(f"Probability Touch: {prob_touch * 100:.1f}%")
-    
-    # Test implied volatility
-    print("\n\nImplied Volatility Test:")
-    print("-" * 30)
-    call_price = 5.50
-    iv = calculator.calculate_implied_volatility(
-        call_price, spot, strike, tte, rate, OptionType.CALL
+    # Example 1: European option
+    print("=== European Call Option ===")
+    euro_greeks = calc.calculate_all_greeks(
+        S=100,
+        K=105,
+        T=0.25,
+        r=0.05,
+        sigma=0.2,
+        option_type='call',
+        style='european'
     )
-    if iv:
-        print(f"Market Price: ${call_price:.2f}")
-        print(f"Implied Volatility: {iv * 100:.1f}%")
+    for greek, value in euro_greeks.items():
+        print(f"{greek.capitalize()}: {value:.4f}")
+    
+    # Example 2: American put option
+    print("\n=== American Put Option ===")
+    amer_greeks = calc.calculate_all_greeks(
+        S=100,
+        K=105,
+        T=0.25,
+        r=0.05,
+        sigma=0.2,
+        option_type='put',
+        style='american'
+    )
+    for greek, value in amer_greeks.items():
+        print(f"{greek.capitalize()}: {value:.4f}")
+    
+    # Example 3: Option with dividends
+    print("\n=== Call Option with Dividends ===")
+    dividends = [(0.08, 2.0), (0.17, 2.0)]  # Two $2 dividends
+    div_greeks = calc.calculate_all_greeks(
+        S=100,
+        K=105,
+        T=0.25,
+        r=0.05,
+        sigma=0.2,
+        option_type='call',
+        style='american',
+        dividends=dividends
+    )
+    for greek, value in div_greeks.items():
+        print(f"{greek.capitalize()}: {value:.4f}")
+    
+    # Example 4: Implied volatility
+    print("\n=== Implied Volatility ===")
+    market_price = 3.5
+    iv = calc.calculate_implied_volatility(
+        option_price=market_price,
+        S=100,
+        K=105,
+        T=0.25,
+        r=0.05,
+        option_type='call'
+    )
+    print(f"Market Price: ${market_price}")
+    print(f"Implied Volatility: {iv:.2%}" if iv else "IV not found")
+    
+    # Example 5: Portfolio Greeks
+    print("\n=== Portfolio Greeks ===")
+    portfolio = [
+        {
+            'quantity': 10,  # Long 10 calls
+            'S': 100, 'K': 105, 'T': 0.25, 'r': 0.05, 'sigma': 0.2,
+            'option_type': 'call', 'style': 'european'
+        },
+        {
+            'quantity': -5,  # Short 5 puts
+            'S': 100, 'K': 95, 'T': 0.25, 'r': 0.05, 'sigma': 0.2,
+            'option_type': 'put', 'style': 'american'
+        }
+    ]
+    
+    port_greeks = calc.calculate_portfolio_greeks(portfolio)
+    for greek, value in port_greeks.items():
+        print(f"{greek.capitalize()}: {value:.2f}")

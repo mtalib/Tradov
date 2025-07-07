@@ -5,879 +5,938 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderE04_DrawdownControl.py
 Group: E (Risk Management)
-Purpose: Maximum drawdown monitoring
+Purpose: Maximum drawdown monitoring and control
 
 Description:
     This module monitors and controls portfolio drawdown, implementing various
     risk reduction strategies when drawdown thresholds are exceeded. It tracks
-    peak equity, calculates rolling drawdowns, and adjusts trading behavior.
+    peak equity, calculates rolling drawdowns, adjusts trading behavior based
+    on drawdown levels, and provides automated recovery protocols. The module
+    ensures capital preservation through dynamic risk management.
 
-Author: Mohamed Talib
-Date: 2025-05-29
-Version: 1.4
+Spyder Version: 1.0
+Architect: Mohamed Talib
+Date Created: 2025-06-16
+Last Updated: 2025-07-06 Time: 15:30:00
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import os
+import sys
+import json
+import uuid
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, Tuple, Union
+from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
-import math
+import threading
+from collections import deque
+from pathlib import Path
 import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 # ==============================================================================
-# LOCAL IMPORTS
+# LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+except ImportError:
+    import logging
+    SpyderLogger = type('SpyderLogger', (), {
+        'get_logger': lambda name: logging.getLogger(name)
+    })()
+
+try:
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+except ImportError:
+    SpyderErrorHandler = type('SpyderErrorHandler', (), {
+        'handle_error': lambda self, e, context: print(f"Error in {context}: {e}")
+    })
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Drawdown thresholds
-WARNING_DRAWDOWN = 0.05      # 5% drawdown warning
-REDUCE_RISK_DRAWDOWN = 0.10  # 10% reduce position sizes
-PAUSE_NEW_DRAWDOWN = 0.15    # 15% pause new positions
-STOP_ALL_DRAWDOWN = 0.20     # 20% stop all trading
+# Drawdown Thresholds
+WARNING_THRESHOLD = 0.05      # 5% - Warning level
+CAUTION_THRESHOLD = 0.10      # 10% - Reduce position sizes
+CRITICAL_THRESHOLD = 0.15     # 15% - Major risk reduction
+EMERGENCY_THRESHOLD = 0.20    # 20% - Stop new trades
+SHUTDOWN_THRESHOLD = 0.25     # 25% - Close all positions
 
-# Recovery parameters
-MIN_RECOVERY_RATIO = 0.50    # Recover 50% of drawdown before full size
-GRADUAL_RECOVERY_STEPS = 5   # Number of steps to return to full size
+# Recovery Thresholds
+RECOVERY_START = 0.50         # 50% recovery from max drawdown
+RECOVERY_NORMAL = 0.80        # 80% recovery to resume normal trading
 
-# Time-based parameters
-DRAWDOWN_LOOKBACK_DAYS = 252  # 1 year for max drawdown calculation
-RECOVERY_TIME_LIMIT = 90      # 90 days maximum recovery time
-SHORT_TERM_WINDOW = 20        # 20 days for short-term drawdown
-
-# Risk adjustments
-SIZE_REDUCTION_FACTORS = {
-    0.05: 1.0,   # No reduction under 5%
-    0.10: 0.75,  # 25% reduction at 10%
-    0.15: 0.50,  # 50% reduction at 15%
-    0.20: 0.0    # No new positions at 20%
+# Risk Adjustments
+POSITION_SIZE_MULTIPLIERS = {
+    'normal': 1.0,
+    'warning': 0.9,
+    'caution': 0.7,
+    'critical': 0.5,
+    'emergency': 0.25,
+    'shutdown': 0.0
 }
+
+# Monitoring
+DRAWDOWN_CHECK_INTERVAL = 30  # seconds
+RECOVERY_CHECK_INTERVAL = 60  # seconds
+HISTORY_LOOKBACK = 252       # Trading days
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class DrawdownState(Enum):
-    """Current drawdown state"""
-    NORMAL = auto()
-    WARNING = auto()
-    RISK_REDUCTION = auto()
-    NEW_POSITIONS_PAUSED = auto()
-    TRADING_STOPPED = auto()
-    RECOVERING = auto()
+    """Current drawdown state."""
+    NORMAL = "normal"
+    WARNING = "warning"
+    CAUTION = "caution"
+    CRITICAL = "critical"
+    EMERGENCY = "emergency"
+    SHUTDOWN = "shutdown"
+    RECOVERY = "recovery"
 
 class RecoveryPhase(Enum):
-    """Recovery phase after drawdown"""
-    INITIAL = auto()
-    GRADUAL = auto()
-    FINAL = auto()
-    COMPLETE = auto()
+    """Recovery phase after drawdown."""
+    NONE = "none"
+    EARLY = "early"
+    MIDDLE = "middle"
+    LATE = "late"
+    COMPLETE = "complete"
 
-class DrawdownType(Enum):
-    """Types of drawdown measurements"""
-    PORTFOLIO = auto()
-    STRATEGY = auto()
-    DAILY = auto()
-    WEEKLY = auto()
-    MONTHLY = auto()
-    ROLLING = auto()
+class DrawdownAction(Enum):
+    """Actions taken during drawdown."""
+    NONE = "none"
+    REDUCE_SIZE = "reduce_size"
+    STOP_NEW_TRADES = "stop_new_trades"
+    REDUCE_POSITIONS = "reduce_positions"
+    CLOSE_LOSING = "close_losing"
+    CLOSE_ALL = "close_all"
+    HEDGE = "hedge"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
+@dataclass
 class DrawdownMetrics:
-    """Drawdown metrics and statistics"""
+    """Drawdown metrics and statistics."""
     current_drawdown: float
     max_drawdown: float
-    drawdown_start: Optional[datetime]
-    drawdown_trough: Optional[datetime]
+    drawdown_start_date: Optional[datetime]
+    drawdown_start_value: float
     peak_value: float
+    peak_date: datetime
     trough_value: float
-    current_value: float
+    trough_date: Optional[datetime]
     days_in_drawdown: int
-    recovery_ratio: float
-    time_to_recovery: Optional[int] = None
-    
-    @property
-    def drawdown_duration(self) -> Optional[timedelta]:
-        """Get drawdown duration"""
-        if self.drawdown_start:
-            end = self.drawdown_trough or datetime.now()
-            return end - self.drawdown_start
-        return None
+    recovery_days: Optional[int] = None
+    drawdown_state: DrawdownState = DrawdownState.NORMAL
+    recovery_phase: RecoveryPhase = RecoveryPhase.NONE
 
+@dataclass
 class DrawdownEvent:
-    """Drawdown event record"""
+    """Record of a drawdown event."""
     event_id: str
     start_date: datetime
     end_date: Optional[datetime]
-    peak_value: float
+    start_value: float
     trough_value: float
+    end_value: Optional[float]
     max_drawdown: float
     duration_days: int
     recovery_days: Optional[int]
-    trigger_threshold: float
+    drawdown_state_reached: DrawdownState
     actions_taken: List[str]
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
-class DrawdownControl:
-    """Drawdown control configuration"""
-    max_allowed_drawdown: float = 0.20
-    warning_threshold: float = WARNING_DRAWDOWN
-    risk_reduction_threshold: float = REDUCE_RISK_DRAWDOWN
-    pause_threshold: float = PAUSE_NEW_DRAWDOWN
-    stop_threshold: float = STOP_ALL_DRAWDOWN
-    use_gradual_recovery: bool = True
-    use_time_limits: bool = True
-    track_strategy_drawdowns: bool = True
-    
-class RecoveryPlan:
-    """Recovery plan after drawdown"""
-    phase: RecoveryPhase
-    current_step: int
-    total_steps: int
-    size_multiplier: float
+@dataclass
+class RiskAdjustment:
+    """Risk adjustment parameters."""
+    position_size_multiplier: float
+    max_positions: int
+    allow_new_trades: bool
+    require_stops: bool
+    max_loss_per_trade: float
+    allowed_strategies: List[str]
     restrictions: List[str]
+
+@dataclass
+class RecoveryPlan:
+    """Recovery plan after drawdown."""
+    phase: RecoveryPhase
     target_equity: float
-    estimated_time: int  # Days
+    allowed_risk: float
+    position_size_multiplier: float
+    strategies_allowed: List[str]
+    milestones: List[float]
+    current_milestone: int
 
 # ==============================================================================
 # DRAWDOWN CONTROLLER CLASS
 # ==============================================================================
 class DrawdownController:
     """
-    Monitors and controls portfolio drawdown.
+    Controls portfolio drawdown and manages recovery.
     
-    Implements multiple levels of risk reduction based on drawdown severity
-    and manages the recovery process back to normal trading.
+    Monitors equity curve for drawdowns, implements risk reduction strategies
+    at various thresholds, and manages the recovery process. Thread-safe
+    implementation with comprehensive tracking and reporting.
+    
+    Attributes:
+        current_metrics: Current drawdown metrics
+        current_state: Current drawdown state
+        peak_equity: Historical peak equity value
+        
+    Example:
+        >>> controller = DrawdownController(initial_equity=100000)
+        >>> metrics = controller.update_equity(95000)
+        >>> if metrics.drawdown_state == DrawdownState.CAUTION:
+        ...     adjustments = controller.get_risk_adjustments()
+        ...     # Apply risk adjustments
     """
     
-    def __init__(
-        self,
-        event_manager: EventManager,
-        risk_profile: RiskProfile,
-        config: Optional[DrawdownControl] = None
-    ):
+    def __init__(self, initial_equity: float, config: Optional[Dict[str, Any]] = None):
         """
         Initialize drawdown controller.
         
         Args:
-            event_manager: Event manager for notifications
-            risk_profile: Risk profile configuration
-            config: Drawdown control configuration
+            initial_equity: Starting equity value
+            config: Optional configuration dictionary
         """
-        self.event_manager = event_manager
-        self.risk_profile = risk_profile
-        self.config = config or DrawdownControl()
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
-        # State tracking
+        # Configuration
+        self.config = config or {}
+        self.initial_equity = initial_equity
+        
+        # Thresholds (configurable)
+        self.warning_threshold = self.config.get('warning_threshold', WARNING_THRESHOLD)
+        self.caution_threshold = self.config.get('caution_threshold', CAUTION_THRESHOLD)
+        self.critical_threshold = self.config.get('critical_threshold', CRITICAL_THRESHOLD)
+        self.emergency_threshold = self.config.get('emergency_threshold', EMERGENCY_THRESHOLD)
+        self.shutdown_threshold = self.config.get('shutdown_threshold', SHUTDOWN_THRESHOLD)
+        
+        # State management with thread safety
+        self._lock = threading.RLock()
+        
+        # Current state
+        self.peak_equity = initial_equity
+        self.current_equity = initial_equity
+        self.current_metrics = self._create_initial_metrics()
         self.current_state = DrawdownState.NORMAL
-        self.peak_equity = 0.0
-        self.equity_curve: List[Tuple[datetime, float]] = []
-        
-        # Drawdown metrics
-        self.portfolio_metrics = self._initialize_metrics()
-        self.strategy_metrics: Dict[str, DrawdownMetrics] = {}
-        
-        # Drawdown history
-        self.drawdown_events: List[DrawdownEvent] = []
-        self.current_event: Optional[DrawdownEvent] = None
-        
-        # Recovery tracking
         self.recovery_plan: Optional[RecoveryPlan] = None
-        self.recovery_start_equity = 0.0
         
-        # Performance tracking
-        self.state_changes: List[Dict[str, Any]] = []
-        self.risk_adjustments: List[Dict[str, Any]] = []
+        # History tracking
+        self.equity_history: deque = deque(maxlen=HISTORY_LOOKBACK * 2)
+        self.equity_history.append((datetime.now(), initial_equity))
         
-        # Register event handlers
-        self._register_event_handlers()
+        self.drawdown_history: deque = deque(maxlen=1000)
+        self.state_history: deque = deque(maxlen=1000)
+        self.action_history: deque = deque(maxlen=1000)
         
-        self.logger.info("DrawdownController initialized")
+        # Current drawdown event
+        self.current_event: Optional[DrawdownEvent] = None
+        self.completed_events: List[DrawdownEvent] = []
+        
+        # Monitoring
+        self._monitoring_active = False
+        self._monitor_thread: Optional[threading.Thread] = None
+        
+        # Callbacks
+        self._state_change_callbacks: List[callable] = []
+        self._action_callbacks: List[callable] = []
+        
+        self.logger.info(f"DrawdownController initialized with equity: ${initial_equity:,.2f}")
     
     # ==========================================================================
-    # EQUITY UPDATES
+    # PUBLIC METHODS - EQUITY UPDATES
     # ==========================================================================
-    def update_equity(
-        self,
-        current_equity: float,
-        timestamp: Optional[datetime] = None
-    ) -> DrawdownMetrics:
+    def update_equity(self, current_equity: float) -> DrawdownMetrics:
         """
-        Update equity and calculate drawdown.
+        Update current equity and calculate drawdown metrics.
         
         Args:
             current_equity: Current portfolio equity
-            timestamp: Update timestamp
             
         Returns:
             Updated drawdown metrics
         """
-        timestamp = timestamp or datetime.now()
-        
-        try:
-            # Update equity curve
-            self.equity_curve.append((timestamp, current_equity))
-            self._limit_equity_history()
+        with self._lock:
+            self.current_equity = current_equity
+            timestamp = datetime.now()
             
-            # Update peak equity
+            # Add to history
+            self.equity_history.append((timestamp, current_equity))
+            
+            # Update peak if new high
             if current_equity > self.peak_equity:
                 self.peak_equity = current_equity
-                
-                # Check if recovering from drawdown
-                if self.current_state == DrawdownState.RECOVERING:
-                    self._complete_recovery()
+                self.current_metrics.peak_value = current_equity
+                self.current_metrics.peak_date = timestamp
             
             # Calculate drawdown
-            self.portfolio_metrics = self._calculate_drawdown_metrics(
-                current_equity,
-                timestamp
-            )
+            drawdown = self._calculate_drawdown(current_equity)
             
-            # Check state transitions
-            new_state = self._determine_state(self.portfolio_metrics.current_drawdown)
+            # Update metrics
+            self._update_metrics(current_equity, drawdown, timestamp)
+            
+            # Check state change
+            new_state = self._determine_state(drawdown)
             if new_state != self.current_state:
-                self._handle_state_change(new_state, self.portfolio_metrics)
+                self._handle_state_change(self.current_state, new_state)
+                self.current_state = new_state
             
-            # Update recovery progress if in recovery
-            if self.recovery_plan:
-                self._update_recovery_progress(current_equity)
+            # Track drawdown event
+            self._track_drawdown_event(drawdown, timestamp)
             
-            # Emit metrics update
-            self._emit_metrics_update()
+            # Check recovery
+            if self.current_state == DrawdownState.RECOVERY:
+                self._update_recovery_progress()
             
-            return self.portfolio_metrics
-            
-        except Exception as e:
-            self.logger.error(f"Error updating equity: {e}")
-            self.error_handler.handle_error(e, "update_equity")
-            return self.portfolio_metrics
+            return self.current_metrics
     
-    def update_strategy_equity(
-        self,
-        strategy: str,
-        strategy_equity: float,
-        timestamp: Optional[datetime] = None
-    ) -> Optional[DrawdownMetrics]:
+    def get_risk_adjustments(self) -> RiskAdjustment:
         """
-        Update equity for a specific strategy.
-        
-        Args:
-            strategy: Strategy name
-            strategy_equity: Strategy equity value
-            timestamp: Update timestamp
-            
-        Returns:
-            Strategy drawdown metrics
-        """
-        if not self.config.track_strategy_drawdowns:
-            return None
-        
-        timestamp = timestamp or datetime.now()
-        
-        # Initialize if needed
-        if strategy not in self.strategy_metrics:
-            self.strategy_metrics[strategy] = self._initialize_metrics()
-        
-        # Update strategy peak
-        metrics = self.strategy_metrics[strategy]
-        if strategy_equity > metrics.peak_value:
-            metrics.peak_value = strategy_equity
-        
-        # Calculate strategy drawdown
-        metrics.current_value = strategy_equity
-        if metrics.peak_value > 0:
-            metrics.current_drawdown = (metrics.peak_value - strategy_equity) / metrics.peak_value
-        
-        return metrics
-    
-    # ==========================================================================
-    # DRAWDOWN CALCULATION
-    # ==========================================================================
-    def _calculate_drawdown_metrics(
-        self,
-        current_equity: float,
-        timestamp: datetime
-    ) -> DrawdownMetrics:
-        """Calculate comprehensive drawdown metrics"""
-        metrics = self.portfolio_metrics
-        
-        # Update current value
-        metrics.current_value = current_equity
-        
-        # Calculate current drawdown
-        if self.peak_equity > 0:
-            metrics.current_drawdown = (self.peak_equity - current_equity) / self.peak_equity
-        else:
-            metrics.current_drawdown = 0
-        
-        # Update peak and trough
-        metrics.peak_value = self.peak_equity
-        if metrics.current_drawdown > 0:
-            if metrics.drawdown_start is None:
-                # New drawdown started
-                metrics.drawdown_start = timestamp
-                metrics.trough_value = current_equity
-            elif current_equity < metrics.trough_value:
-                # New trough
-                metrics.trough_value = current_equity
-                metrics.drawdown_trough = timestamp
-        else:
-            # No drawdown
-            metrics.drawdown_start = None
-            metrics.drawdown_trough = None
-            metrics.trough_value = current_equity
-        
-        # Calculate maximum drawdown
-        metrics.max_drawdown = self._calculate_max_drawdown()
-        
-        # Calculate days in drawdown
-        if metrics.drawdown_start:
-            metrics.days_in_drawdown = (timestamp - metrics.drawdown_start).days
-        else:
-            metrics.days_in_drawdown = 0
-        
-        # Calculate recovery ratio
-        if metrics.peak_value > metrics.trough_value:
-            recovery_needed = metrics.peak_value - metrics.trough_value
-            recovery_achieved = current_equity - metrics.trough_value
-            metrics.recovery_ratio = recovery_achieved / recovery_needed if recovery_needed > 0 else 0
-        else:
-            metrics.recovery_ratio = 1.0
-        
-        return metrics
-    
-    def _calculate_max_drawdown(self, window_days: Optional[int] = None) -> float:
-        """Calculate maximum drawdown over period"""
-        if len(self.equity_curve) < 2:
-            return 0
-        
-        window_days = window_days or DRAWDOWN_LOOKBACK_DAYS
-        cutoff_date = datetime.now() - timedelta(days=window_days)
-        
-        # Filter equity curve
-        relevant_curve = [(t, v) for t, v in self.equity_curve if t >= cutoff_date]
-        if not relevant_curve:
-            return 0
-        
-        # Calculate running maximum and drawdowns
-        values = [v for _, v in relevant_curve]
-        running_max = np.maximum.accumulate(values)
-        drawdowns = (running_max - values) / running_max
-        
-        return float(np.max(drawdowns))
-    
-    def calculate_rolling_drawdowns(
-        self,
-        windows: List[int] = [20, 60, 252]
-    ) -> Dict[int, float]:
-        """
-        Calculate rolling drawdowns for multiple windows.
-        
-        Args:
-            windows: List of window sizes in days
-            
-        Returns:
-            Dictionary of window -> max drawdown
-        """
-        rolling_drawdowns = {}
-        
-        for window in windows:
-            dd = self._calculate_max_drawdown(window)
-            rolling_drawdowns[window] = dd
-        
-        return rolling_drawdowns
-    
-    # ==========================================================================
-    # STATE MANAGEMENT
-    # ==========================================================================
-    def _determine_state(self, current_drawdown: float) -> DrawdownState:
-        """Determine appropriate state based on drawdown"""
-        if current_drawdown >= self.config.stop_threshold:
-            return DrawdownState.TRADING_STOPPED
-        elif current_drawdown >= self.config.pause_threshold:
-            return DrawdownState.NEW_POSITIONS_PAUSED
-        elif current_drawdown >= self.config.risk_reduction_threshold:
-            return DrawdownState.RISK_REDUCTION
-        elif current_drawdown >= self.config.warning_threshold:
-            return DrawdownState.WARNING
-        elif self.recovery_plan is not None:
-            return DrawdownState.RECOVERING
-        else:
-            return DrawdownState.NORMAL
-    
-    def _handle_state_change(
-        self,
-        new_state: DrawdownState,
-        metrics: DrawdownMetrics
-    ) -> None:
-        """Handle state transitions"""
-        old_state = self.current_state
-        self.current_state = new_state
-        
-        # Log state change
-        self.state_changes.append({
-            'timestamp': datetime.now(),
-            'old_state': old_state.name,
-            'new_state': new_state.name,
-            'drawdown': metrics.current_drawdown,
-            'equity': metrics.current_value
-        })
-        
-        # Take appropriate actions
-        actions = []
-        
-        if new_state == DrawdownState.WARNING:
-            actions.append("Drawdown warning issued")
-            self._emit_warning(metrics)
-            
-        elif new_state == DrawdownState.RISK_REDUCTION:
-            actions.append("Risk reduction activated")
-            self._activate_risk_reduction(metrics)
-            
-        elif new_state == DrawdownState.NEW_POSITIONS_PAUSED:
-            actions.append("New positions paused")
-            self._pause_new_positions(metrics)
-            
-        elif new_state == DrawdownState.TRADING_STOPPED:
-            actions.append("Trading stopped")
-            self._stop_trading(metrics)
-            
-        elif new_state == DrawdownState.RECOVERING:
-            actions.append("Recovery phase started")
-            self._start_recovery(metrics)
-        
-        # Record drawdown event
-        if new_state != DrawdownState.NORMAL and not self.current_event:
-            self._start_drawdown_event(metrics, actions)
-        
-        # Emit state change event
-        self._emit_state_change(old_state, new_state, actions)
-        
-        self.logger.info(f"State changed from {old_state.name} to {new_state.name}")
-    
-    # ==========================================================================
-    # RISK CONTROLS
-    # ==========================================================================
-    def get_position_size_multiplier(self) -> float:
-        """
-        Get current position size multiplier based on drawdown.
+        Get current risk adjustments based on drawdown state.
         
         Returns:
-            Position size multiplier (0.0 to 1.0)
+            Risk adjustment parameters
         """
-        if self.current_state == DrawdownState.TRADING_STOPPED:
-            return 0.0
-        
-        # Get base multiplier from drawdown level
-        base_multiplier = 1.0
-        for threshold, multiplier in sorted(SIZE_REDUCTION_FACTORS.items()):
-            if self.portfolio_metrics.current_drawdown >= threshold:
-                base_multiplier = multiplier
-        
-        # Apply recovery plan if active
-        if self.recovery_plan:
-            base_multiplier *= self.recovery_plan.size_multiplier
-        
-        return base_multiplier
-    
-    def can_open_new_position(self, strategy: Optional[str] = None) -> bool:
-        """
-        Check if new positions can be opened.
-        
-        Args:
-            strategy: Optional strategy to check
-            
-        Returns:
-            True if new positions allowed
-        """
-        # Check portfolio level
-        if self.current_state in [
-            DrawdownState.NEW_POSITIONS_PAUSED,
-            DrawdownState.TRADING_STOPPED
-        ]:
-            return False
-        
-        # Check strategy level if specified
-        if strategy and strategy in self.strategy_metrics:
-            strategy_dd = self.strategy_metrics[strategy].current_drawdown
-            if strategy_dd >= self.config.pause_threshold:
-                return False
-        
-        # Check recovery restrictions
-        if self.recovery_plan and "no_new_positions" in self.recovery_plan.restrictions:
-            return False
-        
-        return True
-    
-    def get_risk_adjustments(self) -> Dict[str, Any]:
-        """Get current risk adjustments"""
-        return {
-            'state': self.current_state.name,
-            'drawdown': self.portfolio_metrics.current_drawdown,
-            'size_multiplier': self.get_position_size_multiplier(),
-            'new_positions_allowed': self.can_open_new_position(),
-            'recovery_phase': self.recovery_plan.phase.name if self.recovery_plan else None,
-            'restrictions': self.recovery_plan.restrictions if self.recovery_plan else []
-        }
-    
-    # ==========================================================================
-    # ACTIONS
-    # ==========================================================================
-    def _activate_risk_reduction(self, metrics: DrawdownMetrics) -> None:
-        """Activate risk reduction measures"""
-        self.risk_adjustments.append({
-            'timestamp': datetime.now(),
-            'action': 'risk_reduction',
-            'drawdown': metrics.current_drawdown,
-            'size_reduction': 1 - self.get_position_size_multiplier()
-        })
-        
-        self.logger.warning(f"Risk reduction activated at {metrics.current_drawdown:.1%} drawdown")
-    
-    def _pause_new_positions(self, metrics: DrawdownMetrics) -> None:
-        """Pause opening new positions"""
-        self.risk_adjustments.append({
-            'timestamp': datetime.now(),
-            'action': 'pause_new_positions',
-            'drawdown': metrics.current_drawdown
-        })
-        
-        self.logger.warning(f"New positions paused at {metrics.current_drawdown:.1%} drawdown")
-    
-    def _stop_trading(self, metrics: DrawdownMetrics) -> None:
-        """Stop all trading"""
-        self.risk_adjustments.append({
-            'timestamp': datetime.now(),
-            'action': 'stop_trading',
-            'drawdown': metrics.current_drawdown
-        })
-        
-        # Create drawdown event if not exists
-        if not self.current_event:
-            self._start_drawdown_event(metrics, ["Trading stopped due to maximum drawdown"])
-        
-        self.logger.error(f"Trading stopped at {metrics.current_drawdown:.1%} drawdown")
-    
-    # ==========================================================================
-    # RECOVERY
-    # ==========================================================================
-    def _start_recovery(self, metrics: DrawdownMetrics) -> None:
-        """Start recovery phase"""
-        if not self.config.use_gradual_recovery:
-            # Immediate full recovery
-            self.recovery_plan = RecoveryPlan(
-                phase=RecoveryPhase.COMPLETE,
-                current_step=1,
-                total_steps=1,
-                size_multiplier=1.0,
-                restrictions=[],
-                target_equity=self.peak_equity,
-                estimated_time=30
-            )
-        else:
-            # Gradual recovery
-            recovery_target = metrics.trough_value + (
-                (self.peak_equity - metrics.trough_value) * MIN_RECOVERY_RATIO
+        with self._lock:
+            multiplier = POSITION_SIZE_MULTIPLIERS.get(
+                self.current_state.value, 1.0
             )
             
-            self.recovery_plan = RecoveryPlan(
-                phase=RecoveryPhase.INITIAL,
-                current_step=1,
-                total_steps=GRADUAL_RECOVERY_STEPS,
-                size_multiplier=0.5,
-                restrictions=["reduced_size", "conservative_only"],
-                target_equity=recovery_target,
-                estimated_time=60
-            )
-            
-            self.recovery_start_equity = metrics.current_value
-        
-        self.logger.info("Started recovery phase")
-    
-    def _update_recovery_progress(self, current_equity: float) -> None:
-        """Update recovery plan progress"""
-        if not self.recovery_plan:
-            return
-        
-        # Calculate progress
-        recovery_progress = (current_equity - self.recovery_start_equity) / (
-            self.recovery_plan.target_equity - self.recovery_start_equity
-        )
-        
-        # Update phase
-        if recovery_progress >= 1.0:
-            if self.recovery_plan.phase == RecoveryPhase.INITIAL:
-                # Move to gradual phase
-                self.recovery_plan.phase = RecoveryPhase.GRADUAL
-                self.recovery_plan.target_equity = self.peak_equity * 0.95
-                self.recovery_plan.restrictions = ["reduced_size"]
-            elif self.recovery_plan.phase == RecoveryPhase.GRADUAL:
-                # Move to final phase
-                self.recovery_plan.phase = RecoveryPhase.FINAL
-                self.recovery_plan.target_equity = self.peak_equity
-                self.recovery_plan.restrictions = []
+            # Determine allowed strategies based on state
+            if self.current_state == DrawdownState.SHUTDOWN:
+                allowed_strategies = []
+            elif self.current_state in [DrawdownState.EMERGENCY, DrawdownState.CRITICAL]:
+                allowed_strategies = ['defensive', 'hedging']
+            elif self.current_state == DrawdownState.CAUTION:
+                allowed_strategies = ['defensive', 'neutral', 'hedging']
             else:
-                # Complete recovery
-                self._complete_recovery()
-        
-        # Update size multiplier
-        if self.recovery_plan.phase == RecoveryPhase.GRADUAL:
-            step_progress = recovery_progress * self.recovery_plan.total_steps
-            current_step = min(int(step_progress) + 1, self.recovery_plan.total_steps)
-            self.recovery_plan.current_step = current_step
-            self.recovery_plan.size_multiplier = 0.5 + (0.5 * current_step / self.recovery_plan.total_steps)
-    
-    def _complete_recovery(self) -> None:
-        """Complete recovery process"""
-        if self.recovery_plan:
-            self.recovery_plan.phase = RecoveryPhase.COMPLETE
-            self.recovery_plan = None
-        
-        # End drawdown event
-        if self.current_event:
-            self._end_drawdown_event()
-        
-        self.current_state = DrawdownState.NORMAL
-        self.logger.info("Recovery completed, returning to normal trading")
-    
-    # ==========================================================================
-    # EVENTS
-    # ==========================================================================
-    def _start_drawdown_event(
-        self,
-        metrics: DrawdownMetrics,
-        actions: List[str]
-    ) -> None:
-        """Start a new drawdown event"""
-        self.current_event = DrawdownEvent(
-            event_id=f"DD_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            start_date=metrics.drawdown_start or datetime.now(),
-            end_date=None,
-            peak_value=metrics.peak_value,
-            trough_value=metrics.trough_value,
-            max_drawdown=metrics.current_drawdown,
-            duration_days=0,
-            recovery_days=None,
-            trigger_threshold=self.config.warning_threshold,
-            actions_taken=actions
-        )
-        
-        self.drawdown_events.append(self.current_event)
-    
-    def _end_drawdown_event(self) -> None:
-        """End current drawdown event"""
-        if self.current_event:
-            self.current_event.end_date = datetime.now()
-            self.current_event.duration_days = (
-                self.current_event.end_date - self.current_event.start_date
-            ).days
+                allowed_strategies = ['all']
             
-            if self.portfolio_metrics.drawdown_trough:
-                self.current_event.recovery_days = (
-                    self.current_event.end_date - self.portfolio_metrics.drawdown_trough
-                ).days
+            # Max positions based on state
+            max_positions_map = {
+                DrawdownState.NORMAL: 10,
+                DrawdownState.WARNING: 8,
+                DrawdownState.CAUTION: 6,
+                DrawdownState.CRITICAL: 4,
+                DrawdownState.EMERGENCY: 2,
+                DrawdownState.SHUTDOWN: 0,
+                DrawdownState.RECOVERY: 5
+            }
             
-            self.current_event = None
+            max_positions = max_positions_map.get(self.current_state, 10)
+            
+            # Build restrictions list
+            restrictions = []
+            if self.current_state.value in ['critical', 'emergency', 'shutdown']:
+                restrictions.append("No new aggressive positions")
+                restrictions.append("Mandatory stop losses")
+                restrictions.append("Reduced leverage only")
+            
+            if self.current_state == DrawdownState.EMERGENCY:
+                restrictions.append("Close losing positions")
+                restrictions.append("No overnight holds")
+            
+            return RiskAdjustment(
+                position_size_multiplier=multiplier,
+                max_positions=max_positions,
+                allow_new_trades=self.current_state != DrawdownState.SHUTDOWN,
+                require_stops=self.current_state.value in ['caution', 'critical', 'emergency'],
+                max_loss_per_trade=0.01 if self.current_state.value in ['critical', 'emergency'] else 0.02,
+                allowed_strategies=allowed_strategies,
+                restrictions=restrictions
+            )
     
-    def _register_event_handlers(self) -> None:
-        """Register event handlers"""
-        self.event_manager.subscribe(
-            self._handle_portfolio_update,
-            event_filter=lambda e: e.type == EventType.PORTFOLIO,
-            subscriber_id="drawdown_controller"
-        )
+    def get_position_size_multiplier(self) -> float:
+        """Get position size multiplier for current state."""
+        with self._lock:
+            if self.recovery_plan:
+                return self.recovery_plan.position_size_multiplier
+            return POSITION_SIZE_MULTIPLIERS.get(self.current_state.value, 1.0)
     
-    def _handle_portfolio_update(self, event: Event) -> None:
-        """Handle portfolio update events"""
-        if event.data.get('action') == 'value_update':
-            equity = event.data.get('total_value')
-            if equity:
-                self.update_equity(equity)
-    
-    def _emit_state_change(
-        self,
-        old_state: DrawdownState,
-        new_state: DrawdownState,
-        actions: List[str]
-    ) -> None:
-        """Emit state change event"""
-        self.event_manager.emit(Event(
-            EventType.RISK,
-            {
-                'action': 'drawdown_state_change',
-                'old_state': old_state.name,
-                'new_state': new_state.name,
-                'drawdown': self.portfolio_metrics.current_drawdown,
-                'actions': actions,
-                'risk_adjustments': self.get_risk_adjustments()
-            }
-        ))
-    
-    def _emit_warning(self, metrics: DrawdownMetrics) -> None:
-        """Emit drawdown warning"""
-        self.event_manager.emit(Event(
-            EventType.ALERT,
-            {
-                'type': 'drawdown_warning',
-                'level': 'warning',
-                'drawdown': metrics.current_drawdown,
-                'peak_value': metrics.peak_value,
-                'current_value': metrics.current_value,
-                'message': f"Portfolio drawdown reached {metrics.current_drawdown:.1%}"
-            }
-        ))
-    
-    def _emit_metrics_update(self) -> None:
-        """Emit metrics update event"""
-        self.event_manager.emit(Event(
-            EventType.RISK,
-            {
-                'action': 'drawdown_metrics_update',
-                'portfolio_drawdown': self.portfolio_metrics.current_drawdown,
-                'max_drawdown': self.portfolio_metrics.max_drawdown,
-                'state': self.current_state.name,
-                'size_multiplier': self.get_position_size_multiplier()
-            }
-        ))
+    def should_allow_new_trade(self, strategy: str = None) -> bool:
+        """
+        Check if new trades are allowed.
+        
+        Args:
+            strategy: Optional strategy type to check
+            
+        Returns:
+            True if trade is allowed
+        """
+        with self._lock:
+            # No trades in shutdown
+            if self.current_state == DrawdownState.SHUTDOWN:
+                return False
+            
+            # Check recovery plan
+            if self.recovery_plan and strategy:
+                return strategy in self.recovery_plan.strategies_allowed
+            
+            # Check risk adjustments
+            adjustments = self.get_risk_adjustments()
+            
+            if not adjustments.allow_new_trades:
+                return False
+            
+            if strategy and adjustments.allowed_strategies:
+                if 'all' not in adjustments.allowed_strategies:
+                    return strategy in adjustments.allowed_strategies
+            
+            return True
     
     # ==========================================================================
-    # UTILITIES
+    # PRIVATE METHODS - CALCULATIONS
     # ==========================================================================
-    def _initialize_metrics(self) -> DrawdownMetrics:
-        """Initialize drawdown metrics"""
+    def _create_initial_metrics(self) -> DrawdownMetrics:
+        """Create initial metrics object."""
         return DrawdownMetrics(
             current_drawdown=0.0,
             max_drawdown=0.0,
-            drawdown_start=None,
-            drawdown_trough=None,
-            peak_value=0.0,
-            trough_value=0.0,
-            current_value=0.0,
-            days_in_drawdown=0,
-            recovery_ratio=0.0
+            drawdown_start_date=None,
+            drawdown_start_value=self.initial_equity,
+            peak_value=self.initial_equity,
+            peak_date=datetime.now(),
+            trough_value=self.initial_equity,
+            trough_date=None,
+            days_in_drawdown=0
         )
     
-    def _limit_equity_history(self) -> None:
-        """Limit equity curve history"""
-        max_points = DRAWDOWN_LOOKBACK_DAYS * 24  # Hourly data for a year
-        if len(self.equity_curve) > max_points:
-            self.equity_curve = self.equity_curve[-max_points:]
+    def _calculate_drawdown(self, current_equity: float) -> float:
+        """Calculate current drawdown percentage."""
+        if self.peak_equity <= 0:
+            return 0.0
+        
+        return (self.peak_equity - current_equity) / self.peak_equity
+    
+    def _update_metrics(self, current_equity: float, drawdown: float, timestamp: datetime) -> None:
+        """Update drawdown metrics."""
+        metrics = self.current_metrics
+        
+        # Update current drawdown
+        metrics.current_drawdown = drawdown
+        
+        # Update max drawdown
+        if drawdown > metrics.max_drawdown:
+            metrics.max_drawdown = drawdown
+            metrics.trough_value = current_equity
+            metrics.trough_date = timestamp
+        
+        # Track drawdown start
+        if drawdown > 0.001 and metrics.drawdown_start_date is None:  # 0.1% threshold
+            metrics.drawdown_start_date = timestamp
+            metrics.drawdown_start_value = self.peak_equity
+        
+        # Track drawdown end
+        if drawdown < 0.001 and metrics.drawdown_start_date is not None:
+            # Drawdown ended
+            if metrics.trough_date:
+                metrics.recovery_days = (timestamp - metrics.trough_date).days
+        
+        # Calculate days in drawdown
+        if metrics.drawdown_start_date:
+            metrics.days_in_drawdown = (timestamp - metrics.drawdown_start_date).days
+        
+        # Update state
+        metrics.drawdown_state = self._determine_state(drawdown)
+    
+    def _determine_state(self, drawdown: float) -> DrawdownState:
+        """Determine drawdown state based on current drawdown."""
+        if drawdown >= self.shutdown_threshold:
+            return DrawdownState.SHUTDOWN
+        elif drawdown >= self.emergency_threshold:
+            return DrawdownState.EMERGENCY
+        elif drawdown >= self.critical_threshold:
+            return DrawdownState.CRITICAL
+        elif drawdown >= self.caution_threshold:
+            return DrawdownState.CAUTION
+        elif drawdown >= self.warning_threshold:
+            return DrawdownState.WARNING
+        elif self.current_state in [DrawdownState.CAUTION, DrawdownState.CRITICAL, 
+                                   DrawdownState.EMERGENCY] and drawdown < self.warning_threshold:
+            return DrawdownState.RECOVERY
+        else:
+            return DrawdownState.NORMAL
     
     # ==========================================================================
-    # PUBLIC INTERFACE
+    # PRIVATE METHODS - STATE MANAGEMENT
+    # ==========================================================================
+    def _handle_state_change(self, old_state: DrawdownState, new_state: DrawdownState) -> None:
+        """Handle drawdown state change."""
+        self.logger.warning(f"Drawdown state change: {old_state.value} -> {new_state.value}")
+        
+        # Record state change
+        self.state_history.append({
+            'timestamp': datetime.now(),
+            'old_state': old_state.value,
+            'new_state': new_state.value,
+            'drawdown': self.current_metrics.current_drawdown,
+            'equity': self.current_equity
+        })
+        
+        # Take actions based on new state
+        actions = self._determine_actions(new_state)
+        for action in actions:
+            self._execute_action(action)
+        
+        # Setup recovery plan if entering recovery
+        if new_state == DrawdownState.RECOVERY:
+            self._create_recovery_plan()
+        
+        # Clear recovery plan if back to normal
+        if new_state == DrawdownState.NORMAL and self.recovery_plan:
+            self.recovery_plan = None
+            self.logger.info("Recovery complete - resuming normal trading")
+        
+        # Execute callbacks
+        for callback in self._state_change_callbacks:
+            try:
+                callback(old_state, new_state, self.current_metrics)
+            except Exception as e:
+                self.logger.error(f"State change callback error: {e}")
+    
+    def _determine_actions(self, state: DrawdownState) -> List[DrawdownAction]:
+        """Determine actions to take for a state."""
+        actions_map = {
+            DrawdownState.NORMAL: [],
+            DrawdownState.WARNING: [DrawdownAction.NONE],
+            DrawdownState.CAUTION: [DrawdownAction.REDUCE_SIZE],
+            DrawdownState.CRITICAL: [
+                DrawdownAction.REDUCE_SIZE,
+                DrawdownAction.REDUCE_POSITIONS
+            ],
+            DrawdownState.EMERGENCY: [
+                DrawdownAction.STOP_NEW_TRADES,
+                DrawdownAction.CLOSE_LOSING
+            ],
+            DrawdownState.SHUTDOWN: [
+                DrawdownAction.STOP_NEW_TRADES,
+                DrawdownAction.CLOSE_ALL
+            ],
+            DrawdownState.RECOVERY: [DrawdownAction.REDUCE_SIZE]
+        }
+        
+        return actions_map.get(state, [])
+    
+    def _execute_action(self, action: DrawdownAction) -> None:
+        """Execute a drawdown action."""
+        self.logger.info(f"Executing drawdown action: {action.value}")
+        
+        # Record action
+        self.action_history.append({
+            'timestamp': datetime.now(),
+            'action': action.value,
+            'state': self.current_state.value,
+            'drawdown': self.current_metrics.current_drawdown,
+            'equity': self.current_equity
+        })
+        
+        # Execute callbacks for action
+        for callback in self._action_callbacks:
+            try:
+                callback(action, self.current_metrics)
+            except Exception as e:
+                self.logger.error(f"Action callback error: {e}")
+    
+    # ==========================================================================
+    # PRIVATE METHODS - DRAWDOWN TRACKING
+    # ==========================================================================
+    def _track_drawdown_event(self, drawdown: float, timestamp: datetime) -> None:
+        """Track drawdown events."""
+        # Start new event if entering drawdown
+        if drawdown > 0.01 and self.current_event is None:  # 1% threshold
+            self.current_event = DrawdownEvent(
+                event_id=f"DD_{timestamp.strftime('%Y%m%d_%H%M%S')}",
+                start_date=timestamp,
+                end_date=None,
+                start_value=self.peak_equity,
+                trough_value=self.current_equity,
+                end_value=None,
+                max_drawdown=drawdown,
+                duration_days=0,
+                recovery_days=None,
+                drawdown_state_reached=self.current_state,
+                actions_taken=[]
+            )
+        
+        # Update current event
+        if self.current_event:
+            self.current_event.trough_value = min(
+                self.current_event.trough_value, 
+                self.current_equity
+            )
+            self.current_event.max_drawdown = max(
+                self.current_event.max_drawdown,
+                drawdown
+            )
+            self.current_event.duration_days = (
+                timestamp - self.current_event.start_date
+            ).days
+            
+            # Track worst state reached
+            state_severity = {
+                DrawdownState.NORMAL: 0,
+                DrawdownState.WARNING: 1,
+                DrawdownState.CAUTION: 2,
+                DrawdownState.CRITICAL: 3,
+                DrawdownState.EMERGENCY: 4,
+                DrawdownState.SHUTDOWN: 5
+            }
+            
+            if state_severity.get(self.current_state, 0) > \
+               state_severity.get(self.current_event.drawdown_state_reached, 0):
+                self.current_event.drawdown_state_reached = self.current_state
+            
+            # Complete event if recovered
+            if drawdown < 0.001:  # Back to peak
+                self.current_event.end_date = timestamp
+                self.current_event.end_value = self.current_equity
+                self.current_event.recovery_days = (
+                    timestamp - self.current_event.start_date
+                ).days - self.current_event.duration_days
+                
+                # Add to completed events
+                self.completed_events.append(self.current_event)
+                self.drawdown_history.append(asdict(self.current_event))
+                
+                self.logger.info(
+                    f"Drawdown event completed: {self.current_event.event_id} "
+                    f"(Max: {self.current_event.max_drawdown:.1%}, "
+                    f"Duration: {self.current_event.duration_days} days)"
+                )
+                
+                self.current_event = None
+    
+    # ==========================================================================
+    # PRIVATE METHODS - RECOVERY
+    # ==========================================================================
+    def _create_recovery_plan(self) -> None:
+        """Create recovery plan after drawdown."""
+        # Calculate recovery milestones
+        trough = self.current_metrics.trough_value
+        peak = self.peak_equity
+        
+        milestones = [
+            trough + (peak - trough) * 0.25,  # 25% recovery
+            trough + (peak - trough) * 0.50,  # 50% recovery
+            trough + (peak - trough) * 0.75,  # 75% recovery
+            peak                               # Full recovery
+        ]
+        
+        self.recovery_plan = RecoveryPlan(
+            phase=RecoveryPhase.EARLY,
+            target_equity=peak,
+            allowed_risk=0.01,  # 1% risk during recovery
+            position_size_multiplier=0.5,
+            strategies_allowed=['defensive', 'neutral'],
+            milestones=milestones,
+            current_milestone=0
+        )
+        
+        self.logger.info("Recovery plan created with 4 milestones")
+    
+    def _update_recovery_progress(self) -> None:
+        """Update recovery progress."""
+        if not self.recovery_plan:
+            return
+        
+        plan = self.recovery_plan
+        
+        # Check milestone progress
+        for i, milestone in enumerate(plan.milestones):
+            if self.current_equity >= milestone and i > plan.current_milestone:
+                plan.current_milestone = i
+                self.logger.info(f"Recovery milestone {i+1}/4 reached: ${milestone:,.2f}")
+                
+                # Update recovery phase
+                if i == 0:
+                    plan.phase = RecoveryPhase.EARLY
+                    plan.position_size_multiplier = 0.6
+                elif i == 1:
+                    plan.phase = RecoveryPhase.MIDDLE
+                    plan.position_size_multiplier = 0.7
+                    plan.strategies_allowed.append('momentum')
+                elif i == 2:
+                    plan.phase = RecoveryPhase.LATE
+                    plan.position_size_multiplier = 0.85
+                    plan.allowed_risk = 0.015
+                elif i == 3:
+                    plan.phase = RecoveryPhase.COMPLETE
+                    self.current_state = DrawdownState.NORMAL
+    
+    # ==========================================================================
+    # PUBLIC METHODS - ANALYSIS
     # ==========================================================================
     def get_drawdown_stats(self) -> Dict[str, Any]:
-        """Get comprehensive drawdown statistics"""
-        return {
-            'current_drawdown': self.portfolio_metrics.current_drawdown,
-            'max_drawdown': self.portfolio_metrics.max_drawdown,
-            'state': self.current_state.name,
-            'days_in_drawdown': self.portfolio_metrics.days_in_drawdown,
-            'recovery_ratio': self.portfolio_metrics.recovery_ratio,
-            'total_events': len(self.drawdown_events),
-            'active_event': self.current_event is not None,
-            'rolling_drawdowns': self.calculate_rolling_drawdowns()
-        }
+        """Get comprehensive drawdown statistics."""
+        with self._lock:
+            # Calculate statistics from history
+            if self.completed_events:
+                avg_drawdown = statistics.mean(
+                    e.max_drawdown for e in self.completed_events
+                )
+                avg_duration = statistics.mean(
+                    e.duration_days for e in self.completed_events
+                )
+                avg_recovery = statistics.mean(
+                    e.recovery_days for e in self.completed_events
+                    if e.recovery_days is not None
+                )
+            else:
+                avg_drawdown = avg_duration = avg_recovery = 0
+            
+            return {
+                'current_drawdown': self.current_metrics.current_drawdown,
+                'max_drawdown': self.current_metrics.max_drawdown,
+                'days_in_drawdown': self.current_metrics.days_in_drawdown,
+                'current_state': self.current_state.value,
+                'peak_equity': self.peak_equity,
+                'current_equity': self.current_equity,
+                'total_events': len(self.completed_events),
+                'avg_drawdown': avg_drawdown,
+                'avg_duration_days': avg_duration,
+                'avg_recovery_days': avg_recovery,
+                'worst_drawdown': max(
+                    (e.max_drawdown for e in self.completed_events),
+                    default=0
+                ),
+                'in_recovery': self.recovery_plan is not None,
+                'recovery_progress': self._get_recovery_progress()
+            }
+    
+    def _get_recovery_progress(self) -> float:
+        """Get recovery progress percentage."""
+        if not self.recovery_plan:
+            return 1.0
+        
+        trough = self.current_metrics.trough_value
+        peak = self.peak_equity
+        
+        if peak <= trough:
+            return 1.0
+        
+        return (self.current_equity - trough) / (peak - trough)
     
     def get_drawdown_history(self) -> List[DrawdownEvent]:
-        """Get historical drawdown events"""
-        return self.drawdown_events.copy()
+        """Get historical drawdown events."""
+        with self._lock:
+            return self.completed_events.copy()
     
-    def reset_drawdown_tracking(self) -> None:
-        """Reset drawdown tracking (use with caution)"""
-        self.peak_equity = 0.0
-        self.equity_curve.clear()
-        self.portfolio_metrics = self._initialize_metrics()
-        self.current_state = DrawdownState.NORMAL
-        self.recovery_plan = None
+    def get_state_history(self, hours: int = 24) -> List[Dict[str, Any]]:
+        """
+        Get recent state change history.
         
-        self.logger.warning("Drawdown tracking reset")
+        Args:
+            hours: Number of hours to look back
+            
+        Returns:
+            List of state changes
+        """
+        with self._lock:
+            cutoff = datetime.now() - timedelta(hours=hours)
+            return [
+                s for s in self.state_history
+                if s['timestamp'] >= cutoff
+            ]
+    
+    def get_equity_curve(self) -> pd.DataFrame:
+        """Get equity curve as DataFrame."""
+        with self._lock:
+            if not self.equity_history:
+                return pd.DataFrame()
+            
+            timestamps, values = zip(*self.equity_history)
+            return pd.DataFrame({
+                'timestamp': timestamps,
+                'equity': values
+            })
+    
+    # ==========================================================================
+    # PUBLIC METHODS - CONFIGURATION
+    # ==========================================================================
+    def update_thresholds(self, thresholds: Dict[str, float]) -> None:
+        """
+        Update drawdown thresholds.
+        
+        Args:
+            thresholds: Dictionary of threshold values
+        """
+        with self._lock:
+            if 'warning' in thresholds:
+                self.warning_threshold = thresholds['warning']
+            if 'caution' in thresholds:
+                self.caution_threshold = thresholds['caution']
+            if 'critical' in thresholds:
+                self.critical_threshold = thresholds['critical']
+            if 'emergency' in thresholds:
+                self.emergency_threshold = thresholds['emergency']
+            if 'shutdown' in thresholds:
+                self.shutdown_threshold = thresholds['shutdown']
+            
+            self.logger.info(f"Drawdown thresholds updated: {thresholds}")
+    
+    def register_state_change_callback(self, callback: callable) -> None:
+        """Register callback for state changes."""
+        self._state_change_callbacks.append(callback)
+    
+    def register_action_callback(self, callback: callable) -> None:
+        """Register callback for actions."""
+        self._action_callbacks.append(callback)
+    
+    def reset_peak(self) -> None:
+        """Reset peak equity (use with caution)."""
+        with self._lock:
+            self.peak_equity = self.current_equity
+            self.current_metrics = self._create_initial_metrics()
+            self.current_state = DrawdownState.NORMAL
+            self.recovery_plan = None
+            
+            self.logger.warning(f"Peak equity reset to ${self.current_equity:,.2f}")
+    
+    # ==========================================================================
+    # PUBLIC METHODS - MONITORING
+    # ==========================================================================
+    def start_monitoring(self) -> None:
+        """Start drawdown monitoring thread."""
+        if not self._monitoring_active:
+            self._monitoring_active = True
+            self._monitor_thread = threading.Thread(
+                target=self._monitoring_loop,
+                name="DrawdownMonitor",
+                daemon=True
+            )
+            self._monitor_thread.start()
+            self.logger.info("Drawdown monitoring started")
+    
+    def stop_monitoring(self) -> None:
+        """Stop monitoring thread."""
+        if self._monitoring_active:
+            self._monitoring_active = False
+            if self._monitor_thread:
+                self._monitor_thread.join(timeout=5)
+            self.logger.info("Drawdown monitoring stopped")
+    
+    def _monitoring_loop(self) -> None:
+        """Main monitoring loop."""
+        while self._monitoring_active:
+            try:
+                # Periodic checks could go here
+                # For now, just sleep
+                threading.Event().wait(DRAWDOWN_CHECK_INTERVAL)
+                
+            except Exception as e:
+                self.logger.error(f"Monitoring error: {e}")
+                self.error_handler.handle_error(e, {"method": "_monitoring_loop"})
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# MODULE FUNCTIONS
+# ==============================================================================
+def create_drawdown_controller(initial_equity: float, config: Optional[Dict[str, Any]] = None) -> DrawdownController:
+    """
+    Create drawdown controller instance.
+    
+    Args:
+        initial_equity: Starting equity
+        config: Optional configuration
+        
+    Returns:
+        DrawdownController instance
+    """
+    return DrawdownController(initial_equity, config)
+
+# ==============================================================================
+# MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Test drawdown controller
-    from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+    print("="*80)
+    print("SPYDER E04 - Drawdown Controller Test")
+    print("="*80)
     
-    # Initialize
-    event_manager = EventManager()
-    risk_profile = RiskProfile(
-        account_size=100000,
-        max_position_size=0.10,
-        max_portfolio_risk=0.06,
-        max_loss_per_trade=0.02
-    )
+    # Initialize controller
+    controller = create_drawdown_controller(initial_equity=100000)
     
-    # Create controller
-    controller = DrawdownController(event_manager, risk_profile)
+    # Register callbacks
+    def on_state_change(old_state, new_state, metrics):
+        print(f"\n⚠️ STATE CHANGE: {old_state.value} -> {new_state.value}")
+        print(f"   Current Drawdown: {metrics.current_drawdown:.1%}")
     
-    # Simulate equity curve
-    print("DRAWDOWN CONTROLLER TEST")
-    print("=" * 50)
+    def on_action(action, metrics):
+        print(f"   ACTION: {action.value}")
     
-    # Starting equity
-    equity = 100000
-    controller.update_equity(equity)
+    controller.register_state_change_callback(on_state_change)
+    controller.register_action_callback(on_action)
     
     # Simulate trading with drawdown
+    print("\nSimulating equity curve with drawdown...")
+    
     equity_values = [
         100000, 102000, 104000, 103000, 101000,  # Initial gains
         99000, 97000, 95000, 94000, 93000,       # Drawdown begins
         92000, 91000, 90000, 89000, 88000,       # Deeper drawdown
-        89000, 90000, 91000, 92000, 93000,       # Recovery begins
-        94000, 95000, 96000, 97000, 98000,       # Continuing recovery
-        99000, 100000, 101000, 102000, 103000    # Full recovery
+        87000, 85000, 83000, 82000, 80000,       # Critical drawdown
+        81000, 82000, 83000, 84000, 85000,       # Recovery begins
+        87000, 89000, 91000, 93000, 95000,       # Continuing recovery
+        97000, 99000, 100000, 101000, 103000,    # Full recovery
+        105000                                     # New high
     ]
     
     for i, equity in enumerate(equity_values):
+        print(f"\nUpdate {i+1}: Equity = ${equity:,}")
         metrics = controller.update_equity(equity)
         
-        print(f"\nUpdate {i+1}:")
-        print(f"  Equity: ${equity:,}")
         print(f"  Drawdown: {metrics.current_drawdown:.1%}")
-        print(f"  State: {controller.current_state.name}")
-        print(f"  Size Multiplier: {controller.get_position_size_multiplier():.1%}")
+        print(f"  State: {controller.current_state.value}")
         
-        # Show risk adjustments at key points
-        if metrics.current_drawdown > 0.05 and i == 10:
-            adjustments = controller.get_risk_adjustments()
-            print(f"\n  Risk Adjustments:")
-            for key, value in adjustments.items():
-                print(f"    {key}: {value}")
+        # Show risk adjustments
+        adjustments = controller.get_risk_adjustments()
+        print(f"  Position Size Multiplier: {adjustments.position_size_multiplier:.0%}")
+        print(f"  Max Positions: {adjustments.max_positions}")
+        
+        if adjustments.restrictions:
+            print(f"  Restrictions:")
+            for restriction in adjustments.restrictions:
+                print(f"    - {restriction}")
+        
+        # Check if new trades allowed
+        if not controller.should_allow_new_trade():
+            print(f"  ❌ New trades NOT allowed")
     
-    # Final statistics
-    print("\n" + "=" * 50)
-    print("FINAL STATISTICS")
+    # Show final statistics
+    print("\n" + "="*80)
+    print("DRAWDOWN STATISTICS")
+    print("="*80)
+    
     stats = controller.get_drawdown_stats()
-    for key, value in stats.items():
-        if isinstance(value, float):
-            print(f"{key}: {value:.2%}")
-        else:
-            print(f"{key}: {value}")
+    print(f"Current Drawdown: {stats['current_drawdown']:.1%}")
+    print(f"Maximum Drawdown: {stats['max_drawdown']:.1%}")
+    print(f"Days in Drawdown: {stats['days_in_drawdown']}")
+    print(f"Current State: {stats['current_state']}")
+    print(f"Total Events: {stats['total_events']}")
+    print(f"Average Drawdown: {stats['avg_drawdown']:.1%}")
+    print(f"Average Duration: {stats['avg_duration_days']:.1f} days")
+    print(f"In Recovery: {stats['in_recovery']}")
+    print(f"Recovery Progress: {stats['recovery_progress']:.0%}")
     
-    # Drawdown events
-    print("\nDRAWDOWN EVENTS:")
-    for event in controller.get_drawdown_history():
-        print(f"\n{event.event_id}:")
-        print(f"  Max Drawdown: {event.max_drawdown:.1%}")
-        print(f"  Duration: {event.duration_days} days")
-        print(f"  Recovery: {event.recovery_days} days" if event.recovery_days else "  Recovery: In progress")
-        print(f"  Actions: {', '.join(event.actions_taken)}")
+    # Show drawdown events
+    events = controller.get_drawdown_history()
+    if events:
+        print(f"\nDRAWDOWN EVENTS:")
+        for event in events:
+            print(f"\n{event.event_id}:")
+            print(f"  Max Drawdown: {event.max_drawdown:.1%}")
+            print(f"  Duration: {event.duration_days} days")
+            print(f"  Recovery: {event.recovery_days} days")
+            print(f"  Worst State: {event.drawdown_state_reached.value}")
+    
+    print("\n✅ Drawdown Controller test completed successfully!")

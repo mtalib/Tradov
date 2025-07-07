@@ -5,1884 +5,1402 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderD21_DoubleCalendar.py
 Group: D (Trading Strategies)
-Purpose: Double Calendar spread strategy with enhanced time decay collection
+Purpose: Double calendar spread strategy for range-bound markets
 
 Description:
-    This module implements the Double Calendar strategy that combines a call calendar
-    spread and a put calendar spread at different strike prices. The strategy creates
-    a wider profit zone than single calendars, maximizes theta collection from multiple
-    time horizons, and benefits from both time decay and volatility expansion with
-    sophisticated multi-expiration management protocols.
+    Professional double calendar implementation combining call and put calendar
+    spreads at different strikes to maximize theta collection. Features IV regime
+    analysis, synchronized position management, and inter-strike correlation
+    monitoring for optimal profit zones.
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-29
-Last Updated: 2025-06-29 Time: 13:00:00
+Author: Mohamed Talib
+Date: 2025-01-10
+Version: 2.0
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import datetime
-from typing import Dict, List, Tuple, Optional, Union, Any
+from datetime import datetime, time, timedelta
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import uuid
-import asyncio
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
 import pandas as pd
+import numpy as np
+from scipy import stats, optimize
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, StrategySignal, PositionType
+from SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    BaseStrategy, TradingSignal, SignalStrength, MarketCondition
+)
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU14_OptionStrategies import SpyderOptionStrategies, StrategyType, OptionStrategy, OptionRight
 from SpyderU_Utilities.SpyderU07_Constants import (
-    OptionType, OrderAction, OrderType, SignalType,
-    CALENDAR_SPREAD_PROFIT_TARGET, CALENDAR_SPREAD_STOP_LOSS,
-    MIN_IV_RANK_FOR_CALENDARS, OPTIMAL_ENTRY_START, OPTIMAL_ENTRY_END,
-    CALENDAR_ENTRY_TIME_START, CALENDAR_ENTRY_TIME_END
+    SignalType, OptionType, SPY_CONTRACT_MULTIPLIER
 )
-from SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager, RiskProfile
-from SpyderE_Risk.SpyderE08_PositionGroupValidator import PositionGroupValidator
-from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
-from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
 from SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
-from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
-from SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
-from SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
-from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
+from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
 from SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
+from SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+from SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Strategy-specific constants
-DEFAULT_CALL_STRIKE_DELTA = 0.30
-DEFAULT_PUT_STRIKE_DELTA = 0.30
-DEFAULT_SHORT_TERM_DAYS = 30
-DEFAULT_LONG_TERM_DAYS = 60
-DEFAULT_PROFIT_TARGET_PERCENT = 0.30
-DEFAULT_STOP_LOSS_PERCENT = 0.50
-DEFAULT_IV_RANK_MIN = 30
-DEFAULT_IV_RANK_MAX = 70
-DEFAULT_POSITION_SIZE_PERCENT = 0.05
+# Strategy Configuration
+MAX_DOUBLE_CALENDAR_POSITIONS = 3
+OPTIMAL_STRIKE_SEPARATION = 10.0  # Points between call and put strikes
+MIN_STRIKE_SEPARATION = 5.0
+MAX_STRIKE_SEPARATION = 20.0
 
-# Multi-expiration management
-MIN_TIME_SPREAD = 14  # Minimum days between short and long expirations
-MAX_TIME_SPREAD = 45  # Maximum days between expirations
-OPTIMAL_TIME_SPREAD = 21  # Optimal time spread for maximum theta
-NEAR_EXPIRY_THRESHOLD = 5  # Days before short expiry to consider closure
+# Time Spreads
+MIN_NEAR_EXPIRY_DTE = 20
+MAX_NEAR_EXPIRY_DTE = 35
+MIN_TIME_SPREAD = 21          # Days between expiries
+MAX_TIME_SPREAD = 35
+OPTIMAL_TIME_SPREAD = 28
 
-# Trading windows
-DOUBLE_CALENDAR_ENTRY_START = datetime.time(10, 30)
-DOUBLE_CALENDAR_ENTRY_END = datetime.time(14, 30)
-MAX_DAYS_HELD = 21
-MIN_DAYS_TO_LONG_EXPIRY = 14
+# Strike Selection
+CALL_STRIKE_OFFSET = 5.0      # Points above ATM
+PUT_STRIKE_OFFSET = 5.0       # Points below ATM
+DELTA_NEUTRAL_TARGET = 0.0    # Target net delta
 
-# Risk thresholds
-MAX_PORTFOLIO_CALENDAR_EXPOSURE = 0.25  # 25% of portfolio
-MIN_NET_DEBIT = 0.25  # Minimum $0.25 debit per contract
-MAX_NET_DEBIT = 3.0   # Maximum $3.00 debit per contract
-IV_CRUSH_THRESHOLD = 0.30  # 30% IV drop triggers exit
+# IV Requirements
+MIN_IV_RANK = 30
+MAX_IV_RANK = 70
+OPTIMAL_IV_RANK = 50
+MIN_IV_TERM_PREMIUM = 0.02    # 2% premium for far expiry
 
-# Greeks thresholds
-MAX_CALENDAR_DELTA = 15.0  # Maximum delta per double calendar
-MAX_CALENDAR_GAMMA = 8.0   # Maximum gamma per double calendar
-MAX_CALENDAR_VEGA = 25.0   # Maximum vega per double calendar
+# Position Management
+PROFIT_TARGET_PERCENT = 25     # Close at 25% of max profit
+STOP_LOSS_PERCENT = 40         # Close at 40% max loss
+ADJUSTMENT_IV_CHANGE = 0.05    # 5% IV change triggers adjustment
+THETA_DECAY_TARGET = 30        # Target daily theta
+
+# Risk Limits
+MAX_VEGA_EXPOSURE = 200        # Maximum vega per position
+MAX_TOTAL_DEBIT = 5000         # Maximum debit per position
+CORRELATION_WARNING = 0.80     # Strike correlation warning level
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
-class DoubleCalendarState(Enum):
-    """Double Calendar position states"""
-    INACTIVE = "inactive"
-    MONITORING = "monitoring"
-    ACTIVE = "active"
-    CLOSING = "closing"
-    CLOSED = "closed"
-    ERROR = "error"
+class DoubleCalendarType(Enum):
+    """Types of double calendar configurations"""
+    SYMMETRIC = "symmetric"        # Equal distance from ATM
+    SKEWED_BULLISH = "skewed_bullish"   # Calls closer to ATM
+    SKEWED_BEARISH = "skewed_bearish"   # Puts closer to ATM
+    WIDE = "wide"                  # Maximum strike separation
+    TIGHT = "tight"                # Minimum strike separation
 
-class CalendarLeg(Enum):
-    """Calendar leg types"""
-    CALL_CALENDAR = "call_calendar"
-    PUT_CALENDAR = "put_calendar"
+class IVRegime(Enum):
+    """Implied volatility regime classification"""
+    LOW = "low"                    # IV < 30th percentile
+    NORMAL = "normal"              # 30th - 70th percentile  
+    HIGH = "high"                  # 70th - 90th percentile
+    EXTREME = "extreme"            # > 90th percentile
 
-class ExitReason(Enum):
-    """Exit reasons for Double Calendar positions"""
-    PROFIT_TARGET = "profit_target"
-    STOP_LOSS = "stop_loss"
-    TIME_DECAY = "time_decay"
-    SHORT_EXPIRATION = "short_expiration"
-    IV_CRUSH = "iv_crush"
-    GAMMA_RISK = "gamma_risk"
-    VEGA_RISK = "vega_risk"
-    DELTA_RISK = "delta_risk"
-    VOLATILITY_EXPANSION = "volatility_expansion"
-    RISK_MANAGEMENT = "risk_management"
-
-class VolatilityRegime(Enum):
-    """Volatility regime classification"""
-    LOW = "low"
-    MODERATE = "moderate"
-    HIGH = "high"
-    EXTREME = "extreme"
+class PositionState(Enum):
+    """Double calendar position states"""
+    BUILDING = auto()
+    ESTABLISHED = auto()
+    ADJUSTING = auto()
+    REDUCING = auto()
+    CLOSING = auto()
+    COMPLETE = auto()
 
 # ==============================================================================
-# DATA STRUCTURES
+# DATA CLASSES
 # ==============================================================================
 @dataclass
-class CalendarLegData:
-    """Individual calendar leg data"""
-    leg_type: CalendarLeg
+class CalendarLeg:
+    """Individual calendar spread leg"""
+    option_type: OptionType
     strike: float
-    short_expiry: datetime.datetime
-    long_expiry: datetime.datetime
+    near_expiry: datetime
+    far_expiry: datetime
+    near_premium: float
+    far_premium: float
     net_debit: float
-    current_value: float = 0.0
-    time_decay_rate: float = 0.0
-    greeks: Dict[str, float] = field(default_factory=dict)
+    delta: float
+    gamma: float
+    vega: float
+    theta: float
+    iv_near: float
+    iv_far: float
+
+@dataclass
+class DoubleCalendarSetup:
+    """Complete double calendar setup"""
+    call_calendar: CalendarLeg
+    put_calendar: CalendarLeg
+    calendar_type: DoubleCalendarType
+    total_debit: float
+    max_profit: float
+    profit_zone: Tuple[float, float]
+    breakeven_points: List[float]
+    net_delta: float
+    net_vega: float
+    net_theta: float
+    strike_correlation: float
+    iv_regime: IVRegime
+    term_structure_slope: float
+    expected_theta_decay: float
+
+@dataclass
+class IVAnalysis:
+    """IV environment analysis"""
+    current_iv: float
+    iv_rank: float
+    iv_percentile: float
+    iv_regime: IVRegime
+    term_structure: Dict[int, float]  # DTE -> IV
+    skew_profile: Dict[float, float]  # Strike -> IV
+    optimal_strikes: Dict[str, float]  # 'call' and 'put' strikes
+    term_structure_slope: float = 0.0
 
 @dataclass
 class DoubleCalendarPosition:
-    """Double Calendar position data structure"""
-    id: str
-    entry_time: datetime.datetime
-    call_leg: CalendarLegData
-    put_leg: CalendarLegData
-    quantity: int
-    total_net_debit: float
-    entry_iv: float
-    entry_iv_rank: float
+    """Active double calendar position"""
+    position_id: str
+    setup: DoubleCalendarSetup
+    entry_time: datetime
     entry_price: float
-    current_pnl: float = 0.0
-    max_profit: float = 0.0
-    max_loss: float = 0.0
-    time_value_decay: float = 0.0
-    state: DoubleCalendarState = DoubleCalendarState.ACTIVE
-    exit_reason: Optional[ExitReason] = None
-    portfolio_greeks: Dict[str, float] = field(default_factory=dict)
-    volatility_metrics: Dict[str, float] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-@dataclass
-class DoubleCalendarMetrics:
-    """Performance metrics for Double Calendar strategy"""
-    total_trades: int = 0
-    winning_trades: int = 0
-    losing_trades: int = 0
-    total_profit: float = 0.0
-    total_loss: float = 0.0
-    largest_win: float = 0.0
-    largest_loss: float = 0.0
-    average_win: float = 0.0
-    average_loss: float = 0.0
-    win_rate: float = 0.0
-    profit_factor: float = 0.0
-    average_days_held: float = 0.0
-    total_debit_paid: float = 0.0
-    average_debit_per_trade: float = 0.0
-    average_time_spread: float = 0.0
-    theta_collection_efficiency: float = 0.0
-    volatility_expansion_wins: int = 0
-    time_decay_wins: int = 0
-    max_concurrent_positions: int = 0
+    iv_at_entry: IVAnalysis
+    current_value: float = 0.0
+    unrealized_pnl: float = 0.0
+    theta_collected: float = 0.0
+    days_held: int = 0
+    near_dte: int = 30
+    far_dte: int = 58
+    state: PositionState = PositionState.BUILDING
+    adjustments: List[Dict] = field(default_factory=list)
+    current_iv_regime: Optional[IVRegime] = None
+    exit_time: Optional[datetime] = None
+    exit_reason: Optional[str] = None
 
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
-class SpyderD21_DoubleCalendar(BaseStrategy):
+class DoubleCalendarStrategy(BaseStrategy):
     """
-    Double Calendar Strategy implementation for SPYDER.
+    Professional double calendar spread strategy implementation.
     
-    A Double Calendar combines a call calendar spread and a put calendar spread
-    at different strike prices to create a position with a wider profit zone
-    than single calendars. The strategy maximizes theta collection through
-    multiple time horizons and benefits from both time decay and volatility
-    expansion scenarios.
-    
-    Key Features:
-    - Dual-direction coverage with call and put calendars
-    - Enhanced profit zones compared to single calendars
-    - Multi-timeframe theta optimization
-    - Volatility expansion potential
-    - Advanced time decay management
-    - Real-time Greeks monitoring across all legs
-    - IV regime-based position sizing
-    - Professional multi-expiration management
-    
-    Strategy Profile:
-    - Probability of Profit: 50-75% (higher than single calendars)
-    - Optimal Environment: Moderate IV rank (30-70%), neutral markets
-    - Time Horizon: 21-30 days typical holding period
-    - Risk/Reward: Limited risk, moderate reward potential
-    
-    Attributes:
-        name: Strategy name
-        strategy_type: Strategy type identifier
-        positions: Current Double Calendar positions
-        metrics: Performance tracking metrics
-        state: Current strategy state
-        
-    Example:
-        >>> config = {'call_strike_delta': 0.30, 'time_spread': 21}
-        >>> strategy = SpyderD21_DoubleCalendar(config)
-        >>> signals = strategy.generate_signals(market_data)
+    Maximizes theta collection through synchronized call and put calendars
+    with optimal strike placement and IV regime management.
     """
     
-    def __init__(self, config: Dict[str, Any] = None):
-        """
-        Initialize Double Calendar strategy.
-        
-        Args:
-            config: Strategy configuration parameters
-        """
+    def __init__(self, event_manager: EventManager, risk_profile: RiskProfile,
+                 config: Dict[str, Any] = None):
+        """Initialize Double Calendar strategy"""
         super().__init__(
-            name="Double Calendar",
+            name="Double Calendar Strategy",
             strategy_type="double_calendar",
+            event_manager=event_manager,
+            risk_profile=risk_profile,
             config=config or {}
         )
         
-        # SPYDER component initialization
+        # Initialize components
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         self.error_handler = SpyderErrorHandler()
-        self.event_manager = get_event_manager()
-        self.risk_manager = get_risk_manager()
-        
-        # Strategy-specific components
         self.greeks_calculator = GreeksCalculator()
         self.volatility_analyzer = VolatilityAnalyzer()
-        self.volatility_regime_analyzer = VolatilityRegimeAnalyzer()
-        self.position_validator = PositionGroupValidator()
-        self.contract_builder = ContractBuilder()
-        self.datetime_utils = DateTimeUtils()
-        self.technical_indicators = TechnicalIndicators()
-        self.performance_metrics = PerformanceMetrics()
+        self.volatility_regime = VolatilityRegimeAnalyzer()
         self.vix_analyzer = VIXAnalyzer()
         
-        # Default parameters
-        self.default_params = {
-            'call_strike_delta': DEFAULT_CALL_STRIKE_DELTA,
-            'put_strike_delta': DEFAULT_PUT_STRIKE_DELTA,
-            'short_term_days': DEFAULT_SHORT_TERM_DAYS,
-            'long_term_days': DEFAULT_LONG_TERM_DAYS,
-            'entry_day': 'monday',
-            'entry_time_start': DOUBLE_CALENDAR_ENTRY_START,
-            'entry_time_end': DOUBLE_CALENDAR_ENTRY_END,
-            'max_days_held': MAX_DAYS_HELD,
-            'profit_target_percent': DEFAULT_PROFIT_TARGET_PERCENT,
-            'stop_loss_percent': DEFAULT_STOP_LOSS_PERCENT,
-            'iv_rank_min': DEFAULT_IV_RANK_MIN,
-            'iv_rank_max': DEFAULT_IV_RANK_MAX,
-            'position_size_percent': DEFAULT_POSITION_SIZE_PERCENT,
-            'max_concurrent_positions': 2,
-            'min_time_spread': MIN_TIME_SPREAD,
-            'max_time_spread': MAX_TIME_SPREAD,
-            'optimal_time_spread': OPTIMAL_TIME_SPREAD,
-            'min_net_debit': MIN_NET_DEBIT,
-            'max_net_debit': MAX_NET_DEBIT,
-            'iv_crush_threshold': IV_CRUSH_THRESHOLD,
-            'delta_threshold': MAX_CALENDAR_DELTA,
-            'gamma_threshold': MAX_CALENDAR_GAMMA,
-            'vega_threshold': MAX_CALENDAR_VEGA,
-            'is_active': True
-        }
+        # Strategy state
+        self.active_positions: Dict[str, DoubleCalendarPosition] = {}
+        self.current_iv_analysis: Optional[IVAnalysis] = None
+        self.portfolio_theta: float = 0.0
+        self.portfolio_vega: float = 0.0
         
-        # Update with provided configuration
-        self.params = {**self.default_params, **self.config}
-        
-        # Initialize strategy state
-        self.positions: List[DoubleCalendarPosition] = []
-        self.metrics = DoubleCalendarMetrics()
-        self.state = DoubleCalendarState.INACTIVE
+        # Configuration
+        self.max_positions = config.get('max_positions', MAX_DOUBLE_CALENDAR_POSITIONS)
+        self.target_theta = config.get('target_theta', THETA_DECAY_TARGET)
+        self.allow_skewed = config.get('allow_skewed', True)
+        self.dynamic_sizing = config.get('dynamic_sizing', True)
         
         # Performance tracking
-        self.trade_history: List[Dict[str, Any]] = []
-        self.daily_pnl: float = 0.0
-        self.total_exposure: float = 0.0
-        self.theta_collection_today: float = 0.0
+        self.performance_stats = {
+            'total_trades': 0,
+            'winning_trades': 0,
+            'total_theta_collected': 0.0,
+            'avg_holding_period': 0.0,
+            'best_trade': 0.0,
+            'worst_trade': 0.0,
+            'iv_regime_performance': {
+                'low': {'trades': 0, 'wins': 0},
+                'normal': {'trades': 0, 'wins': 0},
+                'high': {'trades': 0, 'wins': 0}
+            }
+        }
         
-        # Volatility tracking
-        self.current_iv_regime: Optional[VolatilityRegime] = None
-        self.iv_trend: str = "neutral"
-        
-        self.logger.info(f"Initialized {self.name} strategy with parameters: {self.params}")
-        self._emit_strategy_event('strategy_initialized', {'params': self.params})
-        
+        self.logger.info(f"Initialized {self.name}")
+    
     # ==========================================================================
-    # SIGNAL GENERATION METHODS
+    # IV ANALYSIS
     # ==========================================================================
-    def generate_signals(self, market_data: Dict[str, Any]) -> List[StrategySignal]:
-        """
-        Generate trading signals based on market conditions.
-        
-        Args:
-            market_data: Current market data including price, IV, Greeks, etc.
-            
-        Returns:
-            List of strategy signals
-        """
-        signals = []
-        
+    
+    def _analyze_iv_environment(self, market_data: pd.DataFrame) -> IVAnalysis:
+        """Comprehensive IV environment analysis"""
         try:
-            # Check if strategy is active
-            if not self.params['is_active']:
+            current_price = market_data['close'].iloc[-1]
+            
+            # Basic IV metrics
+            current_iv = self._get_current_iv(market_data)
+            iv_rank = self._calculate_iv_rank(market_data)
+            iv_percentile = self._calculate_iv_percentile(market_data)
+            
+            # Determine IV regime
+            if iv_rank < 30:
+                iv_regime = IVRegime.LOW
+            elif iv_rank < 70:
+                iv_regime = IVRegime.NORMAL
+            elif iv_rank < 90:
+                iv_regime = IVRegime.HIGH
+            else:
+                iv_regime = IVRegime.EXTREME
+            
+            # Term structure analysis
+            term_structure = self._analyze_term_structure(current_iv)
+            term_slope = self._calculate_term_structure_slope(term_structure)
+            
+            # Skew analysis
+            skew_profile = self._analyze_volatility_skew(current_price, current_iv)
+            
+            # Optimal strike selection
+            optimal_strikes = self._select_optimal_strikes(
+                current_price, skew_profile, iv_regime
+            )
+            
+            analysis = IVAnalysis(
+                current_iv=current_iv,
+                iv_rank=iv_rank,
+                iv_percentile=iv_percentile,
+                iv_regime=iv_regime,
+                term_structure=term_structure,
+                skew_profile=skew_profile,
+                optimal_strikes=optimal_strikes,
+                term_structure_slope=term_slope
+            )
+            
+            self.current_iv_analysis = analysis
+            return analysis
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing IV environment: {e}")
+            return self._create_default_iv_analysis()
+    
+    def _get_current_iv(self, market_data: pd.DataFrame) -> float:
+        """Get current implied volatility"""
+        if 'iv' in market_data.columns:
+            return market_data['iv'].iloc[-1]
+        
+        # Calculate from returns
+        returns = market_data['close'].pct_change().dropna()
+        return returns.std() * np.sqrt(252)
+    
+    def _calculate_iv_rank(self, market_data: pd.DataFrame) -> float:
+        """Calculate IV rank over past year"""
+        if 'iv' not in market_data.columns:
+            return 50.0
+        
+        iv_series = market_data['iv'].iloc[-252:]
+        current_iv = iv_series.iloc[-1]
+        
+        min_iv = iv_series.min()
+        max_iv = iv_series.max()
+        
+        if max_iv > min_iv:
+            return ((current_iv - min_iv) / (max_iv - min_iv)) * 100
+        return 50.0
+    
+    def _calculate_iv_percentile(self, market_data: pd.DataFrame) -> float:
+        """Calculate IV percentile"""
+        if 'iv' not in market_data.columns:
+            return 50.0
+        
+        iv_series = market_data['iv'].iloc[-252:]
+        current_iv = iv_series.iloc[-1]
+        
+        return stats.percentileofscore(iv_series, current_iv)
+    
+    def _analyze_term_structure(self, base_iv: float) -> Dict[int, float]:
+        """Analyze IV term structure"""
+        # In production, would get actual term structure from options chain
+        # Simulate realistic term structure
+        term_structure = {}
+        
+        # Common term structure patterns
+        for dte in [7, 14, 21, 30, 45, 60, 90]:
+            if dte < 30:
+                # Near-term often has higher IV (event risk)
+                adjustment = 0.02 * (30 - dte) / 30
+            else:
+                # Longer-term typically has slight premium
+                adjustment = 0.01 * (dte - 30) / 60
+            
+            term_structure[dte] = base_iv + adjustment
+        
+        return term_structure
+    
+    def _calculate_term_structure_slope(self, term_structure: Dict[int, float]) -> float:
+        """Calculate slope of term structure"""
+        if len(term_structure) < 2:
+            return 0.0
+        
+        # Linear regression on term structure
+        x = list(term_structure.keys())
+        y = list(term_structure.values())
+        
+        slope, _ = np.polyfit(x, y, 1)
+        return slope
+    
+    def _analyze_volatility_skew(self, spot: float, base_iv: float) -> Dict[float, float]:
+        """Analyze volatility skew across strikes"""
+        # Simulate realistic skew
+        skew_profile = {}
+        
+        for offset in range(-20, 21, 5):
+            strike = spot + offset
+            
+            # Typical equity skew pattern
+            if offset < 0:  # Put side
+                skew_adjustment = abs(offset) * 0.002  # Higher IV for OTM puts
+            else:  # Call side
+                skew_adjustment = -offset * 0.001  # Lower IV for OTM calls
+            
+            skew_profile[strike] = base_iv + skew_adjustment
+        
+        return skew_profile
+    
+    def _select_optimal_strikes(self, spot: float, skew_profile: Dict[float, float],
+                              iv_regime: IVRegime) -> Dict[str, float]:
+        """Select optimal strikes for double calendar"""
+        # Base strikes
+        if iv_regime == IVRegime.LOW:
+            # Wider strikes in low IV
+            call_offset = CALL_STRIKE_OFFSET * 1.5
+            put_offset = PUT_STRIKE_OFFSET * 1.5
+        elif iv_regime == IVRegime.HIGH:
+            # Tighter strikes in high IV
+            call_offset = CALL_STRIKE_OFFSET * 0.8
+            put_offset = PUT_STRIKE_OFFSET * 0.8
+        else:
+            call_offset = CALL_STRIKE_OFFSET
+            put_offset = PUT_STRIKE_OFFSET
+        
+        # Round to valid strikes
+        call_strike = round((spot + call_offset) / 5) * 5
+        put_strike = round((spot - put_offset) / 5) * 5
+        
+        # Ensure minimum separation
+        if call_strike - put_strike < MIN_STRIKE_SEPARATION:
+            adjustment = (MIN_STRIKE_SEPARATION - (call_strike - put_strike)) / 2
+            call_strike += adjustment
+            put_strike -= adjustment
+        
+        return {
+            'call': round(call_strike),
+            'put': round(put_strike)
+        }
+    
+    def _create_default_iv_analysis(self) -> IVAnalysis:
+        """Create default IV analysis when data unavailable"""
+        return IVAnalysis(
+            current_iv=0.20,
+            iv_rank=50.0,
+            iv_percentile=50.0,
+            iv_regime=IVRegime.NORMAL,
+            term_structure={30: 0.20, 60: 0.21},
+            skew_profile={},
+            optimal_strikes={},
+            term_structure_slope=0.0
+        )
+    
+    # ==========================================================================
+    # SIGNAL GENERATION
+    # ==========================================================================
+    
+    def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Generate double calendar trading signals"""
+        try:
+            signals = []
+            
+            # Check position limits
+            if len(self.active_positions) >= self.max_positions:
                 return signals
             
-            # Validate market data
-            if not self._validate_market_data(market_data):
-                self.logger.warning("Invalid market data received")
+            # Analyze IV environment
+            iv_analysis = self._analyze_iv_environment(market_data)
+            
+            # Check IV regime suitability
+            if not self._is_iv_suitable(iv_analysis):
                 return signals
             
-            # Update volatility regime analysis
-            self._update_volatility_regime(market_data)
+            # Create double calendar setup
+            setup = self._create_double_calendar_setup(market_data, iv_analysis)
             
-            # Check entry conditions
-            if self._check_entry_conditions(market_data):
-                signal = self._generate_entry_signal(market_data)
+            if setup and self._validate_setup(setup):
+                signal = self._create_trading_signal(setup, market_data, iv_analysis)
                 if signal:
                     signals.append(signal)
-            
-            # Check exit conditions for existing positions
-            exit_signals = self._check_exit_conditions(market_data)
-            signals.extend(exit_signals)
-            
-            # Update position monitoring
-            self._update_position_monitoring(market_data)
-            
-            # Update daily theta collection
-            self._update_theta_metrics(market_data)
             
             return signals
             
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': 'generate_signals',
-                'strategy': self.name,
-                'market_data_keys': list(market_data.keys()) if market_data else []
-            })
+            self.error_handler.handle_error(e, market_data)
             return []
     
-    def _check_entry_conditions(self, market_data: Dict[str, Any]) -> bool:
-        """
-        Check if entry conditions are met for Double Calendar strategy.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Whether entry conditions are satisfied
-        """
-        try:
-            # Check maximum concurrent positions
-            if len(self.positions) >= self.params['max_concurrent_positions']:
-                self.logger.debug("Maximum concurrent positions reached")
-                return False
-            
-            # Check day of week
-            current_day = market_data.get('current_day_of_week', '').lower()
-            entry_day = self.params.get('entry_day', 'any')
-            if entry_day != 'any' and current_day != entry_day:
-                self.logger.debug(f"Entry day mismatch: {current_day} != {entry_day}")
-                return False
-            
-            # Check time of day
-            current_time = market_data.get('current_time')
-            if current_time:
-                if isinstance(current_time, str):
-                    current_time = datetime.datetime.strptime(current_time, '%H:%M').time()
-                
-                if not (self.params['entry_time_start'] <= current_time <= self.params['entry_time_end']):
-                    self.logger.debug(f"Outside entry time window: {current_time}")
-                    return False
-            
-            # Check IV rank (more lenient than single calendars)
-            iv_rank = market_data.get('iv_rank', 0)
-            if not (self.params['iv_rank_min'] <= iv_rank <= self.params['iv_rank_max']):
-                self.logger.debug(f"IV rank outside range: {iv_rank}")
-                return False
-            
-            # Check volatility regime
-            if not self._is_favorable_volatility_regime(market_data):
-                self.logger.debug("Unfavorable volatility regime for calendars")
-                return False
-            
-            # Check available expiration dates
-            if not self._validate_expiration_availability(market_data):
-                self.logger.debug("Required expiration dates not available")
-                return False
-            
-            # Check available capital
-            required_capital = self._calculate_required_capital(market_data)
-            if not self.risk_manager.check_capital_available(required_capital):
-                self.logger.debug("Insufficient capital available")
-                return False
-            
-            # Check strategy exposure limits
-            if not self.risk_manager.check_strategy_exposure(
-                self.strategy_type, 
-                required_capital
-            ):
-                self.logger.debug("Strategy exposure limit reached")
-                return False
-            
-            # Check market environment (prefer low to moderate volatility)
-            if not self._is_favorable_market_environment(market_data):
-                self.logger.debug("Unfavorable market environment")
-                return False
-            
-            self.logger.info("✅ All entry conditions met for Double Calendar")
-            return True
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_check_entry_conditions',
-                'market_data': market_data
-            })
+    def _is_iv_suitable(self, iv_analysis: IVAnalysis) -> bool:
+        """Check if IV conditions suitable for double calendar"""
+        # Check IV rank
+        if not (MIN_IV_RANK <= iv_analysis.iv_rank <= MAX_IV_RANK):
             return False
-    
-    def _generate_entry_signal(self, market_data: Dict[str, Any]) -> Optional[StrategySignal]:
-        """
-        Generate entry signal for Double Calendar strategy.
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Strategy signal or None if generation fails
-        """
+        # Avoid extreme IV regimes
+        if iv_analysis.iv_regime == IVRegime.EXTREME:
+            return False
+        
+        # Check term structure
+        if abs(iv_analysis.term_structure_slope) > 0.001:  # Too steep
+            return False
+        
+        return True
+    
+    def _create_double_calendar_setup(self, market_data: pd.DataFrame,
+                                    iv_analysis: IVAnalysis) -> Optional[DoubleCalendarSetup]:
+        """Create double calendar spread setup"""
         try:
-            # Calculate strikes for both calendars
-            call_strike, put_strike = self._calculate_calendar_strikes(market_data)
-            if not call_strike or not put_strike:
-                return None
+            current_price = market_data['close'].iloc[-1]
             
-            # Get expiration dates
-            short_expiry, long_expiry = self._get_target_expirations(market_data)
-            if not short_expiry or not long_expiry:
-                return None
+            # Get optimal strikes
+            call_strike = iv_analysis.optimal_strikes.get('call', current_price + CALL_STRIKE_OFFSET)
+            put_strike = iv_analysis.optimal_strikes.get('put', current_price - PUT_STRIKE_OFFSET)
             
-            # Calculate position size
-            position_size = self._calculate_position_size(market_data)
-            if position_size <= 0:
-                return None
+            # Select expiries
+            near_expiry, far_expiry = self._select_optimal_expiries()
             
-            # Create double calendar strategy using SPYDER's OptionStrategies
-            option_strategy = self._create_double_calendar_strategy(
-                market_data['underlying_symbol'],
-                call_strike,
-                put_strike,
-                short_expiry,
-                long_expiry,
-                position_size
+            # Create call calendar
+            call_calendar = self._create_calendar_leg(
+                OptionType.CALL, call_strike, near_expiry, far_expiry,
+                current_price, iv_analysis
             )
             
-            # Validate strategy positions
-            if not self._validate_strategy_positions(option_strategy):
-                return None
-            
-            # Calculate expected metrics
-            metrics = self._calculate_strategy_metrics(
-                market_data, call_strike, put_strike, position_size
+            # Create put calendar
+            put_calendar = self._create_calendar_leg(
+                OptionType.PUT, put_strike, near_expiry, far_expiry,
+                current_price, iv_analysis
             )
             
-            # Create strategy signal
-            signal = StrategySignal(
-                strategy_id=self.id,
-                strategy_name=self.name,
-                signal_type=SignalType.ENTRY,
-                timestamp=datetime.datetime.now(),
-                underlying_symbol=market_data['underlying_symbol'],
-                option_strategy=option_strategy,
-                confidence=self._calculate_signal_confidence(market_data),
-                expected_profit=metrics.get('expected_profit', 0),
-                max_risk=metrics.get('max_risk', 0),
-                probability_of_profit=metrics.get('pop', 0),
-                metadata={
-                    'call_strike': call_strike,
-                    'put_strike': put_strike,
-                    'short_expiry': short_expiry,
-                    'long_expiry': long_expiry,
-                    'time_spread': (long_expiry - short_expiry).days,
-                    'iv_rank': market_data.get('iv_rank'),
-                    'iv_regime': self.current_iv_regime.value if self.current_iv_regime else None,
-                    'entry_criteria': self._get_entry_criteria_summary(market_data)
-                }
+            # Calculate combined metrics
+            total_debit = call_calendar.net_debit + put_calendar.net_debit
+            
+            # Determine calendar type
+            calendar_type = self._determine_calendar_type(
+                call_strike, put_strike, current_price
             )
             
-            self.logger.info(f"Generated Double Calendar entry signal: Call={call_strike}, Put={put_strike}")
-            self._emit_strategy_event('entry_signal_generated', signal.__dict__)
+            # Calculate profit zone and breakevens
+            profit_zone, breakevens = self._calculate_profit_zones(
+                call_calendar, put_calendar, current_price
+            )
             
-            return signal
+            # Calculate max profit
+            max_profit = self._estimate_max_profit(
+                call_calendar, put_calendar, total_debit
+            )
+            
+            # Net Greeks
+            net_delta = call_calendar.delta + put_calendar.delta
+            net_vega = call_calendar.vega + put_calendar.vega
+            net_theta = call_calendar.theta + put_calendar.theta
+            
+            # Strike correlation
+            strike_correlation = self._calculate_strike_correlation(
+                call_strike, put_strike, current_price
+            )
+            
+            # Expected theta decay
+            expected_theta = net_theta * SPY_CONTRACT_MULTIPLIER
+            
+            setup = DoubleCalendarSetup(
+                call_calendar=call_calendar,
+                put_calendar=put_calendar,
+                calendar_type=calendar_type,
+                total_debit=total_debit * SPY_CONTRACT_MULTIPLIER,
+                max_profit=max_profit,
+                profit_zone=profit_zone,
+                breakeven_points=breakevens,
+                net_delta=net_delta,
+                net_vega=net_vega,
+                net_theta=net_theta,
+                strike_correlation=strike_correlation,
+                iv_regime=iv_analysis.iv_regime,
+                term_structure_slope=iv_analysis.term_structure_slope,
+                expected_theta_decay=expected_theta
+            )
+            
+            return setup
             
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_generate_entry_signal',
-                'market_data': market_data
-            })
+            self.logger.error(f"Error creating double calendar setup: {e}")
             return None
     
-    # ==========================================================================
-    # STRIKE AND EXPIRATION CALCULATION METHODS
-    # ==========================================================================
-    def _calculate_calendar_strikes(self, market_data: Dict[str, Any]) -> Tuple[Optional[float], Optional[float]]:
-        """
-        Calculate strike prices for call and put calendars.
+    def _select_optimal_expiries(self) -> Tuple[datetime, datetime]:
+        """Select optimal expiration dates"""
+        current_date = datetime.now()
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Tuple of (call_strike, put_strike) or (None, None)
-        """
-        try:
-            underlying_price = market_data.get('underlying_price', 0)
-            if underlying_price <= 0:
-                return None, None
-            
-            iv = market_data.get('iv', 0.2)
-            short_days = self.params['short_term_days']
-            
-            # Calculate call strike (typically 0.30 delta OTM)
-            call_delta = abs(self.params['call_strike_delta'])
-            call_strike = self._get_strike_by_delta(
-                underlying_price, short_days, call_delta, 'call', iv
-            )
-            
-            # Calculate put strike (typically 0.30 delta OTM)
-            put_delta = -abs(self.params['put_strike_delta'])
-            put_strike = self._get_strike_by_delta(
-                underlying_price, short_days, put_delta, 'put', iv
-            )
-            
-            # Round to available strikes
-            available_strikes = market_data.get('available_strikes', [])
-            if available_strikes:
-                call_strike = self._round_to_available_strike(call_strike, available_strikes)
-                put_strike = self._round_to_available_strike(put_strike, available_strikes)
-            
-            # Validate strike separation (ensure wide enough profit zone)
-            if call_strike and put_strike:
-                strike_separation = call_strike - put_strike
-                min_separation = underlying_price * 0.05  # Minimum 5% separation
-                
-                if strike_separation < min_separation:
-                    self.logger.warning(f"Strike separation too narrow: {strike_separation}")
-                    return None, None
-            
-            return call_strike, put_strike
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_calculate_calendar_strikes',
-                'underlying_price': market_data.get('underlying_price')
-            })
-            return None, None
+        # Near expiry target
+        near_target = current_date + timedelta(days=28)
+        near_expiry = self._next_expiry_after(near_target)
+        
+        # Ensure within range
+        near_dte = (near_expiry - current_date).days
+        if near_dte < MIN_NEAR_EXPIRY_DTE:
+            near_expiry = self._next_expiry_after(current_date + timedelta(days=MIN_NEAR_EXPIRY_DTE))
+        elif near_dte > MAX_NEAR_EXPIRY_DTE:
+            near_expiry = self._prev_expiry_before(current_date + timedelta(days=MAX_NEAR_EXPIRY_DTE))
+        
+        # Far expiry with optimal spread
+        far_target = near_expiry + timedelta(days=OPTIMAL_TIME_SPREAD)
+        far_expiry = self._next_expiry_after(far_target)
+        
+        return near_expiry, far_expiry
     
-    def _get_target_expirations(self, market_data: Dict[str, Any]) -> Tuple[Optional[datetime.datetime], Optional[datetime.datetime]]:
-        """
-        Get target expiration dates for short and long legs.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Tuple of (short_expiry, long_expiry) or (None, None)
-        """
-        try:
-            expiration_dates = market_data.get('expiration_dates', {})
-            
-            # Get short expiration
-            short_days_str = str(self.params['short_term_days'])
-            short_expiry = expiration_dates.get(short_days_str)
-            
-            # Get long expiration
-            long_days_str = str(self.params['long_term_days'])
-            long_expiry = expiration_dates.get(long_days_str)
-            
-            # If exact dates not available, find closest
-            if not short_expiry or not long_expiry:
-                available_days = [int(k) for k in expiration_dates.keys() if k.isdigit()]
-                
-                if not short_expiry and available_days:
-                    closest_short = min(available_days, 
-                                      key=lambda x: abs(x - self.params['short_term_days']))
-                    short_expiry = expiration_dates[str(closest_short)]
-                
-                if not long_expiry and available_days:
-                    closest_long = min(available_days,
-                                     key=lambda x: abs(x - self.params['long_term_days']))
-                    long_expiry = expiration_dates[str(closest_long)]
-            
-            # Validate time spread
-            if short_expiry and long_expiry:
-                time_spread = (long_expiry - short_expiry).days
-                if not (self.params['min_time_spread'] <= time_spread <= self.params['max_time_spread']):
-                    self.logger.warning(f"Time spread outside acceptable range: {time_spread} days")
-                    return None, None
-            
-            return short_expiry, long_expiry
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_get_target_expirations'
-            })
-            return None, None
+    def _next_expiry_after(self, target: datetime) -> datetime:
+        """Find next Friday expiry after target"""
+        days_to_friday = (4 - target.weekday()) % 7
+        if days_to_friday == 0:
+            days_to_friday = 7
+        return target + timedelta(days=days_to_friday)
     
-    # ==========================================================================
-    # POSITION MANAGEMENT METHODS
-    # ==========================================================================
-    def _check_exit_conditions(self, market_data: Dict[str, Any]) -> List[StrategySignal]:
-        """
-        Check exit conditions for existing positions.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            List of exit signals
-        """
-        exit_signals = []
-        
-        for position in self.positions.copy():
-            exit_reason = self._should_exit_position(position, market_data)
-            if exit_reason:
-                exit_signal = self._generate_exit_signal(position, market_data, exit_reason)
-                if exit_signal:
-                    exit_signals.append(exit_signal)
-        
-        return exit_signals
+    def _prev_expiry_before(self, target: datetime) -> datetime:
+        """Find previous Friday expiry before target"""
+        days_from_friday = (target.weekday() - 4) % 7
+        if days_from_friday == 0:
+            days_from_friday = 7
+        return target - timedelta(days=days_from_friday)
     
-    def _should_exit_position(self, position: DoubleCalendarPosition, 
-                            market_data: Dict[str, Any]) -> Optional[ExitReason]:
-        """
-        Determine if position should be exited and why.
+    def _create_calendar_leg(self, option_type: OptionType, strike: float,
+                           near_expiry: datetime, far_expiry: datetime,
+                           spot: float, iv_analysis: IVAnalysis) -> CalendarLeg:
+        """Create individual calendar leg"""
+        # Get IVs for each expiry
+        near_dte = (near_expiry - datetime.now()).days
+        far_dte = (far_expiry - datetime.now()).days
         
-        Args:
-            position: Current position
-            market_data: Current market data
-            
-        Returns:
-            Exit reason or None if position should be held
-        """
-        try:
-            # Update position P&L and Greeks
-            self._update_position_pnl(position, market_data)
-            self._update_position_greeks(position, market_data)
-            
-            # Check profit target
-            profit_target = position.total_net_debit * self.params['profit_target_percent']
-            if position.current_pnl >= profit_target:
-                return ExitReason.PROFIT_TARGET
-            
-            # Check stop loss
-            stop_loss = position.total_net_debit * self.params['stop_loss_percent']
-            if position.current_pnl <= -stop_loss:
-                return ExitReason.STOP_LOSS
-            
-            # Check time-based exit
-            days_held = (datetime.datetime.now() - position.entry_time).days
-            if days_held >= self.params['max_days_held']:
-                return ExitReason.TIME_DECAY
-            
-            # Check short expiration approach
-            days_to_short_exp = (position.call_leg.short_expiry - datetime.datetime.now()).days
-            if days_to_short_exp <= NEAR_EXPIRY_THRESHOLD:
-                return ExitReason.SHORT_EXPIRATION
-            
-            # Check IV crush
-            current_iv = market_data.get('iv', 0)
-            if current_iv > 0 and position.entry_iv > 0:
-                iv_change = (current_iv - position.entry_iv) / position.entry_iv
-                if iv_change < -self.params['iv_crush_threshold']:
-                    return ExitReason.IV_CRUSH
-            
-            # Check Greeks risk thresholds
-            if self._check_greeks_risk_thresholds(position):
-                return ExitReason.GAMMA_RISK  # Generic Greeks risk
-            
-            # Check volatility expansion (positive for calendars)
-            if self._check_volatility_expansion_exit(position, market_data):
-                return ExitReason.VOLATILITY_EXPANSION
-            
-            return None
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_should_exit_position',
-                'position_id': position.id
-            })
-            return ExitReason.RISK_MANAGEMENT
+        near_iv = iv_analysis.term_structure.get(near_dte, iv_analysis.current_iv)
+        far_iv = iv_analysis.term_structure.get(far_dte, iv_analysis.current_iv * 1.02)
+        
+        # Calculate premiums
+        near_premium = self._calculate_option_premium(
+            strike, spot, near_expiry, near_iv, option_type
+        )
+        far_premium = self._calculate_option_premium(
+            strike, spot, far_expiry, far_iv, option_type
+        )
+        
+        # Net debit
+        net_debit = far_premium - near_premium
+        
+        # Calculate Greeks
+        greeks = self._calculate_calendar_greeks(
+            strike, spot, near_expiry, far_expiry, near_iv, far_iv, option_type
+        )
+        
+        return CalendarLeg(
+            option_type=option_type,
+            strike=strike,
+            near_expiry=near_expiry,
+            far_expiry=far_expiry,
+            near_premium=near_premium,
+            far_premium=far_premium,
+            net_debit=net_debit,
+            delta=greeks['delta'],
+            gamma=greeks['gamma'],
+            vega=greeks['vega'],
+            theta=greeks['theta'],
+            iv_near=near_iv,
+            iv_far=far_iv
+        )
     
-    # ==========================================================================
-    # VOLATILITY AND MARKET REGIME ANALYSIS
-    # ==========================================================================
-    def _update_volatility_regime(self, market_data: Dict[str, Any]) -> None:
-        """
-        Update current volatility regime analysis.
+    def _calculate_option_premium(self, strike: float, spot: float,
+                                expiry: datetime, iv: float,
+                                option_type: OptionType) -> float:
+        """Calculate option premium using Black-Scholes"""
+        dte = (expiry - datetime.now()).days / 365.0
         
-        Args:
-            market_data: Current market data
-        """
-        try:
-            iv_rank = market_data.get('iv_rank', 50)
-            vix_level = market_data.get('vix', 20)
-            
-            # Classify volatility regime
-            if iv_rank < 25 and vix_level < 18:
-                self.current_iv_regime = VolatilityRegime.LOW
-            elif iv_rank < 50 and vix_level < 25:
-                self.current_iv_regime = VolatilityRegime.MODERATE
-            elif iv_rank < 75 and vix_level < 35:
-                self.current_iv_regime = VolatilityRegime.HIGH
-            else:
-                self.current_iv_regime = VolatilityRegime.EXTREME
-            
-            # Determine IV trend
-            iv_change = market_data.get('iv_change_1d', 0)
-            if iv_change > 0.02:  # 2% increase
-                self.iv_trend = "rising"
-            elif iv_change < -0.02:  # 2% decrease
-                self.iv_trend = "falling"
-            else:
-                self.iv_trend = "neutral"
-                
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_update_volatility_regime'
-            })
+        d1 = (np.log(spot / strike) + (0.02 + iv**2/2) * dte) / (iv * np.sqrt(dte))
+        d2 = d1 - iv * np.sqrt(dte)
+        
+        if option_type == OptionType.CALL:
+            premium = spot * stats.norm.cdf(d1) - strike * np.exp(-0.02 * dte) * stats.norm.cdf(d2)
+        else:
+            premium = strike * np.exp(-0.02 * dte) * stats.norm.cdf(-d2) - spot * stats.norm.cdf(-d1)
+        
+        return max(0.10, premium)
     
-    def _is_favorable_volatility_regime(self, market_data: Dict[str, Any]) -> bool:
-        """
-        Check if current volatility regime is favorable for Double Calendar.
+    def _calculate_calendar_greeks(self, strike: float, spot: float,
+                                 near_expiry: datetime, far_expiry: datetime,
+                                 near_iv: float, far_iv: float,
+                                 option_type: OptionType) -> Dict[str, float]:
+        """Calculate net Greeks for calendar spread"""
+        near_dte = (near_expiry - datetime.now()).days / 365.0
+        far_dte = (far_expiry - datetime.now()).days / 365.0
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Whether volatility regime is favorable
-        """
-        # Double Calendars work best in moderate volatility environments
-        if self.current_iv_regime in [VolatilityRegime.MODERATE, VolatilityRegime.HIGH]:
-            return True
+        # Near option Greeks (short)
+        near_d1 = (np.log(spot / strike) + (0.02 + near_iv**2/2) * near_dte) / (near_iv * np.sqrt(near_dte))
         
-        # Also consider if IV is rising (good for calendar setups)
-        if self.iv_trend == "rising" and self.current_iv_regime != VolatilityRegime.EXTREME:
-            return True
+        if option_type == OptionType.CALL:
+            near_delta = -stats.norm.cdf(near_d1)  # Negative because short
+        else:
+            near_delta = -(stats.norm.cdf(near_d1) - 1)
         
-        return False
+        near_gamma = -stats.norm.pdf(near_d1) / (spot * near_iv * np.sqrt(near_dte))
+        near_vega = -spot * stats.norm.pdf(near_d1) * np.sqrt(near_dte) / 100
+        near_theta = (spot * stats.norm.pdf(near_d1) * near_iv / (2 * np.sqrt(near_dte))) / 365
+        
+        # Far option Greeks (long)
+        far_d1 = (np.log(spot / strike) + (0.02 + far_iv**2/2) * far_dte) / (far_iv * np.sqrt(far_dte))
+        
+        if option_type == OptionType.CALL:
+            far_delta = stats.norm.cdf(far_d1)
+        else:
+            far_delta = stats.norm.cdf(far_d1) - 1
+        
+        far_gamma = stats.norm.pdf(far_d1) / (spot * far_iv * np.sqrt(far_dte))
+        far_vega = spot * stats.norm.pdf(far_d1) * np.sqrt(far_dte) / 100
+        far_theta = -(spot * stats.norm.pdf(far_d1) * far_iv / (2 * np.sqrt(far_dte))) / 365
+        
+        # Net Greeks
+        return {
+            'delta': near_delta + far_delta,
+            'gamma': near_gamma + far_gamma,
+            'vega': near_vega + far_vega,
+            'theta': near_theta + far_theta
+        }
     
-    def _is_favorable_market_environment(self, market_data: Dict[str, Any]) -> bool:
-        """
-        Check if current market environment is favorable for calendars.
+    def _determine_calendar_type(self, call_strike: float, put_strike: float,
+                               spot: float) -> DoubleCalendarType:
+        """Determine type of double calendar"""
+        call_distance = abs(call_strike - spot)
+        put_distance = abs(put_strike - spot)
+        total_width = call_strike - put_strike
         
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Whether market environment is favorable
-        """
-        # Check trend strength - prefer neutral to weak trending markets
-        trend_strength = market_data.get('trend_strength', 'moderate')
-        if trend_strength in ['weak', 'moderate']:
-            return True
-        
-        # Check market regime
-        market_regime = market_data.get('market_regime', 'neutral')
-        if market_regime in ['neutral', 'ranging']:
-            return True
-        
-        # Check VIX term structure
-        vix_term_structure = market_data.get('vix_term_structure', 'normal')
-        if vix_term_structure in ['normal', 'backwardation']:
-            return True
-        
-        return False
+        if abs(call_distance - put_distance) < 1:
+            return DoubleCalendarType.SYMMETRIC
+        elif call_distance < put_distance:
+            return DoubleCalendarType.SKEWED_BULLISH
+        elif put_distance < call_distance:
+            return DoubleCalendarType.SKEWED_BEARISH
+        elif total_width >= MAX_STRIKE_SEPARATION * 0.9:
+            return DoubleCalendarType.WIDE
+        else:
+            return DoubleCalendarType.TIGHT
     
-    # ==========================================================================
-    # UTILITY METHODS
-    # ==========================================================================
-    def _validate_market_data(self, market_data: Dict[str, Any]) -> bool:
-        """
-        Validate required market data fields.
+    def _calculate_profit_zones(self, call_calendar: CalendarLeg,
+                              put_calendar: CalendarLeg,
+                              spot: float) -> Tuple[Tuple[float, float], List[float]]:
+        """Calculate profit zone and breakeven points"""
+        # Simplified calculation
+        # In production, would use option pricing model
         
-        Args:
-            market_data: Market data to validate
-            
-        Returns:
-            Whether market data is valid
-        """
-        required_fields = [
-            'underlying_price', 'underlying_symbol', 'iv_rank', 'iv'
+        # Profit zone is typically between the strikes
+        profit_zone = (put_calendar.strike, call_calendar.strike)
+        
+        # Breakevens approximately at strikes +/- net debit
+        total_debit = call_calendar.net_debit + put_calendar.net_debit
+        
+        breakevens = [
+            put_calendar.strike - total_debit * 1.5,
+            call_calendar.strike + total_debit * 1.5
         ]
         
-        for field in required_fields:
-            if field not in market_data or market_data[field] is None:
-                self.logger.warning(f"Missing required field: {field}")
-                return False
+        return profit_zone, breakevens
+    
+    def _estimate_max_profit(self, call_calendar: CalendarLeg,
+                           put_calendar: CalendarLeg,
+                           total_debit: float) -> float:
+        """Estimate maximum profit for double calendar"""
+        # Max profit occurs when both calendars are at peak value
+        # Typically 20-40% of debit for well-positioned calendars
+        
+        time_value_factor = 0.3  # Conservative estimate
+        max_profit = total_debit * time_value_factor * SPY_CONTRACT_MULTIPLIER
+        
+        return max_profit
+    
+    def _calculate_strike_correlation(self, call_strike: float,
+                                    put_strike: float, spot: float) -> float:
+        """Calculate correlation between strike positions"""
+        # Measure how related the two strikes are
+        total_distance = call_strike - put_strike
+        spot_position = (spot - put_strike) / total_distance
+        
+        # Correlation higher when spot is between strikes
+        if 0 < spot_position < 1:
+            correlation = 1 - 2 * abs(spot_position - 0.5)
+        else:
+            correlation = max(0, 1 - abs(spot_position - 0.5))
+        
+        return correlation
+    
+    def _validate_setup(self, setup: DoubleCalendarSetup) -> bool:
+        """Validate double calendar setup"""
+        # Check minimum debit
+        if setup.total_debit > MAX_TOTAL_DEBIT:
+            self.logger.info("Double calendar debit too high")
+            return False
+        
+        # Check vega exposure
+        if abs(setup.net_vega) * SPY_CONTRACT_MULTIPLIER > MAX_VEGA_EXPOSURE:
+            self.logger.info("Vega exposure too high")
+            return False
+        
+        # Check theta collection
+        if setup.expected_theta_decay < self.target_theta * 0.5:
+            self.logger.info("Insufficient theta decay")
+            return False
+        
+        # Warn on high correlation
+        if setup.strike_correlation > CORRELATION_WARNING:
+            self.logger.warning("High strike correlation - reduced profit potential")
         
         return True
     
-    def _validate_expiration_availability(self, market_data: Dict[str, Any]) -> bool:
-        """
-        Validate that required expiration dates are available.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Whether required expirations are available
-        """
-        expiration_dates = market_data.get('expiration_dates', {})
-        
-        # Check if we have enough expiration choices
-        if len(expiration_dates) < 2:
-            return False
-        
-        # Check if we can find suitable short and long expirations
-        short_expiry, long_expiry = self._get_target_expirations(market_data)
-        return short_expiry is not None and long_expiry is not None
-    
-    def _get_strike_by_delta(self, underlying_price: float, days_to_exp: int, 
-                           target_delta: float, option_type: str, iv: float) -> float:
-        """
-        Calculate strike price by target delta using SPYDER technical indicators.
-        
-        Args:
-            underlying_price: Current underlying price
-            days_to_exp: Days to expiration
-            target_delta: Target delta value
-            option_type: 'call' or 'put'
-            iv: Implied volatility
-            
-        Returns:
-            Strike price
-        """
-        return self.technical_indicators.get_strike_by_delta(
-            underlying_price=underlying_price,
-            days_to_expiration=days_to_exp,
-            target_delta=target_delta,
-            option_type=option_type,
-            implied_volatility=iv
-        )
-    
-    def _round_to_available_strike(self, target_strike: float, available_strikes: List[float]) -> float:
-        """
-        Round target strike to nearest available strike.
-        
-        Args:
-            target_strike: Target strike price
-            available_strikes: List of available strikes
-            
-        Returns:
-            Nearest available strike
-        """
-        if not available_strikes:
-            return target_strike
-        
-        return min(available_strikes, key=lambda x: abs(x - target_strike))
-    
-    def _create_double_calendar_strategy(self, underlying_symbol: str,
-                                       call_strike: float,
-                                       put_strike: float,
-                                       short_expiry: datetime.datetime,
-                                       long_expiry: datetime.datetime,
-                                       quantity: int) -> OptionStrategy:
-        """
-        Create Double Calendar option strategy using SPYDER's OptionStrategies.
-        
-        Args:
-            underlying_symbol: Underlying symbol
-            call_strike: Call calendar strike
-            put_strike: Put calendar strike
-            short_expiry: Short expiration date
-            long_expiry: Long expiration date
-            quantity: Position quantity
-            
-        Returns:
-            Option strategy object
-        """
-        return SpyderOptionStrategies.double_calendar(
-            underlying_symbol=underlying_symbol,
-            call_strike=call_strike,
-            put_strike=put_strike,
-            short_expiry=short_expiry,
-            long_expiry=long_expiry,
-            quantity=quantity
-        )
-    
-    def _validate_strategy_positions(self, option_strategy: OptionStrategy) -> bool:
-        """
-        Validate strategy positions using SPYDER's position validator.
-        
-        Args:
-            option_strategy: Option strategy to validate
-            
-        Returns:
-            Whether positions are valid
-        """
-        validation_result = self.position_validator.validate_strategy_positions(
-            positions=option_strategy.legs,
-            strategy_type=StrategyType.DOUBLE_CALENDAR
-        )
-        
-        if not validation_result.is_valid:
-            self.logger.warning(f"Position validation failed: {validation_result.errors}")
-            return False
-        
-        return True
-    
-    # ==========================================================================
-    # CALCULATION METHODS
-    # ==========================================================================
-    def _calculate_required_capital(self, market_data: Dict[str, Any]) -> float:
-        """
-        Calculate required capital for Double Calendar strategy.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Required capital amount
-        """
-        underlying_price = market_data.get('underlying_price', 0)
-        if underlying_price <= 0:
-            return 0
-        
-        # For double calendar, required capital is the net debit (cost of both calendars)
-        estimated_cost_per_contract = underlying_price * 0.04 * 2  # Two calendar spreads
-        
-        # Calculate position size
-        position_size = self._calculate_position_size(market_data)
-        
-        # Total capital required
-        required_capital = estimated_cost_per_contract * position_size * 100  # 100 shares per contract
-        
-        return required_capital
-    
-    def _calculate_position_size(self, market_data: Dict[str, Any]) -> int:
-        """
-        Calculate appropriate position size.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Position size in contracts
-        """
-        account_value = market_data.get('account_value', 0)
-        underlying_price = market_data.get('underlying_price', 0)
-        
-        if account_value <= 0 or underlying_price <= 0:
-            return 0
-        
-        # Calculate based on percentage of account
-        target_investment = account_value * self.params['position_size_percent']
-        contracts = int(target_investment / (underlying_price * 100))
-        
-        return max(1, contracts)  # Minimum 1 contract
-    
-    def _calculate_strategy_metrics(self, market_data: Dict[str, Any],
-                                  call_strike: float, put_strike: float,
-                                  position_size: int) -> Dict[str, float]:
-        """
-        Calculate strategy metrics for entry signal.
-        
-        Args:
-            market_data: Current market data
-            call_strike: Call calendar strike
-            put_strike: Put calendar strike
-            position_size: Position size
-            
-        Returns:
-            Strategy metrics dictionary
-        """
-        underlying_price = market_data.get('underlying_price', 0)
-        iv = market_data.get('iv', 0.2)
-        short_days = self.params['short_term_days']
-        long_days = self.params['long_term_days']
-        
-        # Estimate option premiums for both calendars
-        call_calendar_debit = self._estimate_calendar_debit(
-            underlying_price, call_strike, short_days, long_days, iv, 'call'
-        )
-        put_calendar_debit = self._estimate_calendar_debit(
-            underlying_price, put_strike, short_days, long_days, iv, 'put'
-        )
-        
-        # Total net debit
-        total_net_debit = (call_calendar_debit + put_calendar_debit) * position_size * 100
-        
-        # Max risk is the total debit paid
-        max_risk = total_net_debit
-        
-        # Max profit estimate (typically 30-50% of debit for double calendars)
-        max_profit = total_net_debit * 0.40
-        
-        # Expected profit based on probability
-        pop = self.calculate_probability_of_profit(market_data)
-        expected_profit = pop * max_profit - (1 - pop) * (max_risk * 0.3)  # Assume partial loss
-        
-        return {
-            'total_net_debit': total_net_debit,
-            'max_profit': max_profit,
-            'max_risk': max_risk,
-            'expected_profit': expected_profit,
-            'pop': pop,
-            'call_calendar_debit': call_calendar_debit * position_size * 100,
-            'put_calendar_debit': put_calendar_debit * position_size * 100
-        }
-    
-    def _estimate_calendar_debit(self, underlying_price: float, strike: float,
-                               short_days: int, long_days: int, iv: float,
-                               option_type: str) -> float:
-        """
-        Estimate calendar spread debit cost.
-        
-        Args:
-            underlying_price: Current underlying price
-            strike: Calendar strike price
-            short_days: Days to short expiration
-            long_days: Days to long expiration
-            iv: Implied volatility
-            option_type: 'call' or 'put'
-            
-        Returns:
-            Estimated debit per contract
-        """
-        # Simplified Black-Scholes estimation
-        time_value_short = underlying_price * 0.02 * (iv / 0.2) * (short_days / 30)
-        time_value_long = underlying_price * 0.03 * (iv / 0.2) * (long_days / 30)
-        
-        # Calendar debit is long premium minus short premium
-        calendar_debit = time_value_long - time_value_short
-        
-        return max(0.25, min(3.0, calendar_debit))  # Clamp to reasonable range
-    
-    def _calculate_signal_confidence(self, market_data: Dict[str, Any]) -> float:
-        """
-        Calculate confidence level for entry signal.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Confidence level (0.0 to 1.0)
-        """
-        confidence_factors = []
-        
-        # IV rank factor (moderate IV preferred)
-        iv_rank = market_data.get('iv_rank', 0)
-        if 40 <= iv_rank <= 60:
-            confidence_factors.append(0.9)  # Optimal range
-        elif 30 <= iv_rank <= 70:
-            confidence_factors.append(0.7)  # Good range
-        else:
-            confidence_factors.append(0.5)  # Acceptable range
-        
-        # Volatility regime factor
-        if self._is_favorable_volatility_regime(market_data):
-            confidence_factors.append(0.8)
-        else:
-            confidence_factors.append(0.6)
-        
-        # Market environment factor
-        if self._is_favorable_market_environment(market_data):
-            confidence_factors.append(0.8)
-        else:
-            confidence_factors.append(0.6)
-        
-        # Time spread factor
-        short_expiry, long_expiry = self._get_target_expirations(market_data)
-        if short_expiry and long_expiry:
-            time_spread = (long_expiry - short_expiry).days
-            if time_spread == self.params['optimal_time_spread']:
-                confidence_factors.append(0.9)
-            elif self.params['min_time_spread'] <= time_spread <= self.params['max_time_spread']:
-                confidence_factors.append(0.7)
+    def _create_trading_signal(self, setup: DoubleCalendarSetup,
+                             market_data: pd.DataFrame,
+                             iv_analysis: IVAnalysis) -> Optional[TradingSignal]:
+        """Convert setup to trading signal"""
+        try:
+            # Determine signal strength
+            if setup.expected_theta_decay > self.target_theta and setup.iv_regime == IVRegime.NORMAL:
+                strength = SignalStrength.STRONG
+            elif setup.expected_theta_decay > self.target_theta * 0.7:
+                strength = SignalStrength.MEDIUM
             else:
-                confidence_factors.append(0.5)
-        
-        return sum(confidence_factors) / len(confidence_factors) if confidence_factors else 0.5
-    
-    # ==========================================================================
-    # POSITION MONITORING METHODS
-    # ==========================================================================
-    def _update_position_monitoring(self, market_data: Dict[str, Any]) -> None:
-        """
-        Update position monitoring and analytics.
-        
-        Args:
-            market_data: Current market data
-        """
-        for position in self.positions:
-            try:
-                # Update P&L
-                self._update_position_pnl(position, market_data)
-                
-                # Update Greeks
-                self._update_position_greeks(position, market_data)
-                
-                # Update time decay metrics
-                self._update_time_decay_metrics(position, market_data)
-                
-                # Check risk thresholds
-                self._check_position_risk_thresholds(position, market_data)
-                
-            except Exception as e:
-                self.error_handler.handle_error(e, {
-                    'method': '_update_position_monitoring',
-                    'position_id': position.id
-                })
-    
-    def _update_position_pnl(self, position: DoubleCalendarPosition, 
-                           market_data: Dict[str, Any]) -> None:
-        """
-        Update position P&L based on current market data.
-        
-        Args:
-            position: Position to update
-            market_data: Current market data
-        """
-        try:
-            option_chain = market_data.get('option_chain', {})
+                strength = SignalStrength.WEAK
             
-            if option_chain:
-                # Calculate current value of all calendar legs
-                call_calendar_value = self._calculate_calendar_value(
-                    position.call_leg, option_chain
-                )
-                put_calendar_value = self._calculate_calendar_value(
-                    position.put_leg, option_chain
-                )
-                
-                # Total current value
-                current_total_value = call_calendar_value + put_calendar_value
-                
-                # P&L is initial debit minus current value
-                position.current_pnl = position.total_net_debit - current_total_value
-                
-                # Update max profit achieved
-                if position.current_pnl > position.max_profit:
-                    position.max_profit = position.current_pnl
-        
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_update_position_pnl',
-                'position_id': position.id
-            })
-    
-    def _calculate_calendar_value(self, calendar_leg: CalendarLegData,
-                                option_chain: Dict[str, Any]) -> float:
-        """
-        Calculate current value of a calendar leg.
-        
-        Args:
-            calendar_leg: Calendar leg data
-            option_chain: Current option chain data
+            # Calculate confidence
+            confidence = self._calculate_signal_confidence(setup, iv_analysis)
             
-        Returns:
-            Current calendar value
-        """
-        total_value = 0.0
-        
-        option_type = 'call' if calendar_leg.leg_type == CalendarLeg.CALL_CALENDAR else 'put'
-        
-        # Short leg value (we owe this)
-        short_key = f"{calendar_leg.short_expiry.strftime('%Y-%m-%d')}_{calendar_leg.strike}_{option_type}"
-        if short_key in option_chain:
-            short_value = option_chain[short_key].get('mid', 0)
-            total_value += short_value * 100  # We owe this (positive cost)
-        
-        # Long leg value (we own this)
-        long_key = f"{calendar_leg.long_expiry.strftime('%Y-%m-%d')}_{calendar_leg.strike}_{option_type}"
-        if long_key in option_chain:
-            long_value = option_chain[long_key].get('mid', 0)
-            total_value -= long_value * 100  # We own this (negative cost)
-        
-        return total_value
-    
-    def _update_position_greeks(self, position: DoubleCalendarPosition,
-                              market_data: Dict[str, Any]) -> None:
-        """
-        Update position Greeks using SPYDER's Greeks calculator.
-        
-        Args:
-            position: Position to update
-            market_data: Current market data
-        """
-        try:
-            underlying_price = market_data.get('underlying_price', 0)
-            if underlying_price <= 0:
-                return
-            
-            # Calculate Greeks for all legs and aggregate
-            all_legs = []
-            
-            # Call calendar legs
-            all_legs.extend([
-                {
-                    'option_type': 'call',
-                    'strike': position.call_leg.strike,
-                    'expiry': position.call_leg.short_expiry,
-                    'quantity': -position.quantity,  # Short position
-                    'underlying_price': underlying_price
-                },
-                {
-                    'option_type': 'call',
-                    'strike': position.call_leg.strike,
-                    'expiry': position.call_leg.long_expiry,
-                    'quantity': position.quantity,  # Long position
-                    'underlying_price': underlying_price
-                }
-            ])
-            
-            # Put calendar legs
-            all_legs.extend([
-                {
-                    'option_type': 'put',
-                    'strike': position.put_leg.strike,
-                    'expiry': position.put_leg.short_expiry,
-                    'quantity': -position.quantity,  # Short position
-                    'underlying_price': underlying_price
-                },
-                {
-                    'option_type': 'put',
-                    'strike': position.put_leg.strike,
-                    'expiry': position.put_leg.long_expiry,
-                    'quantity': position.quantity,  # Long position
-                    'underlying_price': underlying_price
-                }
-            ])
-            
-            # Calculate portfolio Greeks
-            portfolio_greeks = self.greeks_calculator.calculate_position_greeks(all_legs)
-            position.portfolio_greeks = portfolio_greeks
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_update_position_greeks',
-                'position_id': position.id
-            })
-    
-    def _update_time_decay_metrics(self, position: DoubleCalendarPosition,
-                                 market_data: Dict[str, Any]) -> None:
-        """
-        Update time decay metrics for position.
-        
-        Args:
-            position: Position to update
-            market_data: Current market data
-        """
-        try:
-            # Calculate days to short expiration
-            days_to_short_exp = (position.call_leg.short_expiry - datetime.datetime.now()).days
-            
-            # Estimate theta collection rate
-            if 'theta' in position.portfolio_greeks:
-                daily_theta = position.portfolio_greeks['theta']
-                position.time_value_decay = daily_theta
-                
-                # Update daily theta collection
-                self.theta_collection_today += daily_theta
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_update_time_decay_metrics',
-                'position_id': position.id
-            })
-    
-    def _update_theta_metrics(self, market_data: Dict[str, Any]) -> None:
-        """
-        Update overall theta collection metrics.
-        
-        Args:
-            market_data: Current market data
-        """
-        try:
-            total_theta = sum(
-                pos.portfolio_greeks.get('theta', 0) for pos in self.positions
-            )
-            
-            # Update strategy metrics
-            if total_theta != 0:
-                self.metrics.theta_collection_efficiency = abs(total_theta) / max(len(self.positions), 1)
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_update_theta_metrics'
-            })
-    
-    # ==========================================================================
-    # RISK MANAGEMENT METHODS
-    # ==========================================================================
-    def _check_greeks_risk_thresholds(self, position: DoubleCalendarPosition) -> bool:
-        """
-        Check if position exceeds Greeks risk thresholds.
-        
-        Args:
-            position: Position to check
-            
-        Returns:
-            Whether risk thresholds are exceeded
-        """
-        try:
-            greeks = position.portfolio_greeks
-            
-            # Check delta risk
-            if abs(greeks.get('delta', 0)) > self.params['delta_threshold']:
-                self._emit_strategy_event('delta_risk_warning', {
-                    'position_id': position.id,
-                    'delta': greeks.get('delta', 0),
-                    'threshold': self.params['delta_threshold']
-                })
-                return True
-            
-            # Check gamma risk
-            if abs(greeks.get('gamma', 0)) > self.params['gamma_threshold']:
-                self._emit_strategy_event('gamma_risk_warning', {
-                    'position_id': position.id,
-                    'gamma': greeks.get('gamma', 0),
-                    'threshold': self.params['gamma_threshold']
-                })
-                return True
-            
-            # Check vega risk
-            if abs(greeks.get('vega', 0)) > self.params['vega_threshold']:
-                self._emit_strategy_event('vega_risk_warning', {
-                    'position_id': position.id,
-                    'vega': greeks.get('vega', 0),
-                    'threshold': self.params['vega_threshold']
-                })
-                return True
-            
-            return False
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_check_greeks_risk_thresholds',
-                'position_id': position.id
-            })
-            return True  # Err on the side of caution
-    
-    def _check_position_risk_thresholds(self, position: DoubleCalendarPosition,
-                                      market_data: Dict[str, Any]) -> None:
-        """
-        Check position against all risk thresholds.
-        
-        Args:
-            position: Position to check
-            market_data: Current market data
-        """
-        # Check Greeks risk
-        if self._check_greeks_risk_thresholds(position):
-            self.logger.warning(f"Greeks risk threshold exceeded for position {position.id}")
-        
-        # Check P&L risk
-        max_loss_threshold = position.total_net_debit * 0.75  # 75% of debit
-        if position.current_pnl <= -max_loss_threshold:
-            self._emit_strategy_event('pnl_risk_warning', {
-                'position_id': position.id,
-                'current_pnl': position.current_pnl,
-                'threshold': -max_loss_threshold
-            })
-    
-    def _check_volatility_expansion_exit(self, position: DoubleCalendarPosition,
-                                       market_data: Dict[str, Any]) -> bool:
-        """
-        Check if volatility expansion warrants exit.
-        
-        Args:
-            position: Position to check
-            market_data: Current market data
-            
-        Returns:
-            Whether to exit due to volatility expansion
-        """
-        try:
-            current_iv = market_data.get('iv', 0)
-            if current_iv <= 0 or position.entry_iv <= 0:
-                return False
-            
-            # Check for significant volatility expansion
-            iv_change = (current_iv - position.entry_iv) / position.entry_iv
-            
-            # For calendars, significant vol expansion can be profitable
-            if iv_change > 0.20:  # 20% IV increase
-                # Check if we're profitable and should take profits
-                if position.current_pnl > position.total_net_debit * 0.25:
-                    return True
-            
-            return False
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_check_volatility_expansion_exit',
-                'position_id': position.id
-            })
-            return False
-    
-    # ==========================================================================
-    # EXIT SIGNAL GENERATION
-    # ==========================================================================
-    def _generate_exit_signal(self, position: DoubleCalendarPosition,
-                            market_data: Dict[str, Any],
-                            exit_reason: ExitReason) -> Optional[StrategySignal]:
-        """
-        Generate exit signal for position.
-        
-        Args:
-            position: Position to exit
-            market_data: Current market data
-            exit_reason: Reason for exit
-            
-        Returns:
-            Exit signal or None
-        """
-        try:
-            # Create inverse strategy for closing
-            option_strategy = self._create_closing_strategy(position)
-            
-            # Create exit signal
-            signal = StrategySignal(
-                strategy_id=self.id,
-                strategy_name=self.name,
-                signal_type=SignalType.EXIT,
-                timestamp=datetime.datetime.now(),
-                underlying_symbol=market_data['underlying_symbol'],
-                option_strategy=option_strategy,
-                confidence=0.9,  # High confidence for risk management exits
-                expected_profit=position.current_pnl,
-                max_risk=0,  # Closing position
-                probability_of_profit=1.0,  # Certain exit
+            signal = TradingSignal(
+                timestamp=datetime.now(),
+                signal_type=SignalType.ENTRY,
+                strength=strength,
+                confidence=confidence,
                 metadata={
-                    'position_id': position.id,
-                    'exit_reason': exit_reason.value,
-                    'days_held': (datetime.datetime.now() - position.entry_time).days,
-                    'entry_debit': position.total_net_debit,
-                    'current_pnl': position.current_pnl,
-                    'theta_collected': position.time_value_decay,
-                    'iv_change': self._calculate_iv_change(position, market_data)
+                    'strategy': 'double_calendar',
+                    'setup': setup.__dict__,
+                    'calendar_type': setup.calendar_type.value,
+                    'strikes': {
+                        'call': setup.call_calendar.strike,
+                        'put': setup.put_calendar.strike
+                    },
+                    'total_debit': setup.total_debit,
+                    'expected_theta': setup.expected_theta_decay,
+                    'iv_regime': setup.iv_regime.value,
+                    'profit_zone': setup.profit_zone,
+                    'position_size': self._calculate_position_size(setup),
+                    'stop_loss': setup.total_debit * (1 + STOP_LOSS_PERCENT / 100),
+                    'profit_target': setup.total_debit * (1 - PROFIT_TARGET_PERCENT / 100)
                 }
             )
             
-            self.logger.info(f"Generated exit signal for position {position.id}: {exit_reason.value}")
-            self._emit_strategy_event('exit_signal_generated', {
-                'position_id': position.id,
-                'exit_reason': exit_reason.value,
-                'pnl': position.current_pnl
+            return signal
+            
+        except Exception as e:
+            self.logger.error(f"Error creating trading signal: {e}")
+            return None
+    
+    def _calculate_signal_confidence(self, setup: DoubleCalendarSetup,
+                                   iv_analysis: IVAnalysis) -> float:
+        """Calculate trading signal confidence"""
+        confidence = 50.0
+        
+        # IV rank factor
+        if MIN_IV_RANK + 10 <= iv_analysis.iv_rank <= MAX_IV_RANK - 10:
+            confidence += 10
+        
+        # Term structure factor
+        if abs(iv_analysis.term_structure_slope) < 0.0005:
+            confidence += 10
+        
+        # Expected theta factor
+        if setup.expected_theta_decay > self.target_theta:
+            confidence += 15
+        
+        # Strike correlation factor
+        if 0.3 < setup.strike_correlation < 0.7:
+            confidence += 10
+        
+        # Net delta neutrality
+        if abs(setup.net_delta) < 0.05:
+            confidence += 5
+        
+        return min(100, max(0, confidence))
+    
+    def _calculate_position_size(self, setup: DoubleCalendarSetup) -> int:
+        """Calculate appropriate position size"""
+        if not self.dynamic_sizing:
+            return 1
+        
+        # Base size on IV regime
+        if setup.iv_regime == IVRegime.NORMAL:
+            base_size = 2
+        else:
+            base_size = 1
+        
+        # Adjust for expected theta
+        if setup.expected_theta_decay > self.target_theta * 1.5:
+            base_size += 1
+        
+        # Cap at maximum
+        return min(base_size, 3)
+    
+    # ==========================================================================
+    # POSITION MANAGEMENT
+    # ==========================================================================
+    
+    def manage_positions(self, market_data: pd.DataFrame) -> List[TradingSignal]:
+        """Manage existing double calendar positions"""
+        try:
+            signals = []
+            current_price = market_data['close'].iloc[-1]
+            
+            # Update current IV analysis
+            self._analyze_iv_environment(market_data)
+            
+            # Manage each position
+            for position_id, position in list(self.active_positions.items()):
+                position_signals = self._manage_single_position(
+                    position, market_data, current_price
+                )
+                signals.extend(position_signals)
+            
+            # Update portfolio Greeks
+            self._update_portfolio_greeks()
+            
+            return signals
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, market_data)
+            return []
+    
+    def _manage_single_position(self, position: DoubleCalendarPosition,
+                              market_data: pd.DataFrame,
+                              current_price: float) -> List[TradingSignal]:
+        """Manage individual double calendar position"""
+        signals = []
+        
+        # Update position metrics
+        self._update_position_metrics(position, current_price)
+        
+        # Check exit conditions
+        if self._should_exit_position(position, current_price):
+            exit_signal = self._create_exit_signal(position, current_price)
+            if exit_signal:
+                signals.append(exit_signal)
+                self._close_position(position)
+        
+        # Check adjustment conditions
+        elif self._should_adjust_position(position, current_price):
+            adjustment_signals = self._create_adjustment_signals(position, current_price)
+            signals.extend(adjustment_signals)
+        
+        return signals
+    
+    def _update_position_metrics(self, position: DoubleCalendarPosition,
+                                current_price: float) -> None:
+        """Update position value and metrics"""
+        # Update days held
+        position.days_held = (datetime.now() - position.entry_time).days
+        
+        # Update DTEs
+        position.near_dte = (position.setup.call_calendar.near_expiry - datetime.now()).days
+        position.far_dte = (position.setup.call_calendar.far_expiry - datetime.now()).days
+        
+        # Calculate current value
+        current_value = self._calculate_position_value(position, current_price)
+        position.current_value = current_value
+        
+        # Update P&L
+        position.unrealized_pnl = current_value - position.setup.total_debit
+        
+        # Update theta collected
+        position.theta_collected += position.setup.net_theta * SPY_CONTRACT_MULTIPLIER
+        
+        # Update current IV regime
+        if self.current_iv_analysis:
+            position.current_iv_regime = self.current_iv_analysis.iv_regime
+    
+    def _calculate_position_value(self, position: DoubleCalendarPosition,
+                                current_price: float) -> float:
+        """Calculate current position value"""
+        # Simplified calculation
+        # In production, would use option pricing model
+        
+        # Time decay factor
+        time_decay = position.days_held / 30.0
+        
+        # Price movement factor
+        price_in_zone = (position.setup.profit_zone[0] <= current_price <= 
+                        position.setup.profit_zone[1])
+        
+        if price_in_zone:
+            # Position gaining value
+            value_multiplier = 1 + (time_decay * 0.3)
+        else:
+            # Position losing value
+            distance_from_zone = min(
+                abs(current_price - position.setup.profit_zone[0]),
+                abs(current_price - position.setup.profit_zone[1])
+            )
+            value_multiplier = 1 - (distance_from_zone / 100) * 0.5
+        
+        return position.setup.total_debit * value_multiplier
+    
+    def _should_exit_position(self, position: DoubleCalendarPosition,
+                            current_price: float) -> bool:
+        """Determine if position should be closed"""
+        # Profit target hit
+        if position.unrealized_pnl >= position.setup.max_profit * (PROFIT_TARGET_PERCENT / 100):
+            position.exit_reason = "Profit target reached"
+            return True
+        
+        # Stop loss hit
+        if position.unrealized_pnl <= -position.setup.total_debit * (STOP_LOSS_PERCENT / 100):
+            position.exit_reason = "Stop loss triggered"
+            return True
+        
+        # Near expiry approaching
+        if position.near_dte <= 7:
+            position.exit_reason = "Near expiry approaching"
+            return True
+        
+        # Price moved too far from profit zone
+        if current_price < position.setup.breakeven_points[0] or \
+           current_price > position.setup.breakeven_points[1]:
+            position.exit_reason = "Price outside breakeven zone"
+            return True
+        
+        # IV regime change
+        if position.current_iv_regime == IVRegime.EXTREME:
+            position.exit_reason = "IV regime change to extreme"
+            return True
+        
+        return False
+    
+    def _should_adjust_position(self, position: DoubleCalendarPosition,
+                              current_price: float) -> bool:
+        """Determine if position needs adjustment"""
+        # IV change threshold
+        if self.current_iv_analysis:
+            iv_change = abs(self.current_iv_analysis.current_iv - 
+                          position.iv_at_entry.current_iv)
+            if iv_change > ADJUSTMENT_IV_CHANGE:
+                return True
+        
+        # Price near edge of profit zone
+        zone_buffer = 2.0  # Points from edge
+        if (abs(current_price - position.setup.profit_zone[0]) < zone_buffer or
+            abs(current_price - position.setup.profit_zone[1]) < zone_buffer):
+            return True
+        
+        # Delta imbalance
+        if abs(position.setup.net_delta) > 0.10:
+            return True
+        
+        return False
+    
+    def _create_exit_signal(self, position: DoubleCalendarPosition,
+                          current_price: float) -> Optional[TradingSignal]:
+        """Create position exit signal"""
+        try:
+            signal = TradingSignal(
+                timestamp=datetime.now(),
+                signal_type=SignalType.EXIT,
+                strength=SignalStrength.STRONG,
+                confidence=90.0,
+                metadata={
+                    'strategy': 'double_calendar',
+                    'position_id': position.position_id,
+                    'exit_reason': position.exit_reason,
+                    'days_held': position.days_held,
+                    'unrealized_pnl': position.unrealized_pnl,
+                    'theta_collected': position.theta_collected,
+                    'current_price': current_price,
+                    'strikes': {
+                        'call': position.setup.call_calendar.strike,
+                        'put': position.setup.put_calendar.strike
+                    }
+                }
+            )
+            
+            return signal
+            
+        except Exception as e:
+            self.logger.error(f"Error creating exit signal: {e}")
+            return None
+    
+    def _create_adjustment_signals(self, position: DoubleCalendarPosition,
+                                 current_price: float) -> List[TradingSignal]:
+        """Create position adjustment signals"""
+        signals = []
+        
+        # Roll strikes if needed
+        if self._should_roll_strikes(position, current_price):
+            roll_signal = self._create_roll_signal(position, current_price)
+            if roll_signal:
+                signals.append(roll_signal)
+        
+        # Adjust for delta neutrality
+        if abs(position.setup.net_delta) > 0.10:
+            delta_signal = self._create_delta_adjustment_signal(position)
+            if delta_signal:
+                signals.append(delta_signal)
+        
+        return signals
+    
+    def _should_roll_strikes(self, position: DoubleCalendarPosition,
+                           current_price: float) -> bool:
+        """Determine if strikes should be rolled"""
+        # Check if price moved significantly from entry
+        price_move = abs(current_price - position.entry_price) / position.entry_price
+        return price_move > 0.03  # 3% move
+    
+    def _create_roll_signal(self, position: DoubleCalendarPosition,
+                          current_price: float) -> Optional[TradingSignal]:
+        """Create strike roll signal"""
+        try:
+            # Determine new strikes
+            new_call_strike = round((current_price + CALL_STRIKE_OFFSET) / 5) * 5
+            new_put_strike = round((current_price - PUT_STRIKE_OFFSET) / 5) * 5
+            
+            signal = TradingSignal(
+                timestamp=datetime.now(),
+                signal_type=SignalType.ADJUSTMENT,
+                strength=SignalStrength.MEDIUM,
+                confidence=75.0,
+                metadata={
+                    'strategy': 'double_calendar',
+                    'position_id': position.position_id,
+                    'adjustment_type': 'roll_strikes',
+                    'old_strikes': {
+                        'call': position.setup.call_calendar.strike,
+                        'put': position.setup.put_calendar.strike
+                    },
+                    'new_strikes': {
+                        'call': new_call_strike,
+                        'put': new_put_strike
+                    },
+                    'current_price': current_price
+                }
+            )
+            
+            # Record adjustment
+            position.adjustments.append({
+                'timestamp': datetime.now(),
+                'type': 'roll_strikes',
+                'details': signal.metadata
             })
             
             return signal
             
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_generate_exit_signal',
-                'position_id': position.id,
-                'exit_reason': exit_reason.value
-            })
+            self.logger.error(f"Error creating roll signal: {e}")
             return None
     
-    def _create_closing_strategy(self, position: DoubleCalendarPosition) -> OptionStrategy:
-        """
-        Create inverse strategy for closing position.
-        
-        Args:
-            position: Position to close
+    def _create_delta_adjustment_signal(self, position: DoubleCalendarPosition) -> Optional[TradingSignal]:
+        """Create delta neutrality adjustment signal"""
+        try:
+            # Determine which side to adjust
+            if position.setup.net_delta > 0:
+                adjustment_side = 'call'
+                adjustment_action = 'reduce'
+            else:
+                adjustment_side = 'put'
+                adjustment_action = 'reduce'
             
-        Returns:
-            Closing option strategy
-        """
-        return SpyderOptionStrategies.double_calendar_close(
-            underlying_symbol="SPY",
-            call_strike=position.call_leg.strike,
-            put_strike=position.put_leg.strike,
-            short_expiry=position.call_leg.short_expiry,
-            long_expiry=position.call_leg.long_expiry,
-            quantity=position.quantity
+            signal = TradingSignal(
+                timestamp=datetime.now(),
+                signal_type=SignalType.ADJUSTMENT,
+                strength=SignalStrength.MEDIUM,
+                confidence=70.0,
+                metadata={
+                    'strategy': 'double_calendar',
+                    'position_id': position.position_id,
+                    'adjustment_type': 'delta_neutral',
+                    'adjustment_side': adjustment_side,
+                    'adjustment_action': adjustment_action,
+                    'current_delta': position.setup.net_delta
+                }
+            )
+            
+            return signal
+            
+        except Exception as e:
+            self.logger.error(f"Error creating delta adjustment signal: {e}")
+            return None
+    
+    def _close_position(self, position: DoubleCalendarPosition) -> None:
+        """Close position and update tracking"""
+        position.exit_time = datetime.now()
+        position.state = PositionState.COMPLETE
+        
+        # Update performance stats
+        self.performance_stats['total_trades'] += 1
+        if position.unrealized_pnl > 0:
+            self.performance_stats['winning_trades'] += 1
+        
+        self.performance_stats['total_theta_collected'] += position.theta_collected
+        
+        # Update best/worst trade
+        if position.unrealized_pnl > self.performance_stats['best_trade']:
+            self.performance_stats['best_trade'] = position.unrealized_pnl
+        if position.unrealized_pnl < self.performance_stats['worst_trade']:
+            self.performance_stats['worst_trade'] = position.unrealized_pnl
+        
+        # Update IV regime performance
+        entry_regime = position.iv_at_entry.iv_regime.value
+        if entry_regime in self.performance_stats['iv_regime_performance']:
+            self.performance_stats['iv_regime_performance'][entry_regime]['trades'] += 1
+            if position.unrealized_pnl > 0:
+                self.performance_stats['iv_regime_performance'][entry_regime]['wins'] += 1
+        
+        # Remove from active positions
+        del self.active_positions[position.position_id]
+        
+        self.logger.info(f"Closed double calendar position {position.position_id}: "
+                        f"P&L: ${position.unrealized_pnl:.2f}, "
+                        f"Theta collected: ${position.theta_collected:.2f}")
+    
+    def _update_portfolio_greeks(self) -> None:
+        """Update total portfolio Greeks"""
+        total_theta = 0.0
+        total_vega = 0.0
+        
+        for position in self.active_positions.values():
+            total_theta += position.setup.net_theta * SPY_CONTRACT_MULTIPLIER
+            total_vega += position.setup.net_vega * SPY_CONTRACT_MULTIPLIER
+        
+        self.portfolio_theta = total_theta
+        self.portfolio_vega = total_vega
+    
+    # ==========================================================================
+    # ANALYSIS AND REPORTING
+    # ==========================================================================
+    
+    def analyze_performance(self) -> Dict[str, Any]:
+        """Analyze strategy performance"""
+        if self.performance_stats['total_trades'] == 0:
+            return self.performance_stats
+        
+        # Calculate averages
+        self.performance_stats['avg_holding_period'] = (
+            sum(p.days_held for p in self.active_positions.values()) / 
+            max(1, len(self.active_positions))
+        )
+        
+        # Win rate
+        win_rate = (self.performance_stats['winning_trades'] / 
+                   self.performance_stats['total_trades'] * 100)
+        self.performance_stats['win_rate'] = win_rate
+        
+        # Average trade
+        total_pnl = self.performance_stats['best_trade'] + self.performance_stats['worst_trade']
+        self.performance_stats['avg_trade'] = total_pnl / 2
+        
+        return self.performance_stats
+    
+    def get_position_summary(self) -> Dict[str, Any]:
+        """Get summary of current positions"""
+        return {
+            'active_positions': len(self.active_positions),
+            'total_theta': self.portfolio_theta,
+            'total_vega': self.portfolio_vega,
+            'positions': [
+                {
+                    'id': pos.position_id,
+                    'strikes': {
+                        'call': pos.setup.call_calendar.strike,
+                        'put': pos.setup.put_calendar.strike
+                    },
+                    'unrealized_pnl': pos.unrealized_pnl,
+                    'days_held': pos.days_held,
+                    'near_dte': pos.near_dte,
+                    'state': pos.state.name
+                }
+                for pos in self.active_positions.values()
+            ]
+        }
+    
+    # ==========================================================================
+    # EXECUTION
+    # ==========================================================================
+    
+    def execute_signal(self, signal: TradingSignal) -> bool:
+        """Execute trading signal"""
+        try:
+            if signal.signal_type == SignalType.ENTRY:
+                return self._execute_entry(signal)
+            elif signal.signal_type == SignalType.EXIT:
+                return self._execute_exit(signal)
+            elif signal.signal_type == SignalType.ADJUSTMENT:
+                return self._execute_adjustment(signal)
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Error executing signal: {e}")
+            return False
+    
+    def _execute_entry(self, signal: TradingSignal) -> bool:
+        """Execute entry signal"""
+        try:
+            # Create new position
+            position = DoubleCalendarPosition(
+                position_id=str(uuid.uuid4()),
+                setup=self._reconstruct_setup_from_signal(signal),
+                entry_time=datetime.now(),
+                entry_price=signal.metadata.get('current_price', 0),
+                iv_at_entry=self.current_iv_analysis or self._create_default_iv_analysis()
+            )
+            
+            # Add to active positions
+            self.active_positions[position.position_id] = position
+            
+            # Emit position opened event
+            self.event_manager.emit(EventType.POSITION_OPENED, {
+                'strategy': self.name,
+                'position_id': position.position_id,
+                'setup': position.setup
+            })
+            
+            self.logger.info(f"Opened double calendar position {position.position_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error executing entry: {e}")
+            return False
+    
+    def _execute_exit(self, signal: TradingSignal) -> bool:
+        """Execute exit signal"""
+        position_id = signal.metadata.get('position_id')
+        if position_id in self.active_positions:
+            position = self.active_positions[position_id]
+            self._close_position(position)
+            
+            # Emit position closed event
+            self.event_manager.emit(EventType.POSITION_CLOSED, {
+                'strategy': self.name,
+                'position_id': position_id,
+                'pnl': position.unrealized_pnl
+            })
+            
+            return True
+        return False
+    
+    def _execute_adjustment(self, signal: TradingSignal) -> bool:
+        """Execute adjustment signal"""
+        position_id = signal.metadata.get('position_id')
+        if position_id not in self.active_positions:
+            return False
+        
+        adjustment_type = signal.metadata.get('adjustment_type')
+        
+        if adjustment_type == 'roll_strikes':
+            # In production, would execute the roll
+            self.logger.info(f"Rolling strikes for position {position_id}")
+        elif adjustment_type == 'delta_neutral':
+            # In production, would adjust for delta
+            self.logger.info(f"Adjusting delta for position {position_id}")
+        
+        return True
+    
+    def _reconstruct_setup_from_signal(self, signal: TradingSignal) -> DoubleCalendarSetup:
+        """Reconstruct setup from signal metadata"""
+        # This would recreate the setup object from signal metadata
+        # For now, return a placeholder
+        metadata = signal.metadata
+        
+        # Create placeholder calendar legs
+        call_leg = CalendarLeg(
+            option_type=OptionType.CALL,
+            strike=metadata['strikes']['call'],
+            near_expiry=datetime.now() + timedelta(days=30),
+            far_expiry=datetime.now() + timedelta(days=60),
+            near_premium=10.0,
+            far_premium=15.0,
+            net_debit=5.0,
+            delta=0.1,
+            gamma=0.01,
+            vega=0.5,
+            theta=-0.05,
+            iv_near=0.20,
+            iv_far=0.21
+        )
+        
+        put_leg = CalendarLeg(
+            option_type=OptionType.PUT,
+            strike=metadata['strikes']['put'],
+            near_expiry=datetime.now() + timedelta(days=30),
+            far_expiry=datetime.now() + timedelta(days=60),
+            near_premium=10.0,
+            far_premium=15.0,
+            net_debit=5.0,
+            delta=-0.1,
+            gamma=0.01,
+            vega=0.5,
+            theta=-0.05,
+            iv_near=0.20,
+            iv_far=0.21
+        )
+        
+        return DoubleCalendarSetup(
+            call_calendar=call_leg,
+            put_calendar=put_leg,
+            calendar_type=DoubleCalendarType.SYMMETRIC,
+            total_debit=metadata['total_debit'],
+            max_profit=metadata.get('max_profit', 300),
+            profit_zone=tuple(metadata['profit_zone']),
+            breakeven_points=metadata.get('breakeven_points', []),
+            net_delta=0.0,
+            net_vega=1.0,
+            net_theta=-0.1,
+            strike_correlation=0.5,
+            iv_regime=IVRegime.NORMAL,
+            term_structure_slope=0.0,
+            expected_theta_decay=metadata['expected_theta']
         )
     
     # ==========================================================================
-    # ANALYTICS AND REPORTING METHODS
+    # CLEANUP
     # ==========================================================================
-    def calculate_probability_of_profit(self, market_data: Dict[str, Any]) -> float:
-        """
-        Calculate probability of profit for Double Calendar strategy.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Probability of profit (0.0 to 1.0)
-        """
-        # Base probability for Double Calendar (higher than single calendars)
-        base_prob = 0.62
-        
-        # Adjust based on IV rank (moderate IV preferred)
-        iv_rank = market_data.get('iv_rank', 50)
-        if 40 <= iv_rank <= 60:
-            iv_adjustment = 0.08  # Optimal range
-        elif 30 <= iv_rank <= 70:
-            iv_adjustment = 0.03  # Good range
-        else:
-            iv_adjustment = -0.05  # Suboptimal range
-        
-        # Adjust based on volatility regime
-        regime_adjustment = 0.05 if self._is_favorable_volatility_regime(market_data) else -0.03
-        
-        # Adjust based on market environment
-        environment_adjustment = 0.03 if self._is_favorable_market_environment(market_data) else -0.02
-        
-        # Time of day adjustment
-        current_time = market_data.get('current_time')
-        time_adjustment = 0.0
-        if current_time and isinstance(current_time, str):
-            current_time = datetime.datetime.strptime(current_time, '%H:%M').time()
-            if datetime.time(10, 30) <= current_time <= datetime.time(13, 30):
-                time_adjustment = 0.02  # Optimal trading window
-        
-        # Calculate final probability
-        probability = base_prob + iv_adjustment + regime_adjustment + environment_adjustment + time_adjustment
-        
-        # Ensure reasonable range
-        return max(0.45, min(0.80, probability))
-    
-    def get_performance_summary(self) -> Dict[str, Any]:
-        """
-        Get comprehensive performance summary.
-        
-        Returns:
-            Performance summary dictionary
-        """
-        return {
-            'strategy_name': self.name,
-            'strategy_type': self.strategy_type,
-            'total_trades': self.metrics.total_trades,
-            'win_rate': self.metrics.win_rate,
-            'profit_factor': self.metrics.profit_factor,
-            'total_profit': self.metrics.total_profit,
-            'average_win': self.metrics.average_win,
-            'average_loss': self.metrics.average_loss,
-            'average_days_held': self.metrics.average_days_held,
-            'average_debit_per_trade': self.metrics.average_debit_per_trade,
-            'average_time_spread': self.metrics.average_time_spread,
-            'theta_collection_efficiency': self.metrics.theta_collection_efficiency,
-            'volatility_expansion_wins': self.metrics.volatility_expansion_wins,
-            'time_decay_wins': self.metrics.time_decay_wins,
-            'current_positions': len(self.positions),
-            'daily_pnl': self.daily_pnl,
-            'total_exposure': self.total_exposure,
-            'theta_collection_today': self.theta_collection_today,
-            'current_iv_regime': self.current_iv_regime.value if self.current_iv_regime else None,
-            'iv_trend': self.iv_trend
-        }
-    
-    def _calculate_iv_change(self, position: DoubleCalendarPosition, 
-                           market_data: Dict[str, Any]) -> float:
-        """
-        Calculate IV change since position entry.
-        
-        Args:
-            position: Position to analyze
-            market_data: Current market data
-            
-        Returns:
-            IV change percentage
-        """
-        current_iv = market_data.get('iv', 0)
-        if current_iv > 0 and position.entry_iv > 0:
-            return (current_iv - position.entry_iv) / position.entry_iv
-        return 0.0
-    
-    def _get_entry_criteria_summary(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Get summary of entry criteria for signal metadata.
-        
-        Args:
-            market_data: Current market data
-            
-        Returns:
-            Entry criteria summary
-        """
-        return {
-            'iv_rank': market_data.get('iv_rank'),
-            'iv_regime': self.current_iv_regime.value if self.current_iv_regime else None,
-            'iv_trend': self.iv_trend,
-            'underlying_price': market_data.get('underlying_price'),
-            'vix_level': market_data.get('vix'),
-            'market_regime': market_data.get('market_regime'),
-            'trend_strength': market_data.get('trend_strength'),
-            'time_of_day': market_data.get('current_time'),
-            'day_of_week': market_data.get('current_day_of_week'),
-            'available_capital': self.risk_manager.get_available_capital(),
-            'strategy_exposure': self.risk_manager.get_strategy_exposure(self.strategy_type)
-        }
-    
-    def _emit_strategy_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """
-        Emit strategy event to SPYDER event system.
-        
-        Args:
-            event_type: Type of event
-            data: Event data
-        """
-        event = Event(
-            event_type=EventType.STRATEGY_SIGNAL,
-            data={
-                'strategy_id': self.id,
-                'strategy_name': self.name,
-                'strategy_type': self.strategy_type,
-                'event_type': event_type,
-                'timestamp': datetime.datetime.now(),
-                'data': data
-            }
-        )
-        self.event_manager.emit(event)
-    
-    # ==========================================================================
-    # LIFECYCLE METHODS
-    # ==========================================================================
-    def start(self) -> None:
-        """Start the Double Calendar strategy."""
-        if self.state == DoubleCalendarState.INACTIVE:
-            self.state = DoubleCalendarState.MONITORING
-            self.logger.info("Double Calendar strategy started")
-            self._emit_strategy_event('strategy_started', {})
-        else:
-            self.logger.warning(f"Cannot start from state: {self.state}")
-    
-    def stop(self) -> None:
-        """Stop the Double Calendar strategy."""
-        if self.state == DoubleCalendarState.MONITORING:
-            self.state = DoubleCalendarState.INACTIVE
-            self.logger.info("Double Calendar strategy stopped")
-            self._emit_strategy_event('strategy_stopped', {})
-        else:
-            self.logger.warning(f"Cannot stop from state: {self.state}")
     
     def cleanup(self) -> None:
-        """Clean up strategy resources."""
-        self.positions.clear()
-        self.trade_history.clear()
-        self.daily_pnl = 0.0
-        self.total_exposure = 0.0
-        self.theta_collection_today = 0.0
-        self.current_iv_regime = None
-        self.iv_trend = "neutral"
-        self.logger.info("Double Calendar strategy cleanup completed")
+        """Cleanup strategy resources"""
+        # Close all positions
+        for position in list(self.active_positions.values()):
+            position.exit_reason = "Strategy cleanup"
+            self._close_position(position)
+        
+        # Log final performance
+        self.logger.info(f"Double Calendar Strategy Final Performance: {self.analyze_performance()}")
+        
+        super().cleanup()
+
 
 # ==============================================================================
-# MODULE FUNCTIONS
+# END OF FILE
 # ==============================================================================
-def create_double_calendar_strategy(config: Optional[Dict[str, Any]] = None) -> SpyderD21_DoubleCalendar:
-    """
-    Factory function to create Double Calendar strategy.
-    
-    Args:
-        config: Optional configuration dictionary
-        
-    Returns:
-        Configured SpyderD21_DoubleCalendar instance
-    """
-    return SpyderD21_DoubleCalendar(config)
-
-# ==============================================================================
-# MODULE INITIALIZATION
-# ==============================================================================
-# Module-level initialization code
-_module_instance: Optional[SpyderD21_DoubleCalendar] = None
-
-def get_module_instance(config: Optional[Dict[str, Any]] = None) -> SpyderD21_DoubleCalendar:
-    """
-    Get singleton instance of the Double Calendar strategy.
-    
-    Args:
-        config: Configuration if creating new instance
-        
-    Returns:
-        Module instance
-    """
-    global _module_instance
-    if _module_instance is None:
-        _module_instance = SpyderD21_DoubleCalendar(config)
-    return _module_instance
-
-# ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
-if __name__ == "__main__":
-    async def test_double_calendar_strategy():
-        """Test the Double Calendar strategy implementation."""
-        print("🕷️  Testing SpyderD21_DoubleCalendar Strategy")
-        print("=" * 70)
-        
-        # Initialize strategy
-        config = {
-            'call_strike_delta': 0.30,
-            'put_strike_delta': 0.30,
-            'short_term_days': 30,
-            'long_term_days': 60,
-            'iv_rank_min': 30,
-            'iv_rank_max': 70,
-            'position_size_percent': 0.05,
-            'optimal_time_spread': 21,
-            'is_active': True
-        }
-        
-        strategy = SpyderD21_DoubleCalendar(config)
-        print(f"✅ Strategy initialized: {strategy.name}")
-        
-        # Test market data
-        market_data = {
-            'underlying_price': 450.0,
-            'underlying_symbol': 'SPY',
-            'iv_rank': 45,
-            'iv': 0.22,
-            'iv_change_1d': 0.01,
-            'vix': 22,
-            'current_time': '11:30',
-            'current_day_of_week': 'monday',
-            'account_value': 100000,
-            'trend_strength': 'moderate',
-            'market_regime': 'neutral',
-            'vix_term_structure': 'normal',
-            'available_strikes': [435, 440, 445, 450, 455, 460, 465, 470],
-            'expiration_dates': {
-                '30': datetime.datetime.now() + datetime.timedelta(days=30),
-                '60': datetime.datetime.now() + datetime.timedelta(days=60)
-            }
-        }
-        
-        print(f"📊 Market Data: SPY=${market_data['underlying_price']}, IV Rank={market_data['iv_rank']}")
-        
-        # Test volatility regime analysis
-        print("\n🌡️  Testing Volatility Regime Analysis...")
-        strategy._update_volatility_regime(market_data)
-        print(f"IV Regime: {strategy.current_iv_regime.value if strategy.current_iv_regime else 'None'}")
-        print(f"IV Trend: {strategy.iv_trend}")
-        
-        # Test entry conditions
-        print("\n🔍 Testing Entry Conditions...")
-        entry_conditions = strategy._check_entry_conditions(market_data)
-        print(f"Entry Conditions Met: {'✅ YES' if entry_conditions else '❌ NO'}")
-        
-        # Test volatility environment checks
-        favorable_regime = strategy._is_favorable_volatility_regime(market_data)
-        favorable_environment = strategy._is_favorable_market_environment(market_data)
-        print(f"Favorable Volatility Regime: {'✅ YES' if favorable_regime else '❌ NO'}")
-        print(f"Favorable Market Environment: {'✅ YES' if favorable_environment else '❌ NO'}")
-        
-        # Test strike calculation
-        print("\n🎯 Testing Strike Calculation...")
-        call_strike, put_strike = strategy._calculate_calendar_strikes(market_data)
-        if call_strike and put_strike:
-            print(f"Calendar Strikes: Call={call_strike}, Put={put_strike}")
-            print(f"Strike Separation: ${call_strike - put_strike:.2f}")
-            print(f"Profit Zone Width: {((call_strike - put_strike) / market_data['underlying_price'] * 100):.1f}% of underlying")
-        else:
-            print("❌ Strike calculation failed")
-        
-        # Test expiration calculation
-        print("\n📅 Testing Expiration Calculation...")
-        short_expiry, long_expiry = strategy._get_target_expirations(market_data)
-        if short_expiry and long_expiry:
-            time_spread = (long_expiry - short_expiry).days
-            print(f"Expirations: Short={short_expiry.strftime('%Y-%m-%d')}, Long={long_expiry.strftime('%Y-%m-%d')}")
-            print(f"Time Spread: {time_spread} days")
-            print(f"Optimal Spread: {'✅ YES' if time_spread == strategy.params['optimal_time_spread'] else '❌ NO'}")
-        else:
-            print("❌ Expiration calculation failed")
-        
-        # Test signal generation
-        print("\n📡 Testing Signal Generation...")
-        signals = strategy.generate_signals(market_data)
-        print(f"Generated {len(signals)} signals")
-        
-        if signals:
-            signal = signals[0]
-            print(f"Signal Type: {signal.signal_type}")
-            print(f"Confidence: {signal.confidence:.2%}")
-            print(f"Expected Profit: ${signal.expected_profit:.2f}")
-            print(f"Max Risk: ${signal.max_risk:.2f}")
-            print(f"Probability of Profit: {signal.probability_of_profit:.2%}")
-            print(f"Risk/Reward Ratio: {signal.expected_profit / signal.max_risk:.2f}" if signal.max_risk > 0 else "N/A")
-        
-        # Test strategy metrics calculation
-        print("\n📈 Testing Strategy Metrics...")
-        if call_strike and put_strike:
-            position_size = strategy._calculate_position_size(market_data)
-            metrics = strategy._calculate_strategy_metrics(market_data, call_strike, put_strike, position_size)
-            print(f"Position Size: {position_size} contracts")
-            print(f"Total Net Debit: ${metrics['total_net_debit']:.2f}")
-            print(f"Call Calendar Debit: ${metrics['call_calendar_debit']:.2f}")
-            print(f"Put Calendar Debit: ${metrics['put_calendar_debit']:.2f}")
-            print(f"Max Profit Estimate: ${metrics['max_profit']:.2f}")
-            print(f"Max Risk: ${metrics['max_risk']:.2f}")
-        
-        # Test probability calculation
-        print("\n📊 Testing Probability Calculation...")
-        pop = strategy.calculate_probability_of_profit(market_data)
-        print(f"Probability of Profit: {pop:.2%}")
-        
-        # Test capital requirements
-        print("\n💰 Testing Capital Requirements...")
-        required_capital = strategy._calculate_required_capital(market_data)
-        print(f"Required Capital: ${required_capital:.2f}")
-        print(f"Capital as % of Account: {(required_capital / market_data['account_value'] * 100):.1f}%")
-        
-        # Test confidence calculation
-        print("\n🎯 Testing Signal Confidence...")
-        confidence = strategy._calculate_signal_confidence(market_data)
-        print(f"Signal Confidence: {confidence:.2%}")
-        
-        # Test performance summary
-        print("\n📊 Testing Performance Summary...")
-        performance = strategy.get_performance_summary()
-        print(f"Performance Summary: {performance}")
-        
-        # Test lifecycle methods
-        print("\n🔄 Testing Lifecycle Methods...")
-        strategy.start()
-        print(f"Strategy State: {strategy.state}")
-        
-        strategy.stop()
-        print(f"Strategy State after stop: {strategy.state}")
-        
-        strategy.cleanup()
-        print("Strategy cleanup completed")
-        
-        print("\n✅ SpyderD21_DoubleCalendar test completed successfully!")
-        print("=" * 70)
-        
-        # Test key features summary
-        print("\n🌟 Key Features Tested:")
-        print("- ✅ SPYDER template compliance with enhanced time decay management")
-        print("- ✅ Dual-direction coverage with call and put calendars")
-        print("- ✅ Professional multi-expiration management (30/60 day default)")
-        print("- ✅ Enhanced profit zones compared to single calendars")
-        print("- ✅ Volatility regime analysis and IV trend monitoring")
-        print("- ✅ Real-time Greeks monitoring across all four legs")
-        print("- ✅ Sophisticated time spread optimization")
-        print("- ✅ Advanced risk management with multiple exit triggers")
-        print("- ✅ Theta collection efficiency tracking")
-        print("- ✅ Market environment analysis for optimal entry timing")
-        print("- ✅ High probability of profit calculation (50-75% range)")
-        print("- ✅ Professional position validation and error handling")
-        
-        print("\n📈 Strategy Profile:")
-        print(f"- Target Probability of Profit: {pop:.1%}")
-        print(f"- Optimal IV Rank Range: {strategy.params['iv_rank_min']}-{strategy.params['iv_rank_max']}")
-        print(f"- Time Spread: {strategy.params['short_term_days']}/{strategy.params['long_term_days']} days")
-        print(f"- Max Days Held: {strategy.params['max_days_held']} days")
-        print(f"- Position Size: {strategy.params['position_size_percent']:.1%} of account")
-    
-    # Run test
-    asyncio.run(test_double_calendar_strategy())
