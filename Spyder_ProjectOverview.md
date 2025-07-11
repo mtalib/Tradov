@@ -70,6 +70,7 @@ SpyderC_MarketData/
   SpyderC11_FuturesBasis.py
   SpyderC12_DarkPoolFlow.py
   SpyderC13_IndexComponents.py
+  SpyderC14_UltraLowLatencyFeed.py
 SpyderD_Strategies/
   __init__.py
   SpyderD01_BaseStrategy.py
@@ -115,11 +116,13 @@ SpyderF_Analysis/
   SpyderF11_GreeksAggregator.py
 SpyderG_GUI/
   __init__.py
+  PythonG08_AutomatedDashboard.py
   SpyderG01_MainWindow.py
   SpyderG02_GUIEntry.py
   SpyderG03_OptionChainWidget.py
   SpyderG04_ChartWidget.py
   SpyderG05_TradingDashboard.py
+  SpyderG06_RiskParametersDialog.py
 SpyderH_Storage/
   __init__.py
   SpyderH01_DataAccessLayer.py
@@ -143,8 +146,12 @@ SpyderK_Reports/
   SpyderK01_ReportGenerator.py
   SpyderK02_DailyTradingReport.py
   SpyderK03_PerformanceDashboard.py
+  SpyderK04_ExecutionAnalytics.py
   SpyderK05_RiskReport.py
+  SpyderK06_PortfolioAnalytics.py
   SpyderK07_StrategyComparison.py
+  SpyderK08_MLPerformanceReport.py
+  SpyderK09_RegulatoryReports.py
 SpyderL_ML/
   __init__.py
   SpyderL01_MLPredictor.py
@@ -156,6 +163,8 @@ SpyderL_ML/
   SpyderL12_RandomForestEnsemble.py
   SpyderL13_LSTMPricer.py
   SpyderL14_RealTimePredictor.py
+  SpyderL15_MOmentPredictor.py
+  SpyderL16_OptionsAdjustmentRL.py
 SpyderM_Monitoring/
   __init__.py
   SpyderM01_SystemMonitor.py
@@ -166,6 +175,7 @@ SpyderN_OptionsAnalytics/
   __init__.py
   SpyderN08_VolatilitySurface.py
   SpyderN09_GammaExposure.py
+  SpyderN09_VolatilitySurfaceAI.py
   SpyderN10_OptionsFlowAnalyzer.py
   SpyderN11_OptionsGreeksFlow.py
 SpyderO_RiskControl/
@@ -221,6 +231,8 @@ SpyderX_Agents/
   SpyderX11_SentimentAnalysisAgent.py
   SpyderX12_SystemHealthAgent.py
   SpyderX13_MarketAnalysisAgent.py
+  SpyderX14_OrchestratorAgent.py
+  SpyderX15_StrategyGeneratorAgent.py
 SpyderZ_Communication/
   __init__.py
   SpyderZ01_ZeroMQIntegration.py
@@ -229,4 +241,3 @@ SpyderZ_Communication/
   SpyderZ04_VolatilityEngine.py
   SpyderZ06_AutoHedger.py
   SpyderZ07_MultiProcessManager.py
-

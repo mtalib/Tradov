@@ -4,1344 +4,1376 @@
 SPYDER - Automated SPY Options Trading System
 
 Module: SpyderX11_SentimentAnalysisAgent.py
-Purpose: AI-Enhanced Market Sentiment Analysis and Social Media Monitoring
 Group: X (AI Agents)
+Purpose: Advanced NLP-based sentiment analysis for market intelligence
 
-This module implements an intelligent sentiment analysis agent that monitors
-market sentiment from various sources, analyzes social media trends, and
-provides AI-driven insights using Ollama integration.
+Description:
+    This module implements sophisticated sentiment analysis using state-of-the-art
+    NLP models to analyze earnings calls, Federal Reserve communications, news,
+    social media, and multi-language sources. It provides real-time sentiment
+    scores and event detection for SPY options trading decisions.
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-16
-Last Updated: 2025-06-19 Time: 13:59
+Key Features:
+    - Earnings call transcript analysis with entity recognition
+    - Federal Reserve communication parsing (FOMC, speeches, minutes)
+    - Entity-specific sentiment tracking (companies, sectors, officials)
+    - Multi-language support for global news sources
+    - Real-time social media sentiment (Reddit, Twitter/X)
+    - Event impact prediction and classification
+    - Sentiment momentum and regime detection
+    - Audio transcription for live events
+    
+Architecture:
+    - Transformer-based models (BERT, FinBERT, RoBERTa)
+    - Named Entity Recognition (NER) for financial entities
+    - Topic modeling for theme extraction
+    - Sentiment aggregation with confidence scoring
+    - Multi-modal analysis (text, audio, tables)
+
+Author: SPYDER NLP Intelligence Team
+Date: 2025-07-11
+Version: 2.0
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
-
-# Standard library imports
 import asyncio
-import json
-import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Set
-from dataclasses import dataclass, field
-from enum import Enum
-from collections import defaultdict, deque
-import re
-import statistics
-
-# Third-party imports
 import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple, Any, Set, Union
+from dataclasses import dataclass, field
+from collections import defaultdict, deque
+from enum import Enum, auto
+import json
+import re
+import pickle
+from pathlib import Path
+import hashlib
+import feedparser
+import aiohttp
+from concurrent.futures import ThreadPoolExecutor
+import warnings
+warnings.filterwarnings('ignore')
 
-# Ollama imports (with graceful fallback)
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+# NLP Libraries
+from transformers import (
+    AutoTokenizer, AutoModelForSequenceClassification,
+    AutoModelForTokenClassification, AutoModelForQuestionAnswering,
+    pipeline, BertTokenizer, BertForSequenceClassification
+)
+import torch
+import spacy
+from textblob import TextBlob
+import nltk
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
+
+# Audio Processing
 try:
-    import ollama
-    OLLAMA_AVAILABLE = True
+    import whisper
+    WHISPER_AVAILABLE = True
 except ImportError:
-    OLLAMA_AVAILABLE = False
-    print("Warning: Ollama not installed. AI features will be limited.")
+    WHISPER_AVAILABLE = False
+
+# Web Scraping
+from bs4 import BeautifulSoup
+import praw  # Reddit API
+import tweepy  # Twitter API
+
+# Language Detection and Translation
+from langdetect import detect
+from googletrans import Translator
+
+# Topic Modeling
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+from gensim import corpora, models
+
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderU_Utilities.SpyderU07_Constants import (
+    SENTIMENT_UPDATE_INTERVAL,
+    MAX_SENTIMENT_HISTORY,
+    ALERT_THRESHOLDS
+)
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
+# Model configurations
+FINBERT_MODEL = "yiyanghkust/finbert-tone"
+ROBERTA_MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
+NER_MODEL = "dbmdz/bert-large-cased-finetuned-conll03-english"
 
-# Sentiment sources
-class SentimentSource(Enum):
-    """Sentiment data sources."""
-    REDDIT = "REDDIT"
-    TWITTER = "TWITTER"
-    NEWS = "NEWS"
-    FORUMS = "FORUMS"
-    ANALYST = "ANALYST"
-    OPTIONS_FLOW = "OPTIONS_FLOW"
-    INSIDER = "INSIDER"
-    INSTITUTIONAL = "INSTITUTIONAL"
+# Sentiment thresholds
+STRONG_POSITIVE_THRESHOLD = 0.7
+POSITIVE_THRESHOLD = 0.3
+NEGATIVE_THRESHOLD = -0.3
+STRONG_NEGATIVE_THRESHOLD = -0.7
 
-# Sentiment categories
-class SentimentCategory(Enum):
-    """Sentiment categories."""
-    VERY_BULLISH = "VERY_BULLISH"
-    BULLISH = "BULLISH"
-    NEUTRAL = "NEUTRAL"
-    BEARISH = "BEARISH"
-    VERY_BEARISH = "VERY_BEARISH"
-
-# Entity types for tracking
-class EntityType(Enum):
-    """Entity types to track."""
-    TICKER = "TICKER"
-    SECTOR = "SECTOR"
-    TOPIC = "TOPIC"
-    PERSON = "PERSON"
-    EVENT = "EVENT"
-
-# Sentiment indicators
-SENTIMENT_INDICATORS = {
-    'bullish': ['buy', 'long', 'calls', 'moon', 'bullish', 'up', 'green', 'pump', 'squeeze'],
-    'bearish': ['sell', 'short', 'puts', 'crash', 'bearish', 'down', 'red', 'dump', 'drill'],
-    'fear': ['fear', 'panic', 'scared', 'worried', 'concern', 'risk', 'volatile'],
-    'greed': ['greed', 'fomo', 'yolo', 'diamond hands', 'to the moon', 'rocket'],
-    'uncertainty': ['maybe', 'unsure', 'confused', 'volatile', 'unpredictable']
+# Source weights
+SOURCE_WEIGHTS = {
+    'federal_reserve': 3.0,
+    'earnings_calls': 2.5,
+    'major_news': 2.0,
+    'analyst_reports': 1.8,
+    'social_media': 1.2,
+    'reddit': 1.0,
+    'twitter': 1.0
 }
 
-# Trending thresholds
-TRENDING_THRESHOLDS = {
-    'volume_spike': 2.0,      # 2x normal volume
-    'mention_spike': 3.0,     # 3x normal mentions
-    'sentiment_shift': 0.2,   # 20% sentiment change
-    'velocity_threshold': 5   # Mentions per minute
+# Entity categories
+ENTITY_CATEGORIES = {
+    'central_banks': ['Federal Reserve', 'Fed', 'FOMC', 'ECB', 'BOJ', 'BOE'],
+    'officials': ['Jerome Powell', 'Janet Yellen', 'Christine Lagarde'],
+    'companies': ['Apple', 'Microsoft', 'Amazon', 'Google', 'Meta', 'Tesla'],
+    'sectors': ['Technology', 'Financials', 'Healthcare', 'Energy', 'Consumer'],
+    'indicators': ['CPI', 'GDP', 'Unemployment', 'Inflation', 'Interest Rates']
 }
-
-# Default configuration
-DEFAULT_CONFIG = {
-    'sentiment_window': 60,          # Minutes
-    'trend_detection_window': 30,    # Minutes
-    'min_mentions_threshold': 10,    # Minimum mentions to consider
-    'sentiment_decay_rate': 0.95,    # Exponential decay for old sentiment
-    'anomaly_detection_std': 2.5     # Standard deviations for anomaly
-}
-
-# Model configuration
-DEFAULT_MODEL = "llama3.2:3b-instruct-q4_K_M"
-DEFAULT_TEMPERATURE = 0.4
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
-
 @dataclass
-class SentimentData:
-    """Individual sentiment data point."""
-    source: SentimentSource
+class SentimentScore:
+    """Individual sentiment measurement"""
+    value: float  # -1 to 1
+    confidence: float  # 0 to 1
+    source: str
+    text_snippet: str
     timestamp: datetime
-    content: str
-    author: Optional[str]
-    sentiment_score: float  # -1 to 1
-    confidence: float      # 0 to 1
-    entities: List[str]
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    entities: List[str] = field(default_factory=list)
+    language: str = 'en'
+    
+    @property
+    def weighted_score(self) -> float:
+        """Get confidence-weighted sentiment score"""
+        return self.value * self.confidence
 
 @dataclass
-class SentimentSummary:
-    """Sentiment summary for an entity."""
-    entity: str
-    entity_type: EntityType
-    overall_sentiment: SentimentCategory
-    sentiment_score: float
-    volume: int
-    trend: str  # 'increasing', 'stable', 'decreasing'
-    momentum: float
-    sources: Dict[str, int]
-    key_themes: List[str]
-    ai_insights: Dict[str, Any]
+class EntitySentiment:
+    """Sentiment tracking for specific entity"""
+    entity_name: str
+    entity_type: str
+    sentiment_scores: deque = field(default_factory=lambda: deque(maxlen=100))
+    mention_count: int = 0
+    last_updated: datetime = field(default_factory=datetime.now)
+    
+    @property
+    def current_sentiment(self) -> float:
+        """Get current average sentiment"""
+        if not self.sentiment_scores:
+            return 0.0
+        recent_scores = list(self.sentiment_scores)[-10:]
+        return np.mean([s.weighted_score for s in recent_scores])
+    
+    @property
+    def sentiment_momentum(self) -> float:
+        """Calculate sentiment trend"""
+        if len(self.sentiment_scores) < 2:
+            return 0.0
+        recent = list(self.sentiment_scores)[-5:]
+        older = list(self.sentiment_scores)[-10:-5]
+        if not older:
+            return 0.0
+        recent_avg = np.mean([s.weighted_score for s in recent])
+        older_avg = np.mean([s.weighted_score for s in older])
+        return recent_avg - older_avg
 
 @dataclass
-class MarketSentiment:
-    """Overall market sentiment analysis."""
-    timestamp: datetime
-    overall_category: SentimentCategory
-    composite_score: float  # -1 to 1
-    fear_greed_index: float  # 0 to 100
-    put_call_ratio: Optional[float]
-    vix_correlation: Optional[float]
-    top_bullish: List[Tuple[str, float]]
-    top_bearish: List[Tuple[str, float]]
-    trending_topics: List[Dict[str, Any]]
-    anomalies: List[Dict[str, Any]]
-    ai_analysis: Dict[str, Any]
-
-@dataclass
-class SentimentAlert:
-    """Sentiment-based alert."""
-    timestamp: datetime
-    alert_type: str  # 'spike', 'reversal', 'anomaly', 'trend'
-    entity: str
+class MarketEvent:
+    """Detected market-moving event"""
+    event_type: str
     description: str
-    severity: str  # 'high', 'medium', 'low'
-    data: Dict[str, Any]
-    recommended_action: Optional[str]
+    impact_score: float  # 0 to 1
+    sentiment: float
+    entities: List[str]
+    source: str
+    timestamp: datetime
+    predicted_duration: timedelta
+    confidence: float
+
+@dataclass
+class SentimentReport:
+    """Comprehensive sentiment analysis report"""
+    overall_sentiment: float
+    sentiment_distribution: Dict[str, float]
+    top_entities: List[Tuple[str, float]]
+    detected_events: List[MarketEvent]
+    sentiment_momentum: float
+    regime: str  # 'bullish', 'bearish', 'neutral', 'mixed'
+    confidence: float
+    key_themes: List[str]
+    warnings: List[str]
 
 # ==============================================================================
-# SENTIMENT ANALYSIS AGENT CLASS
+# ENHANCED SENTIMENT ANALYSIS AGENT
 # ==============================================================================
-
-class SpyderX11_SentimentAnalysisAgent:
+class EnhancedSentimentAnalysisAgent:
     """
-    AI-Enhanced Sentiment Analysis Agent.
+    Advanced sentiment analysis agent with institutional-grade NLP capabilities.
     
-    This agent analyzes market sentiment from multiple sources using AI to
-    identify trends, anomalies, and trading opportunities.
+    Analyzes multiple data sources including earnings calls, Fed communications,
+    news, and social media to provide comprehensive market sentiment insights.
     """
     
-    def __init__(self, model_name: str = DEFAULT_MODEL,
-                 temperature: float = DEFAULT_TEMPERATURE):
-        """
-        Initialize the Sentiment Analysis Agent.
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """Initialize enhanced sentiment analysis agent"""
+        self.logger = SpyderLogger().get_logger(self.__class__.__name__)
+        self.error_handler = SpyderErrorHandler()
         
-        Args:
-            model_name: Ollama model to use
-            temperature: Temperature for AI responses
-        """
-        self.model_name = model_name
-        self.temperature = temperature
-        self.logger = self._setup_logger()
-        self.config = DEFAULT_CONFIG.copy()
+        # Configuration
+        self.config = config or {}
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        # Initialize Ollama if available
-        self.ollama_client = None
-        if OLLAMA_AVAILABLE:
-            try:
-                ollama.list()  # Test connection
-                self.ollama_client = ollama
-                self.logger.info("Ollama connection established")
-            except Exception as e:
-                self.logger.error(f"Failed to connect to Ollama: {e}")
+        # Models
+        self.models = {}
+        self.tokenizers = {}
+        self.pipelines = {}
         
         # Data storage
-        self.sentiment_buffer = deque(maxlen=10000)
-        self.entity_sentiments = defaultdict(list)
-        self.trending_entities = set()
+        self.sentiment_history = deque(maxlen=MAX_SENTIMENT_HISTORY)
+        self.entity_sentiments = defaultdict(lambda: EntitySentiment('', ''))
+        self.recent_events = deque(maxlen=100)
         
-        # Tracking
-        self.sentiment_history = defaultdict(lambda: deque(maxlen=1000))
-        self.anomaly_history = deque(maxlen=100)
+        # Language support
+        self.translator = Translator()
+        self.supported_languages = ['en', 'es', 'fr', 'de', 'zh', 'ja']
         
-        # Baseline metrics
-        self.baseline_volumes = defaultdict(lambda: 50)  # Default baseline
-        self.baseline_sentiments = defaultdict(lambda: 0.0)
+        # Audio transcription
+        self.whisper_model = None
+        
+        # API clients
+        self.reddit_client = None
+        self.twitter_client = None
+        
+        # Threading
+        self.executor = ThreadPoolExecutor(max_workers=10)
+        
+        # Initialize components
+        self._initialize_models()
+        self._initialize_apis()
+        self._download_nltk_data()
+        
+        self.logger.info("✅ Enhanced Sentiment Analysis Agent initialized")
     
-    def _setup_logger(self) -> logging.Logger:
-        """Set up module logger."""
-        logger = logging.getLogger(__name__)
-        logger.setLevel(logging.INFO)
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    # ==========================================================================
+    # INITIALIZATION
+    # ==========================================================================
+    
+    def _initialize_models(self):
+        """Initialize all NLP models"""
+        try:
+            # FinBERT for financial sentiment
+            self.logger.info("Loading FinBERT model...")
+            self.tokenizers['finbert'] = AutoTokenizer.from_pretrained(FINBERT_MODEL)
+            self.models['finbert'] = AutoModelForSequenceClassification.from_pretrained(
+                FINBERT_MODEL
+            ).to(self.device)
+            
+            # RoBERTa for social media
+            self.logger.info("Loading RoBERTa model...")
+            self.pipelines['roberta'] = pipeline(
+                "sentiment-analysis",
+                model=ROBERTA_MODEL,
+                device=0 if torch.cuda.is_available() else -1
             )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-        return logger
+            
+            # NER for entity recognition
+            self.logger.info("Loading NER model...")
+            self.pipelines['ner'] = pipeline(
+                "ner",
+                model=NER_MODEL,
+                aggregation_strategy="simple",
+                device=0 if torch.cuda.is_available() else -1
+            )
+            
+            # Question answering for specific queries
+            self.pipelines['qa'] = pipeline(
+                "question-answering",
+                device=0 if torch.cuda.is_available() else -1
+            )
+            
+            # SpaCy for linguistic analysis
+            self.nlp = spacy.load("en_core_web_lg")
+            
+            # Whisper for audio transcription
+            if WHISPER_AVAILABLE:
+                self.logger.info("Loading Whisper model...")
+                self.whisper_model = whisper.load_model("base")
+            
+            self.logger.info("All NLP models loaded successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Model initialization error: {e}")
+            self.error_handler.handle_error(e, {'method': '_initialize_models'})
+    
+    def _initialize_apis(self):
+        """Initialize API clients for data sources"""
+        try:
+            # Reddit API
+            if all(key in self.config for key in ['reddit_client_id', 'reddit_secret']):
+                self.reddit_client = praw.Reddit(
+                    client_id=self.config['reddit_client_id'],
+                    client_secret=self.config['reddit_secret'],
+                    user_agent='SpyderSentimentBot/1.0'
+                )
+                self.logger.info("Reddit API initialized")
+            
+            # Twitter API
+            if 'twitter_bearer_token' in self.config:
+                self.twitter_client = tweepy.Client(
+                    bearer_token=self.config['twitter_bearer_token']
+                )
+                self.logger.info("Twitter API initialized")
+            
+        except Exception as e:
+            self.logger.warning(f"API initialization error: {e}")
+    
+    def _download_nltk_data(self):
+        """Download required NLTK data"""
+        try:
+            nltk.download('punkt', quiet=True)
+            nltk.download('stopwords', quiet=True)
+            nltk.download('vader_lexicon', quiet=True)
+        except Exception as e:
+            self.logger.warning(f"NLTK download error: {e}")
     
     # ==========================================================================
-    # MAIN ANALYSIS METHODS
+    # EARNINGS CALL ANALYSIS
     # ==========================================================================
     
-    async def analyze_sentiment(self, data_points: List[SentimentData]) -> MarketSentiment:
+    async def analyze_earnings_call(self, 
+                                    transcript: str,
+                                    company: str,
+                                    quarter: str) -> Dict[str, Any]:
         """
-        Analyze sentiment from multiple data points.
+        Analyze earnings call transcript for sentiment and key insights.
         
         Args:
-            data_points: List of sentiment data points
+            transcript: Full transcript text
+            company: Company name
+            quarter: Quarter identifier (e.g., "Q2 2025")
             
         Returns:
-            MarketSentiment analysis
+            Comprehensive analysis results
         """
-        self.logger.info(f"Analyzing sentiment from {len(data_points)} data points")
-        
         try:
-            # Add to buffer
-            self.sentiment_buffer.extend(data_points)
+            self.logger.info(f"Analyzing {company} {quarter} earnings call")
+            
+            # Split transcript into sections
+            sections = self._split_earnings_sections(transcript)
+            
+            # Analyze each section
+            section_sentiments = {}
+            key_quotes = []
+            entities_mentioned = set()
+            
+            for section_name, section_text in sections.items():
+                # Get sentiment
+                sentiment = await self._analyze_text_sentiment(
+                    section_text, 
+                    source=f"{company}_earnings"
+                )
+                section_sentiments[section_name] = sentiment
+                
+                # Extract key quotes
+                quotes = self._extract_key_quotes(section_text, sentiment)
+                key_quotes.extend(quotes)
+                
+                # Extract entities
+                entities = await self._extract_entities(section_text)
+                entities_mentioned.update(entities)
+            
+            # Analyze forward guidance
+            guidance_sentiment = await self._analyze_guidance(
+                sections.get('guidance', ''),
+                sections.get('qa', '')
+            )
+            
+            # Topic modeling
+            topics = self._extract_topics(transcript)
+            
+            # Generate summary
+            summary = {
+                'company': company,
+                'quarter': quarter,
+                'overall_sentiment': np.mean([s.value for s in section_sentiments.values()]),
+                'section_sentiments': {k: v.value for k, v in section_sentiments.items()},
+                'guidance_sentiment': guidance_sentiment,
+                'key_quotes': key_quotes[:5],
+                'entities_mentioned': list(entities_mentioned),
+                'main_topics': topics[:5],
+                'confidence': np.mean([s.confidence for s in section_sentiments.values()])
+            }
             
             # Update entity sentiments
-            self._update_entity_sentiments(data_points)
-            
-            # Calculate overall sentiment
-            overall_sentiment = self._calculate_overall_sentiment()
-            
-            # Calculate fear/greed index
-            fear_greed = self._calculate_fear_greed_index()
-            
-            # Identify top movers
-            top_bullish, top_bearish = self._identify_top_movers()
-            
-            # Detect trending topics
-            trending = await self._detect_trending_topics()
-            
-            # Detect anomalies
-            anomalies = self._detect_sentiment_anomalies()
-            
-            # Get AI analysis
-            ai_analysis = await self._get_ai_market_sentiment_analysis(
-                overall_sentiment, trending, anomalies
+            self._update_entity_sentiment(
+                company, 
+                summary['overall_sentiment'],
+                'earnings_call'
             )
             
-            # Determine category
-            category = self._score_to_category(overall_sentiment)
+            # Check for significant events
+            event = self._check_earnings_event(summary)
+            if event:
+                self.recent_events.append(event)
             
-            return MarketSentiment(
-                timestamp=datetime.now(),
-                overall_category=category,
-                composite_score=overall_sentiment,
-                fear_greed_index=fear_greed,
-                put_call_ratio=None,  # Would come from options data
-                vix_correlation=None,  # Would come from market data
-                top_bullish=top_bullish,
-                top_bearish=top_bearish,
-                trending_topics=trending,
-                anomalies=anomalies,
-                ai_analysis=ai_analysis
-            )
+            return summary
             
         except Exception as e:
-            self.logger.error(f"Sentiment analysis failed: {e}")
-            return self._create_default_market_sentiment()
+            self.error_handler.handle_error(e, {
+                'method': 'analyze_earnings_call',
+                'company': company
+            })
+            return {}
     
-    async def analyze_entity_sentiment(self, entity: str,
-                                     entity_type: EntityType = EntityType.TICKER) -> SentimentSummary:
-        """
-        Analyze sentiment for a specific entity.
+    def _split_earnings_sections(self, transcript: str) -> Dict[str, str]:
+        """Split earnings transcript into logical sections"""
+        sections = {
+            'prepared_remarks': '',
+            'guidance': '',
+            'qa': ''
+        }
         
-        Args:
-            entity: Entity to analyze (e.g., 'SPY')
-            entity_type: Type of entity
-            
-        Returns:
-            SentimentSummary for the entity
-        """
-        self.logger.info(f"Analyzing sentiment for {entity}")
+        # Common section markers
+        qa_markers = ['question-and-answer', 'q&a session', 'now take questions']
+        guidance_markers = ['guidance', 'outlook', 'forecast', 'expect']
         
-        try:
-            # Get recent mentions
-            mentions = self._get_entity_mentions(entity)
+        lines = transcript.split('\n')
+        current_section = 'prepared_remarks'
+        
+        for line in lines:
+            line_lower = line.lower()
             
-            if not mentions:
-                return self._create_empty_sentiment_summary(entity, entity_type)
+            # Check for Q&A section
+            if any(marker in line_lower for marker in qa_markers):
+                current_section = 'qa'
             
-            # Calculate metrics
-            sentiment_score = self._calculate_entity_sentiment(mentions)
-            volume = len(mentions)
-            trend = self._calculate_sentiment_trend(entity)
-            momentum = self._calculate_sentiment_momentum(entity)
+            # Check for guidance mentions
+            elif current_section != 'qa' and any(marker in line_lower for marker in guidance_markers):
+                if 'guidance' not in sections:
+                    sections['guidance'] = ''
+                sections['guidance'] += line + '\n'
             
-            # Source breakdown
-            sources = self._analyze_sources(mentions)
-            
-            # Extract themes
-            themes = await self._extract_key_themes(mentions)
-            
-            # Get AI insights
-            ai_insights = await self._get_ai_entity_insights(entity, mentions, themes)
-            
-            # Determine category
-            category = self._score_to_category(sentiment_score)
-            
-            return SentimentSummary(
-                entity=entity,
-                entity_type=entity_type,
-                overall_sentiment=category,
-                sentiment_score=sentiment_score,
-                volume=volume,
-                trend=trend,
-                momentum=momentum,
-                sources=sources,
-                key_themes=themes,
-                ai_insights=ai_insights
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Entity sentiment analysis failed: {e}")
-            return self._create_empty_sentiment_summary(entity, entity_type)
+            sections[current_section] += line + '\n'
+        
+        return sections
     
-    async def detect_sentiment_shifts(self, 
-                                    lookback_minutes: int = 60) -> List[SentimentAlert]:
-        """
-        Detect significant sentiment shifts.
+    async def _analyze_guidance(self, guidance_text: str, qa_text: str) -> float:
+        """Analyze forward guidance sentiment"""
+        # Keywords indicating positive/negative guidance
+        positive_guidance = [
+            'raise guidance', 'increase outlook', 'better than expected',
+            'strong momentum', 'accelerating growth', 'exceeding targets'
+        ]
         
-        Args:
-            lookback_minutes: Minutes to look back
-            
-        Returns:
-            List of sentiment alerts
-        """
-        self.logger.info("Detecting sentiment shifts")
+        negative_guidance = [
+            'lower guidance', 'reduce outlook', 'challenging environment',
+            'headwinds', 'slower growth', 'below expectations'
+        ]
         
-        alerts = []
-        cutoff_time = datetime.now() - timedelta(minutes=lookback_minutes)
+        combined_text = guidance_text + ' ' + qa_text
+        combined_lower = combined_text.lower()
         
-        # Check each tracked entity
-        for entity, history in self.sentiment_history.items():
-            recent_data = [d for d in history if d['timestamp'] > cutoff_time]
-            
-            if len(recent_data) < 10:  # Need minimum data
-                continue
-            
-            # Detect various patterns
-            spike_alert = self._detect_sentiment_spike(entity, recent_data)
-            if spike_alert:
-                alerts.append(spike_alert)
-            
-            reversal_alert = self._detect_sentiment_reversal(entity, recent_data)
-            if reversal_alert:
-                alerts.append(reversal_alert)
-            
-            trend_alert = self._detect_new_trend(entity, recent_data)
-            if trend_alert:
-                alerts.append(trend_alert)
+        # Count occurrences
+        positive_count = sum(1 for phrase in positive_guidance if phrase in combined_lower)
+        negative_count = sum(1 for phrase in negative_guidance if phrase in combined_lower)
         
-        # Get AI recommendations for alerts
-        if alerts and self.ollama_client:
-            alerts = await self._enhance_alerts_with_ai(alerts)
+        # Get ML sentiment
+        ml_sentiment = await self._analyze_text_sentiment(combined_text, 'guidance')
         
-        return alerts
+        # Combine rule-based and ML
+        rule_sentiment = (positive_count - negative_count) / max(positive_count + negative_count, 1)
+        
+        return 0.7 * ml_sentiment.value + 0.3 * rule_sentiment
     
-    # ==========================================================================
-    # AI INTEGRATION METHODS
-    # ==========================================================================
-    
-    async def _get_ai_market_sentiment_analysis(self, overall_score: float,
-                                              trending: List[Dict[str, Any]],
-                                              anomalies: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Get AI analysis of market sentiment."""
-        if not self.ollama_client:
-            return {'analysis': 'No AI available'}
+    def _extract_key_quotes(self, text: str, sentiment: SentimentScore) -> List[Dict[str, Any]]:
+        """Extract impactful quotes from text"""
+        sentences = sent_tokenize(text)
+        quotes = []
         
-        prompt = f"""Analyze this market sentiment data:
-
-Overall Sentiment Score: {overall_score:.2f} (-1 to 1)
-Sentiment Category: {self._score_to_category(overall_score).value}
-
-Top Trending Topics:
-{json.dumps(trending[:5], indent=2)}
-
-Detected Anomalies:
-{json.dumps(anomalies[:3], indent=2)}
-
-Recent Market Context:
-- SPY options flow sentiment
-- Social media buzz around Fed decisions
-- Retail vs institutional sentiment divergence
-
-Provide a JSON response:
-{{
-    "market_interpretation": "overall market mood and why",
-    "key_drivers": ["driver1", "driver2", ...],
-    "contrarian_signals": ["signal1", "signal2", ...],
-    "risk_factors": ["risk1", "risk2", ...],
-    "trading_implications": "how to trade this sentiment",
-    "confidence": 0.0-1.0
-}}"""
+        # Keywords that indicate important statements
+        importance_keywords = [
+            'expect', 'believe', 'forecast', 'guidance', 'outlook',
+            'confident', 'concern', 'risk', 'opportunity', 'growth'
+        ]
         
-        try:
-            response = await asyncio.to_thread(
-                self.ollama_client.generate,
-                model=self.model_name,
-                prompt=prompt,
-                options={'temperature': self.temperature}
-            )
-            
-            # Extract JSON from response
-            text = response['response']
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            
-            if start >= 0 and end > start:
-                return json.loads(text[start:end])
-            else:
-                return {'analysis': 'Failed to parse AI response'}
+        for sentence in sentences:
+            # Check if sentence contains important keywords
+            if any(keyword in sentence.lower() for keyword in importance_keywords):
+                # Get sentence sentiment
+                sentence_sentiment = TextBlob(sentence).sentiment.polarity
                 
-        except Exception as e:
-            self.logger.error(f"AI market sentiment analysis failed: {e}")
-            return {'error': str(e)}
-    
-    async def _get_ai_entity_insights(self, entity: str,
-                                    mentions: List[SentimentData],
-                                    themes: List[str]) -> Dict[str, Any]:
-        """Get AI insights for entity sentiment."""
-        if not self.ollama_client:
-            return {'insights': 'No AI available'}
-        
-        # Prepare mention summary
-        mention_summary = self._summarize_mentions(mentions[:10])
-        
-        prompt = f"""Analyze sentiment for {entity}:
-
-Recent Mentions: {len(mentions)}
-Average Sentiment: {np.mean([m.sentiment_score for m in mentions]):.2f}
-Key Themes: {', '.join(themes)}
-
-Sample Mentions:
-{mention_summary}
-
-Provide a JSON response:
-{{
-    "sentiment_driver": "what's driving the sentiment",
-    "authenticity_score": 0.0-1.0,
-    "manipulation_risk": "low/medium/high",
-    "smart_money_view": "likely institutional sentiment",
-    "retail_view": "likely retail sentiment",
-    "actionable_insight": "specific trading insight",
-    "confidence": 0.0-1.0
-}}"""
-        
-        try:
-            response = await asyncio.to_thread(
-                self.ollama_client.generate,
-                model=self.model_name,
-                prompt=prompt,
-                options={'temperature': self.temperature}
-            )
-            
-            # Extract JSON from response
-            text = response['response']
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            
-            if start >= 0 and end > start:
-                return json.loads(text[start:end])
-            else:
-                return {'insights': 'Failed to parse'}
-                
-        except Exception as e:
-            self.logger.error(f"AI entity insights failed: {e}")
-            return {'error': str(e)}
-    
-    async def _extract_key_themes(self, mentions: List[SentimentData]) -> List[str]:
-        """Extract key themes from mentions using AI."""
-        if not self.ollama_client or not mentions:
-            return self._extract_themes_rule_based(mentions)
-        
-        # Combine recent mention content
-        combined_text = ' '.join([m.content for m in mentions[:20]])
-        
-        prompt = f"""Extract key themes from these market mentions:
-
-{combined_text[:1000]}...
-
-Identify 3-5 main themes being discussed.
-
-Provide a JSON response:
-{{
-    "themes": ["theme1", "theme2", "theme3", ...]
-}}"""
-        
-        try:
-            response = await asyncio.to_thread(
-                self.ollama_client.generate,
-                model=self.model_name,
-                prompt=prompt,
-                options={'temperature': self.temperature}
-            )
-            
-            # Extract JSON from response
-            text = response['response']
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            
-            if start >= 0 and end > start:
-                data = json.loads(text[start:end])
-                return data.get('themes', [])[:5]
-            else:
-                return self._extract_themes_rule_based(mentions)
-                
-        except Exception as e:
-            self.logger.error(f"AI theme extraction failed: {e}")
-            return self._extract_themes_rule_based(mentions)
-    
-    async def _detect_trending_topics(self) -> List[Dict[str, Any]]:
-        """Detect trending topics using AI and statistics."""
-        trending = []
-        
-        # Get volume spikes
-        volume_spikes = self._detect_volume_spikes()
-        
-        # Get sentiment shifts
-        sentiment_shifts = self._detect_sentiment_shifts_internal()
-        
-        # Combine and rank
-        all_topics = set(volume_spikes.keys()) | set(sentiment_shifts.keys())
-        
-        for topic in all_topics:
-            volume_change = volume_spikes.get(topic, 1.0)
-            sentiment_change = sentiment_shifts.get(topic, 0.0)
-            
-            # Calculate trend score
-            trend_score = (volume_change * 0.6 + abs(sentiment_change) * 0.4)
-            
-            if trend_score > 1.5:  # Threshold for trending
-                trending.append({
-                    'topic': topic,
-                    'trend_score': trend_score,
-                    'volume_change': volume_change,
-                    'sentiment_change': sentiment_change,
-                    'category': 'bullish' if sentiment_change > 0 else 'bearish'
-                })
-        
-        # Sort by trend score
-        trending.sort(key=lambda x: x['trend_score'], reverse=True)
-        
-        # Enhance with AI if available
-        if trending and self.ollama_client:
-            trending = await self._enhance_trending_with_ai(trending[:10])
-        
-        return trending[:10]  # Top 10
-    
-    async def _enhance_trending_with_ai(self, 
-                                      trending: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Enhance trending topics with AI insights."""
-        if not self.ollama_client:
-            return trending
-        
-        prompt = f"""Analyze these trending market topics:
-
-{json.dumps(trending, indent=2)}
-
-For each topic, assess its market impact and trading relevance.
-
-Provide a JSON response:
-{{
-    "enhanced_topics": [
-        {{
-            "topic": "original topic",
-            "market_impact": "high/medium/low",
-            "duration_estimate": "hours/days/weeks",
-            "trading_opportunity": "description",
-            "risk_level": "high/medium/low"
-        }}
-    ]
-}}"""
-        
-        try:
-            response = await asyncio.to_thread(
-                self.ollama_client.generate,
-                model=self.model_name,
-                prompt=prompt,
-                options={'temperature': self.temperature}
-            )
-            
-            # Extract JSON from response
-            text = response['response']
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            
-            if start >= 0 and end > start:
-                data = json.loads(text[start:end])
-                enhanced = data.get('enhanced_topics', [])
-                
-                # Merge enhancements
-                for i, topic in enumerate(trending):
-                    if i < len(enhanced):
-                        topic.update(enhanced[i])
-                
-            return trending
-                
-        except Exception as e:
-            self.logger.error(f"AI trending enhancement failed: {e}")
-            return trending
-    
-    async def _enhance_alerts_with_ai(self, 
-                                    alerts: List[SentimentAlert]) -> List[SentimentAlert]:
-        """Enhance sentiment alerts with AI recommendations."""
-        if not self.ollama_client or not alerts:
-            return alerts
-        
-        # Prepare alert summary
-        alert_summary = [{
-            'type': a.alert_type,
-            'entity': a.entity,
-            'description': a.description
-        } for a in alerts[:5]]
-        
-        prompt = f"""Analyze these sentiment alerts and provide trading recommendations:
-
-{json.dumps(alert_summary, indent=2)}
-
-For each alert, suggest specific trading actions.
-
-Provide a JSON response:
-{{
-    "recommendations": [
-        {{
-            "alert_index": 0,
-            "action": "specific trading action",
-            "reasoning": "why this action",
-            "risk_management": "stop loss or hedge",
-            "confidence": 0.0-1.0
-        }}
-    ]
-}}"""
-        
-        try:
-            response = await asyncio.to_thread(
-                self.ollama_client.generate,
-                model=self.model_name,
-                prompt=prompt,
-                options={'temperature': self.temperature}
-            )
-            
-            # Extract JSON from response
-            text = response['response']
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            
-            if start >= 0 and end > start:
-                data = json.loads(text[start:end])
-                recommendations = data.get('recommendations', [])
-                
-                # Apply recommendations to alerts
-                for rec in recommendations:
-                    idx = rec.get('alert_index', 0)
-                    if 0 <= idx < len(alerts):
-                        alerts[idx].recommended_action = rec.get('action', '')
-                        alerts[idx].data['ai_reasoning'] = rec.get('reasoning', '')
-                        alerts[idx].data['risk_management'] = rec.get('risk_management', '')
-            
-            return alerts
-                
-        except Exception as e:
-            self.logger.error(f"AI alert enhancement failed: {e}")
-            return alerts
-    
-    # ==========================================================================
-    # ANALYSIS METHODS
-    # ==========================================================================
-    
-    def _calculate_overall_sentiment(self) -> float:
-        """Calculate overall market sentiment score."""
-        recent_window = datetime.now() - timedelta(minutes=self.config['sentiment_window'])
-        recent_data = [d for d in self.sentiment_buffer if d.timestamp > recent_window]
-        
-        if not recent_data:
-            return 0.0
-        
-        # Weight by confidence and recency
-        weighted_sum = 0.0
-        total_weight = 0.0
-        
-        for data in recent_data:
-            # Time decay
-            age_minutes = (datetime.now() - data.timestamp).total_seconds() / 60
-            time_weight = self.config['sentiment_decay_rate'] ** (age_minutes / 60)
-            
-            # Combined weight
-            weight = data.confidence * time_weight
-            weighted_sum += data.sentiment_score * weight
-            total_weight += weight
-        
-        return weighted_sum / total_weight if total_weight > 0 else 0.0
-    
-    def _calculate_fear_greed_index(self) -> float:
-        """Calculate fear/greed index (0-100)."""
-        # Get sentiment indicators
-        fear_count = 0
-        greed_count = 0
-        
-        recent_window = datetime.now() - timedelta(minutes=30)
-        recent_data = [d for d in self.sentiment_buffer if d.timestamp > recent_window]
-        
-        for data in recent_data:
-            content_lower = data.content.lower()
-            
-            # Count fear indicators
-            for indicator in SENTIMENT_INDICATORS['fear']:
-                if indicator in content_lower:
-                    fear_count += 1
-            
-            # Count greed indicators
-            for indicator in SENTIMENT_INDICATORS['greed']:
-                if indicator in content_lower:
-                    greed_count += 1
-        
-        # Calculate index
-        total_indicators = fear_count + greed_count
-        if total_indicators == 0:
-            return 50.0  # Neutral
-        
-        greed_ratio = greed_count / total_indicators
-        return greed_ratio * 100
-    
-    def _identify_top_movers(self) -> Tuple[List[Tuple[str, float]], 
-                                          List[Tuple[str, float]]]:
-        """Identify top bullish and bearish entities."""
-        entity_scores = defaultdict(list)
-        
-        # Aggregate scores by entity
-        for entity, sentiments in self.entity_sentiments.items():
-            if sentiments:
-                avg_score = np.mean([s.sentiment_score for s in sentiments[-20:]])
-                volume = len(sentiments)
-                
-                if volume >= self.config['min_mentions_threshold']:
-                    entity_scores[entity] = avg_score
-        
-        # Sort and separate
-        sorted_entities = sorted(entity_scores.items(), key=lambda x: x[1])
-        
-        top_bearish = [(e, s) for e, s in sorted_entities[:5] if s < 0]
-        top_bullish = [(e, s) for e, s in sorted_entities[-5:] if s > 0]
-        top_bullish.reverse()  # Highest first
-        
-        return top_bullish, top_bearish
-    
-    def _detect_sentiment_anomalies(self) -> List[Dict[str, Any]]:
-        """Detect sentiment anomalies."""
-        anomalies = []
-        
-        for entity, history in self.sentiment_history.items():
-            if len(history) < 20:
-                continue
-            
-            # Calculate baseline statistics
-            scores = [h['score'] for h in history]
-            mean_score = np.mean(scores)
-            std_score = np.std(scores)
-            
-            # Check latest score
-            if history:
-                latest = history[-1]
-                z_score = abs((latest['score'] - mean_score) / std_score) if std_score > 0 else 0
-                
-                if z_score > self.config['anomaly_detection_std']:
-                    anomalies.append({
-                        'entity': entity,
-                        'type': 'sentiment_anomaly',
-                        'z_score': z_score,
-                        'current_score': latest['score'],
-                        'baseline_score': mean_score,
-                        'timestamp': latest['timestamp']
+                # If sentiment is strong or differs from overall, it's noteworthy
+                if abs(sentence_sentiment) > 0.3 or abs(sentence_sentiment - sentiment.value) > 0.5:
+                    quotes.append({
+                        'text': sentence.strip(),
+                        'sentiment': sentence_sentiment,
+                        'importance': abs(sentence_sentiment)
                     })
         
-        # Sort by z-score
-        anomalies.sort(key=lambda x: x['z_score'], reverse=True)
+        # Sort by importance
+        quotes.sort(key=lambda x: x['importance'], reverse=True)
         
-        return anomalies[:10]  # Top 10 anomalies
-    
-    def _detect_sentiment_spike(self, entity: str,
-                              recent_data: List[Dict[str, Any]]) -> Optional[SentimentAlert]:
-        """Detect sentiment spike for entity."""
-        if len(recent_data) < 5:
-            return None
-        
-        # Compare recent vs historical
-        recent_scores = [d['score'] for d in recent_data[-5:]]
-        historical_scores = [d['score'] for d in recent_data[:-5]]
-        
-        if not historical_scores:
-            return None
-        
-        recent_avg = np.mean(recent_scores)
-        historical_avg = np.mean(historical_scores)
-        
-        change = abs(recent_avg - historical_avg)
-        
-        if change > TRENDING_THRESHOLDS['sentiment_shift']:
-            direction = 'bullish' if recent_avg > historical_avg else 'bearish'
-            
-            return SentimentAlert(
-                timestamp=datetime.now(),
-                alert_type='spike',
-                entity=entity,
-                description=f"Sentiment spike detected: {direction} move of {change:.1%}",
-                severity='high' if change > 0.3 else 'medium',
-                data={
-                    'recent_sentiment': recent_avg,
-                    'historical_sentiment': historical_avg,
-                    'change': change,
-                    'direction': direction
-                },
-                recommended_action=None
-            )
-        
-        return None
-    
-    def _detect_sentiment_reversal(self, entity: str,
-                                 recent_data: List[Dict[str, Any]]) -> Optional[SentimentAlert]:
-        """Detect sentiment reversal."""
-        if len(recent_data) < 10:
-            return None
-        
-        # Check for reversal pattern
-        first_half = [d['score'] for d in recent_data[:len(recent_data)//2]]
-        second_half = [d['score'] for d in recent_data[len(recent_data)//2:]]
-        
-        first_avg = np.mean(first_half)
-        second_avg = np.mean(second_half)
-        
-        # Check if sentiment reversed sign
-        if first_avg * second_avg < 0 and abs(first_avg - second_avg) > 0.3:
-            direction = 'bullish' if second_avg > 0 else 'bearish'
-            
-            return SentimentAlert(
-                timestamp=datetime.now(),
-                alert_type='reversal',
-                entity=entity,
-                description=f"Sentiment reversal: turned {direction}",
-                severity='high',
-                data={
-                    'previous_sentiment': first_avg,
-                    'current_sentiment': second_avg,
-                    'reversal_strength': abs(first_avg - second_avg)
-                },
-                recommended_action=None
-            )
-        
-        return None
-    
-    def _detect_new_trend(self, entity: str,
-                        recent_data: List[Dict[str, Any]]) -> Optional[SentimentAlert]:
-        """Detect new sentiment trend."""
-        if len(recent_data) < 15:
-            return None
-        
-        # Calculate trend using linear regression (simplified)
-        x = list(range(len(recent_data)))
-        y = [d['score'] for d in recent_data]
-        
-        # Simple slope calculation
-        n = len(x)
-        slope = (n * sum(i*y[i] for i in x) - sum(x) * sum(y)) / (n * sum(i**2 for i in x) - sum(x)**2)
-        
-        # Significant trend threshold
-        if abs(slope) > 0.01:  # Adjust threshold as needed
-            direction = 'bullish' if slope > 0 else 'bearish'
-            
-            return SentimentAlert(
-                timestamp=datetime.now(),
-                alert_type='trend',
-                entity=entity,
-                description=f"New {direction} trend detected",
-                severity='medium',
-                data={
-                    'trend_slope': slope,
-                    'direction': direction,
-                    'strength': abs(slope)
-                },
-                recommended_action=None
-            )
-        
-        return None
+        return quotes
     
     # ==========================================================================
-    # UTILITY METHODS
+    # FEDERAL RESERVE ANALYSIS
     # ==========================================================================
     
-    def _update_entity_sentiments(self, data_points: List[SentimentData]):
-        """Update entity sentiment tracking."""
-        for data in data_points:
-            for entity in data.entities:
-                self.entity_sentiments[entity].append(data)
-                
-                # Update history
-                self.sentiment_history[entity].append({
-                    'timestamp': data.timestamp,
-                    'score': data.sentiment_score,
-                    'volume': 1
-                })
+    async def analyze_fed_communication(self,
+                                        text: str,
+                                        comm_type: str,
+                                        speaker: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Analyze Federal Reserve communications for policy signals.
         
-        # Clean old data
-        cutoff = datetime.now() - timedelta(hours=24)
-        for entity in list(self.entity_sentiments.keys()):
-            self.entity_sentiments[entity] = [
-                d for d in self.entity_sentiments[entity] if d.timestamp > cutoff
+        Args:
+            text: Communication text
+            comm_type: Type (FOMC_statement, speech, minutes, testimony)
+            speaker: Speaker name if applicable
+            
+        Returns:
+            Analysis with policy implications
+        """
+        try:
+            self.logger.info(f"Analyzing Fed {comm_type}")
+            
+            # Policy stance keywords
+            hawkish_keywords = [
+                'inflation concerns', 'overheating', 'raise rates', 'tighten',
+                'reduce accommodation', 'upside risks', 'above target'
             ]
-    
-    def _get_entity_mentions(self, entity: str) -> List[SentimentData]:
-        """Get recent mentions of an entity."""
-        mentions = self.entity_sentiments.get(entity, [])
-        recent_window = datetime.now() - timedelta(minutes=self.config['sentiment_window'])
-        return [m for m in mentions if m.timestamp > recent_window]
-    
-    def _calculate_entity_sentiment(self, mentions: List[SentimentData]) -> float:
-        """Calculate weighted sentiment for entity."""
-        if not mentions:
-            return 0.0
-        
-        weighted_sum = 0.0
-        total_weight = 0.0
-        
-        for mention in mentions:
-            # Weight by confidence and source reliability
-            source_weight = self._get_source_weight(mention.source)
-            weight = mention.confidence * source_weight
             
-            weighted_sum += mention.sentiment_score * weight
-            total_weight += weight
-        
-        return weighted_sum / total_weight if total_weight > 0 else 0.0
+            dovish_keywords = [
+                'support growth', 'maintain accommodation', 'downside risks',
+                'below target', 'patience', 'gradual', 'data dependent'
+            ]
+            
+            # Extract policy signals
+            text_lower = text.lower()
+            hawkish_score = sum(1 for kw in hawkish_keywords if kw in text_lower)
+            dovish_score = sum(1 for kw in dovish_keywords if kw in text_lower)
+            
+            # ML sentiment analysis
+            sentiment = await self._analyze_text_sentiment(text, 'federal_reserve')
+            
+            # Analyze specific topics
+            topics_analysis = {
+                'inflation': self._analyze_topic_sentiment(text, 'inflation'),
+                'employment': self._analyze_topic_sentiment(text, 'employment'),
+                'growth': self._analyze_topic_sentiment(text, 'growth'),
+                'financial_conditions': self._analyze_topic_sentiment(text, 'financial conditions')
+            }
+            
+            # Extract rate path implications
+            rate_implications = self._extract_rate_implications(text)
+            
+            # Policy stance calculation
+            policy_stance = (hawkish_score - dovish_score) / max(hawkish_score + dovish_score, 1)
+            
+            # Create analysis
+            analysis = {
+                'type': comm_type,
+                'speaker': speaker,
+                'overall_sentiment': sentiment.value,
+                'policy_stance': policy_stance,  # -1 dovish to 1 hawkish
+                'topics': topics_analysis,
+                'rate_implications': rate_implications,
+                'key_phrases': self._extract_policy_phrases(text),
+                'confidence': sentiment.confidence,
+                'timestamp': datetime.now()
+            }
+            
+            # Create market event if significant
+            if abs(policy_stance) > 0.5 or comm_type == 'FOMC_statement':
+                event = MarketEvent(
+                    event_type='fed_communication',
+                    description=f"{comm_type}: {'Hawkish' if policy_stance > 0 else 'Dovish'} tone",
+                    impact_score=min(abs(policy_stance), 1.0),
+                    sentiment=policy_stance,
+                    entities=['Federal Reserve'] + ([speaker] if speaker else []),
+                    source='federal_reserve',
+                    timestamp=datetime.now(),
+                    predicted_duration=timedelta(days=2),
+                    confidence=sentiment.confidence
+                )
+                self.recent_events.append(event)
+            
+            return analysis
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {
+                'method': 'analyze_fed_communication',
+                'type': comm_type
+            })
+            return {}
     
-    def _get_source_weight(self, source: SentimentSource) -> float:
-        """Get reliability weight for source."""
-        weights = {
-            SentimentSource.ANALYST: 1.0,
-            SentimentSource.INSTITUTIONAL: 0.9,
-            SentimentSource.OPTIONS_FLOW: 0.85,
-            SentimentSource.NEWS: 0.8,
-            SentimentSource.INSIDER: 0.9,
-            SentimentSource.TWITTER: 0.6,
-            SentimentSource.REDDIT: 0.5,
-            SentimentSource.FORUMS: 0.4
+    def _analyze_topic_sentiment(self, text: str, topic: str) -> Dict[str, Any]:
+        """Analyze sentiment for specific topic within text"""
+        # Extract sentences mentioning topic
+        sentences = sent_tokenize(text)
+        topic_sentences = [s for s in sentences if topic.lower() in s.lower()]
+        
+        if not topic_sentences:
+            return {'mentioned': False, 'sentiment': 0.0, 'prominence': 0.0}
+        
+        # Calculate sentiment
+        sentiments = [TextBlob(s).sentiment.polarity for s in topic_sentences]
+        
+        return {
+            'mentioned': True,
+            'sentiment': np.mean(sentiments),
+            'prominence': len(topic_sentences) / len(sentences),
+            'key_statements': topic_sentences[:3]
         }
-        return weights.get(source, 0.5)
     
-    def _calculate_sentiment_trend(self, entity: str) -> str:
-        """Calculate sentiment trend for entity."""
-        history = self.sentiment_history.get(entity, [])
+    def _extract_rate_implications(self, text: str) -> Dict[str, Any]:
+        """Extract interest rate implications from Fed text"""
+        implications = {
+            'direction': 'neutral',
+            'timing': 'uncertain',
+            'magnitude': 'gradual'
+        }
         
-        if len(history) < 10:
-            return 'stable'
+        text_lower = text.lower()
         
-        # Compare recent vs older
-        recent = [h['score'] for h in history[-10:]]
-        older = [h['score'] for h in history[-20:-10]]
+        # Direction signals
+        if any(phrase in text_lower for phrase in ['raise rates', 'increase rates', 'tighten']):
+            implications['direction'] = 'increase'
+        elif any(phrase in text_lower for phrase in ['cut rates', 'lower rates', 'ease']):
+            implications['direction'] = 'decrease'
         
-        recent_avg = np.mean(recent)
-        older_avg = np.mean(older)
+        # Timing signals
+        if any(phrase in text_lower for phrase in ['soon', 'next meeting', 'imminent']):
+            implications['timing'] = 'near-term'
+        elif any(phrase in text_lower for phrase in ['patient', 'some time', 'gradual']):
+            implications['timing'] = 'medium-term'
         
-        change = recent_avg - older_avg
+        # Magnitude signals
+        if any(phrase in text_lower for phrase in ['aggressive', 'substantial', 'significant']):
+            implications['magnitude'] = 'large'
+        elif any(phrase in text_lower for phrase in ['modest', 'measured', 'gradual']):
+            implications['magnitude'] = 'small'
         
-        if change > 0.1:
-            return 'increasing'
-        elif change < -0.1:
-            return 'decreasing'
-        else:
-            return 'stable'
+        return implications
     
-    def _calculate_sentiment_momentum(self, entity: str) -> float:
-        """Calculate sentiment momentum."""
-        history = self.sentiment_history.get(entity, [])
+    def _extract_policy_phrases(self, text: str) -> List[str]:
+        """Extract key policy-related phrases"""
+        # Key Fed phrases to look for
+        key_patterns = [
+            r'inflation.{0,20}(above|below|at|near).{0,20}target',
+            r'labor market.{0,20}(strong|weak|tight|slack)',
+            r'economic.{0,20}(growth|expansion|contraction)',
+            r'financial.{0,20}conditions',
+            r'policy.{0,20}(stance|path|normalization)'
+        ]
         
-        if len(history) < 5:
+        key_phrases = []
+        for pattern in key_patterns:
+            matches = re.findall(pattern, text.lower())
+            key_phrases.extend(matches)
+        
+        return list(set(key_phrases))[:10]
+    
+    # ==========================================================================
+    # MULTI-LANGUAGE SUPPORT
+    # ==========================================================================
+    
+    async def analyze_multilingual_news(self, 
+                                        articles: List[Dict[str, str]]) -> Dict[str, Any]:
+        """
+        Analyze news articles in multiple languages.
+        
+        Args:
+            articles: List of articles with 'text', 'language', 'source' keys
+            
+        Returns:
+            Aggregated sentiment analysis
+        """
+        results = []
+        
+        for article in articles:
+            try:
+                text = article['text']
+                lang = article.get('language', 'en')
+                
+                # Detect language if not specified
+                if lang == 'auto':
+                    lang = detect(text)
+                
+                # Translate if not English
+                if lang != 'en' and lang in self.supported_languages:
+                    self.logger.info(f"Translating from {lang} to English")
+                    translated = self.translator.translate(text, src=lang, dest='en')
+                    text = translated.text
+                    translation_confidence = 0.8  # Reduced confidence for translations
+                else:
+                    translation_confidence = 1.0
+                
+                # Analyze sentiment
+                sentiment = await self._analyze_text_sentiment(
+                    text,
+                    source=article.get('source', 'news')
+                )
+                
+                # Adjust confidence for translation
+                sentiment.confidence *= translation_confidence
+                
+                # Extract entities
+                entities = await self._extract_entities(text)
+                
+                results.append({
+                    'original_language': lang,
+                    'sentiment': sentiment,
+                    'entities': entities,
+                    'source': article.get('source', 'unknown'),
+                    'headline': article.get('headline', '')[:100]
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Error analyzing article: {e}")
+                continue
+        
+        # Aggregate results
+        if results:
+            aggregated = {
+                'overall_sentiment': np.mean([r['sentiment'].value for r in results]),
+                'confidence': np.mean([r['sentiment'].confidence for r in results]),
+                'language_distribution': defaultdict(int),
+                'entity_mentions': defaultdict(int),
+                'source_sentiments': defaultdict(list)
+            }
+            
+            for result in results:
+                aggregated['language_distribution'][result['original_language']] += 1
+                aggregated['source_sentiments'][result['source']].append(result['sentiment'].value)
+                
+                for entity in result['entities']:
+                    aggregated['entity_mentions'][entity] += 1
+            
+            # Calculate source averages
+            aggregated['source_sentiments'] = {
+                source: np.mean(sentiments)
+                for source, sentiments in aggregated['source_sentiments'].items()
+            }
+            
+            return aggregated
+        
+        return {}
+    
+    # ==========================================================================
+    # SOCIAL MEDIA ANALYSIS
+    # ==========================================================================
+    
+    async def analyze_social_media(self, 
+                                   platforms: List[str] = ['reddit', 'twitter']) -> Dict[str, Any]:
+        """Analyze sentiment across social media platforms"""
+        results = {}
+        
+        if 'reddit' in platforms and self.reddit_client:
+            results['reddit'] = await self._analyze_reddit()
+        
+        if 'twitter' in platforms and self.twitter_client:
+            results['twitter'] = await self._analyze_twitter()
+        
+        # Aggregate across platforms
+        if results:
+            overall_sentiment = np.mean([
+                r['sentiment'] for r in results.values() if 'sentiment' in r
+            ])
+            
+            return {
+                'overall_sentiment': overall_sentiment,
+                'platform_sentiments': results,
+                'trending_topics': self._merge_trending_topics(results),
+                'timestamp': datetime.now()
+            }
+        
+        return {}
+    
+    async def _analyze_reddit(self) -> Dict[str, Any]:
+        """Analyze Reddit sentiment from relevant subreddits"""
+        subreddits = ['wallstreetbets', 'stocks', 'options', 'investing']
+        posts_analyzed = 0
+        sentiments = []
+        entities_mentioned = defaultdict(int)
+        
+        try:
+            for subreddit_name in subreddits:
+                subreddit = self.reddit_client.subreddit(subreddit_name)
+                
+                # Get hot posts
+                for post in subreddit.hot(limit=25):
+                    # Combine title and selftext
+                    text = f"{post.title} {post.selftext}"
+                    
+                    # Skip if too short
+                    if len(text) < 50:
+                        continue
+                    
+                    # Analyze sentiment
+                    sentiment = await self._analyze_text_sentiment(text, 'reddit')
+                    sentiments.append(sentiment.value * (1 + np.log1p(post.score) / 10))
+                    
+                    # Extract entities
+                    entities = await self._extract_entities(text)
+                    for entity in entities:
+                        entities_mentioned[entity] += 1
+                    
+                    posts_analyzed += 1
+                    
+                    # Analyze top comments
+                    post.comments.replace_more(limit=0)
+                    for comment in post.comments.list()[:10]:
+                        if comment.score > 5:
+                            comment_sentiment = await self._analyze_text_sentiment(
+                                comment.body, 'reddit_comment'
+                            )
+                            sentiments.append(comment_sentiment.value * 0.5)  # Lower weight
+            
+            return {
+                'sentiment': np.mean(sentiments) if sentiments else 0.0,
+                'posts_analyzed': posts_analyzed,
+                'top_entities': sorted(entities_mentioned.items(), key=lambda x: x[1], reverse=True)[:10],
+                'confidence': min(posts_analyzed / 50, 1.0)  # Confidence based on sample size
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Reddit analysis error: {e}")
+            return {}
+    
+    async def _analyze_twitter(self) -> Dict[str, Any]:
+        """Analyze Twitter/X sentiment for market-related tweets"""
+        queries = ['$SPY', 'stock market', 'Federal Reserve', 'S&P500']
+        tweets_analyzed = 0
+        sentiments = []
+        
+        try:
+            for query in queries:
+                tweets = self.twitter_client.search_recent_tweets(
+                    query=query,
+                    max_results=100,
+                    tweet_fields=['author_id', 'created_at', 'public_metrics']
+                )
+                
+                if tweets.data:
+                    for tweet in tweets.data:
+                        # Analyze sentiment
+                        sentiment = await self._analyze_text_sentiment(tweet.text, 'twitter')
+                        
+                        # Weight by engagement
+                        metrics = tweet.public_metrics
+                        engagement = metrics['retweet_count'] + metrics['like_count']
+                        weight = 1 + np.log1p(engagement) / 10
+                        
+                        sentiments.append(sentiment.value * weight)
+                        tweets_analyzed += 1
+            
+            return {
+                'sentiment': np.mean(sentiments) if sentiments else 0.0,
+                'tweets_analyzed': tweets_analyzed,
+                'confidence': min(tweets_analyzed / 200, 1.0)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Twitter analysis error: {e}")
+            return {}
+    
+    # ==========================================================================
+    # ENTITY TRACKING
+    # ==========================================================================
+    
+    async def _extract_entities(self, text: str) -> List[str]:
+        """Extract named entities from text"""
+        entities = set()
+        
+        try:
+            # Use NER pipeline
+            ner_results = self.pipelines['ner'](text)
+            
+            for entity in ner_results:
+                if entity['entity_group'] in ['ORG', 'PER']:
+                    entities.add(entity['word'])
+            
+            # Also check for known entities
+            for category, entity_list in ENTITY_CATEGORIES.items():
+                for entity in entity_list:
+                    if entity.lower() in text.lower():
+                        entities.add(entity)
+            
+            return list(entities)
+            
+        except Exception as e:
+            self.logger.error(f"Entity extraction error: {e}")
+            return []
+    
+    def _update_entity_sentiment(self, entity: str, sentiment: float, source: str):
+        """Update sentiment tracking for specific entity"""
+        # Determine entity type
+        entity_type = 'unknown'
+        for category, entities in ENTITY_CATEGORIES.items():
+            if entity in entities:
+                entity_type = category
+                break
+        
+        # Create or update entity sentiment
+        if entity not in self.entity_sentiments:
+            self.entity_sentiments[entity] = EntitySentiment(
+                entity_name=entity,
+                entity_type=entity_type
+            )
+        
+        # Add new sentiment score
+        score = SentimentScore(
+            value=sentiment,
+            confidence=0.8,
+            source=source,
+            text_snippet='',
+            timestamp=datetime.now(),
+            entities=[entity]
+        )
+        
+        self.entity_sentiments[entity].sentiment_scores.append(score)
+        self.entity_sentiments[entity].mention_count += 1
+        self.entity_sentiments[entity].last_updated = datetime.now()
+    
+    # ==========================================================================
+    # CORE SENTIMENT ANALYSIS
+    # ==========================================================================
+    
+    async def _analyze_text_sentiment(self, text: str, source: str) -> SentimentScore:
+        """Analyze sentiment of text using appropriate model"""
+        try:
+            # Clean text
+            text = self._clean_text(text)
+            
+            if not text:
+                return SentimentScore(0.0, 0.0, source, '', datetime.now())
+            
+            # Choose model based on source
+            if source in ['federal_reserve', 'earnings_call', 'news']:
+                # Use FinBERT for financial text
+                sentiment = await self._finbert_sentiment(text)
+            elif source in ['twitter', 'reddit']:
+                # Use RoBERTa for social media
+                sentiment = await self._roberta_sentiment(text)
+            else:
+                # Use TextBlob as fallback
+                sentiment = TextBlob(text).sentiment.polarity
+                confidence = min(abs(sentiment), 1.0)
+                sentiment = SentimentScore(sentiment, confidence, source, text[:100], datetime.now())
+            
+            return sentiment
+            
+        except Exception as e:
+            self.logger.error(f"Sentiment analysis error: {e}")
+            return SentimentScore(0.0, 0.0, source, '', datetime.now())
+    
+    async def _finbert_sentiment(self, text: str) -> SentimentScore:
+        """Analyze sentiment using FinBERT"""
+        # Truncate to model max length
+        max_length = 512
+        tokens = self.tokenizers['finbert'].encode(text, truncation=True, max_length=max_length)
+        
+        # Run model
+        with torch.no_grad():
+            inputs = self.tokenizers['finbert'](
+                text, 
+                return_tensors="pt", 
+                truncation=True, 
+                max_length=max_length,
+                padding=True
+            ).to(self.device)
+            
+            outputs = self.models['finbert'](**inputs)
+            predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
+            
+            # FinBERT outputs: [positive, negative, neutral]
+            positive = predictions[0][0].item()
+            negative = predictions[0][1].item()
+            neutral = predictions[0][2].item()
+            
+            # Convert to single sentiment score
+            sentiment_value = positive - negative
+            confidence = 1.0 - neutral
+            
+            return SentimentScore(
+                value=sentiment_value,
+                confidence=confidence,
+                source='finbert',
+                text_snippet=text[:100],
+                timestamp=datetime.now()
+            )
+    
+    async def _roberta_sentiment(self, text: str) -> SentimentScore:
+        """Analyze sentiment using RoBERTa"""
+        result = self.pipelines['roberta'](text[:512])[0]
+        
+        # Map label to sentiment value
+        label_map = {
+            'POSITIVE': 1.0,
+            'NEGATIVE': -1.0,
+            'NEUTRAL': 0.0
+        }
+        
+        sentiment_value = label_map.get(result['label'], 0.0)
+        confidence = result['score']
+        
+        return SentimentScore(
+            value=sentiment_value,
+            confidence=confidence,
+            source='roberta',
+            text_snippet=text[:100],
+            timestamp=datetime.now()
+        )
+    
+    def _clean_text(self, text: str) -> str:
+        """Clean text for analysis"""
+        # Remove URLs
+        text = re.sub(r'http\S+|www.\S+', '', text)
+        
+        # Remove mentions and hashtags for general sentiment
+        text = re.sub(r'@\w+|#\w+', '', text)
+        
+        # Remove excessive whitespace
+        text = ' '.join(text.split())
+        
+        return text.strip()
+    
+    # ==========================================================================
+    # TOPIC MODELING
+    # ==========================================================================
+    
+    def _extract_topics(self, text: str, num_topics: int = 5) -> List[str]:
+        """Extract main topics from text using LDA"""
+        try:
+            # Tokenize and clean
+            tokens = word_tokenize(text.lower())
+            stop_words = set(stopwords.words('english'))
+            tokens = [t for t in tokens if t.isalpha() and t not in stop_words and len(t) > 3]
+            
+            if len(tokens) < 20:
+                return []
+            
+            # Create document-term matrix
+            vectorizer = TfidfVectorizer(max_features=50, ngram_range=(1, 2))
+            doc_term_matrix = vectorizer.fit_transform([' '.join(tokens)])
+            
+            # LDA topic modeling
+            lda = LatentDirichletAllocation(n_components=min(num_topics, 5), random_state=42)
+            lda.fit(doc_term_matrix)
+            
+            # Extract topics
+            feature_names = vectorizer.get_feature_names_out()
+            topics = []
+            
+            for topic_idx, topic in enumerate(lda.components_):
+                top_features_idx = topic.argsort()[-5:][::-1]
+                top_features = [feature_names[i] for i in top_features_idx]
+                topics.append(' '.join(top_features[:3]))
+            
+            return topics
+            
+        except Exception as e:
+            self.logger.error(f"Topic extraction error: {e}")
+            return []
+    
+    # ==========================================================================
+    # EVENT DETECTION
+    # ==========================================================================
+    
+    def _check_earnings_event(self, analysis: Dict[str, Any]) -> Optional[MarketEvent]:
+        """Check if earnings analysis represents significant event"""
+        sentiment = analysis['overall_sentiment']
+        guidance = analysis.get('guidance_sentiment', 0)
+        
+        # Check for significant surprise
+        if abs(sentiment) > 0.5 or abs(guidance) > 0.6:
+            impact = min(abs(sentiment) + abs(guidance) / 2, 1.0)
+            
+            return MarketEvent(
+                event_type='earnings_announcement',
+                description=f"{analysis['company']} {analysis['quarter']} earnings",
+                impact_score=impact,
+                sentiment=sentiment,
+                entities=[analysis['company']],
+                source='earnings_call',
+                timestamp=datetime.now(),
+                predicted_duration=timedelta(days=1),
+                confidence=analysis['confidence']
+            )
+        
+        return None
+    
+    # ==========================================================================
+    # AUDIO TRANSCRIPTION
+    # ==========================================================================
+    
+    async def transcribe_audio(self, audio_file: str) -> str:
+        """Transcribe audio file (e.g., Fed speech, earnings call)"""
+        if not self.whisper_model:
+            self.logger.warning("Whisper model not available")
+            return ""
+        
+        try:
+            result = self.whisper_model.transcribe(audio_file)
+            return result["text"]
+        except Exception as e:
+            self.logger.error(f"Transcription error: {e}")
+            return ""
+    
+    # ==========================================================================
+    # PUBLIC INTERFACE
+    # ==========================================================================
+    
+    async def get_market_sentiment(self) -> SentimentReport:
+        """Get comprehensive current market sentiment"""
+        try:
+            # Analyze recent data from all sources
+            tasks = []
+            
+            # Social media
+            tasks.append(self.analyze_social_media())
+            
+            # Recent news (mock data for example)
+            tasks.append(self.analyze_multilingual_news([
+                {'text': 'Market reaches new highs...', 'language': 'en', 'source': 'reuters'},
+                {'text': 'Inflation concerns grow...', 'language': 'en', 'source': 'bloomberg'}
+            ]))
+            
+            # Gather results
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Calculate overall sentiment
+            sentiments = []
+            weights = []
+            
+            for i, result in enumerate(results):
+                if isinstance(result, dict) and 'overall_sentiment' in result:
+                    sentiments.append(result['overall_sentiment'])
+                    weights.append(1.0)  # Could use source weights
+            
+            if sentiments:
+                overall_sentiment = np.average(sentiments, weights=weights)
+            else:
+                overall_sentiment = 0.0
+            
+            # Get top entities
+            top_entities = sorted(
+                [(k, v.current_sentiment) for k, v in self.entity_sentiments.items()],
+                key=lambda x: abs(x[1]),
+                reverse=True
+            )[:10]
+            
+            # Determine regime
+            if overall_sentiment > POSITIVE_THRESHOLD:
+                regime = 'bullish'
+            elif overall_sentiment < NEGATIVE_THRESHOLD:
+                regime = 'bearish'
+            elif abs(overall_sentiment) < 0.1:
+                regime = 'neutral'
+            else:
+                regime = 'mixed'
+            
+            # Create report
+            report = SentimentReport(
+                overall_sentiment=overall_sentiment,
+                sentiment_distribution={
+                    'positive': len([s for s in sentiments if s > 0]) / max(len(sentiments), 1),
+                    'negative': len([s for s in sentiments if s < 0]) / max(len(sentiments), 1),
+                    'neutral': len([s for s in sentiments if abs(s) < 0.1]) / max(len(sentiments), 1)
+                },
+                top_entities=top_entities,
+                detected_events=list(self.recent_events)[-10:],
+                sentiment_momentum=self._calculate_momentum(),
+                regime=regime,
+                confidence=0.8,
+                key_themes=self._get_recent_themes(),
+                warnings=self._generate_warnings()
+            )
+            
+            return report
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, {'method': 'get_market_sentiment'})
+            return SentimentReport(
+                overall_sentiment=0.0,
+                sentiment_distribution={},
+                top_entities=[],
+                detected_events=[],
+                sentiment_momentum=0.0,
+                regime='unknown',
+                confidence=0.0,
+                key_themes=[],
+                warnings=['Error generating sentiment report']
+            )
+    
+    def _calculate_momentum(self) -> float:
+        """Calculate sentiment momentum"""
+        if len(self.sentiment_history) < 10:
             return 0.0
         
-        # Rate of change
-        recent_scores = [h['score'] for h in history[-5:]]
-        momentum = recent_scores[-1] - recent_scores[0]
+        recent = list(self.sentiment_history)[-5:]
+        older = list(self.sentiment_history)[-10:-5]
         
-        return momentum
+        recent_avg = np.mean([s.value for s in recent])
+        older_avg = np.mean([s.value for s in older])
+        
+        return recent_avg - older_avg
     
-    def _analyze_sources(self, mentions: List[SentimentData]) -> Dict[str, int]:
-        """Analyze mention sources."""
-        source_counts = defaultdict(int)
+    def _get_recent_themes(self) -> List[str]:
+        """Get recent dominant themes"""
+        themes = defaultdict(int)
         
-        for mention in mentions:
-            source_counts[mention.source.value] += 1
+        for event in list(self.recent_events)[-20:]:
+            if event.event_type:
+                themes[event.event_type] += 1
         
-        return dict(source_counts)
+        return [k for k, v in sorted(themes.items(), key=lambda x: x[1], reverse=True)][:5]
     
-    def _score_to_category(self, score: float) -> SentimentCategory:
-        """Convert sentiment score to category."""
-        if score >= 0.5:
-            return SentimentCategory.VERY_BULLISH
-        elif score >= 0.2:
-            return SentimentCategory.BULLISH
-        elif score >= -0.2:
-            return SentimentCategory.NEUTRAL
-        elif score >= -0.5:
-            return SentimentCategory.BEARISH
-        else:
-            return SentimentCategory.VERY_BEARISH
-    
-    def _extract_themes_rule_based(self, mentions: List[SentimentData]) -> List[str]:
-        """Extract themes using rule-based approach."""
-        theme_counts = defaultdict(int)
+    def _generate_warnings(self) -> List[str]:
+        """Generate sentiment-based warnings"""
+        warnings = []
         
-        # Count sentiment indicators
-        for mention in mentions:
-            content_lower = mention.content.lower()
-            
-            for category, indicators in SENTIMENT_INDICATORS.items():
-                for indicator in indicators:
-                    if indicator in content_lower:
-                        theme_counts[category] += 1
+        # Check for rapid sentiment shifts
+        if abs(self._calculate_momentum()) > 0.5:
+            warnings.append("Rapid sentiment shift detected")
         
-        # Sort by frequency
-        sorted_themes = sorted(theme_counts.items(), key=lambda x: x[1], reverse=True)
+        # Check for divergent sentiments
+        entity_sentiments = [e.current_sentiment for e in self.entity_sentiments.values()]
+        if entity_sentiments and np.std(entity_sentiments) > 0.5:
+            warnings.append("High sentiment divergence across entities")
         
-        return [theme for theme, _ in sorted_themes[:5]]
-    
-    def _summarize_mentions(self, mentions: List[SentimentData]) -> str:
-        """Summarize mentions for AI prompt."""
-        summaries = []
+        # Check for high-impact events
+        recent_high_impact = [e for e in self.recent_events if e.impact_score > 0.8]
+        if recent_high_impact:
+            warnings.append(f"High-impact event: {recent_high_impact[-1].description}")
         
-        for mention in mentions[:5]:
-            summary = f"- [{mention.source.value}] ({mention.sentiment_score:+.2f}): "
-            summary += mention.content[:100] + "..."
-            summaries.append(summary)
-        
-        return "\n".join(summaries)
-    
-    def _detect_volume_spikes(self) -> Dict[str, float]:
-        """Detect volume spikes by entity."""
-        volume_changes = {}
-        
-        for entity, history in self.sentiment_history.items():
-            if len(history) < 20:
-                continue
-            
-            # Recent vs baseline volume
-            recent_count = len([h for h in history[-10:]])
-            baseline_count = len([h for h in history[-30:-10]]) / 2  # Normalize
-            
-            if baseline_count > 0:
-                change_ratio = recent_count / baseline_count
-                if change_ratio > TRENDING_THRESHOLDS['volume_spike']:
-                    volume_changes[entity] = change_ratio
-        
-        return volume_changes
-    
-    def _detect_sentiment_shifts_internal(self) -> Dict[str, float]:
-        """Detect sentiment shifts by entity."""
-        sentiment_changes = {}
-        
-        for entity, history in self.sentiment_history.items():
-            if len(history) < 20:
-                continue
-            
-            # Recent vs baseline sentiment
-            recent_scores = [h['score'] for h in history[-10:]]
-            baseline_scores = [h['score'] for h in history[-30:-10]]
-            
-            if recent_scores and baseline_scores:
-                recent_avg = np.mean(recent_scores)
-                baseline_avg = np.mean(baseline_scores)
-                
-                change = recent_avg - baseline_avg
-                if abs(change) > TRENDING_THRESHOLDS['sentiment_shift']:
-                    sentiment_changes[entity] = change
-        
-        return sentiment_changes
-    
-    def _create_default_market_sentiment(self) -> MarketSentiment:
-        """Create default market sentiment when analysis fails."""
-        return MarketSentiment(
-            timestamp=datetime.now(),
-            overall_category=SentimentCategory.NEUTRAL,
-            composite_score=0.0,
-            fear_greed_index=50.0,
-            put_call_ratio=None,
-            vix_correlation=None,
-            top_bullish=[],
-            top_bearish=[],
-            trending_topics=[],
-            anomalies=[],
-            ai_analysis={'error': 'Analysis failed'}
-        )
-    
-    def _create_empty_sentiment_summary(self, entity: str,
-                                      entity_type: EntityType) -> SentimentSummary:
-        """Create empty sentiment summary."""
-        return SentimentSummary(
-            entity=entity,
-            entity_type=entity_type,
-            overall_sentiment=SentimentCategory.NEUTRAL,
-            sentiment_score=0.0,
-            volume=0,
-            trend='stable',
-            momentum=0.0,
-            sources={},
-            key_themes=[],
-            ai_insights={'message': 'No data available'}
-        )
+        return warnings
 
 # ==============================================================================
-# MODULE FUNCTIONS
+# MODULE INITIALIZATION
 # ==============================================================================
+_module_instance: Optional[EnhancedSentimentAnalysisAgent] = None
 
-def create_sentiment_analysis_agent(model_name: str = DEFAULT_MODEL,
-                                  temperature: float = DEFAULT_TEMPERATURE) -> SpyderX11_SentimentAnalysisAgent:
-    """
-    Factory function to create Sentiment Analysis Agent instance.
-    
-    Args:
-        model_name: Ollama model to use
-        temperature: Temperature for AI responses
-        
-    Returns:
-        SpyderX11_SentimentAnalysisAgent instance
-    """
-    return SpyderX11_SentimentAnalysisAgent(model_name, temperature)
-
-# Singleton instance
-_module_instance = None
-
-def get_module_instance() -> SpyderX11_SentimentAnalysisAgent:
-    """Get or create singleton instance of the agent."""
+def create_sentiment_analysis_agent(config: Optional[Dict[str, Any]] = None) -> EnhancedSentimentAnalysisAgent:
+    """Factory function to create sentiment analysis agent"""
     global _module_instance
     if _module_instance is None:
-        _module_instance = create_sentiment_analysis_agent()
+        _module_instance = EnhancedSentimentAnalysisAgent(config)
+    return _module_instance
+
+def get_sentiment_analysis_agent() -> Optional[EnhancedSentimentAnalysisAgent]:
+    """Get existing instance"""
     return _module_instance
 
 # ==============================================================================
-# TEST EXECUTION
+# AGENT REGISTRATION UPDATE
 # ==============================================================================
+# Update the existing SpyderX11_SentimentAnalysisAgent to use enhanced version
+SpyderX11_SentimentAnalysisAgent = EnhancedSentimentAnalysisAgent
 
-async def test_sentiment_agent():
-    """Test the Sentiment Analysis Agent functionality."""
-    print("="*80)
-    print("Testing SpyderX11_SentimentAnalysisAgent")
-    print("="*80)
+# ==============================================================================
+# COMMAND LINE INTERFACE
+# ==============================================================================
+async def main():
+    """Test sentiment analysis functionality"""
+    import argparse
     
-    agent = create_sentiment_analysis_agent()
+    parser = argparse.ArgumentParser(description='Enhanced Sentiment Analysis Testing')
+    parser.add_argument('--earnings', type=str, help='Analyze earnings transcript file')
+    parser.add_argument('--fed', type=str, help='Analyze Fed communication file')
+    parser.add_argument('--social', action='store_true', help='Analyze social media')
+    parser.add_argument('--report', action='store_true', help='Generate sentiment report')
+    args = parser.parse_args()
     
-    # Create sample sentiment data
-    sample_data = [
-        SentimentData(
-            source=SentimentSource.REDDIT,
-            timestamp=datetime.now() - timedelta(minutes=30),
-            content="SPY calls looking good! Bullish on the market rally",
-            author="user123",
-            sentiment_score=0.8,
-            confidence=0.9,
-            entities=["SPY"]
-        ),
-        SentimentData(
-            source=SentimentSource.TWITTER,
-            timestamp=datetime.now() - timedelta(minutes=25),
-            content="Market crash incoming! Loading up on SPY puts",
-            author="trader456",
-            sentiment_score=-0.7,
-            confidence=0.8,
-            entities=["SPY"]
-        ),
-        SentimentData(
-            source=SentimentSource.NEWS,
-            timestamp=datetime.now() - timedelta(minutes=20),
-            content="Fed signals potential rate cuts, markets respond positively",
-            author="FinanceNews",
-            sentiment_score=0.5,
-            confidence=0.95,
-            entities=["SPY", "FED"]
-        ),
-        SentimentData(
-            source=SentimentSource.OPTIONS_FLOW,
-            timestamp=datetime.now() - timedelta(minutes=15),
-            content="Unusual call volume detected on SPY 460 strikes",
-            author="FlowTracker",
-            sentiment_score=0.6,
-            confidence=0.85,
-            entities=["SPY"]
-        ),
-        SentimentData(
-            source=SentimentSource.ANALYST,
-            timestamp=datetime.now() - timedelta(minutes=10),
-            content="Upgrade SPY target to 470, maintain bullish outlook",
-            author="GoldmanAnalyst",
-            sentiment_score=0.9,
-            confidence=0.95,
-            entities=["SPY"]
+    # Create agent with mock config
+    config = {
+        # Add your API keys here for testing
+        # 'reddit_client_id': 'your_id',
+        # 'reddit_secret': 'your_secret',
+        # 'twitter_bearer_token': 'your_token'
+    }
+    
+    agent = create_sentiment_analysis_agent(config)
+    
+    if args.earnings:
+        print("\n=== Analyzing Earnings Call ===")
+        with open(args.earnings, 'r') as f:
+            transcript = f.read()
+        
+        analysis = await agent.analyze_earnings_call(
+            transcript,
+            company="Test Corp",
+            quarter="Q2 2025"
         )
-    ]
+        
+        print(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
+        print(f"Guidance Sentiment: {analysis.get('guidance_sentiment', 0):.3f}")
+        print(f"Main Topics: {analysis.get('main_topics', [])}")
+        print("\nKey Quotes:")
+        for quote in analysis.get('key_quotes', [])[:3]:
+            print(f"- {quote['text'][:100]}... (sentiment: {quote['sentiment']:.2f})")
     
-    # Add more sample data for variety
-    for i in range(20):
-        sentiment = 0.3 * np.sin(i/5) + np.random.normal(0, 0.2)
-        sample_data.append(SentimentData(
-            source=np.random.choice(list(SentimentSource)),
-            timestamp=datetime.now() - timedelta(minutes=60-i*2),
-            content=f"Sample mention {i} about SPY and market conditions",
-            author=f"user{i}",
-            sentiment_score=max(-1, min(1, sentiment)),
-            confidence=0.7 + np.random.random() * 0.3,
-            entities=["SPY"] + (["AAPL"] if i % 3 == 0 else [])
-        ))
+    if args.fed:
+        print("\n=== Analyzing Fed Communication ===")
+        with open(args.fed, 'r') as f:
+            text = f.read()
+        
+        analysis = await agent.analyze_fed_communication(
+            text,
+            comm_type='FOMC_statement',
+            speaker='Jerome Powell'
+        )
+        
+        print(f"Policy Stance: {analysis.get('policy_stance', 0):.3f} (-1 dovish to 1 hawkish)")
+        print(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
+        print("\nTopic Analysis:")
+        for topic, data in analysis.get('topics', {}).items():
+            if data['mentioned']:
+                print(f"- {topic}: sentiment={data['sentiment']:.2f}, prominence={data['prominence']:.2%}")
+        print(f"\nRate Implications: {analysis.get('rate_implications', {})}")
     
-    # Test 1: Overall Market Sentiment
-    print("\nTest 1: Market Sentiment Analysis")
-    print("-"*40)
+    if args.social:
+        print("\n=== Analyzing Social Media ===")
+        analysis = await agent.analyze_social_media(['reddit', 'twitter'])
+        
+        print(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
+        print("\nPlatform Sentiments:")
+        for platform, data in analysis.get('platform_sentiments', {}).items():
+            print(f"- {platform}: {data.get('sentiment', 0):.3f}")
     
-    market_sentiment = await agent.analyze_sentiment(sample_data)
-    
-    print(f"Overall Sentiment: {market_sentiment.overall_category.value}")
-    print(f"Composite Score: {market_sentiment.composite_score:+.2f}")
-    print(f"Fear/Greed Index: {market_sentiment.fear_greed_index:.0f}/100")
-    
-    print(f"\nTop Bullish Entities:")
-    for entity, score in market_sentiment.top_bullish[:3]:
-        print(f"  {entity}: {score:+.2f}")
-    
-    print(f"\nTop Bearish Entities:")
-    for entity, score in market_sentiment.top_bearish[:3]:
-        print(f"  {entity}: {score:+.2f}")
-    
-    print(f"\nTrending Topics:")
-    for topic in market_sentiment.trending_topics[:3]:
-        print(f"  - {topic['topic']}: Score {topic['trend_score']:.2f}")
-    
-    # Test 2: Entity Sentiment Analysis
-    print("\n\nTest 2: Entity Sentiment Analysis (SPY)")
-    print("-"*40)
-    
-    spy_sentiment = await agent.analyze_entity_sentiment("SPY")
-    
-    print(f"Entity: {spy_sentiment.entity}")
-    print(f"Sentiment: {spy_sentiment.overall_sentiment.value}")
-    print(f"Score: {spy_sentiment.sentiment_score:+.2f}")
-    print(f"Volume: {spy_sentiment.volume} mentions")
-    print(f"Trend: {spy_sentiment.trend}")
-    print(f"Momentum: {spy_sentiment.momentum:+.2f}")
-    
-    print(f"\nSource Distribution:")
-    for source, count in list(spy_sentiment.sources.items())[:3]:
-        print(f"  {source}: {count}")
-    
-    print(f"\nKey Themes:")
-    for theme in spy_sentiment.key_themes[:3]:
-        print(f"  - {theme}")
-    
-    # Test 3: Sentiment Shift Detection
-    print("\n\nTest 3: Sentiment Shift Detection")
-    print("-"*40)
-    
-    # Add some dramatic shifts
-    shift_data = []
-    for i in range(10):
-        # Create a sentiment reversal pattern
-        if i < 5:
-            sentiment = -0.6 + np.random.normal(0, 0.1)
-        else:
-            sentiment = 0.7 + np.random.normal(0, 0.1)
-            
-        shift_data.append(SentimentData(
-            source=SentimentSource.TWITTER,
-            timestamp=datetime.now() - timedelta(minutes=30-i*3),
-            content=f"SPY sentiment shift test {i}",
-            author=f"shifter{i}",
-            sentiment_score=sentiment,
-            confidence=0.8,
-            entities=["TEST_ENTITY"]
-        ))
-    
-    # Process shift data
-    await agent.analyze_sentiment(shift_data)
-    
-    # Detect shifts
-    alerts = await agent.detect_sentiment_shifts(lookback_minutes=60)
-    
-    print(f"Detected {len(alerts)} sentiment alerts:")
-    for alert in alerts[:3]:
-        print(f"\n[{alert.severity.upper()}] {alert.alert_type}: {alert.entity}")
-        print(f"  {alert.description}")
-        if alert.recommended_action:
-            print(f"  Recommendation: {alert.recommended_action}")
-    
-    # Test 4: AI Analysis Quality
-    print("\n\nTest 4: AI Analysis Quality")
-    print("-"*40)
-    
-    if market_sentiment.ai_analysis:
-        print("AI Market Analysis:")
-        for key, value in list(market_sentiment.ai_analysis.items())[:3]:
-            print(f"  {key}: {value}")
-    
-    if spy_sentiment.ai_insights:
-        print("\nAI Entity Insights:")
-        for key, value in list(spy_sentiment.ai_insights.items())[:3]:
-            print(f"  {key}: {value}")
-
-# ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
+    if args.report:
+        print("\n=== Market Sentiment Report ===")
+        report = await agent.get_market_sentiment()
+        
+        print(f"Overall Market Sentiment: {report.overall_sentiment:.3f}")
+        print(f"Sentiment Regime: {report.regime}")
+        print(f"Momentum: {report.sentiment_momentum:.3f}")
+        print(f"Confidence: {report.confidence:.2%}")
+        
+        print("\nTop Entities:")
+        for entity, sentiment in report.top_entities[:5]:
+            print(f"- {entity}: {sentiment:.3f}")
+        
+        print("\nRecent Events:")
+        for event in report.detected_events[-3:]:
+            print(f"- {event.event_type}: {event.description} (impact: {event.impact_score:.2f})")
+        
+        if report.warnings:
+            print("\nWarnings:")
+            for warning in report.warnings:
+                print(f"⚠️  {warning}")
 
 if __name__ == "__main__":
-    print(f"Initializing {__name__}")
-    print(f"Ollama Available: {OLLAMA_AVAILABLE}")
-    
-    # Run async tests
-    asyncio.run(test_sentiment_agent())
-    
-    print("\n" + "="*80)
-    print("SpyderX11_SentimentAnalysisAgent module loaded successfully!")
-    print("="*80)
+    asyncio.run(main())
