@@ -123,86 +123,7 @@ class SpreadSpec:
     ratios: Optional[List[int]] = None
 
 # ==============================================================================
-# MAIN EXECUTION
-# ==============================================================================
-
-if __name__ == "__main__":
-    # Example usage and testing
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    
-    # Create builder
-    builder = ContractBuilder()
-    
-    print("Testing ContractBuilder")
-    print("=" * 50)
-    
-    # Test stock contracts
-    print("\n1. Building stock contracts:")
-    spy = builder.build_spy()
-    print(f"✅ SPY: {spy}")
-    
-    aapl = builder.build_stock('AAPL')
-    print(f"✅ AAPL: {aapl}")
-    
-    # Test option contracts
-    print("\n2. Building option contracts:")
-    
-    # Get next Friday expiry
-    next_expiry = builder.get_next_expiry()
-    print(f"Next expiry: {next_expiry}")
-    
-    # Build SPY call
-    spy_call = builder.build_spy_option(next_expiry, 450.0, 'C')
-    print(f"✅ SPY Call: {spy_call}")
-    
-    # Build SPY put
-    spy_put = builder.build_spy_option(next_expiry, 440.0, 'P')
-    print(f"✅ SPY Put: {spy_put}")
-    
-    # Test spreads
-    print("\n3. Building option spreads:")
-    
-    # Vertical spread
-    vert_spread = builder.build_vertical_spread(
-        'SPY', next_expiry, 445.0, 450.0, 'C'
-    )
-    print(f"✅ Vertical spread: {vert_spread}")
-    
-    # Calendar spread
-    weekly_expiries = builder.get_weekly_expiries(date.today(), 4)
-    if len(weekly_expiries) >= 2:
-        cal_spread = builder.build_calendar_spread(
-            'SPY', 445.0, weekly_expiries[0], weekly_expiries[1], 'C'
-        )
-        print(f"✅ Calendar spread: {cal_spread}")
-    
-    # Iron condor
-    iron_condor = builder.build_iron_condor(
-        'SPY', next_expiry, 430.0, 425.0, 455.0, 460.0
-    )
-    print(f"✅ Iron condor: {iron_condor}")
-    
-    # Straddle
-    straddle = builder.build_straddle('SPY', next_expiry, 445.0, 'BUY')
-    print(f"✅ Straddle: {straddle}")
-    
-    # Test expiration helpers
-    print("\n4. Testing expiration helpers:")
-    
-    # Monthly expiry
-    monthly = builder.get_monthly_expiry(2025, 6)
-    print(f"June 2025 monthly expiry: {monthly}")
-    
-    # Weekly expiries
-    weeklies = builder.get_weekly_expiries(date.today(), 6)
-    print(f"Next 6 weekly expiries: {weeklies}")
-    
-    # Cache info
-    print(f"\n5. Cache statistics:")
-    print(f"Cached contracts: {builder.get_cache_size()}")
-    
-    print("\n✅ All tests passed!") CLASS
+# MAIN CLASS
 # ==============================================================================
 class ContractBuilder:
     """
@@ -363,227 +284,189 @@ class ContractBuilder:
         Returns:
             SPY option contract
         """
-        # SPY options trade best on CBOE
-        return self.build_option('SPY', expiry, strike, right, exchange='CBOE')
+        return self.build_option('SPY', expiry, strike, right)
     
     # ==========================================================================
-    # OPTION SPREADS
+    # SPREAD CONTRACTS
     # ==========================================================================
     
     def build_vertical_spread(self, symbol: str, expiry: str,
-                            strike_long: float, strike_short: float,
-                            right: Union[str, OptionRight],
-                            exchange: str = DEFAULT_EXCHANGE) -> Contract:
+                            long_strike: float, short_strike: float,
+                            right: Union[str, OptionRight]) -> Contract:
         """
         Build a vertical spread (bull/bear spread).
         
         Args:
             symbol: Underlying symbol
             expiry: Expiration date (YYYYMMDD)
-            strike_long: Long leg strike
-            strike_short: Short leg strike
+            long_strike: Long leg strike
+            short_strike: Short leg strike
             right: 'C' or 'P'
-            exchange: Exchange
             
         Returns:
             Combo contract for vertical spread
         """
         # Create legs
-        long_leg = self.build_option(symbol, expiry, strike_long, right, exchange)
-        short_leg = self.build_option(symbol, expiry, strike_short, right, exchange)
+        long_leg = self.build_option(symbol, expiry, long_strike, right)
+        short_leg = self.build_option(symbol, expiry, short_strike, right)
         
-        # Create combo
+        # Create combo legs
+        combo_leg1 = ComboLeg()
+        combo_leg1.conId = 0  # Will be filled by IB
+        combo_leg1.ratio = 1
+        combo_leg1.action = 'BUY'
+        combo_leg1.exchange = long_leg.exchange
+        
+        combo_leg2 = ComboLeg()
+        combo_leg2.conId = 0  # Will be filled by IB
+        combo_leg2.ratio = 1
+        combo_leg2.action = 'SELL'
+        combo_leg2.exchange = short_leg.exchange
+        
+        # Create combo contract
         combo = Contract()
         combo.symbol = symbol
         combo.secType = 'BAG'
         combo.currency = DEFAULT_CURRENCY
-        combo.exchange = exchange
+        combo.exchange = DEFAULT_EXCHANGE
+        combo.comboLegs = [combo_leg1, combo_leg2]
         
-        # Define legs
-        leg1 = ComboLeg()
-        leg1.conId = 0  # Will be filled by IB
-        leg1.ratio = 1
-        leg1.action = 'BUY'
-        leg1.exchange = exchange
-        
-        leg2 = ComboLeg()
-        leg2.conId = 0  # Will be filled by IB
-        leg2.ratio = 1
-        leg2.action = 'SELL'
-        leg2.exchange = exchange
-        
-        combo.comboLegs = [leg1, leg2]
-        
-        self.logger.debug(f"Built vertical spread: {symbol} {expiry} "
-                         f"{right}{strike_long}/{strike_short}")
-        
-        return combo
-    
-    def build_calendar_spread(self, symbol: str, strike: float,
-                            expiry_short: str, expiry_long: str,
-                            right: Union[str, OptionRight],
-                            exchange: str = DEFAULT_EXCHANGE) -> Contract:
-        """
-        Build a calendar spread.
-        
-        Args:
-            symbol: Underlying symbol
-            strike: Strike price (same for both legs)
-            expiry_short: Short leg expiry (YYYYMMDD)
-            expiry_long: Long leg expiry (YYYYMMDD)
-            right: 'C' or 'P'
-            exchange: Exchange
-            
-        Returns:
-            Combo contract for calendar spread
-        """
-        # Validate expiries
-        if expiry_short >= expiry_long:
-            raise ValueError("Short expiry must be before long expiry")
-        
-        # Create legs
-        short_leg = self.build_option(symbol, expiry_short, strike, right, exchange)
-        long_leg = self.build_option(symbol, expiry_long, strike, right, exchange)
-        
-        # Create combo
-        combo = Contract()
-        combo.symbol = symbol
-        combo.secType = 'BAG'
-        combo.currency = DEFAULT_CURRENCY
-        combo.exchange = exchange
-        
-        # Define legs
-        leg1 = ComboLeg()
-        leg1.conId = 0
-        leg1.ratio = 1
-        leg1.action = 'SELL'
-        leg1.exchange = exchange
-        
-        leg2 = ComboLeg()
-        leg2.conId = 0
-        leg2.ratio = 1
-        leg2.action = 'BUY'
-        leg2.exchange = exchange
-        
-        combo.comboLegs = [leg1, leg2]
-        
-        self.logger.debug(f"Built calendar spread: {symbol} {right}{strike} "
-                         f"{expiry_short}/{expiry_long}")
+        self.logger.debug(f"Built vertical spread: {symbol} {expiry} {long_strike}/{short_strike}")
         
         return combo
     
     def build_iron_condor(self, symbol: str, expiry: str,
-                         put_short: float, put_long: float,
-                         call_short: float, call_long: float,
-                         exchange: str = DEFAULT_EXCHANGE) -> Contract:
+                         put_long: float, put_short: float,
+                         call_short: float, call_long: float) -> Contract:
         """
         Build an iron condor spread.
         
         Args:
             symbol: Underlying symbol
             expiry: Expiration date (YYYYMMDD)
-            put_short: Short put strike
             put_long: Long put strike
+            put_short: Short put strike
             call_short: Short call strike
             call_long: Long call strike
-            exchange: Exchange
             
         Returns:
             Combo contract for iron condor
         """
-        # Validate strikes
-        if not (put_long < put_short < call_short < call_long):
-            raise ValueError("Invalid strike prices for iron condor")
+        # Create all four legs
+        legs = []
         
-        # Create combo
+        # Bull put spread
+        legs.append(('BUY', self.build_option(symbol, expiry, put_long, 'P')))
+        legs.append(('SELL', self.build_option(symbol, expiry, put_short, 'P')))
+        
+        # Bear call spread
+        legs.append(('SELL', self.build_option(symbol, expiry, call_short, 'C')))
+        legs.append(('BUY', self.build_option(symbol, expiry, call_long, 'C')))
+        
+        # Create combo legs
+        combo_legs = []
+        for action, leg in legs:
+            combo_leg = ComboLeg()
+            combo_leg.conId = 0  # Will be filled by IB
+            combo_leg.ratio = 1
+            combo_leg.action = action
+            combo_leg.exchange = leg.exchange
+            combo_legs.append(combo_leg)
+        
+        # Create combo contract
         combo = Contract()
         combo.symbol = symbol
         combo.secType = 'BAG'
         combo.currency = DEFAULT_CURRENCY
-        combo.exchange = exchange
+        combo.exchange = DEFAULT_EXCHANGE
+        combo.comboLegs = combo_legs
         
-        # Define legs (4 legs for iron condor)
-        legs = []
+        self.logger.debug(f"Built iron condor: {symbol} {expiry}")
         
-        # Long put
-        leg1 = ComboLeg()
-        leg1.conId = 0
-        leg1.ratio = 1
-        leg1.action = 'BUY'
-        leg1.exchange = exchange
-        legs.append(leg1)
+        return combo
+    
+    def build_calendar_spread(self, symbol: str, strike: float,
+                            near_expiry: str, far_expiry: str,
+                            right: Union[str, OptionRight]) -> Contract:
+        """
+        Build a calendar spread.
         
-        # Short put
-        leg2 = ComboLeg()
-        leg2.conId = 0
-        leg2.ratio = 1
-        leg2.action = 'SELL'
-        leg2.exchange = exchange
-        legs.append(leg2)
+        Args:
+            symbol: Underlying symbol
+            strike: Strike price (same for both legs)
+            near_expiry: Near expiration (YYYYMMDD)
+            far_expiry: Far expiration (YYYYMMDD)
+            right: 'C' or 'P'
+            
+        Returns:
+            Combo contract for calendar spread
+        """
+        # Create legs
+        near_leg = self.build_option(symbol, near_expiry, strike, right)
+        far_leg = self.build_option(symbol, far_expiry, strike, right)
         
-        # Short call
-        leg3 = ComboLeg()
-        leg3.conId = 0
-        leg3.ratio = 1
-        leg3.action = 'SELL'
-        leg3.exchange = exchange
-        legs.append(leg3)
+        # Create combo legs
+        combo_leg1 = ComboLeg()
+        combo_leg1.conId = 0  # Will be filled by IB
+        combo_leg1.ratio = 1
+        combo_leg1.action = 'SELL'
+        combo_leg1.exchange = near_leg.exchange
         
-        # Long call
-        leg4 = ComboLeg()
-        leg4.conId = 0
-        leg4.ratio = 1
-        leg4.action = 'BUY'
-        leg4.exchange = exchange
-        legs.append(leg4)
+        combo_leg2 = ComboLeg()
+        combo_leg2.conId = 0  # Will be filled by IB
+        combo_leg2.ratio = 1
+        combo_leg2.action = 'BUY'
+        combo_leg2.exchange = far_leg.exchange
         
-        combo.comboLegs = legs
+        # Create combo contract
+        combo = Contract()
+        combo.symbol = symbol
+        combo.secType = 'BAG'
+        combo.currency = DEFAULT_CURRENCY
+        combo.exchange = DEFAULT_EXCHANGE
+        combo.comboLegs = [combo_leg1, combo_leg2]
         
-        self.logger.debug(f"Built iron condor: {symbol} {expiry} "
-                         f"P{put_long}/{put_short} C{call_short}/{call_long}")
+        self.logger.debug(f"Built calendar spread: {symbol} {strike} {near_expiry}/{far_expiry}")
         
         return combo
     
     def build_straddle(self, symbol: str, expiry: str, strike: float,
-                      action: str = 'BUY', exchange: str = DEFAULT_EXCHANGE) -> Contract:
+                      action: str = 'BUY') -> Contract:
         """
-        Build a straddle (buy/sell both call and put).
+        Build a straddle.
         
         Args:
             symbol: Underlying symbol
             expiry: Expiration date (YYYYMMDD)
             strike: Strike price
             action: 'BUY' or 'SELL'
-            exchange: Exchange
             
         Returns:
             Combo contract for straddle
         """
-        # Create combo
+        # Create legs
+        call_leg = self.build_option(symbol, expiry, strike, 'C')
+        put_leg = self.build_option(symbol, expiry, strike, 'P')
+        
+        # Create combo legs
+        combo_legs = []
+        for leg in [call_leg, put_leg]:
+            combo_leg = ComboLeg()
+            combo_leg.conId = 0  # Will be filled by IB
+            combo_leg.ratio = 1
+            combo_leg.action = action
+            combo_leg.exchange = leg.exchange
+            combo_legs.append(combo_leg)
+        
+        # Create combo contract
         combo = Contract()
         combo.symbol = symbol
         combo.secType = 'BAG'
         combo.currency = DEFAULT_CURRENCY
-        combo.exchange = exchange
+        combo.exchange = DEFAULT_EXCHANGE
+        combo.comboLegs = combo_legs
         
-        # Define legs
-        # Call leg
-        leg1 = ComboLeg()
-        leg1.conId = 0
-        leg1.ratio = 1
-        leg1.action = action
-        leg1.exchange = exchange
-        
-        # Put leg
-        leg2 = ComboLeg()
-        leg2.conId = 0
-        leg2.ratio = 1
-        leg2.action = action
-        leg2.exchange = exchange
-        
-        combo.comboLegs = [leg1, leg2]
-        
-        self.logger.debug(f"Built {action} straddle: {symbol} {expiry} {strike}")
+        self.logger.debug(f"Built straddle: {symbol} {expiry} {strike} {action}")
         
         return combo
     
@@ -602,16 +485,22 @@ class ContractBuilder:
         Returns:
             Expiration date in YYYYMMDD format
         """
-        # Find third Friday
-        first_day = datetime(year, month, 1)
-        first_friday = first_day + timedelta(days=(4 - first_day.weekday()) % 7)
-        third_friday = first_friday + timedelta(weeks=2)
+        # Get first day of month
+        first_day = date(year, month, 1)
+        
+        # Find first Friday
+        first_friday = first_day
+        while first_friday.weekday() != 4:  # 4 = Friday
+            first_friday += timedelta(days=1)
+        
+        # Third Friday is 14 days later
+        third_friday = first_friday + timedelta(days=14)
         
         return third_friday.strftime('%Y%m%d')
     
     def get_weekly_expiries(self, start_date: date, weeks: int = 4) -> List[str]:
         """
-        Get weekly option expiration dates.
+        Get weekly expiration dates.
         
         Args:
             start_date: Starting date
@@ -621,53 +510,43 @@ class ContractBuilder:
             List of expiration dates in YYYYMMDD format
         """
         expiries = []
-        current = start_date
+        current_date = start_date
         
-        # Find next Friday
-        days_ahead = 4 - current.weekday()  # Friday is 4
-        if days_ahead <= 0:  # Already passed Friday
-            days_ahead += 7
-        
-        next_friday = current + timedelta(days=days_ahead)
-        
-        # Generate weekly expiries
         for _ in range(weeks):
-            if self.trading_calendar.is_trading_day(next_friday):
-                expiries.append(next_friday.strftime('%Y%m%d'))
-            else:
-                # If Friday is holiday, use Thursday
-                thursday = next_friday - timedelta(days=1)
-                expiries.append(thursday.strftime('%Y%m%d'))
+            # Find next Friday
+            days_until_friday = (4 - current_date.weekday()) % 7
+            if days_until_friday == 0:
+                days_until_friday = 7  # Next Friday if today is Friday
             
-            next_friday += timedelta(weeks=1)
+            friday = current_date + timedelta(days=days_until_friday)
+            expiries.append(friday.strftime('%Y%m%d'))
+            
+            current_date = friday + timedelta(days=1)
         
         return expiries
     
-    def get_next_expiry(self, days_out: int = 0) -> str:
+    def get_next_expiry(self, dte_min: int = 0) -> str:
         """
-        Get next available option expiry.
+        Get next available expiration date.
         
         Args:
-            days_out: Minimum days to expiration
+            dte_min: Minimum days to expiration
             
         Returns:
-            Expiration date in YYYYMMDD format
+            Next expiration date in YYYYMMDD format
         """
-        target_date = date.today() + timedelta(days=days_out)
+        today = date.today()
+        target_date = today + timedelta(days=dte_min)
         
-        # Get next Friday after target date
-        days_ahead = 4 - target_date.weekday()
-        if days_ahead <= 0:
-            days_ahead += 7
+        # Find next Friday from target date
+        days_until_friday = (4 - target_date.weekday()) % 7
+        if days_until_friday == 0 and dte_min == 0:
+            # If today is Friday and dte_min is 0, use today
+            return today.strftime('%Y%m%d')
         
-        next_friday = target_date + timedelta(days=days_ahead)
+        next_friday = target_date + timedelta(days=days_until_friday or 7)
         
-        # Check if trading day
-        if self.trading_calendar.is_trading_day(next_friday):
-            return next_friday.strftime('%Y%m%d')
-        else:
-            # Use Thursday if Friday is holiday
-            return (next_friday - timedelta(days=1)).strftime('%Y%m%d')
+        return next_friday.strftime('%Y%m%d')
     
     # ==========================================================================
     # VALIDATION METHODS
@@ -675,42 +554,53 @@ class ContractBuilder:
     
     def _validate_stock_contract(self, contract: Stock) -> bool:
         """Validate stock contract."""
-        if not contract.symbol or len(contract.symbol) > 12:
+        try:
+            # Check symbol
+            if not contract.symbol or len(contract.symbol) > 10:
+                return False
+            
+            # Check exchange
+            if contract.exchange not in ['SMART', 'ARCA', 'NYSE', 'NASDAQ', 'BATS']:
+                self.logger.warning(f"Unusual exchange for stock: {contract.exchange}")
+            
+            # Check currency
+            if contract.currency != 'USD':
+                self.logger.warning(f"Non-USD currency: {contract.currency}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Stock validation error: {e}")
             return False
-        
-        if contract.currency not in ['USD', 'EUR', 'GBP', 'JPY']:
-            return False
-        
-        return True
     
     def _validate_option_contract(self, contract: Option) -> bool:
         """Validate option contract."""
-        # Symbol validation
-        if not contract.symbol or len(contract.symbol) > 12:
-            return False
-        
-        # Strike validation
-        if contract.strike < MIN_STRIKE_PRICE or contract.strike > MAX_STRIKE_PRICE:
-            return False
-        
-        # Right validation
-        if contract.right not in ['C', 'P']:
-            return False
-        
-        # Expiry validation
         try:
-            expiry_date = datetime.strptime(contract.lastTradeDateOrContractMonth, '%Y%m%d')
-            if expiry_date.date() < date.today():
+            # Check symbol
+            if not contract.symbol:
                 return False
             
-            days_to_expiry = (expiry_date.date() - date.today()).days
-            if days_to_expiry > MAX_EXPIRY_DAYS:
+            # Check expiry
+            if not contract.lastTradeDateOrContractMonth:
                 return False
-                
-        except ValueError:
+            
+            # Check strike
+            if contract.strike <= 0:
+                return False
+            
+            # Check right
+            if contract.right not in ['C', 'P']:
+                return False
+            
+            # Check multiplier
+            if int(contract.multiplier) != 100:
+                self.logger.warning(f"Non-standard multiplier: {contract.multiplier}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Option validation error: {e}")
             return False
-        
-        return True
     
     def _validate_expiry(self, expiry: str) -> str:
         """Validate and format expiry date."""
@@ -797,4 +687,83 @@ def build_spy_option(expiry: str, strike: float, right: str) -> Option:
     return get_contract_builder().build_spy_option(expiry, strike, right)
 
 # ==============================================================================
-# MAIN
+# MAIN EXECUTION
+# ==============================================================================
+
+if __name__ == "__main__":
+    # Example usage and testing
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    
+    # Create builder
+    builder = ContractBuilder()
+    
+    print("Testing ContractBuilder")
+    print("=" * 50)
+    
+    # Test stock contracts
+    print("\n1. Building stock contracts:")
+    spy = builder.build_spy()
+    print(f"✅ SPY: {spy}")
+    
+    aapl = builder.build_stock('AAPL')
+    print(f"✅ AAPL: {aapl}")
+    
+    # Test option contracts
+    print("\n2. Building option contracts:")
+    
+    # Get next Friday expiry
+    next_expiry = builder.get_next_expiry()
+    print(f"Next expiry: {next_expiry}")
+    
+    # Build SPY call
+    spy_call = builder.build_spy_option(next_expiry, 450.0, 'C')
+    print(f"✅ SPY Call: {spy_call}")
+    
+    # Build SPY put
+    spy_put = builder.build_spy_option(next_expiry, 440.0, 'P')
+    print(f"✅ SPY Put: {spy_put}")
+    
+    # Test spreads
+    print("\n3. Building option spreads:")
+    
+    # Vertical spread
+    vert_spread = builder.build_vertical_spread(
+        'SPY', next_expiry, 445.0, 450.0, 'C'
+    )
+    print(f"✅ Vertical spread: {vert_spread}")
+    
+    # Calendar spread
+    weekly_expiries = builder.get_weekly_expiries(date.today(), 4)
+    if len(weekly_expiries) >= 2:
+        cal_spread = builder.build_calendar_spread(
+            'SPY', 445.0, weekly_expiries[0], weekly_expiries[1], 'C'
+        )
+        print(f"✅ Calendar spread: {cal_spread}")
+    
+    # Iron condor
+    iron_condor = builder.build_iron_condor(
+        'SPY', next_expiry, 430.0, 425.0, 455.0, 460.0
+    )
+    print(f"✅ Iron condor: {iron_condor}")
+    
+    # Straddle
+    straddle = builder.build_straddle('SPY', next_expiry, 445.0, 'BUY')
+    print(f"✅ Straddle: {straddle}")
+    
+    # Test expiration helpers
+    print("\n4. Testing expiration helpers:")
+    
+    # Monthly expiry
+    monthly = builder.get_monthly_expiry(2025, 6)
+    print(f"June 2025 monthly expiry: {monthly}")
+    
+    # Weekly expiries
+    weeklies = builder.get_weekly_expiries(date.today(), 6)
+    print(f"Next 6 weekly expiries: {weeklies}")
+    
+    # Cache info
+    print(f"\n5. Cache statistics:")
+    print(f"Cached contracts: {builder.get_cache_size()}")
+    
+    print("\n✅ All tests passed!")

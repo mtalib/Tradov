@@ -3,11 +3,12 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Package: SpyderU_Utilities
-Purpose: Core Utilities
+Module: SpyderU_Utilities/__init__.py
+Purpose: Utility functions and classes package initialization
 
-This package provides core utility functions and classes used throughout
-the Spyder system.
+Description:
+    This package provides various utility modules for the Spyder trading system,
+    including logging, error handling, date/time utilities, validation, and more.
 
 Author: Mohamed Talib
 Date: 2025-06-24
@@ -42,22 +43,22 @@ except ImportError as e:
 
 # SpyderU04_Encryption - SECURITY UTILITIES
 try:
-    from .SpyderU04_Encryption import Encryption, encrypt, decrypt
-    __all__.extend(["Encryption", "encrypt", "decrypt"])
+    from .SpyderU04_Encryption import EncryptionManager, encrypt_data, decrypt_data
+    __all__.extend(["EncryptionManager", "encrypt_data", "decrypt_data"])
 except ImportError as e:
     print(f"Warning: SpyderU04_Encryption import failed: {e}")
 
 # SpyderU05_NetworkUtils - NETWORK UTILITIES
 try:
-    from .SpyderU05_NetworkUtils import NetworkUtils, check_connection
-    __all__.extend(["NetworkUtils", "check_connection"])
+    from .SpyderU05_NetworkUtils import NetworkUtils, check_internet_connection
+    __all__.extend(["NetworkUtils", "check_internet_connection"])
 except ImportError as e:
     print(f"Warning: SpyderU05_NetworkUtils import failed: {e}")
 
 # SpyderU06_MathUtils - MATHEMATICAL UTILITIES
 try:
-    from .SpyderU06_MathUtils import MathUtils, calculate_sharpe
-    __all__.extend(["MathUtils", "calculate_sharpe"])
+    from .SpyderU06_MathUtils import MathUtils, calculate_sharpe_ratio
+    __all__.extend(["MathUtils", "calculate_sharpe_ratio"])
 except ImportError as e:
     print(f"Warning: SpyderU06_MathUtils import failed: {e}")
 
@@ -70,15 +71,15 @@ except ImportError as e:
 
 # SpyderU08_Validators - DATA VALIDATION
 try:
-    from .SpyderU08_Validators import Validators, validate_order
-    __all__.extend(["Validators", "validate_order"])
+    from .SpyderU08_Validators import DataValidators, validate_order_data
+    __all__.extend(["DataValidators", "validate_order_data"])
 except ImportError as e:
     print(f"Warning: SpyderU08_Validators import failed: {e}")
 
 # SpyderU09_DataTypes - DATA TYPE DEFINITIONS
 try:
-    from .SpyderU09_DataTypes import SpyderDataTypes
-    __all__.extend(["SpyderDataTypes"])
+    from .SpyderU09_DataTypes import MarketData, OrderData, PositionData
+    __all__.extend(["MarketData", "OrderData", "PositionData"])
 except ImportError as e:
     print(f"Warning: SpyderU09_DataTypes import failed: {e}")
 
@@ -91,62 +92,156 @@ except ImportError as e:
 
 # SpyderU11_FeatureFlags - FEATURE FLAG MANAGEMENT
 try:
-    from .SpyderU11_FeatureFlags import FeatureFlags, is_feature_enabled
-    __all__.extend(["FeatureFlags", "is_feature_enabled"])
+    from .SpyderU11_FeatureFlags import FeatureFlags, check_feature_enabled
+    __all__.extend(["FeatureFlags", "check_feature_enabled"])
 except ImportError as e:
     print(f"Warning: SpyderU11_FeatureFlags import failed: {e}")
 
-# SpyderU13_TechnicalIndicators - TECHNICAL ANALYSIS
+# SpyderU13_TechnicalIndicators - TECHNICAL ANALYSIS INDICATORS
 try:
-    from .SpyderU13_TechnicalIndicators import TechnicalIndicators
-    __all__.extend(["TechnicalIndicators"])
+    from .SpyderU13_TechnicalIndicators import TechnicalIndicators, calculate_rsi, calculate_macd
+    __all__.extend(["TechnicalIndicators", "calculate_rsi", "calculate_macd"])
 except ImportError as e:
     print(f"Warning: SpyderU13_TechnicalIndicators import failed: {e}")
 
-# SpyderU14_OptionStrategies - OPTIONS STRATEGY UTILITIES
+# SpyderU14_OptionStrategies - OPTION STRATEGY UTILITIES
 try:
-    from .SpyderU14_OptionStrategies import OptionStrategies
-    __all__.extend(["OptionStrategies"])
+    from .SpyderU14_OptionStrategies import OptionStrategy, calculate_option_payoff
+    __all__.extend(["OptionStrategy", "calculate_option_payoff"])
 except ImportError as e:
     print(f"Warning: SpyderU14_OptionStrategies import failed: {e}")
 
-# SpyderU15_PerformanceMetrics - PERFORMANCE CALCULATIONS
+# SpyderU15_PerformanceMetrics - PERFORMANCE CALCULATION
 try:
-    from .SpyderU15_PerformanceMetrics import PerformanceMetrics
-    __all__.extend(["PerformanceMetrics"])
+    from .SpyderU15_PerformanceMetrics import PerformanceCalculator, calculate_metrics
+    __all__.extend(["PerformanceCalculator", "calculate_metrics"])
 except ImportError as e:
     print(f"Warning: SpyderU15_PerformanceMetrics import failed: {e}")
 
-# SpyderU16_TechnicalAnalysis - TECHNICAL ANALYSIS UTILITIES
+# SpyderU16_TechnicalAnalysis - ADVANCED TECHNICAL ANALYSIS
 try:
-    from .SpyderU16_TechnicalAnalysis import TechnicalAnalysis
-    __all__.extend(["TechnicalAnalysis"])
+    from .SpyderU16_TechnicalAnalysis import TechnicalAnalysis, VolumeSMA
+    __all__.extend(["TechnicalAnalysis", "VolumeSMA"])
 except ImportError as e:
     print(f"Warning: SpyderU16_TechnicalAnalysis import failed: {e}")
 
-# ==============================================================================
-# PACKAGE METADATA
-# ==============================================================================
-__package_name__ = "SpyderU_Utilities"
-__description__ = "Core Utility Functions"
-__version__ = "1.4.0"
+# SpyderU17_IBErrorCodes - IB ERROR CODE MAPPING
+try:
+    from .SpyderU17_IBErrorCodes import IBErrorCodes, get_error_manager
+    __all__.extend(["IBErrorCodes", "get_error_manager"])
+except ImportError as e:
+    print(f"Warning: SpyderU17_IBErrorCodes import failed: {e}")
+
+# SpyderU18_DependencyAnalyzer - DEPENDENCY ANALYSIS
+try:
+    from .SpyderU18_DependencyAnalyzer import DependencyAnalyzer
+    __all__.extend(["DependencyAnalyzer"])
+except ImportError as e:
+    print(f"Warning: SpyderU18_DependencyAnalyzer import failed: {e}")
+
+# SpyderU19_InteractionMatrix - MODULE INTERACTION MATRIX
+try:
+    from .SpyderU19_InteractionMatrix import InteractionMatrix
+    __all__.extend(["InteractionMatrix"])
+except ImportError as e:
+    print(f"Warning: SpyderU19_InteractionMatrix import failed: {e}")
 
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================
-def get_available_modules():
-    """Get list of successfully imported utility modules."""
-    return __all__
+def get_version():
+    """Get utilities package version."""
+    return "1.4.0"
 
-def get_module_count():
-    """Get count of available utility modules."""
-    return len(__all__)
-
-def check_module_availability(module_name: str) -> bool:
-    """Check if a specific utility module is available."""
-    return module_name in __all__
+def list_available_utilities():
+    """List all available utility modules."""
+    available = []
+    for module in __all__:
+        try:
+            # Check if the module/class is actually available
+            if module in globals():
+                available.append(module)
+        except:
+            pass
+    return available
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# INITIALIZATION
 # ==============================================================================
-print(f"✅ SpyderU_Utilities: {len(__all__)} modules loaded successfully")
+# Count successfully loaded modules
+loaded_modules = len([m for m in __all__ if m in globals()])
+print(f"✅ SpyderU_Utilities: {loaded_modules} modules loaded successfully")
+
+# ==============================================================================
+# BACKWARDS COMPATIBILITY ALIASES
+# ==============================================================================
+# Add aliases for commonly used but renamed classes
+try:
+    # Alias for Validators -> DataValidators
+    from .SpyderU08_Validators import DataValidators as Validators
+    __all__.append("Validators")
+except:
+    pass
+
+try:
+    # Alias for validate_order -> validate_order_data
+    from .SpyderU08_Validators import validate_order_data as validate_order
+    __all__.append("validate_order")
+except:
+    pass
+
+try:
+    # Other common aliases
+    from .SpyderU04_Encryption import EncryptionManager as Encryption
+    __all__.append("Encryption")
+    
+    from .SpyderU04_Encryption import encrypt_data as encrypt
+    __all__.append("encrypt")
+    
+    from .SpyderU04_Encryption import decrypt_data as decrypt
+    __all__.append("decrypt")
+except:
+    pass
+
+try:
+    from .SpyderU05_NetworkUtils import check_internet_connection as check_connection
+    __all__.append("check_connection")
+except:
+    pass
+
+try:
+    from .SpyderU06_MathUtils import calculate_sharpe_ratio as calculate_sharpe
+    __all__.append("calculate_sharpe")
+except:
+    pass
+
+try:
+    from .SpyderU09_DataTypes import MarketData as SpyderDataTypes
+    __all__.append("SpyderDataTypes")
+except:
+    pass
+
+try:
+    from .SpyderU11_FeatureFlags import check_feature_enabled as is_feature_enabled
+    __all__.append("is_feature_enabled")
+except:
+    pass
+
+try:
+    from .SpyderU14_OptionStrategies import OptionStrategy as OptionStrategies
+    __all__.append("OptionStrategies")
+except:
+    pass
+
+try:
+    from .SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics
+    __all__.append("PerformanceMetrics")
+except:
+    pass
+
+# ==============================================================================
+# PACKAGE INFO
+# ==============================================================================
+__version__ = "1.4.0"
+__author__ = "Mohamed Talib"
+__description__ = "Utility functions and classes for Spyder trading system"

@@ -3,50 +3,35 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderU02_ErrorHandler.py (ENHANCED - Phase 1 Week 3-4)
+Module: SpyderU02_ErrorHandler.py
 Group: U (Utilities)
-Purpose: Enhanced Error Handler with LEAN Algorithm Robustness Patterns
+Purpose: Centralized error handling with recovery strategies
 
 Description:
-    Enhanced error handling system implementing QuantConnect LEAN's robust
-    error management patterns. Provides professional error recovery, detailed
-    diagnostics, strategy health monitoring, and institutional-grade error
-    handling for options trading systems.
-
-WEEK 3-4 ENHANCEMENTS:
-    ✅ LEAN-inspired error recovery patterns
-    ✅ Strategy-specific error handling
-    ✅ Position validation error management
-    ✅ Professional error diagnostics and reporting
-    ✅ Automated error recovery with fallback mechanisms
-    ✅ Risk manager integration for error-triggered actions
-
-Based on: QuantConnect LEAN Error Handling Patterns
-- Professional error categorization and severity levels
-- Automated recovery mechanisms for common trading errors
-- Strategy health monitoring with error impact assessment
-- Risk management integration for error-triggered actions
+    This module provides comprehensive error handling for the entire Spyder
+    system. It categorizes errors, implements recovery strategies, logs errors
+    appropriately, and integrates with the monitoring system. The module supports
+    graceful degradation, automatic retries, and emergency shutdowns when necessary.
 
 Author: Mohamed Talib
-Enhanced: 2025-06-23 (Phase 1 Week 3-4)
-Version: 2.0 (Enhanced with LEAN Robustness Patterns)
+Date: 2025-01-28
+Version: 3.0 (Fixed - No circular imports)
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
 import traceback
-import inspect
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable, Union, Type
+import time
+import threading
+from typing import Optional, Dict, Any, Callable, List, Union, Type
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import uuid
-import threading
-from contextlib import contextmanager
-import functools
+from datetime import datetime, timedelta
+from collections import defaultdict, deque
 import logging
+import weakref
+import functools
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -54,26 +39,35 @@ import logging
 import pandas as pd
 
 # ==============================================================================
-# LOCAL IMPORTS
+# LOCAL IMPORTS - NO CORE MODULE IMPORTS TO AVOID CIRCULAR DEPENDENCIES
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
+
+# NOTE: Removed EventManager import to fix circular dependency
+# Event emission is now handled through dependency injection
 
 # ==============================================================================
-# ENUMS AND CONSTANTS
+# CONSTANTS
+# ==============================================================================
+MAX_ERROR_HISTORY = 1000
+ERROR_RATE_WINDOW = 300  # 5 minutes
+MAX_ERROR_RATE = 10  # errors per minute
+STRATEGY_SHUTDOWN_THRESHOLD = 5  # errors before strategy shutdown
+SYSTEM_SHUTDOWN_THRESHOLD = 20  # critical errors before system shutdown
+
+# ==============================================================================
+# ENUMS
 # ==============================================================================
 class ErrorCategory(Enum):
-    """LEAN-inspired error categories"""
-    VALIDATION_ERROR = "validation_error"
-    POSITION_ERROR = "position_error"
-    STRATEGY_ERROR = "strategy_error"
-    BROKER_ERROR = "broker_error"
-    DATA_ERROR = "data_error"
-    SYSTEM_ERROR = "system_error"
-    RISK_ERROR = "risk_error"
-    NETWORK_ERROR = "network_error"
-    CONFIGURATION_ERROR = "configuration_error"
-    CALCULATION_ERROR = "calculation_error"
+    """Error categories for classification"""
+    CONNECTION = "connection"
+    DATA = "data"
+    EXECUTION = "execution"
+    RISK = "risk"
+    SYSTEM = "system"
+    STRATEGY = "strategy"
+    VALIDATION = "validation"
+    UNKNOWN = "unknown"
 
 class ErrorSeverity(Enum):
     """Error severity levels"""
@@ -81,809 +75,499 @@ class ErrorSeverity(Enum):
     MEDIUM = 2
     HIGH = 3
     CRITICAL = 4
-    SYSTEM_FAILURE = 5
 
 class RecoveryAction(Enum):
-    """Recovery action types"""
+    """Automated recovery actions"""
+    NONE = "none"
     RETRY = "retry"
-    FALLBACK = "fallback"
-    IGNORE = "ignore"
-    STOP_STRATEGY = "stop_strategy"
-    STOP_TRADING = "stop_trading"
-    MANUAL_INTERVENTION = "manual_intervention"
-    RISK_REDUCTION = "risk_reduction"
-
-class ErrorState(Enum):
-    """Error handling states"""
-    NEW = "new"
-    PROCESSING = "processing"
-    RECOVERED = "recovered"
-    FAILED_RECOVERY = "failed_recovery"
-    ESCALATED = "escalated"
-    RESOLVED = "resolved"
-
-# Error handling constants
-MAX_RETRY_ATTEMPTS = 3
-RETRY_BACKOFF_SECONDS = [1, 5, 15]  # Exponential backoff
-ERROR_HISTORY_RETENTION_HOURS = 24
-MAX_ERRORS_PER_STRATEGY_PER_HOUR = 10
-CRITICAL_ERROR_COOLDOWN_MINUTES = 15
+    RECONNECT = "reconnect"
+    RESTART_COMPONENT = "restart_component"
+    DISABLE_FEATURE = "disable_feature"
+    SHUTDOWN_STRATEGY = "shutdown_strategy"
+    EMERGENCY_SHUTDOWN = "emergency_shutdown"
 
 # ==============================================================================
-# DATA STRUCTURES
+# DATA CLASSES
 # ==============================================================================
 @dataclass
 class ErrorContext:
-    """Comprehensive error context information"""
-    error_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    """Context information for an error"""
+    error_id: str = field(default_factory=lambda: f"ERR_{int(time.time() * 1000)}")
     timestamp: datetime = field(default_factory=datetime.now)
-    category: ErrorCategory = ErrorCategory.SYSTEM_ERROR
-    severity: ErrorSeverity = ErrorSeverity.MEDIUM
-    
-    # Error details
+    category: ErrorCategory = ErrorCategory.UNKNOWN
+    severity: ErrorSeverity = ErrorSeverity.LOW
     error_type: str = ""
     error_message: str = ""
-    exception_type: Optional[str] = None
-    stack_trace: Optional[str] = None
-    
-    # Context information
+    stack_trace: str = ""
+    component_name: str = ""
+    strategy_name: Optional[str] = None
+    order_id: Optional[str] = None
+    symbol: Optional[str] = None
+    additional_data: Dict[str, Any] = field(default_factory=dict)
+    recovery_attempts: int = 0
+    resolved: bool = False
+    resolution_time: Optional[datetime] = None
     module_name: Optional[str] = None
     function_name: Optional[str] = None
-    strategy_name: Optional[str] = None
-    position_id: Optional[str] = None
-    
-    # Recovery information
-    recovery_action: Optional[RecoveryAction] = None
-    retry_count: int = 0
-    max_retries: int = MAX_RETRY_ATTEMPTS
-    recovery_attempts: List[str] = field(default_factory=list)
-    
-    # State tracking
-    state: ErrorState = ErrorState.NEW
-    resolution_time: Optional[datetime] = None
-    resolved_by: Optional[str] = None
-    
-    # Additional metadata
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-@dataclass
-class ErrorStatistics:
-    """Error statistics and metrics"""
-    total_errors: int = 0
-    errors_by_category: Dict[ErrorCategory, int] = field(default_factory=dict)
-    errors_by_severity: Dict[ErrorSeverity, int] = field(default_factory=dict)
-    errors_by_strategy: Dict[str, int] = field(default_factory=dict)
-    
-    successful_recoveries: int = 0
-    failed_recoveries: int = 0
-    manual_interventions: int = 0
-    
-    # Time-based metrics
-    errors_last_hour: int = 0
-    errors_last_day: int = 0
-    
-    # Recovery metrics
-    average_recovery_time: float = 0.0
-    recovery_success_rate: float = 0.0
-    
-    def update_statistics(self, error_context: ErrorContext):
-        """Update statistics with new error"""
-        self.total_errors += 1
-        
-        # Update category counts
-        if error_context.category not in self.errors_by_category:
-            self.errors_by_category[error_context.category] = 0
-        self.errors_by_category[error_context.category] += 1
-        
-        # Update severity counts
-        if error_context.severity not in self.errors_by_severity:
-            self.errors_by_severity[error_context.severity] = 0
-        self.errors_by_severity[error_context.severity] += 1
-        
-        # Update strategy counts
-        if error_context.strategy_name:
-            if error_context.strategy_name not in self.errors_by_strategy:
-                self.errors_by_strategy[error_context.strategy_name] = 0
-            self.errors_by_strategy[error_context.strategy_name] += 1
 
 @dataclass
 class RecoveryStrategy:
-    """Recovery strategy definition"""
-    name: str
-    category: ErrorCategory
-    severity_threshold: ErrorSeverity
-    recovery_function: Callable[[ErrorContext], bool]
-    max_attempts: int = MAX_RETRY_ATTEMPTS
-    backoff_strategy: str = "exponential"
-    requires_manual_approval: bool = False
+    """Recovery strategy for specific error types"""
+    action: RecoveryAction
+    max_retries: int = 3
+    retry_delay: float = 1.0
+    backoff_multiplier: float = 2.0
+    timeout: float = 30.0
+    callback: Optional[Callable] = None
+    conditions: Dict[str, Any] = field(default_factory=dict)
 
 # ==============================================================================
-# LEAN ERROR HANDLER CLASS
+# EXCEPTIONS
+# ==============================================================================
+class SpyderError(Exception):
+    """Base exception for Spyder system"""
+    def __init__(self, message: str, category: ErrorCategory = ErrorCategory.UNKNOWN,
+                 severity: ErrorSeverity = ErrorSeverity.MEDIUM, **kwargs):
+        super().__init__(message)
+        self.category = category
+        self.severity = severity
+        self.context = kwargs
+
+class ConnectionError(SpyderError):
+    """Connection-related errors"""
+    def __init__(self, message: str, **kwargs):
+        super().__init__(message, ErrorCategory.CONNECTION, ErrorSeverity.HIGH, **kwargs)
+
+class DataError(SpyderError):
+    """Data-related errors"""
+    def __init__(self, message: str, **kwargs):
+        super().__init__(message, ErrorCategory.DATA, ErrorSeverity.MEDIUM, **kwargs)
+
+class ExecutionError(SpyderError):
+    """Trade execution errors"""
+    def __init__(self, message: str, **kwargs):
+        super().__init__(message, ErrorCategory.EXECUTION, ErrorSeverity.HIGH, **kwargs)
+
+class RiskError(SpyderError):
+    """Risk management errors"""
+    def __init__(self, message: str, **kwargs):
+        super().__init__(message, ErrorCategory.RISK, ErrorSeverity.CRITICAL, **kwargs)
+
+class TradingError(SpyderError):
+    """General trading errors"""
+    def __init__(self, message: str, **kwargs):
+        super().__init__(message, ErrorCategory.STRATEGY, ErrorSeverity.HIGH, **kwargs)
+
+# ==============================================================================
+# MAIN CLASS
 # ==============================================================================
 class SpyderErrorHandler:
     """
-    Enhanced Error Handler with LEAN Algorithm Robustness Patterns.
+    Centralized error handling system for Spyder.
     
-    Week 3-4 Enhancement: Implements professional error handling patterns
-    from QuantConnect LEAN algorithms with automated recovery, comprehensive
-    diagnostics, and risk management integration.
+    Features:
+    - Error categorization and severity assessment
+    - Automated recovery strategies
+    - Error rate monitoring
+    - Strategy and system shutdown triggers
+    - Comprehensive error logging
+    - Integration with monitoring systems
     """
     
-    def __init__(self):
-        """Initialize enhanced error handler"""
-        self.logger = SpyderLogger.get_logger(__name__)
-        self.event_manager = get_event_manager()
-        
-        # Error tracking
-        self.error_history: Dict[str, ErrorContext] = {}
-        self.active_errors: Dict[str, ErrorContext] = {}
-        self.error_statistics = ErrorStatistics()
-        
-        # Recovery strategies
-        self.recovery_strategies: Dict[ErrorCategory, List[RecoveryStrategy]] = {}
-        self._initialize_recovery_strategies()
-        
-        # Configuration
-        self.max_errors_per_strategy = MAX_ERRORS_PER_STRATEGY_PER_HOUR
-        self.critical_error_cooldown = timedelta(minutes=CRITICAL_ERROR_COOLDOWN_MINUTES)
-        self.error_retention_period = timedelta(hours=ERROR_HISTORY_RETENTION_HOURS)
-        
-        # Strategy health tracking
-        self.strategy_health: Dict[str, Dict[str, Any]] = {}
-        self.strategy_error_counts: Dict[str, List[datetime]] = {}
-        
-        # Thread safety
-        self._error_lock = threading.RLock()
-        
-        self.logger.info("Enhanced Error Handler initialized with LEAN patterns (Week 3-4)")
-    
-    # ==========================================================================
-    # MAIN ERROR HANDLING INTERFACE
-    # ==========================================================================
-    def handle_error(self, error: Exception, 
-                    context: Optional[Dict[str, Any]] = None,
-                    category: Optional[ErrorCategory] = None,
-                    severity: Optional[ErrorSeverity] = None,
-                    strategy_name: Optional[str] = None,
-                    auto_recover: bool = True) -> ErrorContext:
+    def __init__(self, event_manager=None):
         """
-        Enhanced error handling with LEAN robustness patterns.
+        Initialize error handler.
         
         Args:
-            error: Exception to handle
-            context: Additional context information
-            category: Error category classification
-            severity: Error severity level
-            strategy_name: Associated strategy name
-            auto_recover: Whether to attempt automatic recovery
+            event_manager: Optional EventManager for event emission (dependency injection)
+        """
+        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
+        
+        # Dependency injection for event manager to avoid circular imports
+        self.event_manager = event_manager
+        
+        # Error tracking
+        self.error_history: deque = deque(maxlen=MAX_ERROR_HISTORY)
+        self.error_counts: Dict[str, int] = defaultdict(int)
+        self.strategy_errors: Dict[str, List[ErrorContext]] = defaultdict(list)
+        self.critical_error_count = 0
+        
+        # Recovery strategies
+        self.recovery_strategies: Dict[str, RecoveryStrategy] = self._init_recovery_strategies()
+        
+        # Thread safety
+        self._lock = threading.RLock()
+        
+        # Callbacks
+        self.error_callbacks: List[Callable] = []
+        self.shutdown_callbacks: List[Callable] = []
+        
+        # Component references (weak to avoid circular refs)
+        self.components: Dict[str, weakref.ref] = {}
+        
+        self.logger.info("SpyderErrorHandler initialized")
+    
+    # ==========================================================================
+    # INITIALIZATION
+    # ==========================================================================
+    def _init_recovery_strategies(self) -> Dict[str, RecoveryStrategy]:
+        """Initialize default recovery strategies"""
+        return {
+            # Connection errors
+            "ConnectionError": RecoveryStrategy(
+                action=RecoveryAction.RECONNECT,
+                max_retries=5,
+                retry_delay=2.0,
+                backoff_multiplier=2.0
+            ),
+            
+            # Data errors
+            "DataError": RecoveryStrategy(
+                action=RecoveryAction.RETRY,
+                max_retries=3,
+                retry_delay=1.0
+            ),
+            
+            # Execution errors
+            "ExecutionError": RecoveryStrategy(
+                action=RecoveryAction.RETRY,
+                max_retries=2,
+                retry_delay=0.5
+            ),
+            
+            # Risk errors
+            "RiskError": RecoveryStrategy(
+                action=RecoveryAction.SHUTDOWN_STRATEGY,
+                max_retries=0
+            ),
+            
+            # System errors
+            "SystemError": RecoveryStrategy(
+                action=RecoveryAction.RESTART_COMPONENT,
+                max_retries=1,
+                retry_delay=5.0
+            )
+        }
+    
+    # ==========================================================================
+    # EVENT MANAGER INJECTION
+    # ==========================================================================
+    def set_event_manager(self, event_manager):
+        """
+        Set event manager for event emission (dependency injection).
+        
+        Args:
+            event_manager: EventManager instance
+        """
+        self.event_manager = event_manager
+        self.logger.debug("Event manager set for error handler")
+    
+    # ==========================================================================
+    # ERROR HANDLING
+    # ==========================================================================
+    def handle_error(self, error: Exception, component_name: str,
+                    strategy_name: Optional[str] = None,
+                    order_id: Optional[str] = None,
+                    symbol: Optional[str] = None,
+                    additional_data: Optional[Dict[str, Any]] = None) -> ErrorContext:
+        """
+        Handle an error with appropriate recovery strategy.
+        
+        Args:
+            error: The exception that occurred
+            component_name: Name of the component where error occurred
+            strategy_name: Optional strategy name if error is strategy-specific
+            order_id: Optional order ID if error is order-specific
+            symbol: Optional symbol if error is symbol-specific
+            additional_data: Additional context data
             
         Returns:
-            ErrorContext with handling details
+            ErrorContext with error details and recovery status
         """
-        with self._error_lock:
-            try:
-                # Create error context
-                error_context = self._create_error_context(
-                    error, context, category, severity, strategy_name
-                )
-                
-                # Log the error
-                self._log_error(error_context)
-                
-                # Update statistics
-                self.error_statistics.update_statistics(error_context)
-                
-                # Add to error history
-                self.error_history[error_context.error_id] = error_context
-                self.active_errors[error_context.error_id] = error_context
-                
-                # Update strategy health
-                self._update_strategy_health(error_context)
-                
-                # Emit error event
+        with self._lock:
+            # Create error context
+            error_context = self._create_error_context(
+                error, component_name, strategy_name, 
+                order_id, symbol, additional_data
+            )
+            
+            # Log error
+            self._log_error(error_context)
+            
+            # Update error tracking
+            self._update_error_tracking(error_context)
+            
+            # Check for shutdown conditions
+            if self._check_shutdown_conditions(error_context):
+                self._initiate_shutdown(error_context)
+            
+            # Attempt recovery
+            recovery_success = self._attempt_recovery(error_context)
+            
+            # Emit error event if event manager is available
+            if self.event_manager:
                 self._emit_error_event(error_context)
-                
-                # Attempt recovery if enabled
-                if auto_recover:
-                    recovery_success = self._attempt_error_recovery(error_context)
-                    if recovery_success:
-                        error_context.state = ErrorState.RECOVERED
-                        error_context.resolution_time = datetime.now()
-                        error_context.resolved_by = "automatic_recovery"
-                
-                # Check for strategy shutdown conditions
-                self._check_strategy_shutdown_conditions(error_context)
-                
-                # Clean up old errors
-                self._cleanup_old_errors()
-                
-                return error_context
-                
-            except Exception as e:
-                # Error in error handler - log and return basic context
-                self.logger.critical(f"Error in error handler: {e}")
-                return ErrorContext(
-                    error_type="ERROR_HANDLER_FAILURE",
-                    error_message=f"Error handler failed: {str(e)}",
-                    severity=ErrorSeverity.CRITICAL,
-                    state=ErrorState.FAILED_RECOVERY
-                )
-    
-    def handle_position_validation_error(self, error: Exception, 
-                                       strategy_type: str,
-                                       positions: Optional[List[Dict[str, Any]]] = None) -> ErrorContext:
-        """
-        Handle position validation errors with LEAN patterns.
-        
-        Week 3-4 Enhancement: Specialized handling for position group validation
-        errors based on LEAN algorithm patterns.
-        """
-        context = {
-            'strategy_type': strategy_type,
-            'position_count': len(positions) if positions else 0,
-            'validation_type': 'position_group'
-        }
-        
-        if positions:
-            context['position_symbols'] = [pos.get('symbol', 'Unknown') for pos in positions]
-        
-        return self.handle_error(
-            error,
-            context=context,
-            category=ErrorCategory.VALIDATION_ERROR,
-            severity=ErrorSeverity.HIGH,
-            strategy_name=strategy_type,
-            auto_recover=True
-        )
-    
-    def handle_strategy_error(self, error: Exception, 
-                            strategy_name: str,
-                            operation: str,
-                            position_id: Optional[str] = None) -> ErrorContext:
-        """
-        Handle strategy-specific errors with LEAN patterns.
-        
-        Week 3-4 Enhancement: Strategy-specific error handling with
-        automatic recovery and strategy health monitoring.
-        """
-        context = {
-            'operation': operation,
-            'position_id': position_id,
-            'strategy_operation': operation
-        }
-        
-        # Determine severity based on operation
-        severity = ErrorSeverity.MEDIUM
-        if operation in ['execute_signal', 'liquidate_position', 'manage_risk']:
-            severity = ErrorSeverity.HIGH
-        elif operation in ['validate_setup', 'calculate_greeks']:
-            severity = ErrorSeverity.MEDIUM
-        
-        return self.handle_error(
-            error,
-            context=context,
-            category=ErrorCategory.STRATEGY_ERROR,
-            severity=severity,
-            strategy_name=strategy_name,
-            auto_recover=True
-        )
-    
-    def handle_broker_error(self, error: Exception, 
-                          operation: str,
-                          order_id: Optional[str] = None) -> ErrorContext:
-        """
-        Handle broker-related errors with LEAN patterns.
-        
-        Week 3-4 Enhancement: Broker error handling with connection
-        recovery and order management fallbacks.
-        """
-        context = {
-            'broker_operation': operation,
-            'order_id': order_id,
-            'connection_status': 'unknown'  # Would check actual connection
-        }
-        
-        return self.handle_error(
-            error,
-            context=context,
-            category=ErrorCategory.BROKER_ERROR,
-            severity=ErrorSeverity.HIGH,
-            auto_recover=True
-        )
-    
-    # ==========================================================================
-    # ERROR RECOVERY SYSTEM
-    # ==========================================================================
-    def _attempt_error_recovery(self, error_context: ErrorContext) -> bool:
-        """
-        Attempt error recovery using LEAN patterns.
-        
-        Week 3-4 Enhancement: Implements automated recovery patterns
-        based on error category and severity.
-        """
-        try:
-            error_context.state = ErrorState.PROCESSING
             
-            # Get recovery strategies for this error category
-            strategies = self.recovery_strategies.get(error_context.category, [])
+            # Execute callbacks
+            self._execute_error_callbacks(error_context)
             
-            for strategy in strategies:
-                # Check if severity meets threshold
-                if error_context.severity.value < strategy.severity_threshold.value:
-                    continue
-                
-                # Check retry limits
-                if error_context.retry_count >= strategy.max_attempts:
-                    continue
-                
-                self.logger.info(f"Attempting recovery strategy: {strategy.name}")
-                
-                # Apply backoff delay
-                self._apply_recovery_backoff(error_context, strategy)
-                
-                # Attempt recovery
-                recovery_success = strategy.recovery_function(error_context)
-                
-                error_context.retry_count += 1
-                error_context.recovery_attempts.append(
-                    f"{strategy.name}:{'SUCCESS' if recovery_success else 'FAILED'}"
-                )
-                
-                if recovery_success:
-                    self.logger.info(f"Recovery successful: {strategy.name}")
-                    self.error_statistics.successful_recoveries += 1
-                    return True
-                else:
-                    self.logger.warning(f"Recovery failed: {strategy.name}")
-            
-            # No recovery succeeded
-            error_context.state = ErrorState.FAILED_RECOVERY
-            self.error_statistics.failed_recoveries += 1
-            return False
-            
-        except Exception as e:
-            self.logger.error(f"Error recovery attempt failed: {e}")
-            error_context.state = ErrorState.FAILED_RECOVERY
-            return False
+            return error_context
     
-    def _initialize_recovery_strategies(self):
-        """Initialize LEAN-inspired recovery strategies"""
-        
-        # Validation Error Recovery
-        self.recovery_strategies[ErrorCategory.VALIDATION_ERROR] = [
-            RecoveryStrategy(
-                name="retry_validation",
-                category=ErrorCategory.VALIDATION_ERROR,
-                severity_threshold=ErrorSeverity.MEDIUM,
-                recovery_function=self._retry_validation_recovery,
-                max_attempts=2
-            ),
-            RecoveryStrategy(
-                name="fallback_validation",
-                category=ErrorCategory.VALIDATION_ERROR,
-                severity_threshold=ErrorSeverity.HIGH,
-                recovery_function=self._fallback_validation_recovery,
-                max_attempts=1
-            )
-        ]
-        
-        # Position Error Recovery
-        self.recovery_strategies[ErrorCategory.POSITION_ERROR] = [
-            RecoveryStrategy(
-                name="refresh_positions",
-                category=ErrorCategory.POSITION_ERROR,
-                severity_threshold=ErrorSeverity.MEDIUM,
-                recovery_function=self._refresh_positions_recovery,
-                max_attempts=3
-            ),
-            RecoveryStrategy(
-                name="force_position_sync",
-                category=ErrorCategory.POSITION_ERROR,
-                severity_threshold=ErrorSeverity.HIGH,
-                recovery_function=self._force_position_sync_recovery,
-                max_attempts=1
-            )
-        ]
-        
-        # Strategy Error Recovery
-        self.recovery_strategies[ErrorCategory.STRATEGY_ERROR] = [
-            RecoveryStrategy(
-                name="restart_strategy",
-                category=ErrorCategory.STRATEGY_ERROR,
-                severity_threshold=ErrorSeverity.HIGH,
-                recovery_function=self._restart_strategy_recovery,
-                max_attempts=2
-            ),
-            RecoveryStrategy(
-                name="strategy_health_check",
-                category=ErrorCategory.STRATEGY_ERROR,
-                severity_threshold=ErrorSeverity.MEDIUM,
-                recovery_function=self._strategy_health_check_recovery,
-                max_attempts=1
-            )
-        ]
-        
-        # Broker Error Recovery
-        self.recovery_strategies[ErrorCategory.BROKER_ERROR] = [
-            RecoveryStrategy(
-                name="reconnect_broker",
-                category=ErrorCategory.BROKER_ERROR,
-                severity_threshold=ErrorSeverity.HIGH,
-                recovery_function=self._reconnect_broker_recovery,
-                max_attempts=3
-            ),
-            RecoveryStrategy(
-                name="broker_health_check",
-                category=ErrorCategory.BROKER_ERROR,
-                severity_threshold=ErrorSeverity.MEDIUM,
-                recovery_function=self._broker_health_check_recovery,
-                max_attempts=2
-            )
-        ]
-    
-    # ==========================================================================
-    # RECOVERY FUNCTIONS (LEAN PATTERNS)
-    # ==========================================================================
-    def _retry_validation_recovery(self, error_context: ErrorContext) -> bool:
-        """Retry validation with clean state"""
-        try:
-            self.logger.info("Attempting validation retry with clean state")
-            # Would implement actual validation retry
-            return True  # Simplified for example
-        except Exception as e:
-            self.logger.error(f"Validation retry failed: {e}")
-            return False
-    
-    def _fallback_validation_recovery(self, error_context: ErrorContext) -> bool:
-        """Use fallback validation method"""
-        try:
-            self.logger.info("Attempting fallback validation method")
-            # Would implement fallback validation logic
-            return True  # Simplified for example
-        except Exception as e:
-            self.logger.error(f"Fallback validation failed: {e}")
-            return False
-    
-    def _refresh_positions_recovery(self, error_context: ErrorContext) -> bool:
-        """Refresh position data from broker"""
-        try:
-            self.logger.info("Refreshing position data from broker")
-            # Would implement actual position refresh
-            return True  # Simplified for example
-        except Exception as e:
-            self.logger.error(f"Position refresh failed: {e}")
-            return False
-    
-    def _force_position_sync_recovery(self, error_context: ErrorContext) -> bool:
-        """Force position synchronization"""
-        try:
-            self.logger.info("Forcing position synchronization")
-            # Would implement forced position sync
-            return True  # Simplified for example
-        except Exception as e:
-            self.logger.error(f"Force position sync failed: {e}")
-            return False
-    
-    def _restart_strategy_recovery(self, error_context: ErrorContext) -> bool:
-        """Restart strategy with clean state"""
-        try:
-            if not error_context.strategy_name:
-                return False
-                
-            self.logger.info(f"Restarting strategy: {error_context.strategy_name}")
-            # Would implement actual strategy restart
-            return True  # Simplified for example
-        except Exception as e:
-            self.logger.error(f"Strategy restart failed: {e}")
-            return False
-    
-    def _strategy_health_check_recovery(self, error_context: ErrorContext) -> bool:
-        """Perform strategy health check and remediation"""
-        try:
-            if not error_context.strategy_name:
-                return False
-                
-            self.logger.info(f"Performing health check for strategy: {error_context.strategy_name}")
-            
-            # Check strategy health metrics
-            health_data = self.strategy_health.get(error_context.strategy_name, {})
-            
-            # Perform health remediation
-            if health_data.get('error_rate', 0) > 0.1:  # 10% error rate threshold
-                self.logger.warning(f"High error rate detected for {error_context.strategy_name}")
-                # Would implement health remediation
-                
-            return True  # Simplified for example
-        except Exception as e:
-            self.logger.error(f"Strategy health check failed: {e}")
-            return False
-    
-    def _reconnect_broker_recovery(self, error_context: ErrorContext) -> bool:
-        """Reconnect to broker with retry logic"""
-        try:
-            self.logger.info("Attempting broker reconnection")
-            # Would implement actual broker reconnection
-            return True  # Simplified for example
-        except Exception as e:
-            self.logger.error(f"Broker reconnection failed: {e}")
-            return False
-    
-    def _broker_health_check_recovery(self, error_context: ErrorContext) -> bool:
-        """Perform broker health check"""
-        try:
-            self.logger.info("Performing broker health check")
-            # Would implement actual broker health check
-            return True  # Simplified for example
-        except Exception as e:
-            self.logger.error(f"Broker health check failed: {e}")
-            return False
-    
-    # ==========================================================================
-    # STRATEGY HEALTH MONITORING
-    # ==========================================================================
-    def _update_strategy_health(self, error_context: ErrorContext):
-        """Update strategy health metrics based on error"""
-        if not error_context.strategy_name:
-            return
-            
-        strategy_name = error_context.strategy_name
-        
-        # Initialize strategy health if not exists
-        if strategy_name not in self.strategy_health:
-            self.strategy_health[strategy_name] = {
-                'total_errors': 0,
-                'error_rate': 0.0,
-                'last_error_time': None,
-                'consecutive_errors': 0,
-                'health_score': 1.0,
-                'status': 'healthy'
-            }
-        
-        # Initialize error count tracking
-        if strategy_name not in self.strategy_error_counts:
-            self.strategy_error_counts[strategy_name] = []
-        
-        # Update error counts
-        health = self.strategy_health[strategy_name]
-        health['total_errors'] += 1
-        health['last_error_time'] = error_context.timestamp
-        
-        # Add to recent error tracking
-        self.strategy_error_counts[strategy_name].append(error_context.timestamp)
-        
-        # Clean old error timestamps (last hour)
-        cutoff_time = datetime.now() - timedelta(hours=1)
-        self.strategy_error_counts[strategy_name] = [
-            ts for ts in self.strategy_error_counts[strategy_name] 
-            if ts > cutoff_time
-        ]
-        
-        # Calculate error rate (errors per hour)
-        recent_errors = len(self.strategy_error_counts[strategy_name])
-        health['error_rate'] = recent_errors
-        
-        # Update consecutive errors
-        if error_context.state != ErrorState.RECOVERED:
-            health['consecutive_errors'] += 1
+    def _create_error_context(self, error: Exception, component_name: str,
+                            strategy_name: Optional[str] = None,
+                            order_id: Optional[str] = None,
+                            symbol: Optional[str] = None,
+                            additional_data: Optional[Dict[str, Any]] = None) -> ErrorContext:
+        """Create error context from exception"""
+        # Determine category and severity
+        if isinstance(error, SpyderError):
+            category = error.category
+            severity = error.severity
         else:
-            health['consecutive_errors'] = 0
+            category = self._categorize_error(error)
+            severity = self._assess_severity(error, category)
         
-        # Calculate health score
-        health['health_score'] = self._calculate_strategy_health_score(health, error_context)
-        
-        # Update status
-        health['status'] = self._determine_strategy_health_status(health)
-        
-        self.logger.info(
-            f"Strategy health updated for {strategy_name}: "
-            f"Score: {health['health_score']:.2f}, Status: {health['status']}, "
-            f"Recent errors: {recent_errors}"
-        )
-    
-    def _calculate_strategy_health_score(self, health: Dict[str, Any], 
-                                       error_context: ErrorContext) -> float:
-        """Calculate strategy health score (0.0 to 1.0)"""
-        base_score = 1.0
-        
-        # Error rate penalty
-        error_rate = health['error_rate']
-        if error_rate > 0:
-            error_penalty = min(0.5, error_rate * 0.05)  # 5% penalty per error, max 50%
-            base_score -= error_penalty
-        
-        # Consecutive errors penalty
-        consecutive_penalty = min(0.3, health['consecutive_errors'] * 0.1)  # 10% per consecutive error
-        base_score -= consecutive_penalty
-        
-        # Severity penalty
-        severity_penalty = error_context.severity.value * 0.05  # 5% per severity level
-        base_score -= severity_penalty
-        
-        # Recovery bonus
-        if error_context.state == ErrorState.RECOVERED:
-            base_score += 0.1  # 10% bonus for successful recovery
-        
-        return max(0.0, min(1.0, base_score))
-    
-    def _determine_strategy_health_status(self, health: Dict[str, Any]) -> str:
-        """Determine strategy health status"""
-        score = health['health_score']
-        error_rate = health['error_rate']
-        consecutive_errors = health['consecutive_errors']
-        
-        if score >= 0.8 and error_rate <= 2:
-            return 'healthy'
-        elif score >= 0.6 and error_rate <= 5:
-            return 'warning'
-        elif score >= 0.4 and consecutive_errors < 5:
-            return 'degraded'
-        elif score >= 0.2:
-            return 'critical'
+        # Get module and function info from traceback
+        tb = traceback.extract_tb(error.__traceback__)
+        if tb:
+            last_frame = tb[-1]
+            module_name = last_frame.filename.split('/')[-1].replace('.py', '')
+            function_name = last_frame.name
         else:
-            return 'failed'
-    
-    def _check_strategy_shutdown_conditions(self, error_context: ErrorContext):
-        """Check if strategy should be shutdown due to errors"""
-        if not error_context.strategy_name:
-            return
-            
-        strategy_name = error_context.strategy_name
-        health = self.strategy_health.get(strategy_name, {})
+            module_name = None
+            function_name = None
         
-        # Check shutdown conditions
-        should_shutdown = False
-        shutdown_reason = ""
-        
-        # High error rate
-        if health.get('error_rate', 0) > self.max_errors_per_strategy:
-            should_shutdown = True
-            shutdown_reason = f"High error rate: {health['error_rate']} errors/hour"
-        
-        # Consecutive critical errors
-        if (health.get('consecutive_errors', 0) >= 3 and 
-            error_context.severity == ErrorSeverity.CRITICAL):
-            should_shutdown = True
-            shutdown_reason = f"Consecutive critical errors: {health['consecutive_errors']}"
-        
-        # Failed health score
-        if health.get('health_score', 1.0) < 0.2:
-            should_shutdown = True
-            shutdown_reason = f"Health score too low: {health['health_score']:.2f}"
-        
-        if should_shutdown:
-            self.logger.critical(
-                f"Strategy shutdown triggered for {strategy_name}: {shutdown_reason}"
-            )
-            
-            # Emit shutdown event
-            self._emit_strategy_shutdown_event(strategy_name, shutdown_reason, error_context)
-    
-    # ==========================================================================
-    # ERROR CONTEXT AND LOGGING
-    # ==========================================================================
-    def _create_error_context(self, error: Exception, 
-                            context: Optional[Dict[str, Any]],
-                            category: Optional[ErrorCategory],
-                            severity: Optional[ErrorSeverity],
-                            strategy_name: Optional[str]) -> ErrorContext:
-        """Create comprehensive error context"""
-        
-        # Get caller information
-        frame = inspect.currentframe()
-        caller_info = self._get_caller_info(frame)
-        
-        # Determine category if not provided
-        if category is None:
-            category = self._categorize_error(error, context)
-        
-        # Determine severity if not provided
-        if severity is None:
-            severity = self._assess_error_severity(error, category, context)
-        
-        # Create error context
-        error_context = ErrorContext(
-            timestamp=datetime.now(),
+        return ErrorContext(
             category=category,
             severity=severity,
             error_type=type(error).__name__,
             error_message=str(error),
-            exception_type=type(error).__name__,
             stack_trace=traceback.format_exc(),
-            module_name=caller_info.get('module'),
-            function_name=caller_info.get('function'),
+            component_name=component_name,
             strategy_name=strategy_name,
-            metadata=context or {}
+            order_id=order_id,
+            symbol=symbol,
+            additional_data=additional_data or {},
+            module_name=module_name,
+            function_name=function_name
         )
-        
-        return error_context
     
-    def _get_caller_info(self, frame) -> Dict[str, Any]:
-        """Extract caller information from frame"""
-        try:
-            # Walk up the stack to find the actual caller (skip error handler frames)
-            current_frame = frame
-            for _ in range(5):  # Look up to 5 frames up
-                if current_frame is None:
-                    break
-                current_frame = current_frame.f_back
-                
-                if current_frame and current_frame.f_code:
-                    filename = current_frame.f_code.co_filename
-                    function_name = current_frame.f_code.co_name
-                    
-                    # Skip internal error handler methods
-                    if 'error_handler' not in filename.lower() and function_name != 'handle_error':
-                        module_name = filename.split('/')[-1] if '/' in filename else filename
-                        return {
-                            'module': module_name,
-                            'function': function_name,
-                            'line': current_frame.f_lineno
-                        }
-            
-            return {'module': 'unknown', 'function': 'unknown', 'line': 0}
-            
-        except Exception:
-            return {'module': 'unknown', 'function': 'unknown', 'line': 0}
-    
-    def _categorize_error(self, error: Exception, 
-                         context: Optional[Dict[str, Any]]) -> ErrorCategory:
-        """Automatically categorize error based on type and context"""
+    def _categorize_error(self, error: Exception) -> ErrorCategory:
+        """Categorize error based on type and content"""
         error_type = type(error).__name__
-        error_message = str(error).lower()
+        error_msg = str(error).lower()
         
-        # Check context for hints
-        if context:
-            if 'validation' in context.get('operation', ''):
-                return ErrorCategory.VALIDATION_ERROR
-            if 'broker' in context.get('operation', ''):
-                return ErrorCategory.BROKER_ERROR
-            if 'strategy' in context.get('operation', ''):
-                return ErrorCategory.STRATEGY_ERROR
-            if 'position' in context.get('operation', ''):
-                return ErrorCategory.POSITION_ERROR
+        # Connection errors
+        if any(keyword in error_msg for keyword in ['connection', 'network', 'timeout', 'socket']):
+            return ErrorCategory.CONNECTION
         
-        # Check error type
-        if error_type in ['AssertionError', 'ValueError', 'ValidationError']:
-            return ErrorCategory.VALIDATION_ERROR
-        elif error_type in ['ConnectionError', 'TimeoutError', 'NetworkError']:
-            return ErrorCategory.NETWORK_ERROR
-        elif error_type in ['KeyError', 'AttributeError', 'TypeError']:
-            return ErrorCategory.SYSTEM_ERROR
-        elif 'calculation' in error_message or 'math' in error_message:
-            return ErrorCategory.CALCULATION_ERROR
-        elif 'config' in error_message or 'setting' in error_message:
-            return ErrorCategory.CONFIGURATION_ERROR
+        # Data errors
+        elif any(keyword in error_msg for keyword in ['data', 'parsing', 'format', 'invalid']):
+            return ErrorCategory.DATA
+        
+        # Execution errors
+        elif any(keyword in error_msg for keyword in ['order', 'execution', 'fill', 'trade']):
+            return ErrorCategory.EXECUTION
+        
+        # Risk errors
+        elif any(keyword in error_msg for keyword in ['risk', 'margin', 'exposure', 'limit']):
+            return ErrorCategory.RISK
+        
+        # System errors
+        elif any(keyword in error_msg for keyword in ['system', 'memory', 'process', 'thread']):
+            return ErrorCategory.SYSTEM
+        
+        # Strategy errors
+        elif any(keyword in error_msg for keyword in ['strategy', 'signal', 'indicator']):
+            return ErrorCategory.STRATEGY
+        
         else:
-            return ErrorCategory.SYSTEM_ERROR
+            return ErrorCategory.UNKNOWN
     
-    def _assess_error_severity(self, error: Exception, 
-                             category: ErrorCategory,
-                             context: Optional[Dict[str, Any]]) -> ErrorSeverity:
-        """Assess error severity based on type, category, and context"""
-        error_type = type(error).__name__
-        error_message = str(error).lower()
-        
-        # Critical severity conditions
-        if (error_type in ['SystemExit', 'KeyboardInterrupt'] or
-            'critical' in error_message or
-            'shutdown' in error_message):
+    def _assess_severity(self, error: Exception, category: ErrorCategory) -> ErrorSeverity:
+        """Assess error severity"""
+        # Critical categories
+        if category in [ErrorCategory.RISK, ErrorCategory.SYSTEM]:
             return ErrorSeverity.CRITICAL
         
-        # High severity conditions
-        if (category in [ErrorCategory.BROKER_ERROR, ErrorCategory.RISK_ERROR] or
-            error_type in ['ConnectionError', 'AssertionError'] or
-            'liquidation' in error_message or
-            'position' in error_message):
+        # High severity categories
+        elif category in [ErrorCategory.CONNECTION, ErrorCategory.EXECUTION]:
             return ErrorSeverity.HIGH
         
-        # Medium severity conditions
-        if (category in [ErrorCategory.STRATEGY_ERROR, ErrorCategory.VALIDATION_ERROR] or
-            error_type in ['ValueError', 'TimeoutError']):
+        # Check for specific error types
+        elif isinstance(error, (MemoryError, SystemError)):
+            return ErrorSeverity.CRITICAL
+        
+        elif isinstance(error, (ValueError, TypeError, KeyError)):
             return ErrorSeverity.MEDIUM
         
-        # Default to low severity
-        return ErrorSeverity.LOW
+        else:
+            return ErrorSeverity.LOW
     
+    # ==========================================================================
+    # ERROR TRACKING
+    # ==========================================================================
+    def _update_error_tracking(self, error_context: ErrorContext):
+        """Update error tracking metrics"""
+        # Add to history
+        self.error_history.append(error_context)
+        
+        # Update counts
+        self.error_counts[error_context.error_type] += 1
+        
+        # Track strategy-specific errors
+        if error_context.strategy_name:
+            self.strategy_errors[error_context.strategy_name].append(error_context)
+        
+        # Update critical error count
+        if error_context.severity == ErrorSeverity.CRITICAL:
+            self.critical_error_count += 1
+    
+    def get_error_rate(self, window_seconds: int = ERROR_RATE_WINDOW) -> float:
+        """Calculate current error rate (errors per minute)"""
+        with self._lock:
+            cutoff_time = datetime.now() - timedelta(seconds=window_seconds)
+            recent_errors = [e for e in self.error_history 
+                           if e.timestamp > cutoff_time]
+            
+            if window_seconds > 0:
+                return len(recent_errors) * 60 / window_seconds
+            return 0.0
+    
+    # ==========================================================================
+    # SHUTDOWN CONDITIONS
+    # ==========================================================================
+    def _check_shutdown_conditions(self, error_context: ErrorContext) -> bool:
+        """Check if shutdown conditions are met"""
+        # System shutdown for critical errors
+        if self.critical_error_count >= SYSTEM_SHUTDOWN_THRESHOLD:
+            return True
+        
+        # Strategy shutdown for repeated errors
+        if error_context.strategy_name:
+            strategy_errors = self.strategy_errors[error_context.strategy_name]
+            recent_errors = [e for e in strategy_errors 
+                           if e.timestamp > datetime.now() - timedelta(minutes=5)]
+            
+            if len(recent_errors) >= STRATEGY_SHUTDOWN_THRESHOLD:
+                return True
+        
+        # High error rate
+        if self.get_error_rate() > MAX_ERROR_RATE:
+            return True
+        
+        return False
+    
+    def _initiate_shutdown(self, error_context: ErrorContext):
+        """Initiate shutdown based on error context"""
+        if error_context.strategy_name:
+            self.logger.critical(f"Initiating strategy shutdown: {error_context.strategy_name}")
+            self._shutdown_strategy(error_context.strategy_name, error_context)
+        else:
+            self.logger.critical("Initiating system shutdown due to critical errors")
+            self._shutdown_system(error_context)
+    
+    def _shutdown_strategy(self, strategy_name: str, error_context: ErrorContext):
+        """Shutdown a specific strategy"""
+        # Emit event if event manager is available
+        if self.event_manager:
+            self._emit_strategy_shutdown_event(strategy_name, "Critical errors", error_context)
+        
+        # Execute shutdown callbacks
+        for callback in self.shutdown_callbacks:
+            try:
+                callback('strategy', strategy_name, error_context)
+            except Exception as e:
+                self.logger.error(f"Error in shutdown callback: {e}")
+    
+    def _shutdown_system(self, error_context: ErrorContext):
+        """Shutdown the entire system"""
+        # Emit event if event manager is available
+        if self.event_manager:
+            self._emit_system_shutdown_event("Critical system errors", error_context)
+        
+        # Execute shutdown callbacks
+        for callback in self.shutdown_callbacks:
+            try:
+                callback('system', None, error_context)
+            except Exception as e:
+                self.logger.error(f"Error in shutdown callback: {e}")
+    
+    # ==========================================================================
+    # RECOVERY
+    # ==========================================================================
+    def _attempt_recovery(self, error_context: ErrorContext) -> bool:
+        """Attempt to recover from error"""
+        strategy_key = error_context.error_type
+        
+        if strategy_key not in self.recovery_strategies:
+            strategy_key = error_context.category.value
+        
+        if strategy_key in self.recovery_strategies:
+            recovery_strategy = self.recovery_strategies[strategy_key]
+            
+            if error_context.recovery_attempts < recovery_strategy.max_retries:
+                error_context.recovery_attempts += 1
+                
+                # Calculate delay with backoff
+                delay = recovery_strategy.retry_delay * (
+                    recovery_strategy.backoff_multiplier ** (error_context.recovery_attempts - 1)
+                )
+                
+                self.logger.info(
+                    f"Attempting recovery for {error_context.error_type} "
+                    f"(attempt {error_context.recovery_attempts}/{recovery_strategy.max_retries})"
+                )
+                
+                # Execute recovery action
+                success = self._execute_recovery_action(recovery_strategy, error_context)
+                
+                if success:
+                    error_context.resolved = True
+                    error_context.resolution_time = datetime.now()
+                    self.logger.info(f"Recovery successful for {error_context.error_type}")
+                
+                return success
+        
+        return False
+    
+    def _execute_recovery_action(self, strategy: RecoveryStrategy, 
+                               error_context: ErrorContext) -> bool:
+        """Execute specific recovery action"""
+        try:
+            if strategy.callback:
+                return strategy.callback(error_context)
+            
+            # Default recovery actions
+            if strategy.action == RecoveryAction.RETRY:
+                time.sleep(strategy.retry_delay)
+                return True
+            
+            elif strategy.action == RecoveryAction.RECONNECT:
+                # Attempt to reconnect component
+                if error_context.component_name in self.components:
+                    component_ref = self.components[error_context.component_name]
+                    component = component_ref()
+                    if component and hasattr(component, 'reconnect'):
+                        return component.reconnect()
+            
+            elif strategy.action == RecoveryAction.RESTART_COMPONENT:
+                # Restart component
+                if error_context.component_name in self.components:
+                    component_ref = self.components[error_context.component_name]
+                    component = component_ref()
+                    if component and hasattr(component, 'restart'):
+                        return component.restart()
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Error during recovery action: {e}")
+            return False
+    
+    # ==========================================================================
+    # LOGGING
+    # ==========================================================================
     def _log_error(self, error_context: ErrorContext):
         """Log error with appropriate level"""
         log_message = (
@@ -912,11 +596,16 @@ class SpyderErrorHandler:
             self.logger.debug(f"Stack trace for {error_context.error_id}:\n{error_context.stack_trace}")
     
     # ==========================================================================
-    # EVENT EMISSION
+    # EVENT EMISSION (ONLY IF EVENT MANAGER IS AVAILABLE)
     # ==========================================================================
     def _emit_error_event(self, error_context: ErrorContext):
         """Emit error event for monitoring systems"""
+        if not self.event_manager:
+            return
+            
         try:
+            from SpyderA_Core.SpyderA05_EventManager import EventType
+            
             event_data = {
                 'error_id': error_context.error_id,
                 'category': error_context.category.value,
@@ -936,7 +625,12 @@ class SpyderErrorHandler:
     def _emit_strategy_shutdown_event(self, strategy_name: str, reason: str, 
                                     error_context: ErrorContext):
         """Emit strategy shutdown event"""
+        if not self.event_manager:
+            return
+            
         try:
+            from SpyderA_Core.SpyderA05_EventManager import EventType
+            
             event_data = {
                 'strategy_name': strategy_name,
                 'shutdown_reason': reason,
@@ -949,252 +643,192 @@ class SpyderErrorHandler:
         except Exception as e:
             self.logger.warning(f"Failed to emit strategy shutdown event: {e}")
     
-    # ==========================================================================
-    # UTILITY METHODS
-    # ==========================================================================
-    def _apply_recovery_backoff(self, error_context: ErrorContext, 
-                              strategy: RecoveryStrategy):
-        """Apply backoff delay for recovery attempts"""
-        if error_context.retry_count == 0:
-            return  # No delay for first attempt
-        
-        if strategy.backoff_strategy == "exponential":
-            # Exponential backoff
-            if error_context.retry_count <= len(RETRY_BACKOFF_SECONDS):
-                delay = RETRY_BACKOFF_SECONDS[error_context.retry_count - 1]
-            else:
-                delay = RETRY_BACKOFF_SECONDS[-1]
-        else:
-            # Linear backoff
-            delay = error_context.retry_count
-        
-        self.logger.debug(f"Applying {delay}s backoff before recovery attempt")
-        # In real implementation, would use asyncio.sleep or threading.Event.wait
-    
-    def _cleanup_old_errors(self):
-        """Clean up old error records"""
-        cutoff_time = datetime.now() - self.error_retention_period
-        
-        # Remove old errors from history
-        old_error_ids = [
-            error_id for error_id, error_context in self.error_history.items()
-            if error_context.timestamp < cutoff_time
-        ]
-        
-        for error_id in old_error_ids:
-            self.error_history.pop(error_id, None)
-            self.active_errors.pop(error_id, None)
-        
-        if old_error_ids:
-            self.logger.debug(f"Cleaned up {len(old_error_ids)} old error records")
-    
-    # ==========================================================================
-    # PUBLIC INTERFACE
-    # ==========================================================================
-    def get_error_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive error statistics"""
-        stats = {
-            'total_errors': self.error_statistics.total_errors,
-            'successful_recoveries': self.error_statistics.successful_recoveries,
-            'failed_recoveries': self.error_statistics.failed_recoveries,
-            'recovery_success_rate': (
-                self.error_statistics.successful_recoveries / 
-                max(1, self.error_statistics.successful_recoveries + self.error_statistics.failed_recoveries)
-            ),
-            'active_errors': len(self.active_errors),
-            'errors_by_category': {cat.value: count for cat, count in self.error_statistics.errors_by_category.items()},
-            'errors_by_severity': {sev.value: count for sev, count in self.error_statistics.errors_by_severity.items()},
-            'errors_by_strategy': dict(self.error_statistics.errors_by_strategy),
-            'strategy_health': dict(self.strategy_health)
-        }
-        
-        return stats
-    
-    def get_strategy_health(self, strategy_name: str) -> Optional[Dict[str, Any]]:
-        """Get health status for specific strategy"""
-        return self.strategy_health.get(strategy_name)
-    
-    def reset_strategy_health(self, strategy_name: str):
-        """Reset health tracking for strategy"""
-        if strategy_name in self.strategy_health:
-            self.strategy_health[strategy_name] = {
-                'total_errors': 0,
-                'error_rate': 0.0,
-                'last_error_time': None,
-                'consecutive_errors': 0,
-                'health_score': 1.0,
-                'status': 'healthy'
+    def _emit_system_shutdown_event(self, reason: str, error_context: ErrorContext):
+        """Emit system shutdown event"""
+        if not self.event_manager:
+            return
+            
+        try:
+            from SpyderA_Core.SpyderA05_EventManager import EventType
+            
+            event_data = {
+                'shutdown_reason': reason,
+                'trigger_error_id': error_context.error_id,
+                'critical_error_count': self.critical_error_count,
+                'error_rate': self.get_error_rate(),
+                'timestamp': datetime.now().isoformat()
             }
-        
-        if strategy_name in self.strategy_error_counts:
-            self.strategy_error_counts[strategy_name] = []
-        
-        self.logger.info(f"Strategy health reset for {strategy_name}")
-    
-    def resolve_error(self, error_id: str, resolved_by: str = "manual"):
-        """Manually resolve an error"""
-        if error_id in self.active_errors:
-            error_context = self.active_errors[error_id]
-            error_context.state = ErrorState.RESOLVED
-            error_context.resolution_time = datetime.now()
-            error_context.resolved_by = resolved_by
             
-            # Remove from active errors
-            del self.active_errors[error_id]
+            self.event_manager.emit_event(EventType.SYSTEM_SHUTDOWN, event_data)
             
-            self.logger.info(f"Error {error_id} manually resolved by {resolved_by}")
-
-# ==============================================================================
-# DECORATORS FOR ERROR HANDLING
-# ==============================================================================
-def lean_error_handler(category: Optional[ErrorCategory] = None,
-                      severity: Optional[ErrorSeverity] = None,
-                      strategy_name: Optional[str] = None,
-                      auto_recover: bool = True):
-    """
-    Decorator for automatic error handling with LEAN patterns.
+        except Exception as e:
+            self.logger.warning(f"Failed to emit system shutdown event: {e}")
     
-    Week 3-4 Enhancement: Provides automatic error handling decoration
-    for strategy methods and trading functions.
-    """
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+    # ==========================================================================
+    # CALLBACKS
+    # ==========================================================================
+    def _execute_error_callbacks(self, error_context: ErrorContext):
+        """Execute registered error callbacks"""
+        for callback in self.error_callbacks:
             try:
-                return func(*args, **kwargs)
+                callback(error_context)
             except Exception as e:
-                # Get error handler instance
-                error_handler = SpyderErrorHandler()
-                
-                # Extract strategy name from arguments if not provided
-                actual_strategy_name = strategy_name
-                if not actual_strategy_name and args:
-                    # Try to get strategy name from first argument (self)
-                    if hasattr(args[0], 'strategy_name'):
-                        actual_strategy_name = args[0].strategy_name
-                    elif hasattr(args[0], '__class__'):
-                        actual_strategy_name = args[0].__class__.__name__
-                
-                # Handle the error
-                error_context = error_handler.handle_error(
-                    e,
-                    context={'function': func.__name__, 'args_count': len(args)},
-                    category=category,
-                    severity=severity,
-                    strategy_name=actual_strategy_name,
-                    auto_recover=auto_recover
-                )
-                
-                # Re-raise if not recovered
-                if error_context.state != ErrorState.RECOVERED:
-                    raise
-                
-                # Return None for recovered errors (could be customized)
-                return None
-        
-        return wrapper
-    return decorator
-
-@contextmanager
-def lean_error_context(category: Optional[ErrorCategory] = None,
-                      severity: Optional[ErrorSeverity] = None,
-                      strategy_name: Optional[str] = None,
-                      auto_recover: bool = True):
-    """
-    Context manager for error handling with LEAN patterns.
+                self.logger.error(f"Error in callback execution: {e}")
     
-    Week 3-4 Enhancement: Provides context-based error handling
-    for trading operations and strategy execution.
-    """
-    try:
-        yield
-    except Exception as e:
-        error_handler = SpyderErrorHandler()
+    def register_error_callback(self, callback: Callable[[ErrorContext], None]):
+        """Register error callback"""
+        self.error_callbacks.append(callback)
+    
+    def register_shutdown_callback(self, callback: Callable[[str, Optional[str], ErrorContext], None]):
+        """Register shutdown callback"""
+        self.shutdown_callbacks.append(callback)
+    
+    def register_component(self, name: str, component: Any):
+        """Register component for recovery operations"""
+        self.components[name] = weakref.ref(component)
+    
+    # ==========================================================================
+    # REPORTING
+    # ==========================================================================
+    def get_error_summary(self) -> Dict[str, Any]:
+        """Get error summary statistics"""
+        with self._lock:
+            return {
+                'total_errors': len(self.error_history),
+                'critical_errors': self.critical_error_count,
+                'error_rate': self.get_error_rate(),
+                'error_types': dict(self.error_counts),
+                'strategies_with_errors': list(self.strategy_errors.keys()),
+                'recent_errors': [
+                    {
+                        'timestamp': e.timestamp.isoformat(),
+                        'type': e.error_type,
+                        'category': e.category.value,
+                        'severity': e.severity.value,
+                        'resolved': e.resolved
+                    }
+                    for e in list(self.error_history)[-10:]
+                ]
+            }
+    
+    def get_strategy_error_report(self, strategy_name: str) -> Dict[str, Any]:
+        """Get error report for specific strategy"""
+        with self._lock:
+            if strategy_name not in self.strategy_errors:
+                return {'error_count': 0, 'errors': []}
+            
+            errors = self.strategy_errors[strategy_name]
+            return {
+                'error_count': len(errors),
+                'critical_count': sum(1 for e in errors if e.severity == ErrorSeverity.CRITICAL),
+                'resolved_count': sum(1 for e in errors if e.resolved),
+                'error_types': pd.Series([e.error_type for e in errors]).value_counts().to_dict(),
+                'recent_errors': [
+                    {
+                        'timestamp': e.timestamp.isoformat(),
+                        'type': e.error_type,
+                        'message': e.error_message,
+                        'resolved': e.resolved
+                    }
+                    for e in errors[-5:]
+                ]
+            }
+    
+    # ==========================================================================
+    # DECORATORS
+    # ==========================================================================
+    @staticmethod
+    def error_handler(component_name: str, strategy_name: Optional[str] = None):
+        """
+        Decorator for automatic error handling.
         
-        error_context = error_handler.handle_error(
-            e,
-            context={'context_manager': True},
-            category=category,
-            severity=severity,
-            strategy_name=strategy_name,
-            auto_recover=auto_recover
-        )
-        
-        # Re-raise if not recovered
-        if error_context.state != ErrorState.RECOVERED:
-            raise
+        Usage:
+            @SpyderErrorHandler.error_handler("OrderManager", "IronCondor")
+            def place_order(self, order):
+                # function code
+        """
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(self, *args, **kwargs):
+                try:
+                    return func(self, *args, **kwargs)
+                except Exception as e:
+                    # Get error handler instance
+                    if hasattr(self, 'error_handler'):
+                        error_handler = self.error_handler
+                    else:
+                        # Use singleton if available
+                        error_handler = get_error_handler()
+                    
+                    # Handle error
+                    error_context = error_handler.handle_error(
+                        e, component_name, strategy_name
+                    )
+                    
+                    # Re-raise if not resolved
+                    if not error_context.resolved:
+                        raise
+                    
+                    return None
+            
+            return wrapper
+        return decorator
 
 # ==============================================================================
-# TESTING AND VALIDATION
+# MODULE FUNCTIONS
 # ==============================================================================
-def test_enhanced_error_handler():
-    """Test enhanced error handler with LEAN patterns"""
-    print("Testing Enhanced Error Handler (Week 3-4)")
-    print("=" * 60)
-    
-    error_handler = SpyderErrorHandler()
-    
-    # Test validation error handling
-    print("Testing Position Validation Error:")
-    try:
-        raise AssertionError("Expected position group to have 2 positions. Actual: 4")
-    except Exception as e:
-        error_context = error_handler.handle_position_validation_error(
-            e, "CalendarSpread", [{'symbol': 'SPY_P600'}, {'symbol': 'SPY_P605'}]
-        )
-        print(f"Error ID: {error_context.error_id}")
-        print(f"Category: {error_context.category.value}")
-        print(f"Severity: {error_context.severity.value}")
-        print(f"State: {error_context.state.value}")
-    
-    # Test strategy error handling
-    print("\nTesting Strategy Error:")
-    try:
-        raise ValueError("Invalid strike selection for Iron Condor")
-    except Exception as e:
-        error_context = error_handler.handle_strategy_error(
-            e, "IronCondor", "validate_setup"
-        )
-        print(f"Error ID: {error_context.error_id}")
-        print(f"Recovery attempts: {error_context.recovery_attempts}")
-    
-    # Test error statistics
-    print(f"\nError Statistics:")
-    stats = error_handler.get_error_statistics()
-    for key, value in stats.items():
-        if isinstance(value, dict) and value:
-            print(f"  {key}: {value}")
-        elif not isinstance(value, dict):
-            print(f"  {key}: {value}")
-    
-    # Test strategy health
-    print(f"\nStrategy Health:")
-    health = error_handler.get_strategy_health("CalendarSpread")
-    if health:
-        for key, value in health.items():
-            print(f"  {key}: {value}")
-    
-    # Test decorator
-    print(f"\nTesting Error Handler Decorator:")
-    
-    @lean_error_handler(category=ErrorCategory.STRATEGY_ERROR, auto_recover=True)
-    def test_function_with_error():
-        raise ValueError("Test error for decorator")
-    
-    try:
-        result = test_function_with_error()
-        print(f"Decorator handled error, result: {result}")
-    except Exception as e:
-        print(f"Decorator failed to handle error: {e}")
-    
-    print("\n✅ Enhanced Error Handler (Week 3-4) testing complete!")
-    print("Key Features Tested:")
-    print("- ✅ LEAN-inspired error recovery patterns")
-    print("- ✅ Strategy-specific error handling")
-    print("- ✅ Position validation error management")
-    print("- ✅ Automated error recovery with fallback mechanisms")
-    print("- ✅ Strategy health monitoring and shutdown detection")
-    print("- ✅ Professional error statistics and reporting")
+_error_handler_instance: Optional[SpyderErrorHandler] = None
+_error_handler_lock = threading.Lock()
 
+def get_error_handler() -> SpyderErrorHandler:
+    """Get singleton error handler instance"""
+    global _error_handler_instance
+    
+    with _error_handler_lock:
+        if _error_handler_instance is None:
+            _error_handler_instance = SpyderErrorHandler()
+        
+        return _error_handler_instance
+
+def reset_error_handler():
+    """Reset singleton instance (for testing)"""
+    global _error_handler_instance
+    with _error_handler_lock:
+        _error_handler_instance = None
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
-    test_enhanced_error_handler()
+    # Module testing
+    print("Testing SpyderErrorHandler...")
+    
+    # Create error handler
+    handler = SpyderErrorHandler()
+    
+    # Test different error types
+    print("\n1. Testing connection error:")
+    try:
+        raise ConnectionError("Failed to connect to broker")
+    except Exception as e:
+        context = handler.handle_error(e, "BrokerConnection")
+        print(f"   Error ID: {context.error_id}")
+        print(f"   Category: {context.category.value}")
+        print(f"   Severity: {context.severity.value}")
+    
+    print("\n2. Testing risk error:")
+    try:
+        raise RiskError("Position limit exceeded", symbol="SPY")
+    except Exception as e:
+        context = handler.handle_error(e, "RiskManager", strategy_name="IronCondor", symbol="SPY")
+        print(f"   Error ID: {context.error_id}")
+        print(f"   Category: {context.category.value}")
+        print(f"   Severity: {context.severity.value}")
+    
+    print("\n3. Testing error summary:")
+    summary = handler.get_error_summary()
+    print(f"   Total errors: {summary['total_errors']}")
+    print(f"   Critical errors: {summary['critical_errors']}")
+    print(f"   Error rate: {summary['error_rate']:.2f} errors/min")
+    
+    print("\n✅ SpyderErrorHandler test completed")

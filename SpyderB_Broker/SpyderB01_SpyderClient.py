@@ -43,7 +43,7 @@ try:
     from ib_insync import (
         IB, Stock, Option, Contract, Order, Trade, Position,
         LimitOrder, MarketOrder, StopOrder, StopLimitOrder,
-        MarketData, BarData, Ticker, AccountValue,
+        BarData, Ticker, AccountValue,
         util
     )
     HAS_IB_INSYNC = True

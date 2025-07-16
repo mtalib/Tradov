@@ -825,11 +825,15 @@ class IntegrationHub:
             # Update module info
             module_info.health = status
             module_info.last_health_check = report.timestamp
-            
             return report
             
         except Exception as e:
             self.error_handler.handle_error(e, {
                 'method': '_perform_health_check',
                 'module_id': module_id
+            })   
+                 
+                    
+            
+            
             

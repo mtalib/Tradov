@@ -816,3 +816,43 @@ if __name__ == "__main__":
     
     # Test sanitization
     print(f"\nSanitized filename: {sanitize_filename('my<file>name?.txt')}")
+
+# ==============================================================================
+# BACKWARDS COMPATIBILITY ALIASES
+# ==============================================================================
+# Alias for modules expecting 'Validators' class name
+Validators = DataValidators
+
+# Additional exports for compatibility
+__all__ = [
+    "DataValidators",
+    "Validators",  # Alias
+    "validate_order_data",
+    "validate_position_data",
+    "validate_account_data",
+    "is_valid_string",
+    "is_valid_integer",
+    "is_valid_float",
+    "is_valid_boolean",
+    "is_valid_date",
+    "is_valid_time",
+    "is_valid_datetime",
+    "is_valid_email",
+    "is_valid_phone",
+    "is_valid_url",
+    "is_valid_ip_address",
+    "is_valid_symbol",
+    "is_valid_option_symbol",
+    "is_valid_number",
+    "is_valid_price",
+    "is_valid_quantity",
+    "is_valid_percentage",
+    "is_valid_order_type",
+    "is_valid_time_in_force",
+    "is_valid_account_number",
+    "is_valid_leverage",
+    "sanitize_string",
+    "sanitize_filename",
+    "validate_input",
+    "ValidationError"
+]
