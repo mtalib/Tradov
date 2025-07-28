@@ -51,6 +51,60 @@ except ImportError as e:
     HAS_IBAPI = False
     
     # Fallback classes
+
+# =============================================================================
+# IB CONFIGURATION CLASS - Added by temp fix
+# =============================================================================
+
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class IBConfig:
+    """
+    Interactive Brokers connection configuration
+    Used for connecting to IB Gateway or TWS
+    """
+    host: str = "127.0.0.1"
+    port: int = 4002  # Paper trading port (4001 for live)
+    client_id: int = 1
+    timeout: int = 30
+    username: Optional[str] = None
+    password: Optional[str] = None
+    trading_mode: str = "paper"  # "paper" or "live"
+    auto_logoff: bool = False
+    max_attempts: int = 3
+    retry_delay: int = 5
+    
+    def __post_init__(self):
+        """Validate configuration after initialization"""
+        if self.port not in [4001, 4002, 7496, 7497]:
+            print(f"⚠️  Warning: Unusual port {self.port} for IB Gateway")
+        
+        if self.client_id < 0 or self.client_id > 32:
+            raise ValueError("Client ID must be between 0 and 32")
+    
+    @classmethod
+    def paper_trading(cls, client_id: int = 1) -> 'IBConfig':
+        """Create configuration for paper trading"""
+        return cls(
+            host="127.0.0.1",
+            port=4002,
+            client_id=client_id,
+            trading_mode="paper"
+        )
+    
+    @classmethod
+    def live_trading(cls, client_id: int = 1) -> 'IBConfig':
+        """Create configuration for live trading"""
+        return cls(
+            host="127.0.0.1", 
+            port=4001,
+            client_id=client_id,
+            trading_mode="live"
+        )
+
+
     class EClient: pass
     class EWrapper: pass
     class Contract: pass
