@@ -60,7 +60,7 @@ from SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled, SPYDERX
 from SpyderM_Monitoring.SpyderM02_MigrationMonitor import get_migration_monitor
 from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
 from SpyderE_Risk.SpyderE02_PositionSizer import PositionSizer
-from SpyderO_RiskControl.SpyderO01_DrawdownControl import DrawdownController
+from SpyderE_Risk.SpyderE03_DrawdownControl import DrawdownController
 
 # ==============================================================================
 # CONSTANTS

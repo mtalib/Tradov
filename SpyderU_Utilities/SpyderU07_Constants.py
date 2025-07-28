@@ -275,9 +275,9 @@ ARCHIVE_BATCH_SIZE = 10000
 # =============================================================================
 # Interactive Brokers
 IB_DEFAULT_HOST = "127.0.0.1"
-IB_DEFAULT_PORT = 7497  # TWS Paper Trading
+IB_DEFAULT_PORT = 4002  # Paper trading port  # TWS Paper Trading
 IB_LIVE_PORT = 7496     # TWS Live Trading
-IB_GATEWAY_PORT = 4001  # IB Gateway
+IB_GATEWAY_PORT = 4002  # IB Gateway
 IB_CLIENT_ID = 1
 
 # API limits

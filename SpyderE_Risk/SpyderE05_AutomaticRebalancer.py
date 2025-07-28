@@ -3,8 +3,8 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderO03_AutomaticRebalancer.py
-Group: O (Professional Risk Controls)
+Module: SpyderE05_AutomaticRebalancer.py
+Group: E (Risk Management)
 Purpose: Automated portfolio Greek rebalancing
 
 Description:
@@ -597,3 +597,5 @@ async def main():
     await monitor_task
 if __name__ == "__main__":
     asyncio.run(main())
+# Alias for compatibility
+AutomaticRebalancer = SpyderAutomaticRebalancer

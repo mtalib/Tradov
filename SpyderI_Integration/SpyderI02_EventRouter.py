@@ -336,7 +336,7 @@ class EventRouter:
                     rule_id="trading_to_risk",
                     name="Route trading events to risk modules",
                     pattern="trading.*",
-                    target_modules=["SpyderE01_RiskManager", "SpyderO01_GreekLimitsManager"],
+                    target_modules=["SpyderE01_RiskManager", "SpyderE03_GreekLimitsManager"],
                     strategy=RoutingStrategy.BROADCAST,
                     priority=90
                 ),

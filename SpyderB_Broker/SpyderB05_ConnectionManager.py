@@ -56,7 +56,8 @@ from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 # ==============================================================================
 # Connection Settings
 DEFAULT_HOST = '127.0.0.1'
-DEFAULT_PORT = 4002  # Paper trading port
+DEFAULT_PORT = 4002  # Paper trading port - MATCHES IB GATEWAY
+PAPER_TRADING_PORT = 4002  # Gateway paper port
 DEFAULT_LIVE_PORT = 4001  # Live trading port
 DEFAULT_CLIENT_ID = 1
 DEFAULT_TIMEZONE = "US/Eastern"

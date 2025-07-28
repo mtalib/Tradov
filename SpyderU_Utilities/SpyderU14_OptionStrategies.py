@@ -5,593 +5,786 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderU14_OptionStrategies.py
 Group: U (Utilities)
-Purpose: Options strategy helper class inspired by LEAN's OptionStrategies
+Purpose: Options strategy utilities and payoff calculations
 
 Description:
-    Professional options strategy builder inspired by QuantConnect LEAN's 
-    OptionStrategies helper class. Provides atomic strategy creation for 
-    complex multi-leg options strategies with built-in validation and 
-    position group management.
+    This module provides utilities for options strategy construction, payoff
+    calculations, and risk analysis. Inspired by QuantConnect LEAN's 
+    OptionStrategies helper class, it offers atomic strategy creation for 
+    complex multi-leg options strategies with built-in validation.
 
-Based on: QuantConnect LEAN OptionStrategies patterns
 Author: Mohamed Talib
-Created: 2025-06-23
-Version: 2.0 (Enhanced with LEAN patterns)
+Date: 2025-07-18
+Version: 1.5
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import math
-import itertools
+import numpy as np
+import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Union, List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import uuid
-
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-import pandas as pd
-import numpy as np
+import math
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import OptionType, OrderAction
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+RISK_FREE_RATE = 0.05  # 5% default risk-free rate
+DAYS_PER_YEAR = 365.25
+CONTRACT_MULTIPLIER = 100
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
+class OptionType(Enum):
+    """Option types"""
+    CALL = "CALL"
+    PUT = "PUT"
+
+class PositionType(Enum):
+    """Position types"""
+    LONG = "LONG"
+    SHORT = "SHORT"
+
 class StrategyType(Enum):
-    """Option strategy types (from LEAN)"""
+    """Option strategy types"""
+    NAKED_CALL = "naked_call"
+    NAKED_PUT = "naked_put"
+    COVERED_CALL = "covered_call"
+    PROTECTIVE_PUT = "protective_put"
+    BULL_CALL_SPREAD = "bull_call_spread"
+    BEAR_PUT_SPREAD = "bear_put_spread"
     IRON_CONDOR = "iron_condor"
     IRON_BUTTERFLY = "iron_butterfly"
-    PUT_CALENDAR_SPREAD = "put_calendar_spread"
-    CALL_CALENDAR_SPREAD = "call_calendar_spread"
-    SHORT_PUT_CALENDAR_SPREAD = "short_put_calendar_spread"
-    SHORT_CALL_CALENDAR_SPREAD = "short_call_calendar_spread"
-    BULL_PUT_SPREAD = "bull_put_spread"
-    BEAR_CALL_SPREAD = "bear_call_spread"
-    LONG_STRADDLE = "long_straddle"
-    SHORT_STRADDLE = "short_straddle"
-    PROTECTIVE_PUT = "protective_put"
-    COVERED_CALL = "covered_call"
-    COLLAR = "collar"
-
-class OptionRight(Enum):
-    """Option rights (LEAN compatible)"""
-    CALL = "Call"
-    PUT = "Put"
-
-class PositionSide(Enum):
-    """Position side (LEAN compatible)"""
-    LONG = 1
-    SHORT = -1
+    STRADDLE = "straddle"
+    STRANGLE = "strangle"
+    CALENDAR_SPREAD = "calendar_spread"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
 class OptionLeg:
-    """Individual option leg (inspired by LEAN's OptionLeg)"""
-    symbol: str
-    option_right: OptionRight
+    """Single option leg in a strategy"""
+    option_type: OptionType
+    position_type: PositionType
     strike: float
     expiry: datetime
-    quantity: int  # Positive for buy, negative for sell
+    premium: float
+    quantity: int = 1
+    
+    @property
+    def is_call(self) -> bool:
+        """Check if leg is a call option"""
+        return self.option_type == OptionType.CALL
+    
+    @property
+    def is_put(self) -> bool:
+        """Check if leg is a put option"""
+        return self.option_type == OptionType.PUT
     
     @property
     def is_long(self) -> bool:
-        return self.quantity > 0
+        """Check if position is long"""
+        return self.position_type == PositionType.LONG
     
     @property
     def is_short(self) -> bool:
-        return self.quantity < 0
+        """Check if position is short"""
+        return self.position_type == PositionType.SHORT
+    
+    @property
+    def net_premium(self) -> float:
+        """Calculate net premium (positive for credit, negative for debit)"""
+        multiplier = -1 if self.is_long else 1
+        return multiplier * self.premium * self.quantity
 
 @dataclass
 class OptionStrategy:
-    """Complete option strategy (inspired by LEAN's OptionStrategy)"""
+    """Multi-leg option strategy"""
+    name: str
     strategy_type: StrategyType
-    underlying_symbol: str
     legs: List[OptionLeg]
-    strategy_id: str = field(default_factory=lambda: f"STRAT_{uuid.uuid4().hex[:8]}")
-    created_at: datetime = field(default_factory=datetime.now)
-    
-    def __post_init__(self):
-        """Validate strategy after creation"""
-        self._validate_strategy()
-    
-    def _validate_strategy(self):
-        """Validate strategy legs (LEAN-style validation)"""
-        if not self.legs:
-            raise ValueError("Strategy must have at least one leg")
-        
-        # Validate leg count for specific strategies
-        expected_legs = {
-            StrategyType.IRON_CONDOR: 4,
-            StrategyType.IRON_BUTTERFLY: 4,
-            StrategyType.PUT_CALENDAR_SPREAD: 2,
-            StrategyType.CALL_CALENDAR_SPREAD: 2,
-            StrategyType.BULL_PUT_SPREAD: 2,
-            StrategyType.BEAR_CALL_SPREAD: 2,
-            StrategyType.LONG_STRADDLE: 2,
-            StrategyType.SHORT_STRADDLE: 2,
-        }
-        
-        if self.strategy_type in expected_legs:
-            expected = expected_legs[self.strategy_type]
-            if len(self.legs) != expected:
-                raise ValueError(f"{self.strategy_type.value} requires {expected} legs, got {len(self.legs)}")
+    underlying_price: float
+    max_profit: Optional[float] = None
+    max_loss: Optional[float] = None
+    breakeven_points: List[float] = field(default_factory=list)
     
     @property
-    def total_quantity(self) -> int:
-        """Total signed quantity across all legs"""
-        return sum(leg.quantity for leg in self.legs)
+    def net_premium(self) -> float:
+        """Calculate total net premium"""
+        return sum(leg.net_premium for leg in self.legs)
     
     @property
-    def is_net_long(self) -> bool:
-        """Check if strategy is net long"""
-        return self.total_quantity > 0
+    def is_credit_strategy(self) -> bool:
+        """Check if strategy receives net credit"""
+        return self.net_premium > 0
     
     @property
-    def is_net_short(self) -> bool:
-        """Check if strategy is net short"""
-        return self.total_quantity < 0
-    
-    @property
-    def is_net_neutral(self) -> bool:
-        """Check if strategy is net neutral"""
-        return self.total_quantity == 0
+    def is_debit_strategy(self) -> bool:
+        """Check if strategy pays net debit"""
+        return self.net_premium < 0
+
+@dataclass
+class PayoffResult:
+    """Option payoff calculation result"""
+    spot_prices: np.ndarray
+    payoffs: np.ndarray
+    max_profit: float
+    max_loss: float
+    breakeven_points: List[float]
+    profit_probability: Optional[float] = None
 
 # ==============================================================================
-# MAIN CLASS - Options Strategies Helper
+# OPTIONS STRATEGIES CLASS
 # ==============================================================================
-class SpyderOptionStrategies:
+class OptionStrategies:
     """
-    Options strategy builder inspired by QuantConnect LEAN's OptionStrategies.
+    Option strategies utility class for payoff calculations and strategy construction.
     
-    Provides atomic creation of complex multi-leg options strategies with
-    built-in validation and professional error handling.
-    
-    Key Features:
-    - LEAN-compatible strategy definitions
-    - Automatic leg validation
-    - Professional error handling
-    - Strategy optimization utilities
+    Features:
+    - Payoff calculations for individual options and strategies
+    - Common strategy builders (spreads, straddles, condors)
+    - Risk metrics calculation
+    - Breakeven analysis
+    - Greeks aggregation for strategies
     """
     
     def __init__(self):
-        """Initialize the options strategies helper"""
-        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
+        """Initialize option strategies utility"""
+        self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
-        self.logger.info("SpyderOptionStrategies initialized with LEAN patterns")
+        self.logger.info("OptionStrategies initialized")
     
     # ==========================================================================
-    # IRON STRATEGIES (From LEAN IronCondorStrategyAlgorithm.py)
+    # PAYOFF CALCULATIONS
     # ==========================================================================
-    @staticmethod
-    def iron_condor(underlying_symbol: str, 
-                   long_put_strike: float,
-                   short_put_strike: float, 
-                   short_call_strike: float,
-                   long_call_strike: float,
-                   expiry: datetime,
-                   quantity: int = 1) -> OptionStrategy:
+    def calculate_option_payoff(self, option_type: str, position_type: str,
+                              strike: float, premium: float, spot_price: Union[float, np.ndarray],
+                              quantity: int = 1) -> Union[float, np.ndarray]:
         """
-        Create Iron Condor strategy (from LEAN's IronCondorStrategyAlgorithm).
-        
-        Iron Condor = Bull Put Spread + Bear Call Spread
+        Calculate option payoff at expiration.
         
         Args:
-            underlying_symbol: Underlying symbol (e.g., "SPY")
-            long_put_strike: Long put strike (lowest)
-            short_put_strike: Short put strike
-            short_call_strike: Short call strike  
-            long_call_strike: Long call strike (highest)
-            expiry: Expiration date
-            quantity: Number of spreads (default 1)
+            option_type: "CALL" or "PUT"
+            position_type: "LONG" or "SHORT"
+            strike: Strike price
+            premium: Option premium paid/received
+            spot_price: Underlying price(s) at expiration
+            quantity: Number of contracts
             
         Returns:
-            OptionStrategy object
+            Payoff value(s)
         """
-        # Validate strike order (LEAN-style validation)
-        strikes = [long_put_strike, short_put_strike, short_call_strike, long_call_strike]
-        if strikes != sorted(strikes):
-            raise ValueError("Iron Condor strikes must be in ascending order: long_put < short_put < short_call < long_call")
-        
-        legs = [
-            # Bull Put Spread (put side)
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}P{long_put_strike:08.0f}", 
-                     OptionRight.PUT, long_put_strike, expiry, quantity),  # Buy long put
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}P{short_put_strike:08.0f}", 
-                     OptionRight.PUT, short_put_strike, expiry, -quantity),  # Sell short put
+        try:
+            # Convert to enums for validation
+            opt_type = OptionType(option_type.upper())
+            pos_type = PositionType(position_type.upper())
             
-            # Bear Call Spread (call side)  
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}C{short_call_strike:08.0f}", 
-                     OptionRight.CALL, short_call_strike, expiry, -quantity),  # Sell short call
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}C{long_call_strike:08.0f}", 
-                     OptionRight.CALL, long_call_strike, expiry, quantity),  # Buy long call
-        ]
-        
-        return OptionStrategy(StrategyType.IRON_CONDOR, underlying_symbol, legs)
+            # Convert spot price to numpy array for vectorized calculation
+            spot = np.array(spot_price) if not isinstance(spot_price, np.ndarray) else spot_price
+            
+            # Calculate intrinsic value
+            if opt_type == OptionType.CALL:
+                intrinsic = np.maximum(spot - strike, 0)
+            else:  # PUT
+                intrinsic = np.maximum(strike - spot, 0)
+            
+            # Apply position direction and premium
+            if pos_type == PositionType.LONG:
+                payoff = (intrinsic - premium) * quantity
+            else:  # SHORT
+                payoff = (premium - intrinsic) * quantity
+            
+            # Apply contract multiplier
+            payoff *= CONTRACT_MULTIPLIER
+            
+            return payoff
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating option payoff: {str(e)}")
+            return 0.0
     
-    @staticmethod
-    def iron_butterfly(underlying_symbol: str,
-                      long_put_strike: float,
-                      short_strike: float,  # ATM strike (both call and put)
-                      long_call_strike: float,
-                      expiry: datetime,
-                      quantity: int = 1) -> OptionStrategy:
+    def calculate_strategy_payoff(self, strategy: OptionStrategy, 
+                                spot_prices: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
-        Create Iron Butterfly strategy.
-        
-        Iron Butterfly = Short Straddle + Long Strangle
-        Higher credit than Iron Condor but narrower profit zone.
+        Calculate total payoff for a multi-leg strategy.
         
         Args:
-            underlying_symbol: Underlying symbol
-            long_put_strike: Long put strike (lower)
-            short_strike: Short strike (ATM for both call and put)
-            long_call_strike: Long call strike (higher)
+            strategy: OptionStrategy object
+            spot_prices: Underlying price(s) at expiration
+            
+        Returns:
+            Total strategy payoff
+        """
+        try:
+            total_payoff = 0
+            
+            for leg in strategy.legs:
+                leg_payoff = self.calculate_option_payoff(
+                    option_type=leg.option_type.value,
+                    position_type=leg.position_type.value,
+                    strike=leg.strike,
+                    premium=leg.premium,
+                    spot_price=spot_prices,
+                    quantity=leg.quantity
+                )
+                total_payoff += leg_payoff
+            
+            return total_payoff
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating strategy payoff: {str(e)}")
+            return 0.0
+    
+    def get_payoff_diagram(self, strategy: OptionStrategy, 
+                          price_range: Optional[Tuple[float, float]] = None,
+                          num_points: int = 100) -> PayoffResult:
+        """
+        Generate payoff diagram data for a strategy.
+        
+        Args:
+            strategy: OptionStrategy object
+            price_range: (min_price, max_price) tuple
+            num_points: Number of price points to calculate
+            
+        Returns:
+            PayoffResult with diagram data
+        """
+        try:
+            # Determine price range if not provided
+            if price_range is None:
+                strikes = [leg.strike for leg in strategy.legs]
+                min_strike = min(strikes)
+                max_strike = max(strikes)
+                range_width = max_strike - min_strike
+                
+                # Extend range by 20% on each side
+                extension = max(range_width * 0.2, 10)
+                price_range = (min_strike - extension, max_strike + extension)
+            
+            # Generate price points
+            spot_prices = np.linspace(price_range[0], price_range[1], num_points)
+            
+            # Calculate payoffs
+            payoffs = self.calculate_strategy_payoff(strategy, spot_prices)
+            
+            # Calculate key metrics
+            max_profit = float(np.max(payoffs))
+            max_loss = float(np.min(payoffs))
+            
+            # Find breakeven points
+            breakeven_points = self._find_breakeven_points(spot_prices, payoffs)
+            
+            return PayoffResult(
+                spot_prices=spot_prices,
+                payoffs=payoffs,
+                max_profit=max_profit,
+                max_loss=max_loss,
+                breakeven_points=breakeven_points
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error generating payoff diagram: {str(e)}")
+            return PayoffResult(
+                spot_prices=np.array([]),
+                payoffs=np.array([]),
+                max_profit=0.0,
+                max_loss=0.0,
+                breakeven_points=[]
+            )
+    
+    # ==========================================================================
+    # STRATEGY BUILDERS
+    # ==========================================================================
+    def create_bull_call_spread(self, long_strike: float, short_strike: float,
+                               expiry: datetime, long_premium: float, short_premium: float,
+                               underlying_price: float, quantity: int = 1) -> OptionStrategy:
+        """
+        Create a bull call spread strategy.
+        
+        Args:
+            long_strike: Strike of long call (lower)
+            short_strike: Strike of short call (higher)
             expiry: Expiration date
+            long_premium: Premium of long call
+            short_premium: Premium of short call
+            underlying_price: Current underlying price
             quantity: Number of spreads
             
         Returns:
             OptionStrategy object
         """
-        # Validate strikes
-        if not (long_put_strike < short_strike < long_call_strike):
-            raise ValueError("Iron Butterfly strikes must be: long_put < short_strike < long_call")
-        
         legs = [
-            # Long wings
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}P{long_put_strike:08.0f}", 
-                     OptionRight.PUT, long_put_strike, expiry, quantity),
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}C{long_call_strike:08.0f}", 
-                     OptionRight.CALL, long_call_strike, expiry, quantity),
-            
-            # Short body (double quantity at ATM)
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}P{short_strike:08.0f}", 
-                     OptionRight.PUT, short_strike, expiry, -quantity),
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}C{short_strike:08.0f}", 
-                     OptionRight.CALL, short_strike, expiry, -quantity),
+            OptionLeg(
+                option_type=OptionType.CALL,
+                position_type=PositionType.LONG,
+                strike=long_strike,
+                expiry=expiry,
+                premium=long_premium,
+                quantity=quantity
+            ),
+            OptionLeg(
+                option_type=OptionType.CALL,
+                position_type=PositionType.SHORT,
+                strike=short_strike,
+                expiry=expiry,
+                premium=short_premium,
+                quantity=quantity
+            )
         ]
         
-        return OptionStrategy(StrategyType.IRON_BUTTERFLY, underlying_symbol, legs)
-    
-    # ==========================================================================
-    # CALENDAR SPREADS (From LEAN Calendar Spread Algorithms)
-    # ==========================================================================
-    @staticmethod
-    def put_calendar_spread(underlying_symbol: str,
-                           strike: float,
-                           near_expiry: datetime,
-                           far_expiry: datetime,
-                           quantity: int = 1) -> OptionStrategy:
-        """
-        Create Put Calendar Spread (from LEAN's LongAndShortPutCalendarSpreadStrategiesAlgorithm).
+        strategy = OptionStrategy(
+            name=f"Bull Call Spread {long_strike}/{short_strike}",
+            strategy_type=StrategyType.BULL_CALL_SPREAD,
+            legs=legs,
+            underlying_price=underlying_price
+        )
         
-        Put Calendar = Sell near-term put + Buy far-term put (same strike)
+        # Calculate key metrics
+        self._calculate_spread_metrics(strategy)
+        
+        return strategy
+    
+    def create_bear_put_spread(self, long_strike: float, short_strike: float,
+                              expiry: datetime, long_premium: float, short_premium: float,
+                              underlying_price: float, quantity: int = 1) -> OptionStrategy:
+        """
+        Create a bear put spread strategy.
         
         Args:
-            underlying_symbol: Underlying symbol
-            strike: Strike price (same for both legs)
-            near_expiry: Near-term expiration (sell)
-            far_expiry: Far-term expiration (buy)
+            long_strike: Strike of long put (higher)
+            short_strike: Strike of short put (lower)
+            expiry: Expiration date
+            long_premium: Premium of long put
+            short_premium: Premium of short put
+            underlying_price: Current underlying price
             quantity: Number of spreads
             
         Returns:
             OptionStrategy object
         """
-        if near_expiry >= far_expiry:
-            raise ValueError("Near expiry must be before far expiry")
-        
         legs = [
-            # Sell near-term put
-            OptionLeg(f"{underlying_symbol}_{near_expiry.strftime('%y%m%d')}P{strike:08.0f}", 
-                     OptionRight.PUT, strike, near_expiry, -quantity),
-            # Buy far-term put
-            OptionLeg(f"{underlying_symbol}_{far_expiry.strftime('%y%m%d')}P{strike:08.0f}", 
-                     OptionRight.PUT, strike, far_expiry, quantity),
+            OptionLeg(
+                option_type=OptionType.PUT,
+                position_type=PositionType.LONG,
+                strike=long_strike,
+                expiry=expiry,
+                premium=long_premium,
+                quantity=quantity
+            ),
+            OptionLeg(
+                option_type=OptionType.PUT,
+                position_type=PositionType.SHORT,
+                strike=short_strike,
+                expiry=expiry,
+                premium=short_premium,
+                quantity=quantity
+            )
         ]
         
-        return OptionStrategy(StrategyType.PUT_CALENDAR_SPREAD, underlying_symbol, legs)
-    
-    @staticmethod
-    def short_put_calendar_spread(underlying_symbol: str,
-                                 strike: float,
-                                 near_expiry: datetime,
-                                 far_expiry: datetime,
-                                 quantity: int = 1) -> OptionStrategy:
-        """
-        Create Short Put Calendar Spread (reverse of put calendar).
-        
-        Short Put Calendar = Buy near-term put + Sell far-term put
-        """
-        calendar = SpyderOptionStrategies.put_calendar_spread(
-            underlying_symbol, strike, near_expiry, far_expiry, quantity
+        strategy = OptionStrategy(
+            name=f"Bear Put Spread {long_strike}/{short_strike}",
+            strategy_type=StrategyType.BEAR_PUT_SPREAD,
+            legs=legs,
+            underlying_price=underlying_price
         )
         
-        # Reverse the quantities
-        for leg in calendar.legs:
-            leg.quantity *= -1
+        # Calculate key metrics
+        self._calculate_spread_metrics(strategy)
         
-        calendar.strategy_type = StrategyType.SHORT_PUT_CALENDAR_SPREAD
-        return calendar
+        return strategy
     
-    @staticmethod
-    def call_calendar_spread(underlying_symbol: str,
-                            strike: float,
-                            near_expiry: datetime,
-                            far_expiry: datetime,
-                            quantity: int = 1) -> OptionStrategy:
+    def create_iron_condor(self, put_long_strike: float, put_short_strike: float,
+                          call_short_strike: float, call_long_strike: float,
+                          expiry: datetime, premiums: List[float],
+                          underlying_price: float, quantity: int = 1) -> OptionStrategy:
         """
-        Create Call Calendar Spread (from LEAN's LongAndShortCallCalendarSpreadStrategiesAlgorithm).
+        Create an iron condor strategy.
         
-        Call Calendar = Sell near-term call + Buy far-term call (same strike)
+        Args:
+            put_long_strike: Long put strike (lowest)
+            put_short_strike: Short put strike
+            call_short_strike: Short call strike
+            call_long_strike: Long call strike (highest)
+            expiry: Expiration date
+            premiums: [long_put_premium, short_put_premium, short_call_premium, long_call_premium]
+            underlying_price: Current underlying price
+            quantity: Number of iron condors
+            
+        Returns:
+            OptionStrategy object
         """
-        if near_expiry >= far_expiry:
-            raise ValueError("Near expiry must be before far expiry")
-        
         legs = [
-            # Sell near-term call
-            OptionLeg(f"{underlying_symbol}_{near_expiry.strftime('%y%m%d')}C{strike:08.0f}", 
-                     OptionRight.CALL, strike, near_expiry, -quantity),
-            # Buy far-term call
-            OptionLeg(f"{underlying_symbol}_{far_expiry.strftime('%y%m%d')}C{strike:08.0f}", 
-                     OptionRight.CALL, strike, far_expiry, quantity),
+            OptionLeg(
+                option_type=OptionType.PUT,
+                position_type=PositionType.LONG,
+                strike=put_long_strike,
+                expiry=expiry,
+                premium=premiums[0],
+                quantity=quantity
+            ),
+            OptionLeg(
+                option_type=OptionType.PUT,
+                position_type=PositionType.SHORT,
+                strike=put_short_strike,
+                expiry=expiry,
+                premium=premiums[1],
+                quantity=quantity
+            ),
+            OptionLeg(
+                option_type=OptionType.CALL,
+                position_type=PositionType.SHORT,
+                strike=call_short_strike,
+                expiry=expiry,
+                premium=premiums[2],
+                quantity=quantity
+            ),
+            OptionLeg(
+                option_type=OptionType.CALL,
+                position_type=PositionType.LONG,
+                strike=call_long_strike,
+                expiry=expiry,
+                premium=premiums[3],
+                quantity=quantity
+            )
         ]
         
-        return OptionStrategy(StrategyType.CALL_CALENDAR_SPREAD, underlying_symbol, legs)
-    
-    @staticmethod
-    def short_call_calendar_spread(underlying_symbol: str,
-                                  strike: float,
-                                  near_expiry: datetime,
-                                  far_expiry: datetime,
-                                  quantity: int = 1) -> OptionStrategy:
-        """Create Short Call Calendar Spread (reverse of call calendar)."""
-        calendar = SpyderOptionStrategies.call_calendar_spread(
-            underlying_symbol, strike, near_expiry, far_expiry, quantity
+        strategy = OptionStrategy(
+            name=f"Iron Condor {put_long_strike}/{put_short_strike}/{call_short_strike}/{call_long_strike}",
+            strategy_type=StrategyType.IRON_CONDOR,
+            legs=legs,
+            underlying_price=underlying_price
         )
         
-        # Reverse the quantities
-        for leg in calendar.legs:
-            leg.quantity *= -1
+        # Calculate key metrics
+        self._calculate_condor_metrics(strategy)
         
-        calendar.strategy_type = StrategyType.SHORT_CALL_CALENDAR_SPREAD
-        return calendar
+        return strategy
     
-    # ==========================================================================
-    # VERTICAL SPREADS
-    # ==========================================================================
-    @staticmethod
-    def bull_put_spread(underlying_symbol: str,
-                       long_put_strike: float,
-                       short_put_strike: float,
-                       expiry: datetime,
+    def create_straddle(self, strike: float, expiry: datetime,
+                       call_premium: float, put_premium: float,
+                       underlying_price: float, position_type: str = "LONG",
                        quantity: int = 1) -> OptionStrategy:
         """
-        Create Bull Put Spread (credit spread).
-        
-        Bull Put = Sell higher strike put + Buy lower strike put
-        """
-        if long_put_strike >= short_put_strike:
-            raise ValueError("Bull put spread: long_put_strike must be < short_put_strike")
-        
-        legs = [
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}P{long_put_strike:08.0f}", 
-                     OptionRight.PUT, long_put_strike, expiry, quantity),  # Buy lower strike
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}P{short_put_strike:08.0f}", 
-                     OptionRight.PUT, short_put_strike, expiry, -quantity),  # Sell higher strike
-        ]
-        
-        return OptionStrategy(StrategyType.BULL_PUT_SPREAD, underlying_symbol, legs)
-    
-    @staticmethod
-    def bear_call_spread(underlying_symbol: str,
-                        short_call_strike: float,
-                        long_call_strike: float,
-                        expiry: datetime,
-                        quantity: int = 1) -> OptionStrategy:
-        """
-        Create Bear Call Spread (credit spread).
-        
-        Bear Call = Sell lower strike call + Buy higher strike call
-        """
-        if short_call_strike >= long_call_strike:
-            raise ValueError("Bear call spread: short_call_strike must be < long_call_strike")
-        
-        legs = [
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}C{short_call_strike:08.0f}", 
-                     OptionRight.CALL, short_call_strike, expiry, -quantity),  # Sell lower strike
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}C{long_call_strike:08.0f}", 
-                     OptionRight.CALL, long_call_strike, expiry, quantity),  # Buy higher strike
-        ]
-        
-        return OptionStrategy(StrategyType.BEAR_CALL_SPREAD, underlying_symbol, legs)
-    
-    # ==========================================================================
-    # STRADDLES AND STRANGLES
-    # ==========================================================================
-    @staticmethod
-    def long_straddle(underlying_symbol: str,
-                     strike: float,
-                     expiry: datetime,
-                     quantity: int = 1) -> OptionStrategy:
-        """Create Long Straddle (buy call + buy put, same strike)."""
-        legs = [
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}C{strike:08.0f}", 
-                     OptionRight.CALL, strike, expiry, quantity),
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}P{strike:08.0f}", 
-                     OptionRight.PUT, strike, expiry, quantity),
-        ]
-        
-        return OptionStrategy(StrategyType.LONG_STRADDLE, underlying_symbol, legs)
-    
-    @staticmethod
-    def short_straddle(underlying_symbol: str,
-                      strike: float,
-                      expiry: datetime,
-                      quantity: int = 1) -> OptionStrategy:
-        """Create Short Straddle (sell call + sell put, same strike)."""
-        legs = [
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}C{strike:08.0f}", 
-                     OptionRight.CALL, strike, expiry, -quantity),
-            OptionLeg(f"{underlying_symbol}_{expiry.strftime('%y%m%d')}P{strike:08.0f}", 
-                     OptionRight.PUT, strike, expiry, -quantity),
-        ]
-        
-        return OptionStrategy(StrategyType.SHORT_STRADDLE, underlying_symbol, legs)
-    
-    # ==========================================================================
-    # UTILITY METHODS (LEAN-Style)
-    # ==========================================================================
-    @staticmethod
-    def validate_strategy_legs(strategy: OptionStrategy) -> bool:
-        """
-        Validate strategy legs (inspired by LEAN's position group validation).
+        Create a straddle strategy.
         
         Args:
-            strategy: Strategy to validate
+            strike: Strike price (same for call and put)
+            expiry: Expiration date
+            call_premium: Call option premium
+            put_premium: Put option premium
+            underlying_price: Current underlying price
+            position_type: "LONG" or "SHORT"
+            quantity: Number of straddles
             
         Returns:
-            True if valid, raises exception if invalid
+            OptionStrategy object
         """
-        if not strategy.legs:
-            raise ValueError("Strategy must have at least one leg")
+        pos_type = PositionType(position_type.upper())
         
-        # Check for duplicate legs
-        leg_keys = [(leg.option_right, leg.strike, leg.expiry) for leg in strategy.legs]
-        if len(leg_keys) != len(set(leg_keys)):
-            raise ValueError("Strategy contains duplicate legs")
+        legs = [
+            OptionLeg(
+                option_type=OptionType.CALL,
+                position_type=pos_type,
+                strike=strike,
+                expiry=expiry,
+                premium=call_premium,
+                quantity=quantity
+            ),
+            OptionLeg(
+                option_type=OptionType.PUT,
+                position_type=pos_type,
+                strike=strike,
+                expiry=expiry,
+                premium=put_premium,
+                quantity=quantity
+            )
+        ]
         
-        # Strategy-specific validations
-        if strategy.strategy_type == StrategyType.IRON_CONDOR:
-            SpyderOptionStrategies._validate_iron_condor(strategy)
-        elif strategy.strategy_type in [StrategyType.PUT_CALENDAR_SPREAD, StrategyType.CALL_CALENDAR_SPREAD]:
-            SpyderOptionStrategies._validate_calendar_spread(strategy)
+        strategy = OptionStrategy(
+            name=f"{position_type.title()} Straddle {strike}",
+            strategy_type=StrategyType.STRADDLE,
+            legs=legs,
+            underlying_price=underlying_price
+        )
         
-        return True
+        # Calculate key metrics
+        self._calculate_straddle_metrics(strategy)
+        
+        return strategy
     
-    @staticmethod
-    def _validate_iron_condor(strategy: OptionStrategy):
-        """Validate Iron Condor specific requirements"""
-        if len(strategy.legs) != 4:
-            raise ValueError("Iron Condor must have exactly 4 legs")
-        
-        puts = [leg for leg in strategy.legs if leg.option_right == OptionRight.PUT]
-        calls = [leg for leg in strategy.legs if leg.option_right == OptionRight.CALL]
-        
-        if len(puts) != 2 or len(calls) != 2:
-            raise ValueError("Iron Condor must have 2 puts and 2 calls")
-        
-        # Check quantities (should be +1, -1, -1, +1 pattern)
-        quantities = sorted([leg.quantity for leg in strategy.legs])
-        expected = [-1, -1, 1, 1]  # For quantity=1
-        if quantities != expected:
-            raise ValueError(f"Iron Condor quantities invalid. Expected pattern: {expected}, got: {quantities}")
+    # ==========================================================================
+    # RISK ANALYSIS
+    # ==========================================================================
+    def calculate_max_profit(self, strategy: OptionStrategy) -> float:
+        """Calculate maximum profit for a strategy"""
+        try:
+            payoff_result = self.get_payoff_diagram(strategy)
+            return payoff_result.max_profit
+        except Exception as e:
+            self.logger.error(f"Error calculating max profit: {str(e)}")
+            return 0.0
     
-    @staticmethod
-    def _validate_calendar_spread(strategy: OptionStrategy):
-        """Validate Calendar Spread specific requirements"""
-        if len(strategy.legs) != 2:
-            raise ValueError("Calendar Spread must have exactly 2 legs")
-        
-        leg1, leg2 = strategy.legs
-        
-        # Same strike, same option type, different expiries
-        if leg1.strike != leg2.strike:
-            raise ValueError("Calendar Spread legs must have same strike")
-        
-        if leg1.option_right != leg2.option_right:
-            raise ValueError("Calendar Spread legs must be same option type")
-        
-        if leg1.expiry == leg2.expiry:
-            raise ValueError("Calendar Spread legs must have different expiries")
-        
-        # One leg should be short, one long
-        quantities = [leg1.quantity, leg2.quantity]
-        if not (quantities[0] * quantities[1] < 0):  # Opposite signs
-            raise ValueError("Calendar Spread must have one long and one short leg")
+    def calculate_max_loss(self, strategy: OptionStrategy) -> float:
+        """Calculate maximum loss for a strategy"""
+        try:
+            payoff_result = self.get_payoff_diagram(strategy)
+            return payoff_result.max_loss
+        except Exception as e:
+            self.logger.error(f"Error calculating max loss: {str(e)}")
+            return 0.0
     
-    @staticmethod
-    def get_strategy_summary(strategy: OptionStrategy) -> Dict[str, Any]:
-        """Get comprehensive strategy summary (LEAN-style)"""
-        return {
-            'strategy_type': strategy.strategy_type.value,
-            'strategy_id': strategy.strategy_id,
-            'underlying_symbol': strategy.underlying_symbol,
-            'leg_count': len(strategy.legs),
-            'total_quantity': strategy.total_quantity,
-            'is_net_long': strategy.is_net_long,
-            'is_net_short': strategy.is_net_short,
-            'is_net_neutral': strategy.is_net_neutral,
-            'created_at': strategy.created_at,
-            'legs': [
-                {
-                    'symbol': leg.symbol,
-                    'option_right': leg.option_right.value,
-                    'strike': leg.strike,
-                    'expiry': leg.expiry.strftime('%Y-%m-%d'),
-                    'quantity': leg.quantity,
-                    'side': 'LONG' if leg.is_long else 'SHORT'
-                }
-                for leg in strategy.legs
-            ]
-        }
+    def calculate_breakeven_points(self, strategy: OptionStrategy) -> List[float]:
+        """Calculate breakeven points for a strategy"""
+        try:
+            payoff_result = self.get_payoff_diagram(strategy)
+            return payoff_result.breakeven_points
+        except Exception as e:
+            self.logger.error(f"Error calculating breakeven points: {str(e)}")
+            return []
+    
+    def calculate_profit_probability(self, strategy: OptionStrategy,
+                                   expected_move: float, 
+                                   time_to_expiry: float) -> float:
+        """
+        Calculate probability of profit (simplified model).
+        
+        Args:
+            strategy: OptionStrategy object
+            expected_move: Expected price movement (percentage)
+            time_to_expiry: Time to expiration in days
+            
+        Returns:
+            Probability of profit (0-1)
+        """
+        try:
+            breakeven_points = self.calculate_breakeven_points(strategy)
+            if not breakeven_points:
+                return 0.0
+            
+            current_price = strategy.underlying_price
+            
+            # Simple normal distribution approximation
+            std_dev = expected_move * current_price * math.sqrt(time_to_expiry / 365.25)
+            
+            # Calculate probability based on breakeven points
+            # This is a simplified calculation
+            if len(breakeven_points) == 1:
+                # Single breakeven (directional strategy)
+                be_point = breakeven_points[0]
+                if strategy.is_credit_strategy:
+                    # Profit if price stays between breakevens or outside for credit spreads
+                    z_score = abs(be_point - current_price) / std_dev if std_dev > 0 else 0
+                    prob = 1 - 2 * (1 - self._normal_cdf(z_score))
+                else:
+                    # Profit if price moves beyond breakeven
+                    z_score = abs(be_point - current_price) / std_dev if std_dev > 0 else 0
+                    prob = 2 * (1 - self._normal_cdf(z_score))
+            else:
+                # Multiple breakevens (e.g., iron condor, straddle)
+                be_min, be_max = min(breakeven_points), max(breakeven_points)
+                
+                if strategy.is_credit_strategy:
+                    # Profit if price stays between breakevens
+                    z1 = (be_min - current_price) / std_dev if std_dev > 0 else 0
+                    z2 = (be_max - current_price) / std_dev if std_dev > 0 else 0
+                    prob = self._normal_cdf(z2) - self._normal_cdf(z1)
+                else:
+                    # Profit if price moves outside breakevens
+                    z1 = (be_min - current_price) / std_dev if std_dev > 0 else 0
+                    z2 = (be_max - current_price) / std_dev if std_dev > 0 else 0
+                    prob = 1 - (self._normal_cdf(z2) - self._normal_cdf(z1))
+            
+            return max(0.0, min(1.0, prob))
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating profit probability: {str(e)}")
+            return 0.0
+    
+    # ==========================================================================
+    # PRIVATE HELPER METHODS
+    # ==========================================================================
+    def _find_breakeven_points(self, prices: np.ndarray, payoffs: np.ndarray) -> List[float]:
+        """Find breakeven points where payoff crosses zero"""
+        breakevens = []
+        
+        for i in range(len(payoffs) - 1):
+            if (payoffs[i] <= 0 and payoffs[i+1] > 0) or (payoffs[i] >= 0 and payoffs[i+1] < 0):
+                # Linear interpolation to find exact crossover point
+                if payoffs[i+1] != payoffs[i]:
+                    x = prices[i] + (prices[i+1] - prices[i]) * (-payoffs[i] / (payoffs[i+1] - payoffs[i]))
+                    breakevens.append(round(x, 2))
+        
+        return breakevens
+    
+    def _calculate_spread_metrics(self, strategy: OptionStrategy) -> None:
+        """Calculate metrics for spread strategies"""
+        net_premium = strategy.net_premium
+        strikes = [leg.strike for leg in strategy.legs]
+        strike_diff = abs(max(strikes) - min(strikes)) * CONTRACT_MULTIPLIER
+        
+        if strategy.is_debit_strategy:
+            strategy.max_loss = abs(net_premium)
+            strategy.max_profit = strike_diff - abs(net_premium)
+        else:
+            strategy.max_profit = net_premium
+            strategy.max_loss = strike_diff - net_premium
+    
+    def _calculate_condor_metrics(self, strategy: OptionStrategy) -> None:
+        """Calculate metrics for iron condor strategies"""
+        net_premium = strategy.net_premium
+        
+        # Find wing widths
+        strikes = sorted([leg.strike for leg in strategy.legs])
+        put_wing = (strikes[1] - strikes[0]) * CONTRACT_MULTIPLIER
+        call_wing = (strikes[3] - strikes[2]) * CONTRACT_MULTIPLIER
+        max_wing = max(put_wing, call_wing)
+        
+        strategy.max_profit = net_premium
+        strategy.max_loss = max_wing - net_premium
+    
+    def _calculate_straddle_metrics(self, strategy: OptionStrategy) -> None:
+        """Calculate metrics for straddle strategies"""
+        net_premium = strategy.net_premium
+        
+        if strategy.legs[0].is_long:  # Long straddle
+            strategy.max_loss = abs(net_premium)
+            strategy.max_profit = float('inf')  # Theoretically unlimited
+        else:  # Short straddle
+            strategy.max_profit = net_premium
+            strategy.max_loss = float('inf')  # Theoretically unlimited
+    
+    def _normal_cdf(self, x: float) -> float:
+        """Cumulative distribution function for standard normal distribution"""
+        return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 # ==============================================================================
-# CONVENIENCE FUNCTIONS
+# MODULE FUNCTIONS
 # ==============================================================================
-def create_spy_iron_condor(long_put: float, short_put: float, 
-                          short_call: float, long_call: float, 
-                          expiry: datetime, quantity: int = 1) -> OptionStrategy:
-    """Quick SPY Iron Condor creation"""
-    return SpyderOptionStrategies.iron_condor("SPY", long_put, short_put, short_call, long_call, expiry, quantity)
+_option_strategies: Optional[OptionStrategies] = None
 
-def create_spy_calendar_spread(strike: float, near_expiry: datetime, 
-                              far_expiry: datetime, option_type: str = "PUT") -> OptionStrategy:
-    """Quick SPY Calendar Spread creation"""
-    if option_type.upper() == "PUT":
-        return SpyderOptionStrategies.put_calendar_spread("SPY", strike, near_expiry, far_expiry)
-    else:
-        return SpyderOptionStrategies.call_calendar_spread("SPY", strike, near_expiry, far_expiry)
+def get_option_strategies() -> OptionStrategies:
+    """
+    Get singleton instance of option strategies utility.
+    
+    Returns:
+        OptionStrategies instance
+    """
+    global _option_strategies
+    if _option_strategies is None:
+        _option_strategies = OptionStrategies()
+    return _option_strategies
+
+def calculate_option_payoff(option_type: str, position_type: str, strike: float,
+                          premium: float, spot_price: Union[float, np.ndarray],
+                          quantity: int = 1) -> Union[float, np.ndarray]:
+    """
+    Quick option payoff calculation.
+    
+    Args:
+        option_type: "CALL" or "PUT"
+        position_type: "LONG" or "SHORT"
+        strike: Strike price
+        premium: Option premium
+        spot_price: Underlying price at expiration
+        quantity: Number of contracts
+        
+    Returns:
+        Option payoff
+    """
+    strategies = get_option_strategies()
+    return strategies.calculate_option_payoff(
+        option_type, position_type, strike, premium, spot_price, quantity
+    )
 
 # ==============================================================================
-# MAIN EXECUTION
+# MODULE INITIALIZATION
 # ==============================================================================
 if __name__ == "__main__":
-    # Test LEAN-inspired options strategies
-    from datetime import datetime, timedelta
+    # Test option strategies
+    print("Testing Option Strategies...")
     
-    print("Testing LEAN-inspired Options Strategies:")
-    print("=" * 50)
+    strategies = get_option_strategies()
     
+    # Test individual option payoff
+    print(f"\n✅ Testing individual option payoff...")
+    spot_prices = np.array([450, 455, 460, 465, 470])
+    call_payoffs = calculate_option_payoff("CALL", "LONG", 460, 5.0, spot_prices)
+    put_payoffs = calculate_option_payoff("PUT", "LONG", 460, 5.0, spot_prices)
+    
+    print(f"   Spot prices: {spot_prices}")
+    print(f"   Long 460 Call payoffs: {call_payoffs}")
+    print(f"   Long 460 Put payoffs: {put_payoffs}")
+    
+    # Test bull call spread
+    print(f"\n✅ Testing bull call spread...")
     expiry = datetime.now() + timedelta(days=30)
-    near_expiry = datetime.now() + timedelta(days=7)
+    bull_call = strategies.create_bull_call_spread(
+        long_strike=450,
+        short_strike=460,
+        expiry=expiry,
+        long_premium=8.0,
+        short_premium=3.0,
+        underlying_price=455
+    )
     
-    # Test Iron Condor
-    ic = SpyderOptionStrategies.iron_condor("SPY", 580, 590, 610, 620, expiry)
-    print(f"Iron Condor: {ic.strategy_type.value}")
-    print(f"Legs: {len(ic.legs)}")
-    print(f"Net Neutral: {ic.is_net_neutral}")
+    print(f"   Strategy: {bull_call.name}")
+    print(f"   Net premium: ${bull_call.net_premium:.2f}")
+    print(f"   Max profit: ${bull_call.max_profit:.2f}")
+    print(f"   Max loss: ${bull_call.max_loss:.2f}")
     
-    # Test Calendar Spread
-    calendar = SpyderOptionStrategies.put_calendar_spread("SPY", 600, near_expiry, expiry)
-    print(f"\nPut Calendar: {calendar.strategy_type.value}")
-    print(f"Net Long: {calendar.is_net_long}")
+    # Test payoff diagram
+    print(f"\n✅ Testing payoff diagram...")
+    payoff_result = strategies.get_payoff_diagram(bull_call)
+    print(f"   Price range: ${payoff_result.spot_prices[0]:.2f} - ${payoff_result.spot_prices[-1]:.2f}")
+    print(f"   Breakeven points: {payoff_result.breakeven_points}")
     
-    # Test validation
-    try:
-        SpyderOptionStrategies.validate_strategy_legs(ic)
-        print("\n✅ Iron Condor validation passed")
-    except Exception as e:
-        print(f"\n❌ Validation failed: {e}")
+    # Test iron condor
+    print(f"\n✅ Testing iron condor...")
+    iron_condor = strategies.create_iron_condor(
+        put_long_strike=440,
+        put_short_strike=450,
+        call_short_strike=470,
+        call_long_strike=480,
+        expiry=expiry,
+        premiums=[2.0, 6.0, 6.0, 2.0],  # [long_put, short_put, short_call, long_call]
+        underlying_price=460
+    )
     
-    print("\n✅ LEAN-inspired OptionStrategies implementation ready!")
+    print(f"   Strategy: {iron_condor.name}")
+    print(f"   Net premium: ${iron_condor.net_premium:.2f}")
+    print(f"   Max profit: ${iron_condor.max_profit:.2f}")
+    print(f"   Max loss: ${iron_condor.max_loss:.2f}")
+    
+    # Test straddle
+    print(f"\n✅ Testing long straddle...")
+    straddle = strategies.create_straddle(
+        strike=460,
+        expiry=expiry,
+        call_premium=8.0,
+        put_premium=8.0,
+        underlying_price=460,
+        position_type="LONG"
+    )
+    
+    print(f"   Strategy: {straddle.name}")
+    print(f"   Net premium: ${straddle.net_premium:.2f}")
+    print(f"   Max loss: ${straddle.max_loss:.2f}")
+    
+    # Test profit probability
+    print(f"\n✅ Testing profit probability...")
+    prob = strategies.calculate_profit_probability(bull_call, 0.15, 30)  # 15% expected move, 30 days
+    print(f"   Bull call spread profit probability: {prob:.2%}")
+    
+    print("\n✅ Option strategies test completed!")

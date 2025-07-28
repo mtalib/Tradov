@@ -5,1246 +5,941 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderU19_InteractionMatrix.py
 Group: U (Utilities)
-Purpose: Generate module interaction matrices and heatmaps
+Purpose: Module interaction matrix and communication analysis
 
 Description:
-    This module creates comprehensive interaction matrices showing dependencies
-    between Spyder module groups. It generates visual heatmaps, statistical
-    analyses, and identifies architectural patterns. The tool helps visualize
-    the coupling between different parts of the system and identify potential
-    refactoring opportunities.
-
-Usage Instructions:
-    1. Basic interaction matrix:
-       generator = InteractionMatrixGenerator('/path/to/spyder')
-       matrix = generator.generate_interaction_matrix()
-    
-    2. Create heatmap visualization:
-       generator.create_heatmap('interaction_heatmap.png')
-    
-    3. Analyze coupling metrics:
-       metrics = generator.analyze_coupling_metrics()
-    
-    4. Find highly coupled modules:
-       coupled = generator.find_highly_coupled_groups(threshold=0.3)
-    
-    5. Generate full report:
-       generator.generate_interaction_report('interaction_report.html')
-    
-    6. Command line usage:
-       python SpyderU19_InteractionMatrix.py --path /path/to/spyder
+    This module provides interaction matrix analysis for the Spyder trading system.
+    It tracks module interactions, communication patterns, data flow analysis,
+    and system integration health monitoring. Helps optimize system architecture
+    and identify bottlenecks in module communication.
 
 Author: Mohamed Talib
-Date: 2025-01-28
-Version: 1.0
+Date: 2025-07-18
+Version: 1.5
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import json
-import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Set, Tuple, Optional, Any
-from dataclasses import dataclass, field
-import warnings
-warnings.filterwarnings('ignore')
-
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import seaborn as sns
-from scipy.cluster import hierarchy
-from scipy.spatial.distance import squareform
-import networkx as nx
+from datetime import datetime, timedelta
+from typing import Dict, List, Set, Tuple, Optional, Any, Union
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from collections import defaultdict, deque
+import json
+import threading
+import time
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU18_DependencyAnalyzer import SpyderDependencyAnalyzer
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Module groups in order
-MODULE_GROUPS_ORDERED = [
-    'SpyderA_Core',
-    'SpyderB_Broker', 
-    'SpyderC_MarketData',
-    'SpyderD_Strategies',
-    'SpyderE_Risk',
-    'SpyderF_Analysis',
-    'SpyderG_GUI',
-    'SpyderH_Storage',
-    'SpyderI_Integration',
-    'SpyderJ_Alerts',
-    'SpyderK_Reports',
-    'SpyderL_ML',
-    'SpyderM_Monitoring',
-    'SpyderN_OptionsAnalytics',
-    'SpyderO_RiskControl',
-    'SpyderP_PortfolioMgmt',
-    'SpyderR_Runtime',
-    'SpyderT_Testing',
-    'SpyderU_Utilities',
-    'SpyderX_Agents',
-    'SpyderZ_Communication'
-]
+DEFAULT_MATRIX_SIZE = 100
+INTERACTION_TIMEOUT = 300  # 5 minutes
+MAX_HISTORY_SIZE = 10000
+UPDATE_INTERVAL = 60  # 1 minute
 
-# Group labels for display
-GROUP_LABELS = {
-    'SpyderA_Core': 'Core',
-    'SpyderB_Broker': 'Broker',
-    'SpyderC_MarketData': 'Market Data',
-    'SpyderD_Strategies': 'Strategies',
-    'SpyderE_Risk': 'Risk',
-    'SpyderF_Analysis': 'Analysis',
-    'SpyderG_GUI': 'GUI',
-    'SpyderH_Storage': 'Storage',
-    'SpyderI_Integration': 'Integration',
-    'SpyderJ_Alerts': 'Alerts',
-    'SpyderK_Reports': 'Reports',
-    'SpyderL_ML': 'ML',
-    'SpyderM_Monitoring': 'Monitoring',
-    'SpyderN_OptionsAnalytics': 'Options',
-    'SpyderO_RiskControl': 'Risk Control',
-    'SpyderP_PortfolioMgmt': 'Portfolio',
-    'SpyderR_Runtime': 'Runtime',
-    'SpyderT_Testing': 'Testing',
-    'SpyderU_Utilities': 'Utilities',
-    'SpyderX_Agents': 'AI Agents',
-    'SpyderZ_Communication': 'Communication'
-}
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+class InteractionType(Enum):
+    """Types of module interactions"""
+    FUNCTION_CALL = "function_call"
+    DATA_EXCHANGE = "data_exchange"
+    EVENT_TRIGGER = "event_trigger"
+    SUBSCRIPTION = "subscription"
+    NOTIFICATION = "notification"
+    ERROR_PROPAGATION = "error_propagation"
+    STATUS_UPDATE = "status_update"
 
-# Colormap for heatmap
-COLORMAP = 'RdYlBu_r'  # Red for high coupling, Blue for low
+class InteractionStatus(Enum):
+    """Status of interactions"""
+    SUCCESS = "success"
+    FAILURE = "failure"
+    TIMEOUT = "timeout"
+    PENDING = "pending"
+    RETRYING = "retrying"
+
+class MatrixMetric(Enum):
+    """Matrix analysis metrics"""
+    FREQUENCY = "frequency"
+    LATENCY = "latency"
+    SUCCESS_RATE = "success_rate"
+    DATA_VOLUME = "data_volume"
+    ERROR_RATE = "error_rate"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
-class CouplingMetrics:
-    """Metrics for module coupling analysis"""
-    afferent_coupling: int = 0  # Modules that depend on this module
-    efferent_coupling: int = 0  # Modules this module depends on
-    instability: float = 0.0    # Efferent / (Efferent + Afferent)
-    abstractness: float = 0.0   # Abstract classes / Total classes
-    distance_from_main: float = 0.0  # Distance from ideal line
+class Interaction:
+    """Single interaction between modules"""
+    source: str
+    target: str
+    interaction_type: InteractionType
+    timestamp: datetime
+    status: InteractionStatus = InteractionStatus.PENDING
+    latency_ms: Optional[float] = None
+    data_size: Optional[int] = None
+    error_message: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    @property
+    def is_successful(self) -> bool:
+        """Check if interaction was successful"""
+        return self.status == InteractionStatus.SUCCESS
+    
+    @property
+    def duration_ms(self) -> float:
+        """Get interaction duration in milliseconds"""
+        return self.latency_ms or 0.0
 
 @dataclass
-class InteractionAnalysis:
-    """Results of interaction analysis"""
-    matrix: pd.DataFrame
-    normalized_matrix: pd.DataFrame
-    coupling_metrics: Dict[str, CouplingMetrics]
-    highly_coupled_pairs: List[Tuple[str, str, float]]
-    architectural_issues: List[str]
-    recommendations: List[str]
+class ModuleStats:
+    """Statistics for a module's interactions"""
+    module_name: str
+    total_interactions: int = 0
+    successful_interactions: int = 0
+    failed_interactions: int = 0
+    average_latency: float = 0.0
+    total_data_sent: int = 0
+    total_data_received: int = 0
+    error_count: int = 0
+    last_activity: Optional[datetime] = None
+    
+    @property
+    def success_rate(self) -> float:
+        """Calculate success rate percentage"""
+        if self.total_interactions == 0:
+            return 0.0
+        return (self.successful_interactions / self.total_interactions) * 100
+    
+    @property
+    def error_rate(self) -> float:
+        """Calculate error rate percentage"""
+        if self.total_interactions == 0:
+            return 0.0
+        return (self.failed_interactions / self.total_interactions) * 100
+
+@dataclass
+class MatrixAnalysis:
+    """Analysis results from interaction matrix"""
+    matrix_data: np.ndarray
+    module_names: List[str]
+    metric_type: MatrixMetric
+    hotspots: List[Tuple[str, str, float]] = field(default_factory=list)
+    bottlenecks: List[str] = field(default_factory=list)
+    isolated_modules: List[str] = field(default_factory=list)
+    critical_paths: List[List[str]] = field(default_factory=list)
+    health_score: float = 0.0
+    recommendations: List[str] = field(default_factory=list)
 
 # ==============================================================================
-# INTERACTION MATRIX GENERATOR CLASS
+# INTERACTION MATRIX CLASS
 # ==============================================================================
-class InteractionMatrixGenerator:
+class InteractionMatrix:
     """
-    Generate and analyze module interaction matrices.
+    Module interaction matrix for system communication analysis.
     
-    This class creates visual and statistical analyses of dependencies
-    between Spyder module groups to understand system architecture.
+    Features:
+    - Real-time interaction tracking
+    - Communication pattern analysis
+    - Performance bottleneck identification
+    - System health monitoring
+    - Data flow visualization
+    - Module coupling analysis
     """
     
-    def __init__(self, project_root: str, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, max_modules: int = DEFAULT_MATRIX_SIZE):
         """
-        Initialize the interaction matrix generator.
+        Initialize interaction matrix.
         
         Args:
-            project_root: Root directory of the Spyder project
-            config: Optional configuration dictionary
+            max_modules: Maximum number of modules to track
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        self.project_root = Path(project_root)
-        self.config = config or {}
         
-        # Initialize dependency analyzer
-        self.dep_analyzer = SpyderDependencyAnalyzer(project_root)
+        # Configuration
+        self.max_modules = max_modules
         
-        # Data structures
-        self.interaction_matrix = None
-        self.normalized_matrix = None
-        self.coupling_metrics = {}
+        # Data storage
+        self.modules: Dict[str, int] = {}  # module_name -> index
+        self.module_names: List[str] = []
+        self.interactions: List[Interaction] = []
+        self.module_stats: Dict[str, ModuleStats] = {}
         
-        # Analysis results
-        self.dependency_data = None
-        self.module_graph = None
+        # Matrices for different metrics
+        self.frequency_matrix = np.zeros((max_modules, max_modules), dtype=int)
+        self.latency_matrix = np.zeros((max_modules, max_modules), dtype=float)
+        self.success_matrix = np.zeros((max_modules, max_modules), dtype=float)
+        self.data_volume_matrix = np.zeros((max_modules, max_modules), dtype=int)
         
-        self.logger.info(f"Interaction Matrix Generator initialized for: {project_root}")
+        # Monitoring
+        self._monitoring = False
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._lock = threading.RLock()
+        
+        # Cache for analysis results
+        self._analysis_cache: Dict[str, MatrixAnalysis] = {}
+        self._cache_timestamp = datetime.now()
+        
+        self.logger.info(f"InteractionMatrix initialized (max_modules: {max_modules})")
     
     # ==========================================================================
-    # MATRIX GENERATION
+    # PUBLIC METHODS - INTERACTION RECORDING
     # ==========================================================================
-    
-    def generate_interaction_matrix(self) -> pd.DataFrame:
+    def record_interaction(self, source: str, target: str, 
+                          interaction_type: InteractionType,
+                          status: InteractionStatus = InteractionStatus.SUCCESS,
+                          latency_ms: Optional[float] = None,
+                          data_size: Optional[int] = None,
+                          error_message: Optional[str] = None,
+                          metadata: Optional[Dict[str, Any]] = None) -> None:
         """
-        Generate the module group interaction matrix.
+        Record an interaction between modules.
+        
+        Args:
+            source: Source module name
+            target: Target module name
+            interaction_type: Type of interaction
+            status: Interaction status
+            latency_ms: Interaction latency in milliseconds
+            data_size: Size of data exchanged
+            error_message: Error message if failed
+            metadata: Additional metadata
+        """
+        try:
+            with self._lock:
+                # Ensure modules are registered
+                self._register_module(source)
+                self._register_module(target)
+                
+                # Create interaction record
+                interaction = Interaction(
+                    source=source,
+                    target=target,
+                    interaction_type=interaction_type,
+                    timestamp=datetime.now(),
+                    status=status,
+                    latency_ms=latency_ms,
+                    data_size=data_size,
+                    error_message=error_message,
+                    metadata=metadata or {}
+                )
+                
+                # Store interaction
+                self.interactions.append(interaction)
+                
+                # Limit history size
+                if len(self.interactions) > MAX_HISTORY_SIZE:
+                    self.interactions = self.interactions[-MAX_HISTORY_SIZE:]
+                
+                # Update matrices
+                self._update_matrices(interaction)
+                
+                # Update module statistics
+                self._update_module_stats(interaction)
+                
+                # Invalidate cache
+                self._invalidate_cache()
+                
+        except Exception as e:
+            self.logger.error(f"Error recording interaction: {str(e)}")
+    
+    def start_interaction(self, source: str, target: str,
+                         interaction_type: InteractionType,
+                         metadata: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Start tracking an interaction (returns interaction ID for completion).
+        
+        Args:
+            source: Source module name
+            target: Target module name
+            interaction_type: Type of interaction
+            metadata: Additional metadata
+            
+        Returns:
+            Interaction ID for completion tracking
+        """
+        try:
+            interaction_id = f"{source}->{target}:{datetime.now().timestamp()}"
+            
+            # Record as pending
+            self.record_interaction(
+                source=source,
+                target=target,
+                interaction_type=interaction_type,
+                status=InteractionStatus.PENDING,
+                metadata=metadata
+            )
+            
+            return interaction_id
+            
+        except Exception as e:
+            self.logger.error(f"Error starting interaction: {str(e)}")
+            return ""
+    
+    def complete_interaction(self, interaction_id: str,
+                           status: InteractionStatus = InteractionStatus.SUCCESS,
+                           latency_ms: Optional[float] = None,
+                           data_size: Optional[int] = None,
+                           error_message: Optional[str] = None) -> None:
+        """
+        Complete a tracked interaction.
+        
+        Args:
+            interaction_id: Interaction ID from start_interaction
+            status: Final status
+            latency_ms: Measured latency
+            data_size: Data size exchanged
+            error_message: Error message if failed
+        """
+        try:
+            # For simplicity, just record the completion
+            # In a full implementation, you'd track pending interactions
+            self.logger.debug(f"Completed interaction {interaction_id} with status {status.value}")
+            
+        except Exception as e:
+            self.logger.error(f"Error completing interaction: {str(e)}")
+    
+    # ==========================================================================
+    # PUBLIC METHODS - ANALYSIS
+    # ==========================================================================
+    def analyze_matrix(self, metric: MatrixMetric = MatrixMetric.FREQUENCY,
+                      time_window: Optional[timedelta] = None) -> MatrixAnalysis:
+        """
+        Analyze the interaction matrix for patterns and insights.
+        
+        Args:
+            metric: Metric to analyze
+            time_window: Optional time window for analysis
+            
+        Returns:
+            MatrixAnalysis object with results
+        """
+        try:
+            cache_key = f"{metric.value}_{time_window}"
+            
+            # Check cache
+            if (cache_key in self._analysis_cache and 
+                datetime.now() - self._cache_timestamp < timedelta(minutes=5)):
+                return self._analysis_cache[cache_key]
+            
+            with self._lock:
+                # Filter interactions by time window if specified
+                filtered_interactions = self.interactions
+                if time_window:
+                    cutoff_time = datetime.now() - time_window
+                    filtered_interactions = [
+                        i for i in self.interactions 
+                        if i.timestamp >= cutoff_time
+                    ]
+                
+                # Get matrix data based on metric
+                if metric == MatrixMetric.FREQUENCY:
+                    matrix_data = self._calculate_frequency_matrix(filtered_interactions)
+                elif metric == MatrixMetric.LATENCY:
+                    matrix_data = self._calculate_latency_matrix(filtered_interactions)
+                elif metric == MatrixMetric.SUCCESS_RATE:
+                    matrix_data = self._calculate_success_rate_matrix(filtered_interactions)
+                elif metric == MatrixMetric.DATA_VOLUME:
+                    matrix_data = self._calculate_data_volume_matrix(filtered_interactions)
+                else:
+                    matrix_data = self.frequency_matrix[:len(self.module_names), :len(self.module_names)]
+                
+                # Perform analysis
+                analysis = self._perform_matrix_analysis(matrix_data, metric)
+                
+                # Cache result
+                self._analysis_cache[cache_key] = analysis
+                
+                return analysis
+                
+        except Exception as e:
+            self.logger.error(f"Error analyzing matrix: {str(e)}")
+            return MatrixAnalysis(
+                matrix_data=np.zeros((1, 1)),
+                module_names=[],
+                metric_type=metric
+            )
+    
+    def get_module_statistics(self, module_name: Optional[str] = None) -> Union[ModuleStats, Dict[str, ModuleStats]]:
+        """
+        Get statistics for a module or all modules.
+        
+        Args:
+            module_name: Specific module name (None for all)
+            
+        Returns:
+            ModuleStats or dictionary of all stats
+        """
+        try:
+            with self._lock:
+                if module_name:
+                    return self.module_stats.get(module_name, ModuleStats(module_name))
+                else:
+                    return self.module_stats.copy()
+                    
+        except Exception as e:
+            self.logger.error(f"Error getting module statistics: {str(e)}")
+            if module_name:
+                return ModuleStats(module_name)
+            else:
+                return {}
+    
+    def get_interaction_history(self, source: Optional[str] = None,
+                               target: Optional[str] = None,
+                               limit: int = 100) -> List[Interaction]:
+        """
+        Get interaction history with optional filtering.
+        
+        Args:
+            source: Filter by source module
+            target: Filter by target module
+            limit: Maximum number of interactions to return
+            
+        Returns:
+            List of filtered interactions
+        """
+        try:
+            with self._lock:
+                filtered = self.interactions
+                
+                if source:
+                    filtered = [i for i in filtered if i.source == source]
+                
+                if target:
+                    filtered = [i for i in filtered if i.target == target]
+                
+                # Sort by timestamp (most recent first) and limit
+                filtered.sort(key=lambda x: x.timestamp, reverse=True)
+                return filtered[:limit]
+                
+        except Exception as e:
+            self.logger.error(f"Error getting interaction history: {str(e)}")
+            return []
+    
+    def identify_hotspots(self, metric: MatrixMetric = MatrixMetric.FREQUENCY,
+                         top_n: int = 10) -> List[Tuple[str, str, float]]:
+        """
+        Identify interaction hotspots (high activity pairs).
+        
+        Args:
+            metric: Metric to analyze
+            top_n: Number of top hotspots to return
+            
+        Returns:
+            List of (source, target, value) tuples
+        """
+        try:
+            analysis = self.analyze_matrix(metric)
+            return analysis.hotspots[:top_n]
+            
+        except Exception as e:
+            self.logger.error(f"Error identifying hotspots: {str(e)}")
+            return []
+    
+    def detect_bottlenecks(self) -> List[str]:
+        """
+        Detect potential bottleneck modules.
         
         Returns:
-            DataFrame with interaction counts between module groups
-            
-        Usage:
-            matrix = generator.generate_interaction_matrix()
-            print(matrix)
+            List of module names that may be bottlenecks
         """
-        self.logger.info("Generating interaction matrix...")
-        
-        # First, generate dependency map
-        self.dependency_data = self.dep_analyzer.generate_dependency_map()
-        
-        # Initialize matrix
-        matrix = pd.DataFrame(
-            0,
-            index=MODULE_GROUPS_ORDERED,
-            columns=MODULE_GROUPS_ORDERED
-        )
-        
-        # Count dependencies between groups
-        for module_name, module_info in self.dependency_data['modules'].items():
-            source_group = module_info.group
+        try:
+            bottlenecks = []
             
-            for dep in module_info.dependencies:
-                # Resolve dependency to module
-                target_module = self.dep_analyzer._resolve_dependency(dep)
-                
-                if target_module and target_module in self.dependency_data['modules']:
-                    target_group = self.dependency_data['modules'][target_module].group
+            with self._lock:
+                for module_name, stats in self.module_stats.items():
+                    # High interaction volume with high latency
+                    if (stats.total_interactions > 100 and 
+                        stats.average_latency > 1000):  # > 1 second
+                        bottlenecks.append(module_name)
                     
-                    # Increment matrix
-                    if source_group in matrix.index and target_group in matrix.columns:
-                        matrix.loc[source_group, target_group] += 1
+                    # High error rate
+                    elif stats.error_rate > 10:  # > 10% error rate
+                        bottlenecks.append(module_name)
+            
+            return bottlenecks
+            
+        except Exception as e:
+            self.logger.error(f"Error detecting bottlenecks: {str(e)}")
+            return []
+    
+    # ==========================================================================
+    # PUBLIC METHODS - MONITORING
+    # ==========================================================================
+    def start_monitoring(self, update_interval: int = UPDATE_INTERVAL) -> None:
+        """
+        Start continuous monitoring and analysis.
         
-        self.interaction_matrix = matrix
+        Args:
+            update_interval: Update interval in seconds
+        """
+        try:
+            if self._monitoring:
+                self.logger.warning("Monitoring already active")
+                return
+            
+            self._monitoring = True
+            self._monitor_thread = threading.Thread(
+                target=self._monitor_loop,
+                args=(update_interval,),
+                daemon=True
+            )
+            self._monitor_thread.start()
+            
+            self.logger.info(f"Interaction monitoring started (interval: {update_interval}s)")
+            
+        except Exception as e:
+            self.logger.error(f"Error starting monitoring: {str(e)}")
+    
+    def stop_monitoring(self) -> None:
+        """Stop continuous monitoring."""
+        try:
+            self._monitoring = False
+            self.logger.info("Interaction monitoring stopped")
+            
+        except Exception as e:
+            self.logger.error(f"Error stopping monitoring: {str(e)}")
+    
+    def get_system_health(self) -> Dict[str, Any]:
+        """
+        Get overall system interaction health metrics.
         
-        # Calculate normalized matrix
-        self._calculate_normalized_matrix()
+        Returns:
+            Dictionary with health metrics
+        """
+        try:
+            with self._lock:
+                total_interactions = len(self.interactions)
+                if total_interactions == 0:
+                    return {
+                        'health_score': 100.0,
+                        'total_interactions': 0,
+                        'active_modules': 0,
+                        'average_latency': 0.0,
+                        'error_rate': 0.0,
+                        'status': 'idle'
+                    }
+                
+                # Calculate metrics
+                successful = sum(1 for i in self.interactions if i.is_successful)
+                success_rate = (successful / total_interactions) * 100
+                
+                latencies = [i.latency_ms for i in self.interactions if i.latency_ms is not None]
+                avg_latency = np.mean(latencies) if latencies else 0.0
+                
+                error_rate = 100 - success_rate
+                
+                # Calculate health score
+                health_score = 100.0
+                health_score -= error_rate * 0.5  # Penalize errors
+                health_score -= min(avg_latency / 100, 20)  # Penalize high latency
+                health_score = max(0.0, min(100.0, health_score))
+                
+                # Determine status
+                if health_score >= 90:
+                    status = 'excellent'
+                elif health_score >= 75:
+                    status = 'good'
+                elif health_score >= 50:
+                    status = 'fair'
+                else:
+                    status = 'poor'
+                
+                return {
+                    'health_score': health_score,
+                    'total_interactions': total_interactions,
+                    'active_modules': len(self.module_stats),
+                    'success_rate': success_rate,
+                    'average_latency': avg_latency,
+                    'error_rate': error_rate,
+                    'status': status
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error getting system health: {str(e)}")
+            return {'health_score': 0.0, 'status': 'error'}
+    
+    # ==========================================================================
+    # PRIVATE METHODS
+    # ==========================================================================
+    def _register_module(self, module_name: str) -> None:
+        """Register a module in the matrix"""
+        if module_name not in self.modules:
+            if len(self.module_names) >= self.max_modules:
+                self.logger.warning(f"Maximum modules reached ({self.max_modules})")
+                return
+            
+            index = len(self.module_names)
+            self.modules[module_name] = index
+            self.module_names.append(module_name)
+            self.module_stats[module_name] = ModuleStats(module_name)
+            
+            self.logger.debug(f"Registered module: {module_name} (index: {index})")
+    
+    def _update_matrices(self, interaction: Interaction) -> None:
+        """Update the interaction matrices"""
+        try:
+            source_idx = self.modules.get(interaction.source)
+            target_idx = self.modules.get(interaction.target)
+            
+            if source_idx is None or target_idx is None:
+                return
+            
+            # Update frequency matrix
+            self.frequency_matrix[source_idx, target_idx] += 1
+            
+            # Update latency matrix
+            if interaction.latency_ms is not None:
+                current_count = self.frequency_matrix[source_idx, target_idx]
+                current_avg = self.latency_matrix[source_idx, target_idx]
+                
+                # Running average
+                new_avg = ((current_avg * (current_count - 1)) + interaction.latency_ms) / current_count
+                self.latency_matrix[source_idx, target_idx] = new_avg
+            
+            # Update success matrix
+            if interaction.is_successful:
+                success_count = self.success_matrix[source_idx, target_idx]
+                total_count = self.frequency_matrix[source_idx, target_idx]
+                self.success_matrix[source_idx, target_idx] = ((success_count * (total_count - 1)) + 1) / total_count
+            else:
+                success_count = self.success_matrix[source_idx, target_idx]
+                total_count = self.frequency_matrix[source_idx, target_idx]
+                self.success_matrix[source_idx, target_idx] = (success_count * (total_count - 1)) / total_count
+            
+            # Update data volume matrix
+            if interaction.data_size is not None:
+                self.data_volume_matrix[source_idx, target_idx] += interaction.data_size
+                
+        except Exception as e:
+            self.logger.error(f"Error updating matrices: {str(e)}")
+    
+    def _update_module_stats(self, interaction: Interaction) -> None:
+        """Update module statistics"""
+        try:
+            # Update source stats
+            source_stats = self.module_stats[interaction.source]
+            source_stats.total_interactions += 1
+            if interaction.is_successful:
+                source_stats.successful_interactions += 1
+            else:
+                source_stats.failed_interactions += 1
+                source_stats.error_count += 1
+            
+            if interaction.latency_ms is not None:
+                # Running average
+                total = source_stats.total_interactions
+                current_avg = source_stats.average_latency
+                source_stats.average_latency = ((current_avg * (total - 1)) + interaction.latency_ms) / total
+            
+            if interaction.data_size is not None:
+                source_stats.total_data_sent += interaction.data_size
+            
+            source_stats.last_activity = interaction.timestamp
+            
+            # Update target stats
+            target_stats = self.module_stats[interaction.target]
+            if interaction.data_size is not None:
+                target_stats.total_data_received += interaction.data_size
+            target_stats.last_activity = interaction.timestamp
+            
+        except Exception as e:
+            self.logger.error(f"Error updating module stats: {str(e)}")
+    
+    def _calculate_frequency_matrix(self, interactions: List[Interaction]) -> np.ndarray:
+        """Calculate frequency matrix from interactions"""
+        matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
         
-        # Calculate coupling metrics
-        self._calculate_coupling_metrics()
-        
-        self.logger.info(f"Interaction matrix generated: {matrix.shape}")
+        for interaction in interactions:
+            source_idx = self.modules.get(interaction.source)
+            target_idx = self.modules.get(interaction.target)
+            
+            if source_idx is not None and target_idx is not None:
+                matrix[source_idx, target_idx] += 1
         
         return matrix
     
-    def _calculate_normalized_matrix(self):
-        """Calculate normalized interaction matrix"""
-        if self.interaction_matrix is None:
-            return
+    def _calculate_latency_matrix(self, interactions: List[Interaction]) -> np.ndarray:
+        """Calculate average latency matrix from interactions"""
+        matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=float)
+        count_matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
         
-        # Normalize by total modules in each group
-        module_counts = {}
-        for group in MODULE_GROUPS_ORDERED:
-            count = len(self.dep_analyzer.module_groups.get(group, []))
-            module_counts[group] = max(count, 1)  # Avoid division by zero
+        for interaction in interactions:
+            if interaction.latency_ms is None:
+                continue
+                
+            source_idx = self.modules.get(interaction.source)
+            target_idx = self.modules.get(interaction.target)
+            
+            if source_idx is not None and target_idx is not None:
+                matrix[source_idx, target_idx] += interaction.latency_ms
+                count_matrix[source_idx, target_idx] += 1
         
-        # Create normalized matrix
-        self.normalized_matrix = pd.DataFrame(
-            index=self.interaction_matrix.index,
-            columns=self.interaction_matrix.columns
-        )
+        # Calculate averages
+        with np.errstate(divide='ignore', invalid='ignore'):
+            matrix = np.divide(matrix, count_matrix, out=np.zeros_like(matrix), where=count_matrix!=0)
         
-        for source in self.interaction_matrix.index:
-            for target in self.interaction_matrix.columns:
-                value = self.interaction_matrix.loc[source, target]
-                normalized = value / module_counts[source]
-                self.normalized_matrix.loc[source, target] = normalized
+        return matrix
     
-    def _calculate_coupling_metrics(self):
-        """Calculate coupling metrics for each module group"""
-        for group in MODULE_GROUPS_ORDERED:
-            metrics = CouplingMetrics()
+    def _calculate_success_rate_matrix(self, interactions: List[Interaction]) -> np.ndarray:
+        """Calculate success rate matrix from interactions"""
+        success_matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
+        total_matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
+        
+        for interaction in interactions:
+            source_idx = self.modules.get(interaction.source)
+            target_idx = self.modules.get(interaction.target)
             
-            # Afferent coupling (incoming dependencies)
-            metrics.afferent_coupling = self.interaction_matrix[group].sum()
-            
-            # Efferent coupling (outgoing dependencies)
-            metrics.efferent_coupling = self.interaction_matrix.loc[group].sum()
-            
-            # Instability
-            total = metrics.afferent_coupling + metrics.efferent_coupling
-            if total > 0:
-                metrics.instability = metrics.efferent_coupling / total
-            
-            # Store metrics
-            self.coupling_metrics[group] = metrics
+            if source_idx is not None and target_idx is not None:
+                total_matrix[source_idx, target_idx] += 1
+                if interaction.is_successful:
+                    success_matrix[source_idx, target_idx] += 1
+        
+        # Calculate success rates
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rate_matrix = np.divide(success_matrix, total_matrix, out=np.zeros_like(success_matrix, dtype=float), where=total_matrix!=0)
+        
+        return rate_matrix * 100  # Convert to percentage
     
-    # ==========================================================================
-    # VISUALIZATION
-    # ==========================================================================
+    def _calculate_data_volume_matrix(self, interactions: List[Interaction]) -> np.ndarray:
+        """Calculate data volume matrix from interactions"""
+        matrix = np.zeros((len(self.module_names), len(self.module_names)), dtype=int)
+        
+        for interaction in interactions:
+            if interaction.data_size is None:
+                continue
+                
+            source_idx = self.modules.get(interaction.source)
+            target_idx = self.modules.get(interaction.target)
+            
+            if source_idx is not None and target_idx is not None:
+                matrix[source_idx, target_idx] += interaction.data_size
+        
+        return matrix
     
-    def create_heatmap(self, output_file: str = 'interaction_heatmap.png',
-                      figsize: Tuple[int, int] = (12, 10),
-                      annotate: bool = True) -> str:
-        """
-        Create heatmap visualization of the interaction matrix.
-        
-        Args:
-            output_file: Output filename
-            figsize: Figure size tuple
-            annotate: Whether to annotate cells with values
+    def _perform_matrix_analysis(self, matrix_data: np.ndarray, metric: MatrixMetric) -> MatrixAnalysis:
+        """Perform comprehensive analysis on matrix data"""
+        try:
+            # Find hotspots (high values)
+            hotspots = []
+            flat_indices = np.argsort(matrix_data.flatten())[::-1]  # Descending order
             
-        Returns:
-            Path to saved figure
+            for idx in flat_indices[:20]:  # Top 20
+                row, col = np.unravel_index(idx, matrix_data.shape)
+                value = matrix_data[row, col]
+                
+                if value > 0 and row < len(self.module_names) and col < len(self.module_names):
+                    hotspots.append((self.module_names[row], self.module_names[col], float(value)))
             
-        Usage:
-            path = generator.create_heatmap('my_heatmap.png', figsize=(15, 12))
-        """
-        if self.interaction_matrix is None:
-            self.generate_interaction_matrix()
-        
-        plt.figure(figsize=figsize)
-        
-        # Use normalized matrix for better visualization
-        matrix_to_plot = self.normalized_matrix
-        
-        # Create custom labels
-        labels = [GROUP_LABELS.get(g, g) for g in MODULE_GROUPS_ORDERED]
-        
-        # Create heatmap
-        mask = matrix_to_plot == 0  # Mask zero values
-        
-        sns.heatmap(
-            matrix_to_plot,
-            annot=annotate,
-            fmt='.2f',
-            cmap=COLORMAP,
-            center=0,
-            square=True,
-            linewidths=0.5,
-            cbar_kws={"shrink": 0.8, "label": "Normalized Dependencies"},
-            mask=mask,
-            xticklabels=labels,
-            yticklabels=labels
-        )
-        
-        plt.title('Spyder Module Group Interaction Matrix', fontsize=16, pad=20)
-        plt.xlabel('Target Module Group', fontsize=12)
-        plt.ylabel('Source Module Group', fontsize=12)
-        
-        # Rotate labels
-        plt.xticks(rotation=45, ha='right')
-        plt.yticks(rotation=0)
-        
-        # Add grid
-        plt.grid(True, alpha=0.3)
-        
-        # Tight layout
-        plt.tight_layout()
-        
-        # Save figure
-        output_path = self.project_root / output_file
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        self.logger.info(f"Heatmap saved to: {output_path}")
-        return str(output_path)
+            # Find bottlenecks (modules with high outgoing traffic)
+            outgoing_sums = np.sum(matrix_data, axis=1)
+            bottleneck_indices = np.argsort(outgoing_sums)[::-1][:5]  # Top 5
+            bottlenecks = [self.module_names[i] for i in bottleneck_indices 
+                          if i < len(self.module_names) and outgoing_sums[i] > 0]
+            
+            # Find isolated modules (no interactions)
+            row_sums = np.sum(matrix_data, axis=1)
+            col_sums = np.sum(matrix_data, axis=0)
+            isolated_indices = np.where((row_sums == 0) & (col_sums == 0))[0]
+            isolated_modules = [self.module_names[i] for i in isolated_indices 
+                              if i < len(self.module_names)]
+            
+            # Calculate health score
+            total_interactions = np.sum(matrix_data)
+            non_zero_count = np.count_nonzero(matrix_data)
+            connectivity = non_zero_count / (len(self.module_names) ** 2) if len(self.module_names) > 0 else 0
+            
+            health_score = connectivity * 100
+            if metric == MatrixMetric.SUCCESS_RATE:
+                avg_success_rate = np.mean(matrix_data[matrix_data > 0]) if non_zero_count > 0 else 100
+                health_score = avg_success_rate
+            elif metric == MatrixMetric.LATENCY:
+                avg_latency = np.mean(matrix_data[matrix_data > 0]) if non_zero_count > 0 else 0
+                health_score = max(0, 100 - (avg_latency / 10))  # Penalize high latency
+            
+            # Generate recommendations
+            recommendations = self._generate_matrix_recommendations(
+                matrix_data, metric, hotspots, bottlenecks, isolated_modules
+            )
+            
+            return MatrixAnalysis(
+                matrix_data=matrix_data,
+                module_names=self.module_names.copy(),
+                metric_type=metric,
+                hotspots=hotspots,
+                bottlenecks=bottlenecks,
+                isolated_modules=isolated_modules,
+                health_score=health_score,
+                recommendations=recommendations
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error performing matrix analysis: {str(e)}")
+            return MatrixAnalysis(
+                matrix_data=matrix_data,
+                module_names=self.module_names.copy(),
+                metric_type=metric
+            )
     
-    def create_clustered_heatmap(self, output_file: str = 'clustered_heatmap.png',
-                               figsize: Tuple[int, int] = (14, 12)) -> str:
-        """
-        Create clustered heatmap using hierarchical clustering.
-        
-        Args:
-            output_file: Output filename
-            figsize: Figure size tuple
-            
-        Returns:
-            Path to saved figure
-            
-        Usage:
-            path = generator.create_clustered_heatmap()
-        """
-        if self.interaction_matrix is None:
-            self.generate_interaction_matrix()
-        
-        # Create figure
-        fig = plt.figure(figsize=figsize)
-        
-        # Use normalized matrix
-        matrix = self.normalized_matrix.values
-        
-        # Calculate distance matrix
-        distance_matrix = squareform(1 - np.corrcoef(matrix))
-        
-        # Perform hierarchical clustering
-        linkage = hierarchy.linkage(distance_matrix, method='average')
-        
-        # Create dendrogram
-        dendro = hierarchy.dendrogram(
-            linkage,
-            no_plot=True,
-            labels=[GROUP_LABELS.get(g, g) for g in MODULE_GROUPS_ORDERED]
-        )
-        
-        # Reorder matrix based on clustering
-        reordered_idx = dendro['leaves']
-        reordered_matrix = matrix[reordered_idx][:, reordered_idx]
-        reordered_labels = [GROUP_LABELS.get(MODULE_GROUPS_ORDERED[i], MODULE_GROUPS_ORDERED[i]) 
-                           for i in reordered_idx]
-        
-        # Create clustered heatmap
-        sns.heatmap(
-            reordered_matrix,
-            annot=True,
-            fmt='.2f',
-            cmap=COLORMAP,
-            center=0,
-            square=True,
-            linewidths=0.5,
-            cbar_kws={"shrink": 0.8, "label": "Normalized Dependencies"},
-            xticklabels=reordered_labels,
-            yticklabels=reordered_labels
-        )
-        
-        plt.title('Clustered Module Interaction Matrix', fontsize=16, pad=20)
-        plt.xlabel('Target Module Group', fontsize=12)
-        plt.ylabel('Source Module Group', fontsize=12)
-        
-        # Rotate labels
-        plt.xticks(rotation=45, ha='right')
-        plt.yticks(rotation=0)
-        
-        plt.tight_layout()
-        
-        # Save figure
-        output_path = self.project_root / output_file
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        self.logger.info(f"Clustered heatmap saved to: {output_path}")
-        return str(output_path)
-    
-    def create_dependency_flow_diagram(self, output_file: str = 'dependency_flow.png',
-                                     threshold: float = 0.1) -> str:
-        """
-        Create a flow diagram showing major dependencies.
-        
-        Args:
-            output_file: Output filename
-            threshold: Minimum normalized dependency value to show
-            
-        Returns:
-            Path to saved figure
-            
-        Usage:
-            path = generator.create_dependency_flow_diagram(threshold=0.2)
-        """
-        if self.normalized_matrix is None:
-            self.generate_interaction_matrix()
-        
-        # Create directed graph
-        G = nx.DiGraph()
-        
-        # Add nodes
-        for group in MODULE_GROUPS_ORDERED:
-            if group in self.coupling_metrics:
-                metrics = self.coupling_metrics[group]
-                G.add_node(
-                    group,
-                    label=GROUP_LABELS.get(group, group),
-                    coupling=metrics.efferent_coupling + metrics.afferent_coupling
-                )
-        
-        # Add edges above threshold
-        for source in MODULE_GROUPS_ORDERED:
-            for target in MODULE_GROUPS_ORDERED:
-                if source != target:
-                    weight = self.normalized_matrix.loc[source, target]
-                    if weight >= threshold:
-                        G.add_edge(source, target, weight=weight)
-        
-        # Create layout
-        pos = nx.spring_layout(G, k=3, iterations=50)
-        
-        # Create figure
-        plt.figure(figsize=(14, 10))
-        
-        # Draw nodes
-        node_sizes = [G.nodes[node]['coupling'] * 50 for node in G.nodes()]
-        node_colors = [self.coupling_metrics[node].instability for node in G.nodes()]
-        
-        nx.draw_networkx_nodes(
-            G, pos,
-            node_size=node_sizes,
-            node_color=node_colors,
-            cmap='coolwarm',
-            alpha=0.8,
-            linewidths=2,
-            edgecolors='black'
-        )
-        
-        # Draw edges
-        edges = G.edges()
-        weights = [G[u][v]['weight'] for u, v in edges]
-        
-        nx.draw_networkx_edges(
-            G, pos,
-            edge_color=weights,
-            edge_cmap=plt.cm.Greys,
-            width=[w * 5 for w in weights],
-            alpha=0.6,
-            arrows=True,
-            arrowsize=20,
-            arrowstyle='->'
-        )
-        
-        # Draw labels
-        labels = {node: G.nodes[node]['label'] for node in G.nodes()}
-        nx.draw_networkx_labels(
-            G, pos,
-            labels,
-            font_size=10,
-            font_weight='bold'
-        )
-        
-        # Add colorbar for instability
-        sm = plt.cm.ScalarMappable(cmap='coolwarm', 
-                                   norm=plt.Normalize(vmin=0, vmax=1))
-        sm.set_array([])
-        cbar = plt.colorbar(sm, fraction=0.02, pad=0.04)
-        cbar.set_label('Instability', rotation=270, labelpad=20)
-        
-        plt.title('Module Group Dependency Flow\n(Node size = Total coupling, Color = Instability)',
-                 fontsize=14)
-        plt.axis('off')
-        plt.tight_layout()
-        
-        # Save figure
-        output_path = self.project_root / output_file
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        self.logger.info(f"Dependency flow diagram saved to: {output_path}")
-        return str(output_path)
-    
-    # ==========================================================================
-    # ANALYSIS METHODS
-    # ==========================================================================
-    
-    def analyze_coupling_metrics(self) -> Dict[str, Any]:
-        """
-        Analyze coupling metrics for all module groups.
-        
-        Returns:
-            Dictionary with coupling analysis results
-            
-        Usage:
-            metrics = generator.analyze_coupling_metrics()
-            print(json.dumps(metrics, indent=2))
-        """
-        if self.interaction_matrix is None:
-            self.generate_interaction_matrix()
-        
-        analysis = {
-            'summary': {},
-            'groups': {},
-            'warnings': [],
-            'recommendations': []
-        }
-        
-        # Calculate summary statistics
-        all_instabilities = [m.instability for m in self.coupling_metrics.values()]
-        all_couplings = [m.afferent_coupling + m.efferent_coupling 
-                        for m in self.coupling_metrics.values()]
-        
-        analysis['summary'] = {
-            'average_instability': np.mean(all_instabilities),
-            'max_instability': max(all_instabilities),
-            'average_coupling': np.mean(all_couplings),
-            'max_coupling': max(all_couplings),
-            'total_dependencies': self.interaction_matrix.sum().sum()
-        }
-        
-        # Analyze each group
-        for group, metrics in self.coupling_metrics.items():
-            analysis['groups'][group] = {
-                'afferent_coupling': metrics.afferent_coupling,
-                'efferent_coupling': metrics.efferent_coupling,
-                'instability': round(metrics.instability, 3),
-                'total_coupling': metrics.afferent_coupling + metrics.efferent_coupling,
-                'coupling_ratio': round(
-                    metrics.efferent_coupling / max(1, metrics.afferent_coupling), 
-                    3
-                )
-            }
-            
-            # Generate warnings
-            if metrics.instability > 0.8:
-                analysis['warnings'].append(
-                    f"{GROUP_LABELS[group]} has high instability ({metrics.instability:.2f})"
-                )
-            
-            if metrics.efferent_coupling > 50:
-                analysis['warnings'].append(
-                    f"{GROUP_LABELS[group]} has excessive outgoing dependencies ({metrics.efferent_coupling})"
-                )
-        
-        # Generate recommendations
-        self._generate_coupling_recommendations(analysis)
-        
-        return analysis
-    
-    def find_highly_coupled_groups(self, threshold: float = 0.2) -> List[Tuple[str, str, float]]:
-        """
-        Find module groups with high coupling.
-        
-        Args:
-            threshold: Normalized coupling threshold
-            
-        Returns:
-            List of (source, target, coupling) tuples
-            
-        Usage:
-            coupled = generator.find_highly_coupled_groups(0.3)
-            for source, target, value in coupled:
-                print(f"{source} -> {target}: {value:.2f}")
-        """
-        if self.normalized_matrix is None:
-            self.generate_interaction_matrix()
-        
-        highly_coupled = []
-        
-        for source in MODULE_GROUPS_ORDERED:
-            for target in MODULE_GROUPS_ORDERED:
-                if source != target:
-                    coupling = self.normalized_matrix.loc[source, target]
-                    if coupling >= threshold:
-                        highly_coupled.append((
-                            GROUP_LABELS.get(source, source),
-                            GROUP_LABELS.get(target, target),
-                            coupling
-                        ))
-        
-        # Sort by coupling value
-        highly_coupled.sort(key=lambda x: x[2], reverse=True)
-        
-        return highly_coupled
-    
-    def identify_architectural_patterns(self) -> Dict[str, Any]:
-        """
-        Identify architectural patterns and potential issues.
-        
-        Returns:
-            Dictionary with identified patterns
-            
-        Usage:
-            patterns = generator.identify_architectural_patterns()
-        """
-        patterns = {
-            'layering_violations': [],
-            'circular_dependencies': [],
-            'god_modules': [],
-            'isolated_modules': [],
-            'architectural_style': 'unknown'
-        }
-        
-        if self.interaction_matrix is None:
-            self.generate_interaction_matrix()
-        
-        # Check for layering violations
-        # Expected flow: GUI -> Strategies -> Core -> Broker/Data
-        layer_order = {
-            'SpyderG_GUI': 0,
-            'SpyderK_Reports': 1,
-            'SpyderD_Strategies': 2,
-            'SpyderE_Risk': 3,
-            'SpyderA_Core': 4,
-            'SpyderB_Broker': 5,
-            'SpyderC_MarketData': 5,
-            'SpyderH_Storage': 5
-        }
-        
-        for source, source_layer in layer_order.items():
-            for target, target_layer in layer_order.items():
-                if source != target and target_layer < source_layer:
-                    deps = self.interaction_matrix.loc[source, target]
-                    if deps > 0:
-                        patterns['layering_violations'].append({
-                            'source': GROUP_LABELS[source],
-                            'target': GROUP_LABELS[target],
-                            'dependencies': int(deps)
-                        })
-        
-        # Find god modules (high coupling)
-        for group, metrics in self.coupling_metrics.items():
-            total_coupling = metrics.afferent_coupling + metrics.efferent_coupling
-            if total_coupling > 100:  # Threshold
-                patterns['god_modules'].append({
-                    'module': GROUP_LABELS[group],
-                    'total_coupling': total_coupling,
-                    'incoming': metrics.afferent_coupling,
-                    'outgoing': metrics.efferent_coupling
-                })
-        
-        # Find isolated modules
-        for group in MODULE_GROUPS_ORDERED:
-            row_sum = self.interaction_matrix.loc[group].sum()
-            col_sum = self.interaction_matrix[group].sum()
-            if row_sum == 0 and col_sum == 0:
-                patterns['isolated_modules'].append(GROUP_LABELS[group])
-        
-        # Determine architectural style
-        patterns['architectural_style'] = self._determine_architectural_style()
-        
-        return patterns
-    
-    def _determine_architectural_style(self) -> str:
-        """Determine the overall architectural style"""
-        # Analyze coupling patterns
-        core_coupling = self.coupling_metrics.get('SpyderA_Core', CouplingMetrics())
-        utils_coupling = self.coupling_metrics.get('SpyderU_Utilities', CouplingMetrics())
-        
-        # High afferent coupling on utilities suggests shared kernel
-        if utils_coupling.afferent_coupling > 50:
-            return "Modular with Shared Kernel (Utilities)"
-        
-        # High afferent coupling on core suggests hub-and-spoke
-        elif core_coupling.afferent_coupling > 30:
-            return "Hub-and-Spoke (Core-centric)"
-        
-        # Check for layered architecture
-        elif self._check_layered_architecture():
-            return "Layered Architecture"
-        
-        else:
-            return "Hybrid/Mixed Architecture"
-    
-    def _check_layered_architecture(self) -> bool:
-        """Check if the system follows layered architecture"""
-        # Simplified check - would need more sophisticated analysis
-        violations = 0
-        
-        # Expected layers (top to bottom)
-        layers = [
-            ['SpyderG_GUI', 'SpyderJ_Alerts', 'SpyderK_Reports'],
-            ['SpyderD_Strategies', 'SpyderL_ML', 'SpyderX_Agents'],
-            ['SpyderE_Risk', 'SpyderF_Analysis', 'SpyderN_OptionsAnalytics'],
-            ['SpyderA_Core', 'SpyderI_Integration'],
-            ['SpyderB_Broker', 'SpyderC_MarketData', 'SpyderH_Storage']
-        ]
-        
-        # Check for upward dependencies
-        for i, upper_layer in enumerate(layers[:-1]):
-            for j, lower_layer in enumerate(layers[i+1:], i+1):
-                for upper in upper_layer:
-                    for lower in lower_layer:
-                        if upper in self.interaction_matrix.index and \
-                           lower in self.interaction_matrix.columns:
-                            if self.interaction_matrix.loc[lower, upper] > 0:
-                                violations += 1
-        
-        return violations < 5  # Allow some violations
-    
-    def _generate_coupling_recommendations(self, analysis: Dict[str, Any]):
-        """Generate recommendations based on coupling analysis"""
+    def _generate_matrix_recommendations(self, matrix_data: np.ndarray, metric: MatrixMetric,
+                                       hotspots: List[Tuple[str, str, float]],
+                                       bottlenecks: List[str],
+                                       isolated_modules: List[str]) -> List[str]:
+        """Generate recommendations based on matrix analysis"""
         recommendations = []
         
-        # Check for high instability
-        high_instability = [
-            group for group, metrics in self.coupling_metrics.items()
-            if metrics.instability > 0.7
-        ]
+        try:
+            if hotspots:
+                recommendations.append(f"Monitor {len(hotspots)} high-traffic module pairs")
+            
+            if bottlenecks:
+                recommendations.append(f"Optimize {len(bottlenecks)} potential bottleneck modules")
+            
+            if isolated_modules:
+                recommendations.append(f"Review {len(isolated_modules)} isolated modules")
+            
+            if metric == MatrixMetric.LATENCY:
+                high_latency = [h for h in hotspots if h[2] > 1000]  # > 1 second
+                if high_latency:
+                    recommendations.append(f"Reduce latency for {len(high_latency)} slow interactions")
+            
+            elif metric == MatrixMetric.SUCCESS_RATE:
+                low_success = [h for h in hotspots if h[2] < 95]  # < 95% success
+                if low_success:
+                    recommendations.append(f"Improve reliability for {len(low_success)} error-prone interactions")
+            
+        except Exception as e:
+            self.logger.error(f"Error generating recommendations: {str(e)}")
         
-        if high_instability:
-            recommendations.append(
-                f"Consider stabilizing {', '.join(GROUP_LABELS[g] for g in high_instability)} "
-                "by reducing outgoing dependencies"
-            )
-        
-        # Check for god modules
-        god_modules = [
-            group for group, metrics in self.coupling_metrics.items()
-            if metrics.afferent_coupling + metrics.efferent_coupling > 100
-        ]
-        
-        if god_modules:
-            recommendations.append(
-                f"Consider refactoring {', '.join(GROUP_LABELS[g] for g in god_modules)} "
-                "to reduce coupling"
-            )
-        
-        # Check for utilities coupling
-        if 'SpyderU_Utilities' in self.coupling_metrics:
-            utils_metrics = self.coupling_metrics['SpyderU_Utilities']
-            if utils_metrics.efferent_coupling > 10:
-                recommendations.append(
-                    "Utilities should have minimal outgoing dependencies"
-                )
-        
-        analysis['recommendations'] = recommendations
+        return recommendations
     
-    # ==========================================================================
-    # REPORT GENERATION
-    # ==========================================================================
+    def _monitor_loop(self, update_interval: int) -> None:
+        """Background monitoring loop"""
+        while self._monitoring:
+            try:
+                # Perform periodic analysis
+                health = self.get_system_health()
+                
+                # Log health status
+                if health['health_score'] < 70:
+                    self.logger.warning(f"System interaction health: {health['health_score']:.1f} ({health['status']})")
+                else:
+                    self.logger.debug(f"System interaction health: {health['health_score']:.1f} ({health['status']})")
+                
+                # Clean old interactions
+                cutoff_time = datetime.now() - timedelta(hours=24)
+                with self._lock:
+                    self.interactions = [i for i in self.interactions if i.timestamp >= cutoff_time]
+                
+                time.sleep(update_interval)
+                
+            except Exception as e:
+                self.logger.error(f"Error in monitoring loop: {str(e)}")
+                time.sleep(update_interval)
     
-    def generate_interaction_report(self, output_file: str = 'interaction_report.html') -> str:
-        """
-        Generate comprehensive HTML report of interactions.
-        
-        Args:
-            output_file: Output filename
-            
-        Returns:
-            Path to generated report
-            
-        Usage:
-            report_path = generator.generate_interaction_report()
-        """
-        if self.interaction_matrix is None:
-            self.generate_interaction_matrix()
-        
-        # Gather all analysis results
-        coupling_metrics = self.analyze_coupling_metrics()
-        highly_coupled = self.find_highly_coupled_groups()
-        patterns = self.identify_architectural_patterns()
-        
-        # Create visualizations
-        heatmap_path = self.create_heatmap('temp_heatmap.png')
-        flow_path = self.create_dependency_flow_diagram('temp_flow.png')
-        
-        # Generate HTML report
-        html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Spyder Module Interaction Analysis</title>
-    <style>
-        body {{
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f5f5f5;
-        }}
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }}
-        h1, h2, h3 {{
-            color: #2c3e50;
-        }}
-        .metric-card {{
-            display: inline-block;
-            margin: 10px;
-            padding: 15px;
-            background-color: #ecf0f1;
-            border-radius: 5px;
-            min-width: 200px;
-        }}
-        .metric-value {{
-            font-size: 24px;
-            font-weight: bold;
-            color: #3498db;
-        }}
-        .warning {{
-            background-color: #e74c3c;
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 5px 0;
-        }}
-        .recommendation {{
-            background-color: #27ae60;
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 5px 0;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-        }}
-        th, td {{
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }}
-        th {{
-            background-color: #34495e;
-            color: white;
-        }}
-        tr:hover {{
-            background-color: #f5f5f5;
-        }}
-        .visualization {{
-            text-align: center;
-            margin: 20px 0;
-        }}
-        .visualization img {{
-            max-width: 100%;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Spyder Module Interaction Analysis</h1>
-        <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        
-        <h2>Summary Metrics</h2>
-        <div>
-            <div class="metric-card">
-                <div>Total Dependencies</div>
-                <div class="metric-value">{int(coupling_metrics['summary']['total_dependencies'])}</div>
-            </div>
-            <div class="metric-card">
-                <div>Average Coupling</div>
-                <div class="metric-value">{coupling_metrics['summary']['average_coupling']:.1f}</div>
-            </div>
-            <div class="metric-card">
-                <div>Average Instability</div>
-                <div class="metric-value">{coupling_metrics['summary']['average_instability']:.2f}</div>
-            </div>
-            <div class="metric-card">
-                <div>Architectural Style</div>
-                <div class="metric-value" style="font-size: 16px;">{patterns['architectural_style']}</div>
-            </div>
-        </div>
-        
-        <h2>Visualizations</h2>
-        <div class="visualization">
-            <h3>Interaction Heatmap</h3>
-            <img src="{Path(heatmap_path).name}" alt="Interaction Heatmap">
-        </div>
-        
-        <div class="visualization">
-            <h3>Dependency Flow</h3>
-            <img src="{Path(flow_path).name}" alt="Dependency Flow">
-        </div>
-        
-        <h2>Highly Coupled Module Groups</h2>
-        <table>
-            <tr>
-                <th>Source</th>
-                <th>Target</th>
-                <th>Coupling</th>
-            </tr>
-"""
-        
-        for source, target, coupling in highly_coupled[:10]:
-            html += f"""
-            <tr>
-                <td>{source}</td>
-                <td>{target}</td>
-                <td>{coupling:.3f}</td>
-            </tr>
-"""
-        
-        html += """
-        </table>
-        
-        <h2>Coupling Metrics by Group</h2>
-        <table>
-            <tr>
-                <th>Module Group</th>
-                <th>Incoming</th>
-                <th>Outgoing</th>
-                <th>Total</th>
-                <th>Instability</th>
-            </tr>
-"""
-        
-        for group, metrics in sorted(coupling_metrics['groups'].items()):
-            html += f"""
-            <tr>
-                <td>{GROUP_LABELS.get(group, group)}</td>
-                <td>{metrics['afferent_coupling']}</td>
-                <td>{metrics['efferent_coupling']}</td>
-                <td>{metrics['total_coupling']}</td>
-                <td>{metrics['instability']:.3f}</td>
-            </tr>
-"""
-        
-        html += """
-        </table>
-"""
-        
-        # Add warnings
-        if coupling_metrics['warnings']:
-            html += "<h2>Warnings</h2>"
-            for warning in coupling_metrics['warnings']:
-                html += f'<div class="warning">{warning}</div>'
-        
-        # Add recommendations
-        if coupling_metrics['recommendations']:
-            html += "<h2>Recommendations</h2>"
-            for rec in coupling_metrics['recommendations']:
-                html += f'<div class="recommendation">{rec}</div>'
-        
-        # Add architectural issues
-        if patterns['layering_violations']:
-            html += "<h2>Layering Violations</h2><ul>"
-            for violation in patterns['layering_violations'][:10]:
-                html += f"<li>{violation['source']} → {violation['target']} ({violation['dependencies']} dependencies)</li>"
-            html += "</ul>"
-        
-        if patterns['god_modules']:
-            html += "<h2>Highly Coupled Modules (God Modules)</h2><ul>"
-            for god in patterns['god_modules']:
-                html += f"<li>{god['module']}: {god['total_coupling']} total dependencies</li>"
-            html += "</ul>"
-        
-        html += """
-    </div>
-</body>
-</html>
-"""
-        
-        # Save report
-        output_path = self.project_root / output_file
-        with open(output_path, 'w') as f:
-            f.write(html)
-        
-        # Copy images to same directory
-        import shutil
-        shutil.copy(heatmap_path, output_path.parent)
-        shutil.copy(flow_path, output_path.parent)
-        
-        # Clean up temp files
-        Path(heatmap_path).unlink()
-        Path(flow_path).unlink()
-        
-        self.logger.info(f"Interaction report saved to: {output_path}")
-        return str(output_path)
-    
-    # ==========================================================================
-    # EXPORT METHODS
-    # ==========================================================================
-    
-    def export_to_csv(self, output_file: str = 'interaction_matrix.csv') -> str:
-        """
-        Export interaction matrix to CSV.
-        
-        Args:
-            output_file: Output filename
-            
-        Returns:
-            Path to saved file
-            
-        Usage:
-            path = generator.export_to_csv('matrix.csv')
-        """
-        if self.interaction_matrix is None:
-            self.generate_interaction_matrix()
-        
-        output_path = self.project_root / output_file
-        self.interaction_matrix.to_csv(output_path)
-        
-        # Also save normalized matrix
-        norm_path = output_path.with_stem(output_path.stem + '_normalized')
-        self.normalized_matrix.to_csv(norm_path)
-        
-        self.logger.info(f"Matrices exported to: {output_path} and {norm_path}")
-        return str(output_path)
-    
-    def export_to_json(self, output_file: str = 'interaction_analysis.json') -> str:
-        """
-        Export complete analysis to JSON.
-        
-        Args:
-            output_file: Output filename
-            
-        Returns:
-            Path to saved file
-            
-        Usage:
-            path = generator.export_to_json()
-        """
-        if self.interaction_matrix is None:
-            self.generate_interaction_matrix()
-        
-        export_data = {
-            'metadata': {
-                'generated': datetime.now().isoformat(),
-                'project_root': str(self.project_root)
-            },
-            'interaction_matrix': self.interaction_matrix.to_dict(),
-            'normalized_matrix': self.normalized_matrix.to_dict(),
-            'coupling_metrics': self.analyze_coupling_metrics(),
-            'highly_coupled_pairs': self.find_highly_coupled_groups(),
-            'architectural_patterns': self.identify_architectural_patterns()
-        }
-        
-        output_path = self.project_root / output_file
-        with open(output_path, 'w') as f:
-            json.dump(export_data, f, indent=2, default=str)
-        
-        self.logger.info(f"Analysis exported to: {output_path}")
-        return str(output_path)
-
+    def _invalidate_cache(self) -> None:
+        """Invalidate analysis cache"""
+        self._analysis_cache.clear()
+        self._cache_timestamp = datetime.now()
 
 # ==============================================================================
-# CONVENIENCE FUNCTIONS
+# MODULE FUNCTIONS
 # ==============================================================================
-def analyze_module_interactions(project_path: str = '.', 
-                              create_visualizations: bool = True) -> InteractionAnalysis:
+_interaction_matrix: Optional[InteractionMatrix] = None
+
+def get_interaction_matrix() -> InteractionMatrix:
     """
-    Convenience function to analyze module interactions.
+    Get singleton instance of interaction matrix.
     
-    Args:
-        project_path: Path to Spyder project
-        create_visualizations: Whether to create visualizations
-        
     Returns:
-        InteractionAnalysis object with results
-        
-    Usage:
-        analysis = analyze_module_interactions('/path/to/spyder')
+        InteractionMatrix instance
     """
-    generator = InteractionMatrixGenerator(project_path)
-    
-    # Generate matrix
-    matrix = generator.generate_interaction_matrix()
-    
-    # Perform analysis
-    coupling_metrics = generator.analyze_coupling_metrics()
-    highly_coupled = generator.find_highly_coupled_groups()
-    patterns = generator.identify_architectural_patterns()
-    
-    # Create visualizations
-    if create_visualizations:
-        generator.create_heatmap()
-        generator.create_clustered_heatmap()
-        generator.create_dependency_flow_diagram()
-        generator.generate_interaction_report()
-    
-    # Create analysis result
-    analysis = InteractionAnalysis(
-        matrix=matrix,
-        normalized_matrix=generator.normalized_matrix,
-        coupling_metrics=generator.coupling_metrics,
-        highly_coupled_pairs=highly_coupled,
-        architectural_issues=patterns.get('layering_violations', []),
-        recommendations=coupling_metrics.get('recommendations', [])
-    )
-    
-    return analysis
+    global _interaction_matrix
+    if _interaction_matrix is None:
+        _interaction_matrix = InteractionMatrix()
+    return _interaction_matrix
 
+def record_interaction(source: str, target: str, interaction_type: str = "function_call",
+                      success: bool = True, latency_ms: Optional[float] = None) -> None:
+    """Quick interaction recording"""
+    matrix = get_interaction_matrix()
+    status = InteractionStatus.SUCCESS if success else InteractionStatus.FAILURE
+    int_type = InteractionType(interaction_type) if interaction_type in [t.value for t in InteractionType] else InteractionType.FUNCTION_CALL
+    
+    matrix.record_interaction(source, target, int_type, status, latency_ms)
 
 # ==============================================================================
-# MAIN EXECUTION
+# MODULE INITIALIZATION
 # ==============================================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Generate module interaction matrices for Spyder",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-    # Basic analysis with all visualizations
-    python SpyderU19_InteractionMatrix.py --path /path/to/spyder
+    # Test interaction matrix
+    import random
     
-    # Create specific visualization
-    python SpyderU19_InteractionMatrix.py --path /path/to/spyder --heatmap
+    print("Testing Interaction Matrix...")
     
-    # Export data
-    python SpyderU19_InteractionMatrix.py --path /path/to/spyder --export-csv --export-json
+    matrix = get_interaction_matrix()
     
-    # Full analysis with HTML report
-    python SpyderU19_InteractionMatrix.py --path /path/to/spyder --full-report
-        """
-    )
+    # Test interaction recording
+    print(f"\n✅ Testing interaction recording...")
+    modules = ["SpyderA01_Main", "SpyderB01_SpyderClient", "SpyderC01_DataFeed", "SpyderD01_BaseStrategy"]
     
-    parser.add_argument('--path', type=str, default='.',
-                       help='Path to Spyder project root')
-    parser.add_argument('--heatmap', action='store_true',
-                       help='Create interaction heatmap')
-    parser.add_argument('--clustered', action='store_true',
-                       help='Create clustered heatmap')
-    parser.add_argument('--flow', action='store_true',
-                       help='Create dependency flow diagram')
-    parser.add_argument('--full-report', action='store_true',
-                       help='Generate full HTML report')
-    parser.add_argument('--export-csv', action='store_true',
-                       help='Export matrix to CSV')
-    parser.add_argument('--export-json', action='store_true',
-                       help='Export analysis to JSON')
-    parser.add_argument('--threshold', type=float, default=0.2,
-                       help='Coupling threshold for analysis')
+    # Generate sample interactions
+    for i in range(100):
+        source = random.choice(modules)
+        target = random.choice([m for m in modules if m != source])
+        
+        matrix.record_interaction(
+            source=source,
+            target=target,
+            interaction_type=InteractionType.FUNCTION_CALL,
+            status=InteractionStatus.SUCCESS if random.random() > 0.1 else InteractionStatus.FAILURE,
+            latency_ms=random.uniform(10, 500),
+            data_size=random.randint(100, 10000)
+        )
     
-    args = parser.parse_args()
+    print(f"   Recorded 100 sample interactions")
     
-    # Create generator
-    print(f"Analyzing module interactions in: {args.path}")
-    generator = InteractionMatrixGenerator(args.path)
+    # Test analysis
+    print(f"\n✅ Testing matrix analysis...")
+    analysis = matrix.analyze_matrix(MatrixMetric.FREQUENCY)
+    print(f"   Matrix shape: {analysis.matrix_data.shape}")
+    print(f"   Hotspots found: {len(analysis.hotspots)}")
+    print(f"   Health score: {analysis.health_score:.1f}")
     
-    # Generate matrix
-    print("Generating interaction matrix...")
-    matrix = generator.generate_interaction_matrix()
+    # Test hotspot identification
+    print(f"\n✅ Testing hotspot identification...")
+    hotspots = matrix.identify_hotspots(MatrixMetric.FREQUENCY, 5)
+    for i, (source, target, value) in enumerate(hotspots[:3], 1):
+        print(f"   {i}. {source} → {target}: {value}")
     
-    print(f"\nMatrix Summary:")
-    print(f"  Shape: {matrix.shape}")
-    print(f"  Total Dependencies: {matrix.sum().sum()}")
-    print(f"  Non-zero Cells: {(matrix > 0).sum().sum()}")
+    # Test module statistics
+    print(f"\n✅ Testing module statistics...")
+    stats = matrix.get_module_statistics()
+    for module_name, module_stats in list(stats.items())[:3]:
+        print(f"   {module_name}: {module_stats.total_interactions} interactions, {module_stats.success_rate:.1f}% success")
     
-    # Perform analysis
-    print("\nAnalyzing coupling metrics...")
-    metrics = generator.analyze_coupling_metrics()
+    # Test system health
+    print(f"\n✅ Testing system health...")
+    health = matrix.get_system_health()
+    print(f"   Health Score: {health['health_score']:.1f}")
+    print(f"   Status: {health['status']}")
+    print(f"   Active Modules: {health['active_modules']}")
+    print(f"   Success Rate: {health['success_rate']:.1f}%")
     
-    print(f"\nCoupling Summary:")
-    print(f"  Average Instability: {metrics['summary']['average_instability']:.3f}")
-    print(f"  Max Coupling: {metrics['summary']['max_coupling']}")
+    # Test quick function
+    print(f"\n✅ Testing quick function...")
+    record_interaction("TestModule1", "TestModule2", "function_call", True, 25.5)
+    print(f"   Recorded interaction via quick function")
     
-    # Find highly coupled groups
-    print(f"\nHighly Coupled Groups (threshold={args.threshold}):")
-    coupled = generator.find_highly_coupled_groups(args.threshold)
-    for source, target, value in coupled[:5]:
-        print(f"  {source} → {target}: {value:.3f}")
-    
-    # Create visualizations
-    if args.heatmap or args.full_report:
-        print("\nCreating heatmap...")
-        heatmap_path = generator.create_heatmap()
-        print(f"  Saved to: {heatmap_path}")
-    
-    if args.clustered:
-        print("\nCreating clustered heatmap...")
-        clustered_path = generator.create_clustered_heatmap()
-        print(f"  Saved to: {clustered_path}")
-    
-    if args.flow:
-        print("\nCreating dependency flow diagram...")
-        flow_path = generator.create_dependency_flow_diagram()
-        print(f"  Saved to: {flow_path}")
-    
-    if args.full_report:
-        print("\nGenerating full HTML report...")
-        report_path = generator.generate_interaction_report()
-        print(f"  Saved to: {report_path}")
-    
-    # Export data
-    if args.export_csv:
-        csv_path = generator.export_to_csv()
-        print(f"\nCSV exported to: {csv_path}")
-    
-    if args.export_json:
-        json_path = generator.export_to_json()
-        print(f"JSON exported to: {json_path}")
-    
-    # Identify patterns
-    print("\nArchitectural Analysis:")
-    patterns = generator.identify_architectural_patterns()
-    print(f"  Style: {patterns['architectural_style']}")
-    print(f"  Layering Violations: {len(patterns['layering_violations'])}")
-    print(f"  God Modules: {len(patterns['god_modules'])}")
-    print(f"  Isolated Modules: {len(patterns['isolated_modules'])}")
-    
-    print("\nInteraction analysis complete!")
+    print("\n✅ Interaction matrix test completed!")

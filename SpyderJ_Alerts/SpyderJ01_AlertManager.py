@@ -303,18 +303,34 @@ class AlertManager:
                     'underlying_price_change', 'gamma_exposure', 'time_to_expiry',
                     'iv_change', 'delta_exposure', 'price_velocity'
                 ],
+
+except Exception as e:
+    recommendations = ["Error generating recommendations"]
+    print(f"Warning: Error generating recommendations: {e}")
                 PredictionType.VOLATILITY_SPIKE: [
                     'vix_level', 'vix_change', 'iv_rank', 'volume_ratio',
                     'price_volatility', 'options_volume'
                 ],
+
+except Exception as e:
+    recommendations = ["Error generating recommendations"]
+    print(f"Warning: Error generating recommendations: {e}")
                 PredictionType.OPTIMAL_EXIT: [
                     'current_pnl', 'theta_decay', 'time_to_expiry', 'iv_percentile',
                     'profit_velocity', 'risk_adjusted_return'
                 ],
+
+except Exception as e:
+    recommendations = ["Error generating recommendations"]
+    print(f"Warning: Error generating recommendations: {e}")
                 PredictionType.GAMMA_RISK: [
                     'gamma_exposure', 'price_change', 'gamma_rate_change',
                     'underlying_velocity', 'position_concentration'
                 ]
+
+except Exception as e:
+    recommendations = ["Error generating recommendations"]
+    print(f"Warning: Error generating recommendations: {e}")
             }
             
             features = feature_sets.get(prediction_type, [
@@ -788,4 +804,9 @@ class AlertManager:
                 recommendations = [
                     "Consider reducing position size",
                     "Set tighter stop losses",
-                    "Monitor price
+                    "Monitor price movements closely",
+                ]
+
+except Exception as e:
+    recommendations = ["Error generating recommendations"]
+    print(f"Warning: Error generating recommendations: {e}")

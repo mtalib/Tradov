@@ -275,7 +275,7 @@ class IntegrationHub:
                     'SpyderG_GUI', 'SpyderH_Storage', 'SpyderI_Integration',
                     'SpyderJ_Alerts', 'SpyderK_Reports', 'SpyderL_ML',
                     'SpyderM_Monitoring', 'SpyderN_OptionsAnalytics',
-                    'SpyderO_RiskControl', 'SpyderP_Portfolio', 'SpyderR_Runtime',
+                    'SpyderE_Risk', 'SpyderP_Portfolio', 'SpyderR_Runtime',
                     'SpyderT_ThirdParty', 'SpyderU_Utilities', 'SpyderX_Agents',
                     'SpyderZ_Communication'
                 ]

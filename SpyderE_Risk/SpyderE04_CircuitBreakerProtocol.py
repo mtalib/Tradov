@@ -3,8 +3,8 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderO02_CircuitBreakerProtocol.py
-Group: O (Professional Risk Controls)
+Module: SpyderE04_CircuitBreakerProtocol.py
+Group: E (Risk Management)
 Purpose: Market circuit breaker and crisis management protocols
 
 Description:
@@ -467,3 +467,5 @@ async def main():
         await asyncio.sleep(1)  # Simulate time passing
 if __name__ == "__main__":
     asyncio.run(main())
+# Alias for compatibility
+CircuitBreaker = CircuitBreakerLevel

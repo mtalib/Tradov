@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
+from typing import Optional, Any, Union
+from datetime import datetime, timedelta
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
@@ -103,8 +105,8 @@ class ModelConfig:
     algorithm: Algorithm
     target: PredictionTarget
     lookback_period: int = DEFAULT_LOOKBACK_PERIOD
-    features: List[str] = field(default_factory=list)
-    hyperparameters: Dict[str, Any] = field(default_factory=dict)
+    features: list[str] = field(default_factory=list)
+    hyperparameters: dict[str, Any] = field(default_factory=dict)
     retrain_frequency: int = 7
 
 class Prediction:
@@ -125,8 +127,8 @@ class Prediction:
     target: PredictionTarget
     value: Union[float, int, str]
     confidence: float
-    feature_importance: Optional[Dict[str, float]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    feature_importance: Optional[dict[str, float]] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 class ModelPerformance:
     """
@@ -148,7 +150,7 @@ class ModelPerformance:
     f1: Optional[float] = None
     mse: Optional[float] = None
     sharpe: Optional[float] = None
-    feature_importance: Dict[str, float] = field(default_factory=dict)
+    feature_importance: dict[str, float] = field(default_factory=dict)
     confusion_matrix: Optional[np.ndarray] = None
 
 # =============================================================================
@@ -188,16 +190,16 @@ class MLPredictor:
         self._create_directories()
         
         # Model storage
-        self.models: Dict[str, Any] = {}
-        self.scalers: Dict[str, StandardScaler] = {}
-        self.model_configs: Dict[str, ModelConfig] = {}
+        self.models: dict[str, Any] = {}
+        self.scalers: dict[str, StandardScaler] = {}
+        self.model_configs: dict[str, ModelConfig] = {}
         
         # Feature engineering
         self.feature_cache = deque(maxlen=1000)
-        self.feature_columns: Dict[str, List[str]] = {}
+        self.feature_columns: dict[str, list[str]] = {}
         
         # Performance tracking
-        self.performance_history: Dict[str, List[ModelPerformance]] = {}
+        self.performance_history: dict[str, list[ModelPerformance]] = {}
         self.prediction_history = deque(maxlen=10000)
         
         # Load existing models
@@ -346,7 +348,7 @@ class MLPredictor:
             self.logger.error(f"Prediction failed for {model_name}: {str(e)}")
             raise
     
-    def predict_ensemble(self, model_names: List[str], 
+    def predict_ensemble(self, model_names: list[str], 
                         features: Optional[pd.DataFrame] = None) -> Prediction:
         """
         Make ensemble prediction using multiple models.
@@ -483,7 +485,7 @@ class MLPredictor:
             self.logger.error(f"Failed to train model {model_name}: {str(e)}")
             raise
     
-    def retrain_all_models(self, data: pd.DataFrame) -> Dict[str, ModelPerformance]:
+    def retrain_all_models(self, data: pd.DataFrame) -> dict[str, ModelPerformance]:
         """
         Retrain all models.
         
@@ -570,7 +572,7 @@ class MLPredictor:
         
         return features
     
-    def get_feature_importance(self, model_name: str) -> Dict[str, float]:
+    def get_feature_importance(self, model_name: str) -> dict[str, float]:
         """
         Get feature importance for a model.
         
@@ -628,7 +630,7 @@ class MLPredictor:
         return model
     
     def _prepare_training_data(self, data: pd.DataFrame, 
-                             config: ModelConfig) -> Tuple[pd.DataFrame, pd.Series]:
+                             config: ModelConfig) -> tuple[pd.DataFrame, pd.Series]:
         """Prepare features and target for training."""
         # Engineer features if not already done
         if 'returns' not in data.columns:
@@ -673,7 +675,7 @@ class MLPredictor:
         return X, y
     
     def _split_data(self, X: pd.DataFrame, y: pd.Series, 
-                   config: ModelConfig) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+                   config: ModelConfig) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Split data for time series."""
         # Use time series split for financial data
         n_samples = len(X)
@@ -687,7 +689,7 @@ class MLPredictor:
         return X_train.values, X_test.values, y_train.values, y_test.values
     
     def _optimize_hyperparameters(self, config: ModelConfig, 
-                                X_train: np.ndarray, y_train: np.ndarray) -> Dict[str, Any]:
+                                X_train: np.ndarray, y_train: np.ndarray) -> dict[str, Any]:
         """Optimize hyperparameters using Optuna."""
         def objective(trial):
             if config.algorithm == Algorithm.XGBOOST:
@@ -770,7 +772,7 @@ class MLPredictor:
         
         return performance
     
-    def _get_feature_importance(self, model_name: str) -> Dict[str, float]:
+    def _get_feature_importance(self, model_name: str) -> dict[str, float]:
         """Get feature importance for a model."""
         if model_name not in self.models:
             return {}
@@ -897,7 +899,7 @@ class MLPredictor:
     # Event Handlers
     # =========================================================================
     
-    def _on_market_update(self, event_data: Dict[str, Any]) -> None:
+    def _on_market_update(self, event_data: dict[str, Any]) -> None:
         """Handle market data update."""
         try:
             # Extract features from market data
@@ -924,7 +926,7 @@ class MLPredictor:
         except Exception as e:
             self.logger.error(f"Failed to process market update: {str(e)}")
     
-    def _on_retrain_request(self, event_data: Dict[str, Any]) -> None:
+    def _on_retrain_request(self, event_data: dict[str, Any]) -> None:
         """Handle model retrain request."""
         model_name = event_data.get('model_name')
         data = event_data.get('data')

@@ -5,7 +5,7 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderU18_DependencyAnalyzer.py
 Group: U (Utilities)
-Purpose: Automated dependency analysis and visualization for Spyder modules
+Purpose: Module dependency analysis and visualization
 
 Description:
     This module provides comprehensive dependency analysis for the entire Spyder
@@ -14,57 +14,30 @@ Description:
     interconnect. The analyzer helps identify circular dependencies, unused
     imports, and architectural patterns.
 
-Usage Instructions:
-    1. Basic dependency analysis:
-       analyzer = SpyderDependencyAnalyzer('/path/to/spyder')
-       deps = analyzer.generate_dependency_map()
-    
-    2. Create visual dependency graph:
-       analyzer.create_visual_map(output_format='svg')
-    
-    3. Generate markdown report:
-       report = analyzer.generate_markdown_report()
-       with open('dependencies.md', 'w') as f:
-           f.write(report)
-    
-    4. Find circular dependencies:
-       circles = analyzer.find_circular_dependencies()
-    
-    5. Analyze specific module:
-       module_deps = analyzer.get_module_dependencies('SpyderA01_Main')
-    
-    6. Command line usage:
-       python SpyderU18_DependencyAnalyzer.py --path /path/to/spyder --output svg
-
 Author: Mohamed Talib
-Date: 2025-01-28
-Version: 1.0
+Date Created: 2025-07-18
+Last Updated: 2025-07-18 Time: 12:45:00
+
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
 import ast
-import json
-import argparse
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Set, Tuple, Optional, Any
-from collections import defaultdict, deque
-from dataclasses import dataclass, field
+import os
 import re
+import sys
+from typing import Dict, List, Optional, Any, Set, Tuple
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+import json
+from datetime import datetime
+import glob
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-try:
-    import graphviz
-    GRAPHVIZ_AVAILABLE = True
-except ImportError:
-    GRAPHVIZ_AVAILABLE = False
-    print("Warning: graphviz not available. Visual maps will be disabled.")
-
 import pandas as pd
 import networkx as nx
 
@@ -93,7 +66,7 @@ MODULE_GROUPS = {
     'SpyderL_ML': {'color': '#FDCB6E', 'label': 'Machine Learning'},
     'SpyderM_Monitoring': {'color': '#E17055', 'label': 'System Monitoring'},
     'SpyderN_OptionsAnalytics': {'color': '#00B894', 'label': 'Options Analytics'},
-    'SpyderO_RiskControl': {'color': '#00CEC9', 'label': 'Risk Controls'},
+    'SpyderE_Risk': {'color': '#00CEC9', 'label': 'Risk Controls'},
     'SpyderP_PortfolioMgmt': {'color': '#FD79A8', 'label': 'Portfolio Management'},
     'SpyderR_Runtime': {'color': '#636E72', 'label': 'Runtime Engines'},
     'SpyderT_Testing': {'color': '#B2BEC3', 'label': 'Testing Framework'},
@@ -107,628 +80,179 @@ PYTHON_FILE_PATTERN = "*.py"
 EXCLUDE_PATTERNS = ["__pycache__", ".git", ".venv", "venv", "test_", "_test.py"]
 
 # ==============================================================================
+# ENUMS
+# ==============================================================================
+class DependencyType(Enum):
+    """Types of dependencies"""
+    DIRECT = "direct"
+    INDIRECT = "indirect"
+    CIRCULAR = "circular"
+    EXTERNAL = "external"
+    INTERNAL = "internal"
+
+class AnalysisScope(Enum):
+    """Analysis scope levels"""
+    MODULE = "module"
+    GROUP = "group"
+    SYSTEM = "system"
+
+class SeverityLevel(Enum):
+    """Issue severity levels"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+# ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
 class ModuleInfo:
-    """Information about a module"""
+    """Information about a single module"""
     name: str
+    path: str
     group: str
-    filepath: Path
-    imports: List[Dict[str, Any]] = field(default_factory=list)
-    exports: List[str] = field(default_factory=list)
-    classes: List[str] = field(default_factory=list)
-    functions: List[str] = field(default_factory=list)
-    dependencies: Set[str] = field(default_factory=set)
-    dependents: Set[str] = field(default_factory=set)
-    complexity: int = 0
-    lines_of_code: int = 0
-
-@dataclass
-class DependencyEdge:
-    """Represents a dependency between modules"""
-    source: str
-    target: str
-    import_type: str  # 'direct', 'from', 'conditional'
     imports: List[str] = field(default_factory=list)
-    line_numbers: List[int] = field(default_factory=list)
+    imported_by: List[str] = field(default_factory=list)
+    external_imports: List[str] = field(default_factory=list)
+    functions: List[str] = field(default_factory=list)
+    classes: List[str] = field(default_factory=list)
+    lines_of_code: int = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "name": self.name,
+            "path": self.path,
+            "group": self.group,
+            "imports": self.imports,
+            "imported_by": self.imported_by,
+            "external_imports": self.external_imports,
+            "functions": self.functions,
+            "classes": self.classes,
+            "lines_of_code": self.lines_of_code
+        }
 
 @dataclass
 class CircularDependency:
-    """Represents a circular dependency"""
+    """Information about circular dependency"""
     modules: List[str]
-    edges: List[DependencyEdge]
-    severity: str  # 'low', 'medium', 'high'
+    severity: SeverityLevel
+    description: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "modules": self.modules,
+            "severity": self.severity.value,
+            "description": self.description
+        }
+
+@dataclass
+class DependencyGraph:
+    """Dependency graph representation"""
+    nodes: List[str]
+    edges: List[Tuple[str, str]]
+    circular_dependencies: List[CircularDependency]
+    isolated_modules: List[str]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "nodes": self.nodes,
+            "edges": self.edges,
+            "circular_dependencies": [cd.to_dict() for cd in self.circular_dependencies],
+            "isolated_modules": self.isolated_modules
+        }
 
 # ==============================================================================
-# MAIN DEPENDENCY ANALYZER CLASS
+# MAIN CLASS
 # ==============================================================================
-class SpyderDependencyAnalyzer:
+class DependencyAnalyzer:
     """
-    Comprehensive dependency analyzer for Spyder modules.
+    Comprehensive dependency analysis for Spyder modules.
     
-    This class analyzes Python code to extract import relationships,
-    identify dependencies, and generate various reports and visualizations.
-    """
+    This class provides detailed analysis of module dependencies including
+    circular dependency detection, dependency graph generation, and
+    architectural pattern analysis. It helps maintain clean module
+    architecture and identifies potential issues in the codebase.
     
-    def __init__(self, project_root: str, config: Optional[Dict[str, Any]] = None):
-        """
-        Initialize the dependency analyzer.
+    Attributes:
+        logger: Module logger instance
+        error_handler: Error handling instance
+        project_root: Root directory of the project
+        modules: Dictionary of analyzed modules
+        import_graph: NetworkX graph of dependencies
         
-        Args:
-            project_root: Root directory of the Spyder project
-            config: Optional configuration dictionary
-        """
+    Example:
+        >>> analyzer = DependencyAnalyzer("/path/to/spyder")
+        >>> analyzer.analyze_dependencies()
+        >>> circular_deps = analyzer.find_circular_dependencies()
+        >>> report = analyzer.generate_dependency_report()
+    """
+    
+    def __init__(self, project_root: str = "."):
+        """Initialize the dependency analyzer."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.project_root = Path(project_root)
-        self.config = config or {}
-        
-        # Data structures
         self.modules: Dict[str, ModuleInfo] = {}
-        self.dependencies: Dict[str, List[DependencyEdge]] = defaultdict(list)
-        self.module_groups: Dict[str, List[str]] = defaultdict(list)
         self.import_graph = nx.DiGraph()
-        
-        # Analysis results
+        self.module_groups: Dict[str, List[str]] = {}
         self.circular_dependencies: List[CircularDependency] = []
-        self.unused_imports: Dict[str, List[str]] = {}
         self.missing_modules: Set[str] = set()
         
-        self.logger.info(f"Dependency Analyzer initialized for: {project_root}")
+        self.logger.info(f"{self.__class__.__name__} initialized for {project_root}")
     
     # ==========================================================================
-    # ANALYSIS METHODS
+    # PUBLIC METHODS - ANALYSIS
     # ==========================================================================
-    
-    def analyze_module(self, filepath: Path) -> Optional[ModuleInfo]:
+    def analyze_dependencies(self, force_refresh: bool = False) -> None:
         """
-        Analyze a single Python module to extract dependencies.
+        Analyze all module dependencies in the project.
         
         Args:
-            filepath: Path to the Python file
-            
-        Returns:
-            ModuleInfo object or None if analysis fails
+            force_refresh: Whether to force re-analysis
         """
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                content = f.read()
+            if self.modules and not force_refresh:
+                self.logger.info("Dependencies already analyzed, use force_refresh=True to re-analyze")
+                return
             
-            # Parse AST
-            tree = ast.parse(content)
+            self.logger.info("Starting dependency analysis...")
             
-            # Extract module info
-            module_name = filepath.stem
-            group = self._get_module_group(filepath)
+            # Clear existing data
+            self.modules.clear()
+            self.import_graph.clear()
+            self.module_groups.clear()
+            self.circular_dependencies.clear()
+            self.missing_modules.clear()
             
-            module_info = ModuleInfo(
-                name=module_name,
-                group=group,
-                filepath=filepath,
-                lines_of_code=len(content.splitlines())
-            )
+            # Find all Python files
+            python_files = self._find_python_files()
+            self.logger.info(f"Found {len(python_files)} Python files to analyze")
             
-            # Analyze AST
-            self._analyze_ast(tree, module_info)
+            # Analyze each file
+            for file_path in python_files:
+                try:
+                    self._analyze_file(file_path)
+                except Exception as e:
+                    self.logger.warning(f"Failed to analyze {file_path}: {e}")
             
-            # Calculate complexity
-            module_info.complexity = self._calculate_complexity(tree)
+            # Build dependency graph
+            self._build_dependency_graph()
             
-            return module_info
+            # Find circular dependencies
+            self._find_circular_dependencies()
+            
+            # Group modules by category
+            self._group_modules()
+            
+            self.logger.info(f"Analysis complete: {len(self.modules)} modules analyzed")
             
         except Exception as e:
-            self.logger.error(f"Failed to analyze {filepath}: {e}")
-            return None
-    
-    def _analyze_ast(self, tree: ast.AST, module_info: ModuleInfo):
-        """Analyze AST to extract imports, classes, and functions"""
-        for node in ast.walk(tree):
-            # Extract imports
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    import_info = {
-                        'type': 'direct',
-                        'module': alias.name,
-                        'alias': alias.asname,
-                        'line': node.lineno
-                    }
-                    module_info.imports.append(import_info)
-                    
-                    # Check if it's a Spyder module
-                    if alias.name.startswith('Spyder'):
-                        module_info.dependencies.add(alias.name)
-            
-            elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    import_info = {
-                        'type': 'from',
-                        'module': node.module,
-                        'names': [alias.name for alias in node.names],
-                        'line': node.lineno
-                    }
-                    module_info.imports.append(import_info)
-                    
-                    # Check if it's a Spyder module
-                    if node.module.startswith('Spyder'):
-                        module_info.dependencies.add(node.module)
-                        # Add specific imports as dependencies
-                        for alias in node.names:
-                            if alias.name != '*':
-                                dep = f"{node.module}.{alias.name}"
-                                module_info.dependencies.add(dep)
-            
-            # Extract class definitions
-            elif isinstance(node, ast.ClassDef):
-                module_info.classes.append(node.name)
-                # Check for exports
-                if node.name in self._get_exports(tree):
-                    module_info.exports.append(node.name)
-            
-            # Extract function definitions
-            elif isinstance(node, ast.FunctionDef):
-                module_info.functions.append(node.name)
-                # Check for exports
-                if node.name in self._get_exports(tree):
-                    module_info.exports.append(node.name)
-    
-    def _get_module_group(self, filepath: Path) -> str:
-        """Get the module group from filepath"""
-        parts = filepath.parts
-        for part in parts:
-            if part.startswith('Spyder') and '_' in part:
-                return part
-        return 'Unknown'
-    
-    def _get_exports(self, tree: ast.AST) -> Set[str]:
-        """Extract __all__ exports from module"""
-        exports = set()
-        
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == '__all__':
-                        if isinstance(node.value, ast.List):
-                            for elt in node.value.elts:
-                                if isinstance(elt, ast.Str):
-                                    exports.add(elt.s)
-                                elif isinstance(elt, ast.Constant):
-                                    exports.add(elt.value)
-        
-        return exports
-    
-    def _calculate_complexity(self, tree: ast.AST) -> int:
-        """Calculate cyclomatic complexity"""
-        complexity = 1  # Base complexity
-        
-        for node in ast.walk(tree):
-            # Count decision points
-            if isinstance(node, (ast.If, ast.While, ast.For, ast.ExceptHandler)):
-                complexity += 1
-            elif isinstance(node, ast.BoolOp):
-                complexity += len(node.values) - 1
-        
-        return complexity
-    
-    # ==========================================================================
-    # DEPENDENCY MAP GENERATION
-    # ==========================================================================
-    
-    def generate_dependency_map(self) -> Dict[str, Any]:
-        """
-        Generate complete dependency map for all Spyder modules.
-        
-        Returns:
-            Dictionary containing dependency information
-        """
-        self.logger.info("Generating dependency map...")
-        
-        # Clear previous data
-        self.modules.clear()
-        self.dependencies.clear()
-        self.module_groups.clear()
-        self.import_graph.clear()
-        
-        # Find all Python files
-        python_files = self._find_python_files()
-        self.logger.info(f"Found {len(python_files)} Python files")
-        
-        # Analyze each file
-        for filepath in python_files:
-            module_info = self.analyze_module(filepath)
-            if module_info:
-                full_name = f"{module_info.group}.{module_info.name}"
-                self.modules[full_name] = module_info
-                self.module_groups[module_info.group].append(module_info.name)
-                
-                # Add to graph
-                self.import_graph.add_node(full_name, **{
-                    'group': module_info.group,
-                    'complexity': module_info.complexity,
-                    'loc': module_info.lines_of_code
-                })
-        
-        # Build dependency edges
-        self._build_dependency_edges()
-        
-        # Analyze graph properties
-        self._analyze_graph_properties()
-        
-        # Create summary
-        summary = {
-            'total_modules': len(self.modules),
-            'total_dependencies': self.import_graph.number_of_edges(),
-            'module_groups': dict(self.module_groups),
-            'circular_dependencies': len(self.circular_dependencies),
-            'graph_density': nx.density(self.import_graph),
-            'average_degree': sum(dict(self.import_graph.degree()).values()) / len(self.modules) if self.modules else 0
-        }
-        
-        self.logger.info(f"Dependency map generated: {summary['total_modules']} modules, "
-                        f"{summary['total_dependencies']} dependencies")
-        
-        return {
-            'modules': self.modules,
-            'dependencies': dict(self.dependencies),
-            'summary': summary,
-            'circular_dependencies': self.circular_dependencies
-        }
-    
-    def _find_python_files(self) -> List[Path]:
-        """Find all Python files in the project"""
-        python_files = []
-        
-        for group_dir in self.project_root.iterdir():
-            if group_dir.is_dir() and group_dir.name.startswith('Spyder'):
-                # Skip excluded patterns
-                if any(pattern in str(group_dir) for pattern in EXCLUDE_PATTERNS):
-                    continue
-                
-                # Find Python files
-                for py_file in group_dir.glob(PYTHON_FILE_PATTERN):
-                    if py_file.stem != '__init__' and not any(
-                        pattern in py_file.name for pattern in EXCLUDE_PATTERNS
-                    ):
-                        python_files.append(py_file)
-        
-        return sorted(python_files)
-    
-    def _build_dependency_edges(self):
-        """Build dependency edges between modules"""
-        for module_name, module_info in self.modules.items():
-            for dep in module_info.dependencies:
-                # Resolve dependency to full module name
-                target_module = self._resolve_dependency(dep)
-                
-                if target_module and target_module in self.modules:
-                    # Create edge
-                    edge = DependencyEdge(
-                        source=module_name,
-                        target=target_module,
-                        import_type='direct'
-                    )
-                    
-                    self.dependencies[module_name].append(edge)
-                    self.import_graph.add_edge(module_name, target_module)
-                    
-                    # Update dependent information
-                    self.modules[target_module].dependents.add(module_name)
-                elif target_module:
-                    # Module not found
-                    self.missing_modules.add(target_module)
-    
-    def _resolve_dependency(self, dep: str) -> Optional[str]:
-        """Resolve a dependency string to full module name"""
-        # Handle different import formats
-        if '.' in dep:
-            parts = dep.split('.')
-            if len(parts) >= 2:
-                group = parts[0]
-                module = parts[1]
-                return f"{group}.{module}"
-        
-        # Search for module by name
-        for full_name in self.modules:
-            if full_name.endswith(f".{dep}"):
-                return full_name
-        
-        return None
-    
-    def _analyze_graph_properties(self):
-        """Analyze graph properties including circular dependencies"""
-        # Find circular dependencies
-        try:
-            cycles = nx.simple_cycles(self.import_graph)
-            for cycle in cycles:
-                if len(cycle) > 1:  # Ignore self-loops
-                    circular_dep = CircularDependency(
-                        modules=cycle,
-                        edges=[],
-                        severity=self._assess_circular_severity(cycle)
-                    )
-                    self.circular_dependencies.append(circular_dep)
-        except:
-            pass  # No cycles
-        
-        # Find isolated modules
-        self.isolated_modules = list(nx.isolates(self.import_graph))
-        
-        # Calculate centrality metrics
-        if self.modules:
-            self.centrality_metrics = {
-                'degree': nx.degree_centrality(self.import_graph),
-                'betweenness': nx.betweenness_centrality(self.import_graph),
-                'closeness': nx.closeness_centrality(self.import_graph)
-            }
-    
-    def _assess_circular_severity(self, cycle: List[str]) -> str:
-        """Assess severity of circular dependency"""
-        # Check if core modules are involved
-        core_modules = ['SpyderA_Core', 'SpyderE_Risk', 'SpyderB_Broker']
-        
-        if any(module.startswith(core) for module in cycle for core in core_modules):
-            return 'high'
-        elif len(cycle) > 3:
-            return 'medium'
-        else:
-            return 'low'
-    
-    # ==========================================================================
-    # VISUALIZATION METHODS
-    # ==========================================================================
-    
-    def create_visual_map(self, output_format: str = 'png', 
-                         output_file: str = 'dependency_map') -> Optional[str]:
-        """
-        Create visual dependency graph.
-        
-        Args:
-            output_format: Output format (png, svg, pdf)
-            output_file: Output filename without extension
-            
-        Returns:
-            Path to generated file or None if failed
-        
-        Usage:
-            analyzer.create_visual_map('svg', 'my_dependencies')
-        """
-        if not GRAPHVIZ_AVAILABLE:
-            self.logger.error("Graphviz not available. Cannot create visual map.")
-            return None
-        
-        try:
-            # Create Graphviz graph
-            dot = graphviz.Digraph(
-                comment='Spyder Module Dependencies',
-                engine='dot',
-                format=output_format
-            )
-            
-            # Configure graph attributes
-            dot.attr(rankdir='TB', size='20,20', dpi='150')
-            dot.attr('node', shape='box', style='rounded,filled', fontsize='10')
-            dot.attr('edge', fontsize='8')
-            
-            # Create subgraphs for each module group
-            for group, group_info in MODULE_GROUPS.items():
-                if group not in self.module_groups:
-                    continue
-                
-                with dot.subgraph(name=f'cluster_{group}') as cluster:
-                    cluster.attr(
-                        label=group_info['label'],
-                        style='filled',
-                        fillcolor=group_info['color'] + '40',  # Add transparency
-                        fontsize='12',
-                        fontweight='bold'
-                    )
-                    
-                    # Add nodes for modules in this group
-                    for module in self.module_groups[group]:
-                        full_name = f"{group}.{module}"
-                        if full_name in self.modules:
-                            module_info = self.modules[full_name]
-                            
-                            # Node label
-                            label = f"{module}\n({module_info.complexity})"
-                            
-                            # Node color based on centrality
-                            if hasattr(self, 'centrality_metrics'):
-                                centrality = self.centrality_metrics['degree'].get(full_name, 0)
-                                if centrality > 0.1:
-                                    fillcolor = group_info['color']
-                                else:
-                                    fillcolor = group_info['color'] + '80'
-                            else:
-                                fillcolor = group_info['color']
-                            
-                            cluster.node(
-                                full_name,
-                                label=label,
-                                fillcolor=fillcolor,
-                                fontcolor='white' if self._is_dark_color(fillcolor) else 'black'
-                            )
-            
-            # Add edges
-            edge_counts = defaultdict(int)
-            for source, edges in self.dependencies.items():
-                for edge in edges:
-                    edge_key = (edge.source, edge.target)
-                    edge_counts[edge_key] += 1
-            
-            for (source, target), count in edge_counts.items():
-                # Edge style based on dependency count
-                if count > 5:
-                    style = 'bold'
-                    color = 'red'
-                elif count > 2:
-                    style = 'solid'
-                    color = 'orange'
-                else:
-                    style = 'solid'
-                    color = 'gray'
-                
-                dot.edge(source, target, 
-                        label=str(count) if count > 1 else '',
-                        style=style,
-                        color=color)
-            
-            # Render graph
-            output_path = dot.render(output_file, cleanup=True)
-            self.logger.info(f"Dependency map created: {output_path}")
-            
-            return output_path
-            
-        except Exception as e:
-            self.logger.error(f"Failed to create visual map: {e}")
-            self.error_handler.handle_error(e, "create_visual_map")
-            return None
-    
-    def _is_dark_color(self, hex_color: str) -> bool:
-        """Check if a color is dark"""
-        # Remove # if present
-        hex_color = hex_color.lstrip('#')
-        
-        # Convert to RGB
-        try:
-            r = int(hex_color[0:2], 16)
-            g = int(hex_color[2:4], 16)
-            b = int(hex_color[4:6], 16)
-            
-            # Calculate luminance
-            luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-            
-            return luminance < 0.5
-        except:
-            return False
-    
-    # ==========================================================================
-    # REPORT GENERATION
-    # ==========================================================================
-    
-    def generate_markdown_report(self) -> str:
-        """
-        Generate comprehensive markdown report of dependencies.
-        
-        Returns:
-            Markdown formatted report string
-            
-        Usage:
-            report = analyzer.generate_markdown_report()
-            with open('DEPENDENCIES.md', 'w') as f:
-                f.write(report)
-        """
-        report = ["# Spyder Module Dependency Analysis"]
-        report.append(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report.append(f"\nTotal Modules: {len(self.modules)}")
-        report.append(f"Total Dependencies: {self.import_graph.number_of_edges()}")
-        
-        # Executive Summary
-        report.append("\n## Executive Summary\n")
-        
-        summary_data = []
-        for group in sorted(self.module_groups.keys()):
-            module_count = len(self.module_groups[group])
-            group_deps = sum(
-                1 for _, target in self.import_graph.edges()
-                if any(target.startswith(f"{group}.") for _, target in self.import_graph.edges())
-            )
-            summary_data.append([MODULE_GROUPS[group]['label'], module_count, group_deps])
-        
-        # Create summary table
-        report.append("| Module Group | Modules | Dependencies |")
-        report.append("|--------------|---------|--------------|")
-        for row in summary_data:
-            report.append(f"| {row[0]} | {row[1]} | {row[2]} |")
-        
-        # Circular Dependencies
-        report.append("\n## Circular Dependencies\n")
-        if self.circular_dependencies:
-            report.append(f"Found {len(self.circular_dependencies)} circular dependencies:\n")
-            for i, circular in enumerate(self.circular_dependencies, 1):
-                report.append(f"### {i}. Circular Dependency (Severity: {circular.severity})")
-                report.append(f"Modules involved: {' → '.join(circular.modules + [circular.modules[0]])}")
-                report.append("")
-        else:
-            report.append("✅ No circular dependencies found!\n")
-        
-        # Module Details
-        report.append("\n## Module Details\n")
-        
-        for group in sorted(self.module_groups.keys()):
-            report.append(f"### {MODULE_GROUPS[group]['label']} ({group})\n")
-            
-            for module_name in sorted(self.module_groups[group]):
-                full_name = f"{group}.{module_name}"
-                if full_name not in self.modules:
-                    continue
-                
-                module_info = self.modules[full_name]
-                
-                report.append(f"#### {module_name}")
-                report.append(f"- **File**: `{module_info.filepath.relative_to(self.project_root)}`")
-                report.append(f"- **Lines of Code**: {module_info.lines_of_code}")
-                report.append(f"- **Complexity**: {module_info.complexity}")
-                report.append(f"- **Classes**: {len(module_info.classes)}")
-                report.append(f"- **Functions**: {len(module_info.functions)}")
-                
-                # Dependencies
-                deps = list(module_info.dependencies)
-                if deps:
-                    report.append(f"- **Dependencies** ({len(deps)}):")
-                    for dep in sorted(deps)[:10]:  # Show first 10
-                        report.append(f"  - {dep}")
-                    if len(deps) > 10:
-                        report.append(f"  - ... and {len(deps) - 10} more")
-                else:
-                    report.append("- **Dependencies**: None (standalone module)")
-                
-                # Dependents
-                if module_info.dependents:
-                    report.append(f"- **Used By** ({len(module_info.dependents)}):")
-                    for dep in sorted(module_info.dependents)[:5]:  # Show first 5
-                        report.append(f"  - {dep}")
-                    if len(module_info.dependents) > 5:
-                        report.append(f"  - ... and {len(module_info.dependents) - 5} more")
-                
-                report.append("")
-        
-        # Most Connected Modules
-        report.append("\n## Most Connected Modules\n")
-        
-        if hasattr(self, 'centrality_metrics'):
-            # Sort by degree centrality
-            sorted_centrality = sorted(
-                self.centrality_metrics['degree'].items(),
-                key=lambda x: x[1],
-                reverse=True
-            )[:10]
-            
-            report.append("| Module | Connections | Centrality |")
-            report.append("|--------|-------------|------------|")
-            for module, centrality in sorted_centrality:
-                connections = self.import_graph.degree(module)
-                report.append(f"| {module} | {connections} | {centrality:.3f} |")
-        
-        # Missing Modules
-        if self.missing_modules:
-            report.append("\n## Missing Modules\n")
-            report.append("The following modules are referenced but not found:\n")
-            for module in sorted(self.missing_modules):
-                report.append(f"- {module}")
-        
-        # Isolated Modules
-        if hasattr(self, 'isolated_modules') and self.isolated_modules:
-            report.append("\n## Isolated Modules\n")
-            report.append("The following modules have no dependencies or dependents:\n")
-            for module in sorted(self.isolated_modules):
-                report.append(f"- {module}")
-        
-        return "\n".join(report)
-    
-    # ==========================================================================
-    # ANALYSIS METHODS
-    # ==========================================================================
+            self.logger.error(f"Dependency analysis failed: {e}")
+            raise
     
     def find_circular_dependencies(self) -> List[CircularDependency]:
         """
@@ -736,14 +260,9 @@ class SpyderDependencyAnalyzer:
         
         Returns:
             List of CircularDependency objects
-            
-        Usage:
-            circles = analyzer.find_circular_dependencies()
-            for circle in circles:
-                print(f"Circular: {' -> '.join(circle.modules)}")
         """
         if not self.modules:
-            self.generate_dependency_map()
+            self.analyze_dependencies()
         
         return self.circular_dependencies
     
@@ -752,389 +271,505 @@ class SpyderDependencyAnalyzer:
         Get all dependencies for a specific module.
         
         Args:
-            module_name: Name of the module (can be partial)
+            module_name: Name of the module
             
         Returns:
             Dictionary with dependency information
-            
-        Usage:
-            deps = analyzer.get_module_dependencies('SpyderA01_Main')
         """
-        # Find full module name
-        full_name = None
-        for name in self.modules:
-            if module_name in name:
-                full_name = name
-                break
-        
-        if not full_name or full_name not in self.modules:
-            return {'error': f'Module {module_name} not found'}
-        
-        module_info = self.modules[full_name]
-        
-        # Get direct dependencies
-        direct_deps = list(module_info.dependencies)
-        
-        # Get transitive dependencies
-        transitive_deps = set()
-        visited = set()
-        queue = deque(direct_deps)
-        
-        while queue:
-            dep = queue.popleft()
-            if dep in visited:
-                continue
+        try:
+            if module_name not in self.modules:
+                return {"error": f"Module {module_name} not found"}
             
-            visited.add(dep)
-            resolved_dep = self._resolve_dependency(dep)
+            module = self.modules[module_name]
             
-            if resolved_dep and resolved_dep in self.modules:
-                transitive_deps.add(resolved_dep)
-                queue.extend(self.modules[resolved_dep].dependencies)
-        
-        return {
-            'module': full_name,
-            'direct_dependencies': direct_deps,
-            'transitive_dependencies': list(transitive_deps),
-            'dependents': list(module_info.dependents),
-            'imports': module_info.imports,
-            'exports': module_info.exports,
-            'complexity': module_info.complexity,
-            'lines_of_code': module_info.lines_of_code
-        }
+            # Get direct dependencies
+            direct_deps = module.imports
+            
+            # Get modules that depend on this one
+            dependents = module.imported_by
+            
+            # Calculate dependency depth
+            depth = self._calculate_dependency_depth(module_name)
+            
+            return {
+                "module": module_name,
+                "direct_dependencies": direct_deps,
+                "dependent_modules": dependents,
+                "external_dependencies": module.external_imports,
+                "dependency_depth": depth,
+                "group": module.group,
+                "lines_of_code": module.lines_of_code
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get dependencies for {module_name}: {e}")
+            return {"error": str(e)}
     
-    def find_unused_imports(self) -> Dict[str, List[str]]:
+    def generate_dependency_graph(self) -> DependencyGraph:
         """
-        Find potentially unused imports in modules.
+        Generate dependency graph representation.
         
         Returns:
-            Dictionary mapping module names to unused imports
-            
-        Usage:
-            unused = analyzer.find_unused_imports()
+            DependencyGraph object
         """
-        # This is a simplified version - full implementation would
-        # need to analyze actual usage in the code
-        unused = {}
-        
-        for module_name, module_info in self.modules.items():
-            potentially_unused = []
+        try:
+            if not self.modules:
+                self.analyze_dependencies()
             
-            for imp in module_info.imports:
-                # Check if imported names are in exports
-                if imp['type'] == 'from' and 'names' in imp:
-                    for name in imp['names']:
-                        # Simple heuristic: if not in exports, might be unused
-                        if name not in module_info.exports and name != '*':
-                            potentially_unused.append(f"{imp['module']}.{name}")
+            nodes = list(self.modules.keys())
+            edges = list(self.import_graph.edges())
             
-            if potentially_unused:
-                unused[module_name] = potentially_unused
-        
-        return unused
+            # Find isolated modules
+            isolated = [node for node in nodes if self.import_graph.degree(node) == 0]
+            
+            return DependencyGraph(
+                nodes=nodes,
+                edges=edges,
+                circular_dependencies=self.circular_dependencies,
+                isolated_modules=isolated
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Failed to generate dependency graph: {e}")
+            return DependencyGraph([], [], [], [])
     
-    def generate_critical_path_analysis(self) -> Dict[str, List[str]]:
+    # ==========================================================================
+    # PUBLIC METHODS - REPORTING
+    # ==========================================================================
+    def generate_dependency_report(self) -> str:
         """
-        Identify critical dependency paths in the system.
+        Generate comprehensive dependency analysis report.
         
         Returns:
-            Dictionary of critical paths
-            
-        Usage:
-            paths = analyzer.generate_critical_path_analysis()
+            Markdown formatted report string
         """
-        critical_paths = {}
-        
-        # Define critical starting points
-        critical_modules = {
-            'Main': 'SpyderA_Core.SpyderA01_Main',
-            'TradingEngine': 'SpyderA_Core.SpyderA02_TradingEngine',
-            'RiskManager': 'SpyderE_Risk.SpyderE01_RiskManager',
-            'DataFeed': 'SpyderC_MarketData.SpyderC01_DataFeed'
-        }
-        
-        for path_name, start_module in critical_modules.items():
-            if start_module not in self.modules:
-                continue
+        try:
+            if not self.modules:
+                self.analyze_dependencies()
             
-            # Find longest paths from this module
-            try:
-                paths = nx.single_source_shortest_path(
-                    self.import_graph,
-                    start_module,
-                    cutoff=10
+            report = ["# Spyder Module Dependency Analysis"]
+            report.append(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            report.append(f"\nTotal Modules: {len(self.modules)}")
+            report.append(f"Total Dependencies: {self.import_graph.number_of_edges()}")
+            
+            # Executive Summary
+            report.append("\n## Executive Summary\n")
+            
+            summary_data = []
+            for group in sorted(self.module_groups.keys()):
+                module_count = len(self.module_groups[group])
+                group_deps = sum(
+                    1 for _, target in self.import_graph.edges()
+                    if any(target.startswith(f"{group}.") for _, target in self.import_graph.edges())
                 )
-                
-                # Get longest path
-                longest_path = max(paths.values(), key=len)
-                critical_paths[path_name] = longest_path
-                
-            except:
-                continue
-        
-        return critical_paths
+                summary_data.append([MODULE_GROUPS.get(group, {}).get('label', group), module_count, group_deps])
+            
+            # Create summary table
+            report.append("| Module Group | Modules | Dependencies |")
+            report.append("|--------------|---------|--------------|")
+            for row in summary_data:
+                report.append(f"| {row[0]} | {row[1]} | {row[2]} |")
+            
+            # Circular Dependencies
+            report.append("\n## Circular Dependencies\n")
+            if self.circular_dependencies:
+                report.append(f"Found {len(self.circular_dependencies)} circular dependencies:\n")
+                for i, circular in enumerate(self.circular_dependencies, 1):
+                    report.append(f"### {i}. Circular Dependency (Severity: {circular.severity.value})")
+                    report.append(f"Modules involved: {' → '.join(circular.modules + [circular.modules[0]])}")
+                    report.append(f"Description: {circular.description}")
+                    report.append("")
+            else:
+                report.append("✅ No circular dependencies found!\n")
+            
+            # Module Details
+            report.append("\n## Module Details\n")
+            
+            for group in sorted(self.module_groups.keys()):
+                if group in MODULE_GROUPS:
+                    report.append(f"### {MODULE_GROUPS[group]['label']} ({group})\n")
+                    
+                    for module_name in sorted(self.module_groups[group]):
+                        module = self.modules[module_name]
+                        report.append(f"**{module_name}**")
+                        report.append(f"- Dependencies: {len(module.imports)}")
+                        report.append(f"- Imported by: {len(module.imported_by)}")
+                        report.append(f"- Lines of code: {module.lines_of_code}")
+                        report.append("")
+            
+            # Missing Modules
+            if self.missing_modules:
+                report.append("\n## Missing Modules\n")
+                report.append("The following modules are referenced but not found:\n")
+                for module in sorted(self.missing_modules):
+                    report.append(f"- {module}")
+            
+            return "\n".join(report)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to generate dependency report: {e}")
+            return f"Error generating report: {e}"
     
-    # ==========================================================================
-    # EXPORT METHODS
-    # ==========================================================================
-    
-    def export_to_json(self, output_file: str = 'dependencies.json') -> str:
+    def export_graph_data(self, format: str = "json") -> str:
         """
-        Export dependency data to JSON format.
+        Export dependency graph data in specified format.
         
         Args:
-            output_file: Output filename
+            format: Export format (json, csv, graphml)
             
         Returns:
-            Path to created file
-            
-        Usage:
-            analyzer.export_to_json('my_deps.json')
+            Formatted graph data
         """
-        export_data = {
-            'metadata': {
-                'generated': datetime.now().isoformat(),
-                'project_root': str(self.project_root),
-                'total_modules': len(self.modules),
-                'total_dependencies': self.import_graph.number_of_edges()
-            },
-            'modules': {},
-            'dependencies': {},
-            'circular_dependencies': [],
-            'graph_metrics': {}
-        }
-        
-        # Export module information
-        for name, info in self.modules.items():
-            export_data['modules'][name] = {
-                'group': info.group,
-                'filepath': str(info.filepath.relative_to(self.project_root)),
-                'complexity': info.complexity,
-                'lines_of_code': info.lines_of_code,
-                'classes': info.classes,
-                'functions': info.functions,
-                'dependencies': list(info.dependencies),
-                'dependents': list(info.dependents)
-            }
-        
-        # Export dependencies
-        for source, edges in self.dependencies.items():
-            export_data['dependencies'][source] = [
-                {
-                    'target': edge.target,
-                    'type': edge.import_type
+        try:
+            if not self.modules:
+                self.analyze_dependencies()
+            
+            if format.lower() == "json":
+                graph_data = {
+                    "nodes": [
+                        {
+                            "id": name,
+                            "group": info.group,
+                            "lines_of_code": info.lines_of_code,
+                            "functions": len(info.functions),
+                            "classes": len(info.classes)
+                        }
+                        for name, info in self.modules.items()
+                    ],
+                    "edges": [
+                        {"source": source, "target": target}
+                        for source, target in self.import_graph.edges()
+                    ]
                 }
-                for edge in edges
-            ]
-        
-        # Export circular dependencies
-        for circular in self.circular_dependencies:
-            export_data['circular_dependencies'].append({
-                'modules': circular.modules,
-                'severity': circular.severity
-            })
-        
-        # Export graph metrics
-        if hasattr(self, 'centrality_metrics'):
-            export_data['graph_metrics'] = {
-                'degree_centrality': self.centrality_metrics['degree'],
-                'betweenness_centrality': self.centrality_metrics['betweenness'],
-                'density': nx.density(self.import_graph)
-            }
-        
-        # Write to file
-        output_path = self.project_root / output_file
-        with open(output_path, 'w') as f:
-            json.dump(export_data, f, indent=2)
-        
-        self.logger.info(f"Dependencies exported to: {output_path}")
-        return str(output_path)
+                return json.dumps(graph_data, indent=2)
+            
+            elif format.lower() == "csv":
+                # Export as CSV with adjacency list
+                lines = ["Source,Target,Type"]
+                for source, target in self.import_graph.edges():
+                    lines.append(f"{source},{target},import")
+                return "\n".join(lines)
+            
+            else:
+                return "Unsupported format. Use 'json' or 'csv'."
+                
+        except Exception as e:
+            self.logger.error(f"Failed to export graph data: {e}")
+            return f"Error exporting data: {e}"
     
-    def export_to_csv(self, output_file: str = 'dependencies.csv') -> str:
-        """
-        Export dependency matrix to CSV format.
+    # ==========================================================================
+    # PRIVATE METHODS - FILE ANALYSIS
+    # ==========================================================================
+    def _find_python_files(self) -> List[Path]:
+        """Find all Python files in the project."""
+        python_files = []
         
-        Args:
-            output_file: Output filename
+        for pattern in [f"**/{PYTHON_FILE_PATTERN}"]:
+            for file_path in self.project_root.glob(pattern):
+                # Skip excluded patterns
+                if any(exclude in str(file_path) for exclude in EXCLUDE_PATTERNS):
+                    continue
+                
+                if file_path.is_file():
+                    python_files.append(file_path)
+        
+        return python_files
+    
+    def _analyze_file(self, file_path: Path) -> None:
+        """Analyze a single Python file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
             
-        Returns:
-            Path to created file
+            # Parse AST
+            tree = ast.parse(content, filename=str(file_path))
             
-        Usage:
-            analyzer.export_to_csv('dependency_matrix.csv')
-        """
-        # Create adjacency matrix
-        modules = sorted(self.modules.keys())
-        matrix = pd.DataFrame(
-            0,
-            index=modules,
-            columns=modules
+            # Extract module information
+            module_name = self._get_module_name(file_path)
+            group = self._get_module_group(module_name)
+            
+            # Extract imports, functions, and classes
+            imports = self._extract_imports(tree)
+            functions = self._extract_functions(tree)
+            classes = self._extract_classes(tree)
+            
+            # Count lines of code (excluding empty lines and comments)
+            lines_of_code = self._count_lines_of_code(content)
+            
+            # Separate internal and external imports
+            internal_imports = []
+            external_imports = []
+            
+            for imp in imports:
+                if self._is_spyder_module(imp):
+                    internal_imports.append(imp)
+                else:
+                    external_imports.append(imp)
+            
+            # Create module info
+            module_info = ModuleInfo(
+                name=module_name,
+                path=str(file_path),
+                group=group,
+                imports=internal_imports,
+                external_imports=external_imports,
+                functions=functions,
+                classes=classes,
+                lines_of_code=lines_of_code
+            )
+            
+            self.modules[module_name] = module_info
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to analyze {file_path}: {e}")
+    
+    def _extract_imports(self, tree: ast.AST) -> List[str]:
+        """Extract import statements from AST."""
+        imports = []
+        
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imports.append(node.module)
+        
+        return imports
+    
+    def _extract_functions(self, tree: ast.AST) -> List[str]:
+        """Extract function definitions from AST."""
+        functions = []
+        
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                functions.append(node.name)
+        
+        return functions
+    
+    def _extract_classes(self, tree: ast.AST) -> List[str]:
+        """Extract class definitions from AST."""
+        classes = []
+        
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                classes.append(node.name)
+        
+        return classes
+    
+    def _count_lines_of_code(self, content: str) -> int:
+        """Count non-empty, non-comment lines."""
+        lines = content.split('\n')
+        loc = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                loc += 1
+        
+        return loc
+    
+    # ==========================================================================
+    # PRIVATE METHODS - GRAPH ANALYSIS
+    # ==========================================================================
+    def _build_dependency_graph(self) -> None:
+        """Build NetworkX dependency graph."""
+        # Add nodes
+        for module_name in self.modules:
+            self.import_graph.add_node(module_name)
+        
+        # Add edges
+        for module_name, module_info in self.modules.items():
+            for imported_module in module_info.imports:
+                if imported_module in self.modules:
+                    self.import_graph.add_edge(module_name, imported_module)
+                    # Update imported_by relationships
+                    self.modules[imported_module].imported_by.append(module_name)
+                else:
+                    # Track missing modules
+                    if self._is_spyder_module(imported_module):
+                        self.missing_modules.add(imported_module)
+    
+    def _find_circular_dependencies(self) -> None:
+        """Find circular dependencies using NetworkX."""
+        try:
+            # Find strongly connected components
+            strongly_connected = list(nx.strongly_connected_components(self.import_graph))
+            
+            for component in strongly_connected:
+                if len(component) > 1:
+                    # This is a circular dependency
+                    modules = list(component)
+                    severity = self._assess_circular_severity(modules)
+                    description = f"Circular dependency involving {len(modules)} modules"
+                    
+                    circular_dep = CircularDependency(
+                        modules=modules,
+                        severity=severity,
+                        description=description
+                    )
+                    
+                    self.circular_dependencies.append(circular_dep)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to find circular dependencies: {e}")
+    
+    def _assess_circular_severity(self, modules: List[str]) -> SeverityLevel:
+        """Assess the severity of a circular dependency."""
+        if len(modules) > 5:
+            return SeverityLevel.CRITICAL
+        elif len(modules) > 3:
+            return SeverityLevel.HIGH
+        elif len(modules) > 2:
+            return SeverityLevel.MEDIUM
+        else:
+            return SeverityLevel.LOW
+    
+    def _calculate_dependency_depth(self, module_name: str) -> int:
+        """Calculate dependency depth for a module."""
+        try:
+            if module_name not in self.import_graph:
+                return 0
+            
+            # Use shortest path to calculate depth
+            max_depth = 0
+            for target in self.import_graph.successors(module_name):
+                try:
+                    depth = nx.shortest_path_length(self.import_graph, module_name, target)
+                    max_depth = max(max_depth, depth)
+                except nx.NetworkXNoPath:
+                    continue
+            
+            return max_depth
+            
+        except Exception:
+            return 0
+    
+    # ==========================================================================
+    # PRIVATE METHODS - UTILITIES
+    # ==========================================================================
+    def _get_module_name(self, file_path: Path) -> str:
+        """Extract module name from file path."""
+        # Convert path to module name
+        relative_path = file_path.relative_to(self.project_root)
+        module_name = str(relative_path.with_suffix(''))
+        module_name = module_name.replace(os.path.sep, '.')
+        
+        # Remove __init__ from module names
+        if module_name.endswith('.__init__'):
+            module_name = module_name[:-9]
+        
+        return module_name
+    
+    def _get_module_group(self, module_name: str) -> str:
+        """Determine module group from module name."""
+        for group in MODULE_GROUPS:
+            if module_name.startswith(group):
+                return group
+        
+        return "Unknown"
+    
+    def _is_spyder_module(self, module_name: str) -> bool:
+        """Check if a module is part of the Spyder project."""
+        return module_name.startswith('Spyder') or any(
+            module_name.startswith(group) for group in MODULE_GROUPS
         )
-        
-        # Fill matrix
-        for source, targets in nx.adjacency_iter(self.import_graph):
-            for target in targets:
-                matrix.loc[source, target] = 1
-        
-        # Save to CSV
-        output_path = self.project_root / output_file
-        matrix.to_csv(output_path)
-        
-        self.logger.info(f"Dependency matrix exported to: {output_path}")
-        return str(output_path)
-
+    
+    def _group_modules(self) -> None:
+        """Group modules by their category."""
+        for module_name, module_info in self.modules.items():
+            group = module_info.group
+            if group not in self.module_groups:
+                self.module_groups[group] = []
+            self.module_groups[group].append(module_name)
 
 # ==============================================================================
-# CONVENIENCE FUNCTIONS
+# MODULE FUNCTIONS
 # ==============================================================================
-def analyze_spyder_dependencies(project_path: str = '.', 
-                               create_visual: bool = True,
-                               output_format: str = 'svg') -> Dict[str, Any]:
+def analyze_project_dependencies(project_root: str = ".") -> DependencyAnalyzer:
     """
-    Convenience function to analyze Spyder dependencies.
+    Quick function to analyze project dependencies.
     
     Args:
-        project_path: Path to Spyder project
-        create_visual: Whether to create visual map
-        output_format: Format for visual map
+        project_root: Root directory of the project
         
     Returns:
-        Analysis results dictionary
-        
-    Usage:
-        results = analyze_spyder_dependencies('/path/to/spyder')
+        DependencyAnalyzer instance with analysis complete
     """
-    analyzer = SpyderDependencyAnalyzer(project_path)
-    
-    # Generate dependency map
-    results = analyzer.generate_dependency_map()
-    
-    # Create visual map
-    if create_visual:
-        visual_path = analyzer.create_visual_map(output_format)
-        results['visual_map'] = visual_path
-    
-    # Generate reports
-    results['markdown_report'] = analyzer.generate_markdown_report()
-    results['json_export'] = analyzer.export_to_json()
-    
-    return results
+    analyzer = DependencyAnalyzer(project_root)
+    analyzer.analyze_dependencies()
+    return analyzer
 
+def find_circular_dependencies(project_root: str = ".") -> List[CircularDependency]:
+    """
+    Quick function to find circular dependencies.
+    
+    Args:
+        project_root: Root directory of the project
+        
+    Returns:
+        List of circular dependencies found
+    """
+    analyzer = analyze_project_dependencies(project_root)
+    return analyzer.find_circular_dependencies()
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+# Module-level initialization code
+_dependency_analyzer_instance: Optional[DependencyAnalyzer] = None
+
+def get_dependency_analyzer(project_root: str = ".") -> DependencyAnalyzer:
+    """
+    Get singleton instance of dependency analyzer.
+    
+    Args:
+        project_root: Root directory of the project
+        
+    Returns:
+        DependencyAnalyzer instance
+    """
+    global _dependency_analyzer_instance
+    if _dependency_analyzer_instance is None:
+        _dependency_analyzer_instance = DependencyAnalyzer(project_root)
+    return _dependency_analyzer_instance
 
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Analyze Spyder module dependencies",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-    # Basic analysis with visual map
-    python SpyderU18_DependencyAnalyzer.py --path /path/to/spyder
+    # Module testing code
+    print("=" * 80)
+    print("SPYDER U18 - Dependency Analyzer Test")
+    print("=" * 80)
     
-    # Generate SVG visualization
-    python SpyderU18_DependencyAnalyzer.py --path /path/to/spyder --output svg
+    analyzer = DependencyAnalyzer(".")
     
-    # Export to multiple formats
-    python SpyderU18_DependencyAnalyzer.py --path /path/to/spyder --json --csv --markdown
+    print("\n1. Analyzing dependencies...")
+    analyzer.analyze_dependencies()
+    print(f"   Found {len(analyzer.modules)} modules")
+    print(f"   Found {len(analyzer.module_groups)} module groups")
     
-    # Analyze specific module
-    python SpyderU18_DependencyAnalyzer.py --path /path/to/spyder --module SpyderA01_Main
-        """
-    )
+    print("\n2. Checking for circular dependencies...")
+    circular_deps = analyzer.find_circular_dependencies()
+    if circular_deps:
+        print(f"   Found {len(circular_deps)} circular dependencies:")
+        for cd in circular_deps:
+            print(f"   - {' -> '.join(cd.modules)} (Severity: {cd.severity.value})")
+    else:
+        print("   ✅ No circular dependencies found!")
     
-    parser.add_argument('--path', type=str, default='.',
-                       help='Path to Spyder project root')
-    parser.add_argument('--output', type=str, choices=['png', 'svg', 'pdf'], 
-                       default='svg', help='Output format for visual map')
-    parser.add_argument('--no-visual', action='store_true',
-                       help='Skip visual map generation')
-    parser.add_argument('--json', action='store_true',
-                       help='Export to JSON')
-    parser.add_argument('--csv', action='store_true',
-                       help='Export dependency matrix to CSV')
-    parser.add_argument('--markdown', action='store_true',
-                       help='Generate markdown report')
-    parser.add_argument('--module', type=str,
-                       help='Analyze specific module')
-    parser.add_argument('--find-circular', action='store_true',
-                       help='Find circular dependencies')
-    parser.add_argument('--find-unused', action='store_true',
-                       help='Find unused imports')
+    print("\n3. Generating dependency graph...")
+    graph = analyzer.generate_dependency_graph()
+    print(f"   Graph has {len(graph.nodes)} nodes and {len(graph.edges)} edges")
     
-    args = parser.parse_args()
+    print("\n4. Testing module dependency lookup...")
+    if analyzer.modules:
+        sample_module = list(analyzer.modules.keys())[0]
+        deps = analyzer.get_module_dependencies(sample_module)
+        print(f"   Sample module {sample_module}:")
+        print(f"   - Direct dependencies: {len(deps.get('direct_dependencies', []))}")
+        print(f"   - Dependent modules: {len(deps.get('dependent_modules', []))}")
     
-    # Create analyzer
-    print(f"Analyzing Spyder dependencies in: {args.path}")
-    analyzer = SpyderDependencyAnalyzer(args.path)
-    
-    # Generate dependency map
-    print("Generating dependency map...")
-    results = analyzer.generate_dependency_map()
-    
-    print(f"\nAnalysis Summary:")
-    print(f"  Total Modules: {results['summary']['total_modules']}")
-    print(f"  Total Dependencies: {results['summary']['total_dependencies']}")
-    print(f"  Circular Dependencies: {results['summary']['circular_dependencies']}")
-    print(f"  Graph Density: {results['summary']['graph_density']:.3f}")
-    
-    # Create visual map
-    if not args.no_visual:
-        print(f"\nCreating visual map ({args.output} format)...")
-        visual_path = analyzer.create_visual_map(args.output)
-        if visual_path:
-            print(f"Visual map saved to: {visual_path}")
-    
-    # Export options
-    if args.json:
-        json_path = analyzer.export_to_json()
-        print(f"JSON export saved to: {json_path}")
-    
-    if args.csv:
-        csv_path = analyzer.export_to_csv()
-        print(f"CSV export saved to: {csv_path}")
-    
-    if args.markdown:
-        report = analyzer.generate_markdown_report()
-        report_path = Path(args.path) / "DEPENDENCIES.md"
-        with open(report_path, 'w') as f:
-            f.write(report)
-        print(f"Markdown report saved to: {report_path}")
-    
-    # Specific module analysis
-    if args.module:
-        print(f"\nAnalyzing module: {args.module}")
-        module_deps = analyzer.get_module_dependencies(args.module)
-        
-        if 'error' not in module_deps:
-            print(f"  Direct Dependencies: {len(module_deps['direct_dependencies'])}")
-            print(f"  Transitive Dependencies: {len(module_deps['transitive_dependencies'])}")
-            print(f"  Used By: {len(module_deps['dependents'])}")
-            print(f"  Complexity: {module_deps['complexity']}")
-    
-    # Find circular dependencies
-    if args.find_circular:
-        print("\nSearching for circular dependencies...")
-        circles = analyzer.find_circular_dependencies()
-        
-        if circles:
-            print(f"Found {len(circles)} circular dependencies:")
-            for i, circle in enumerate(circles, 1):
-                print(f"  {i}. {' → '.join(circle.modules)} ({circle.severity} severity)")
-        else:
-            print("No circular dependencies found!")
-    
-    # Find unused imports
-    if args.find_unused:
-        print("\nSearching for unused imports...")
-        unused = analyzer.find_unused_imports()
-        
-        if unused:
-            print(f"Found potentially unused imports in {len(unused)} modules")
-            for module, imports in list(unused.items())[:5]:  # Show first 5
-                print(f"  {module}: {len(imports)} unused imports")
-        else:
-            print("No unused imports detected!")
-    
-    print("\nDependency analysis complete!")
+    print("\n" + "=" * 80)
+    print("✅ Dependency Analyzer test completed!")

@@ -831,4 +831,4 @@ class SPYFeedProcessor:
                 self.process_level2(level2)
                 
         except Exception as e:
-            self.logger.error(f"Error handling Level 2 
+            self.logger.error(f"Error handling Level 2: {e}")

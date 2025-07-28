@@ -22,12 +22,12 @@ IB_CONFIG = {
     "gateway": {
         "paper": {
             "host": "127.0.0.1",
-            "port": 4001,  # Gateway paper trading port
+            "port": 4002,  # Gateway paper trading port - MATCHES YOUR GATEWAY
             "clientId": 1,
         },
         "live": {
             "host": "127.0.0.1",
-            "port": 4000,  # Gateway live trading port
+            "port": 4001,  # Gateway live trading port
             "clientId": 2,
         },
     },

@@ -5,17 +5,19 @@ SPYDER - Automated SPY Options Trading System
 
 Module: SpyderU11_FeatureFlags.py
 Group: U (Utilities)
-Purpose: Feature toggle management for gradual rollout
+Purpose: Feature flag management and A/B testing framework
 
 Description:
-    This module provides a centralized feature flag management system that allows
-    for safe deployment of new features, A/B testing, and gradual rollout of
-    trading strategies. It supports runtime toggling, persistence, and monitoring
-    of feature usage.
+    This module provides comprehensive feature flag management for the Spyder
+    trading system. It enables dynamic feature enabling/disabling, A/B testing,
+    gradual rollouts, and configuration management without code deployment.
+    Features can be controlled per user, environment, or globally with
+    real-time updates and rollback capabilities.
 
 Author: Mohamed Talib
-Date: 2025-06-06
-Version: 1.4
+Date Created: 2025-07-18
+Last Updated: 2025-07-18 Time: 11:00:00
+
 """
 
 # ==============================================================================
@@ -23,12 +25,12 @@ Version: 1.4
 # ==============================================================================
 import json
 import os
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable, Set
-from enum import Enum, auto
-from dataclasses import dataclass, field
+import time
 import threading
-from pathlib import Path
+from typing import Dict, List, Optional, Any, Union, Callable
+from dataclasses import dataclass, field
+from enum import Enum
+from datetime import datetime, timedelta
 import hashlib
 import random
 
@@ -42,778 +44,663 @@ import pandas as pd
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderA_Core.SpyderA05_EventManager import Event, EventType
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# File paths
-DEFAULT_FLAGS_FILE = Path.home() / ".spyder" / "feature_flags.json"
-FLAGS_BACKUP_DIR = Path.home() / ".spyder" / "flags_backup"
+# Feature flag configuration
+DEFAULT_CONFIG_FILE = "config/feature_flags.json"
+CACHE_REFRESH_INTERVAL = 300  # 5 minutes
+MAX_CACHE_AGE = 3600  # 1 hour
 
-# Feature categories
-CATEGORY_STRATEGY = "strategy"
-CATEGORY_RISK = "risk"
-CATEGORY_UI = "ui"
-CATEGORY_DATA = "data"
-CATEGORY_EXPERIMENTAL = "experimental"
+# Default feature flags
+DEFAULT_FEATURES = {
+    "advanced_risk_management": True,
+    "ml_strategy_selection": False,
+    "real_time_greek_monitoring": True,
+    "automated_position_sizing": True,
+    "dark_pool_detection": False,
+    "sentiment_analysis": False,
+    "news_impact_analysis": False,
+    "zero_dte_strategies": True,
+    "iron_condor_automation": True,
+    "volatility_surface_analysis": False,
+    "gamma_hedging": False,
+    "portfolio_optimization": True,
+    "alert_notifications": True,
+    "performance_analytics": True,
+    "backtesting_engine": True
+}
+
+# Environment-based overrides
+ENVIRONMENT_OVERRIDES = {
+    "development": {
+        "ml_strategy_selection": True,
+        "sentiment_analysis": True,
+        "volatility_surface_analysis": True
+    },
+    "testing": {
+        "all_features": True
+    },
+    "production": {
+        "experimental_features": False
+    }
+}
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
-class FeatureState(Enum):
-    """Feature flag states"""
-    DISABLED = "disabled"
+class FeatureStatus(Enum):
+    """Feature flag status"""
     ENABLED = "enabled"
-    PERCENTAGE = "percentage"  # Partial rollout
-    AB_TEST = "ab_test"       # A/B testing
-    SCHEDULED = "scheduled"    # Time-based
+    DISABLED = "disabled"
+    TESTING = "testing"
+    ROLLOUT = "rollout"
+    DEPRECATED = "deprecated"
 
 class RolloutStrategy(Enum):
-    """Rollout strategies"""
-    IMMEDIATE = auto()
-    GRADUAL = auto()
-    SCHEDULED = auto()
-    USER_BASED = auto()
+    """Feature rollout strategy"""
+    ALL = "all"
+    PERCENTAGE = "percentage"
+    USER_LIST = "user_list"
+    CANARY = "canary"
+    GRADUAL = "gradual"
+
+class FeatureType(Enum):
+    """Feature type classification"""
+    CORE = "core"
+    STRATEGY = "strategy"
+    ANALYTICS = "analytics"
+    UI = "ui"
+    EXPERIMENTAL = "experimental"
+    INTEGRATION = "integration"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
 @dataclass
 class FeatureFlag:
-    """Feature flag configuration"""
+    """Feature flag definition."""
     name: str
-    description: str
-    category: str
-    state: FeatureState
-    enabled: bool = False
+    enabled: bool
+    status: FeatureStatus
+    type: FeatureType
+    description: str = ""
+    rollout_percentage: float = 100.0
+    rollout_strategy: RolloutStrategy = RolloutStrategy.ALL
+    enabled_users: List[str] = field(default_factory=list)
+    environments: List[str] = field(default_factory=lambda: ["all"])
+    created_date: datetime = field(default_factory=datetime.now)
+    modified_date: datetime = field(default_factory=datetime.now)
+    expires_date: Optional[datetime] = None
+    dependencies: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
-    # Rollout configuration
-    percentage: float = 0.0  # For percentage rollout
-    ab_group: str = "control"  # For A/B testing
-    schedule_start: Optional[datetime] = None
-    schedule_end: Optional[datetime] = None
+    def __post_init__(self):
+        """Post-initialization validation."""
+        if not self.name:
+            raise ValueError("Feature name cannot be empty")
+        if not 0 <= self.rollout_percentage <= 100:
+            raise ValueError("Rollout percentage must be between 0 and 100")
     
-    # Metadata
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-    created_by: str = "system"
+    def is_expired(self) -> bool:
+        """Check if feature flag has expired."""
+        if self.expires_date:
+            return datetime.now() > self.expires_date
+        return False
     
-    # Usage tracking
-    usage_count: int = 0
-    last_used: Optional[datetime] = None
-    
-    # Dependencies
-    depends_on: List[str] = field(default_factory=list)
-    conflicts_with: List[str] = field(default_factory=list)
-    
-    # Override capability
-    override_key: Optional[str] = None  # For emergency override
+    def is_enabled_for_user(self, user_id: str) -> bool:
+        """Check if feature is enabled for specific user."""
+        if not self.enabled:
+            return False
+        
+        if self.is_expired():
+            return False
+        
+        if self.rollout_strategy == RolloutStrategy.ALL:
+            return True
+        elif self.rollout_strategy == RolloutStrategy.USER_LIST:
+            return user_id in self.enabled_users
+        elif self.rollout_strategy == RolloutStrategy.PERCENTAGE:
+            # Use hash of user_id + feature name for consistent rollout
+            hash_input = f"{user_id}:{self.name}"
+            hash_value = int(hashlib.md5(hash_input.encode()).hexdigest(), 16)
+            percentage = (hash_value % 100) + 1
+            return percentage <= self.rollout_percentage
+        
+        return self.enabled
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization"""
+        """Convert to dictionary."""
         return {
-            'name': self.name,
-            'description': self.description,
-            'category': self.category,
-            'state': self.state.value,
-            'enabled': self.enabled,
-            'percentage': self.percentage,
-            'ab_group': self.ab_group,
-            'schedule_start': self.schedule_start.isoformat() if self.schedule_start else None,
-            'schedule_end': self.schedule_end.isoformat() if self.schedule_end else None,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat(),
-            'created_by': self.created_by,
-            'usage_count': self.usage_count,
-            'last_used': self.last_used.isoformat() if self.last_used else None,
-            'depends_on': self.depends_on,
-            'conflicts_with': self.conflicts_with,
-            'override_key': self.override_key
+            "name": self.name,
+            "enabled": self.enabled,
+            "status": self.status.value,
+            "type": self.type.value,
+            "description": self.description,
+            "rollout_percentage": self.rollout_percentage,
+            "rollout_strategy": self.rollout_strategy.value,
+            "enabled_users": self.enabled_users,
+            "environments": self.environments,
+            "created_date": self.created_date.isoformat(),
+            "modified_date": self.modified_date.isoformat(),
+            "expires_date": self.expires_date.isoformat() if self.expires_date else None,
+            "dependencies": self.dependencies,
+            "metadata": self.metadata
         }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'FeatureFlag':
-        """Create from dictionary"""
-        # Parse dates
-        if data.get('schedule_start'):
-            data['schedule_start'] = datetime.fromisoformat(data['schedule_start'])
-        if data.get('schedule_end'):
-            data['schedule_end'] = datetime.fromisoformat(data['schedule_end'])
-        if data.get('created_at'):
-            data['created_at'] = datetime.fromisoformat(data['created_at'])
-        if data.get('updated_at'):
-            data['updated_at'] = datetime.fromisoformat(data['updated_at'])
-        if data.get('last_used'):
-            data['last_used'] = datetime.fromisoformat(data['last_used'])
-        
-        # Parse state
-        data['state'] = FeatureState(data['state'])
-        
-        return cls(**data)
-
-@dataclass
-class FeatureUsage:
-    """Feature usage tracking"""
-    feature_name: str
-    timestamp: datetime
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
-    context: Dict[str, Any] = field(default_factory=dict)
-    outcome: Optional[str] = None  # For A/B testing
 
 # ==============================================================================
-# FEATURE FLAGS MANAGER CLASS
+# MAIN CLASS
 # ==============================================================================
-class FeatureFlagsManager:
+class FeatureFlags:
     """
-    Centralized feature flag management system.
+    Feature flag management system.
     
-    Features:
-    - Runtime feature toggling
-    - Percentage-based rollout
-    - A/B testing support
-    - Scheduled features
-    - Usage tracking and analytics
-    - Emergency override capability
-    - Persistent storage
-    """
+    This class provides comprehensive feature flag management including
+    dynamic enabling/disabling, A/B testing, gradual rollouts, and
+    configuration management. Features can be controlled globally,
+    per environment, or per user with real-time updates.
     
-    def __init__(self, flags_file: Optional[Path] = None, event_manager=None):
-        """
-        Initialize feature flags manager.
+    Attributes:
+        logger: Module logger instance
+        error_handler: Error handling instance
+        features: Dictionary of feature flags
+        config_file: Path to configuration file
+        cache_timestamp: Last cache update timestamp
         
-        Args:
-            flags_file: Path to flags configuration file
-            event_manager: Event manager for notifications
-        """
+    Example:
+        >>> flags = FeatureFlags()
+        >>> if flags.is_enabled("ml_strategy_selection"):
+        ...     print("ML strategies enabled")
+        >>> flags.enable_feature("sentiment_analysis")
+        >>> flags.set_rollout_percentage("new_feature", 25.0)
+    """
+    
+    def __init__(self, config_file: str = DEFAULT_CONFIG_FILE):
+        """Initialize the feature flags manager."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        self.event_manager = event_manager
+        self.config_file = config_file
+        self.features: Dict[str, FeatureFlag] = {}
+        self.cache_timestamp = 0.0
+        self.lock = threading.RLock()
+        self.environment = os.getenv("SPYDER_ENV", "development")
+        self.user_id = os.getenv("SPYDER_USER_ID", "default")
         
-        # Storage
-        self.flags_file = flags_file or DEFAULT_FLAGS_FILE
-        self.flags: Dict[str, FeatureFlag] = {}
-        self.usage_log: List[FeatureUsage] = []
+        # Load initial configuration
+        self._load_configuration()
         
-        # Ensure directories exist
-        self.flags_file.parent.mkdir(parents=True, exist_ok=True)
-        FLAGS_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        
-        # Thread safety
-        self._lock = threading.RLock()
-        
-        # Callbacks
-        self.change_callbacks: Dict[str, List[Callable]] = {}
-        
-        # Session management
-        self.session_id = self._generate_session_id()
-        self.user_id = os.environ.get('USER', 'default')
-        
-        # Load flags
-        self._load_flags()
-        
-        # Initialize default flags
-        self._initialize_default_flags()
-        
-        self.logger.info("FeatureFlagsManager initialized")
+        self.logger.info(f"{self.__class__.__name__} initialized with {len(self.features)} features")
     
     # ==========================================================================
-    # FLAG MANAGEMENT
+    # PUBLIC METHODS - FEATURE CHECKING
     # ==========================================================================
-    def is_enabled(self, feature_name: str, context: Optional[Dict[str, Any]] = None) -> bool:
+    def is_enabled(self, feature_name: str, user_id: Optional[str] = None) -> bool:
         """
         Check if a feature is enabled.
         
         Args:
-            feature_name: Name of the feature
-            context: Optional context for decision
+            feature_name: Name of the feature to check
+            user_id: Optional user ID for user-specific checks
+            
+        Returns:
+            bool: True if feature is enabled
+            
+        Example:
+            >>> flags = FeatureFlags()
+            >>> enabled = flags.is_enabled("ml_strategy_selection")
+            >>> user_enabled = flags.is_enabled("beta_feature", "user123")
+        """
+        try:
+            self._refresh_cache_if_needed()
+            
+            if feature_name not in self.features:
+                self.logger.warning(f"Unknown feature flag: {feature_name}")
+                return False
+            
+            feature = self.features[feature_name]
+            current_user = user_id or self.user_id
+            
+            # Check environment restrictions
+            if feature.environments and "all" not in feature.environments:
+                if self.environment not in feature.environments:
+                    return False
+            
+            # Check dependencies
+            if feature.dependencies:
+                for dep in feature.dependencies:
+                    if not self.is_enabled(dep, current_user):
+                        return False
+            
+            return feature.is_enabled_for_user(current_user)
+            
+        except Exception as e:
+            self.logger.error(f"Error checking feature {feature_name}: {e}")
+            return False
+    
+    def check_feature_enabled(self, feature_name: str, user_id: Optional[str] = None) -> bool:
+        """
+        Alias for is_enabled method for backward compatibility.
+        
+        Args:
+            feature_name: Name of the feature to check
+            user_id: Optional user ID for user-specific checks
             
         Returns:
             bool: True if feature is enabled
         """
-        with self._lock:
-            flag = self.flags.get(feature_name)
-            if not flag:
-                self.logger.warning(f"Unknown feature flag: {feature_name}")
-                return False
+        return self.is_enabled(feature_name, user_id)
+    
+    def get_enabled_features(self, user_id: Optional[str] = None) -> List[str]:
+        """
+        Get list of all enabled features for a user.
+        
+        Args:
+            user_id: Optional user ID
             
-            # Track usage
-            self._track_usage(feature_name, context)
+        Returns:
+            List of enabled feature names
+        """
+        enabled = []
+        current_user = user_id or self.user_id
+        
+        for feature_name in self.features:
+            if self.is_enabled(feature_name, current_user):
+                enabled.append(feature_name)
+        
+        return enabled
+    
+    # ==========================================================================
+    # PUBLIC METHODS - FEATURE MANAGEMENT
+    # ==========================================================================
+    def enable_feature(self, feature_name: str, save: bool = True) -> bool:
+        """
+        Enable a feature flag.
+        
+        Args:
+            feature_name: Name of the feature to enable
+            save: Whether to save changes to file
             
-            # Check dependencies
-            if not self._check_dependencies(flag):
-                return False
-            
-            # Check conflicts
-            if self._has_conflicts(flag):
-                return False
-            
-            # Check based on state
-            if flag.state == FeatureState.DISABLED:
-                return False
-            elif flag.state == FeatureState.ENABLED:
-                return flag.enabled
-            elif flag.state == FeatureState.PERCENTAGE:
-                return self._check_percentage(flag, context)
-            elif flag.state == FeatureState.AB_TEST:
-                return self._check_ab_test(flag, context)
-            elif flag.state == FeatureState.SCHEDULED:
-                return self._check_schedule(flag)
-            
+        Returns:
+            bool: True if successful
+        """
+        try:
+            with self.lock:
+                if feature_name in self.features:
+                    self.features[feature_name].enabled = True
+                    self.features[feature_name].modified_date = datetime.now()
+                else:
+                    # Create new feature
+                    self.features[feature_name] = FeatureFlag(
+                        name=feature_name,
+                        enabled=True,
+                        status=FeatureStatus.ENABLED,
+                        type=FeatureType.EXPERIMENTAL
+                    )
+                
+                if save:
+                    self._save_configuration()
+                
+                self.logger.info(f"Feature {feature_name} enabled")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Failed to enable feature {feature_name}: {e}")
             return False
     
-    def enable(self, feature_name: str, percentage: float = 100.0) -> bool:
+    def disable_feature(self, feature_name: str, save: bool = True) -> bool:
         """
-        Enable a feature.
+        Disable a feature flag.
+        
+        Args:
+            feature_name: Name of the feature to disable
+            save: Whether to save changes to file
+            
+        Returns:
+            bool: True if successful
+        """
+        try:
+            with self.lock:
+                if feature_name in self.features:
+                    self.features[feature_name].enabled = False
+                    self.features[feature_name].modified_date = datetime.now()
+                    
+                    if save:
+                        self._save_configuration()
+                    
+                    self.logger.info(f"Feature {feature_name} disabled")
+                    return True
+                else:
+                    self.logger.warning(f"Feature {feature_name} not found")
+                    return False
+                    
+        except Exception as e:
+            self.logger.error(f"Failed to disable feature {feature_name}: {e}")
+            return False
+    
+    def set_rollout_percentage(self, feature_name: str, percentage: float, save: bool = True) -> bool:
+        """
+        Set rollout percentage for a feature.
         
         Args:
             feature_name: Name of the feature
             percentage: Rollout percentage (0-100)
+            save: Whether to save changes to file
             
         Returns:
-            bool: Success status
+            bool: True if successful
         """
-        with self._lock:
-            flag = self.flags.get(feature_name)
-            if not flag:
-                self.logger.error(f"Feature not found: {feature_name}")
-                return False
+        try:
+            if not 0 <= percentage <= 100:
+                raise ValueError("Percentage must be between 0 and 100")
             
-            # Update flag
-            flag.enabled = True
-            if percentage < 100:
-                flag.state = FeatureState.PERCENTAGE
-                flag.percentage = percentage
-            else:
-                flag.state = FeatureState.ENABLED
-                flag.percentage = 100.0
-            
-            flag.updated_at = datetime.now()
-            
-            # Save and notify
-            self._save_flags()
-            self._notify_change(feature_name, True)
-            
-            self.logger.info(f"Feature enabled: {feature_name} ({percentage}%)")
-            return True
+            with self.lock:
+                if feature_name in self.features:
+                    self.features[feature_name].rollout_percentage = percentage
+                    self.features[feature_name].rollout_strategy = RolloutStrategy.PERCENTAGE
+                    self.features[feature_name].modified_date = datetime.now()
+                    
+                    if save:
+                        self._save_configuration()
+                    
+                    self.logger.info(f"Feature {feature_name} rollout set to {percentage}%")
+                    return True
+                else:
+                    self.logger.warning(f"Feature {feature_name} not found")
+                    return False
+                    
+        except Exception as e:
+            self.logger.error(f"Failed to set rollout for {feature_name}: {e}")
+            return False
     
-    def disable(self, feature_name: str) -> bool:
-        """
-        Disable a feature.
-        
-        Args:
-            feature_name: Name of the feature
-            
-        Returns:
-            bool: Success status
-        """
-        with self._lock:
-            flag = self.flags.get(feature_name)
-            if not flag:
-                self.logger.error(f"Feature not found: {feature_name}")
-                return False
-            
-            # Update flag
-            flag.enabled = False
-            flag.state = FeatureState.DISABLED
-            flag.updated_at = datetime.now()
-            
-            # Save and notify
-            self._save_flags()
-            self._notify_change(feature_name, False)
-            
-            self.logger.info(f"Feature disabled: {feature_name}")
-            return True
-    
-    def create_flag(self, name: str, description: str, category: str,
-                   enabled: bool = False, **kwargs) -> FeatureFlag:
+    # ==========================================================================
+    # PUBLIC METHODS - CONFIGURATION
+    # ==========================================================================
+    def create_feature(self, name: str, enabled: bool = False, 
+                      feature_type: FeatureType = FeatureType.EXPERIMENTAL,
+                      description: str = "") -> bool:
         """
         Create a new feature flag.
         
         Args:
             name: Feature name
+            enabled: Initial enabled state
+            feature_type: Type of feature
             description: Feature description
-            category: Feature category
-            enabled: Initial state
-            **kwargs: Additional parameters
             
         Returns:
-            FeatureFlag: Created flag
+            bool: True if successful
         """
-        with self._lock:
-            if name in self.flags:
-                raise ValueError(f"Feature flag already exists: {name}")
-            
-            flag = FeatureFlag(
-                name=name,
-                description=description,
-                category=category,
-                state=FeatureState.ENABLED if enabled else FeatureState.DISABLED,
-                enabled=enabled,
-                **kwargs
-            )
-            
-            self.flags[name] = flag
-            self._save_flags()
-            
-            self.logger.info(f"Created feature flag: {name}")
-            return flag
-    
-    def schedule_feature(self, feature_name: str, start: datetime, end: datetime) -> bool:
-        """
-        Schedule a feature for specific time period.
-        
-        Args:
-            feature_name: Feature name
-            start: Start time
-            end: End time
-            
-        Returns:
-            bool: Success status
-        """
-        with self._lock:
-            flag = self.flags.get(feature_name)
-            if not flag:
-                return False
-            
-            flag.state = FeatureState.SCHEDULED
-            flag.schedule_start = start
-            flag.schedule_end = end
-            flag.updated_at = datetime.now()
-            
-            self._save_flags()
-            
-            self.logger.info(f"Scheduled feature {feature_name}: {start} to {end}")
-            return True
-    
-    def setup_ab_test(self, feature_name: str, control_percentage: float = 50.0) -> bool:
-        """
-        Setup A/B test for a feature.
-        
-        Args:
-            feature_name: Feature name
-            control_percentage: Percentage for control group
-            
-        Returns:
-            bool: Success status
-        """
-        with self._lock:
-            flag = self.flags.get(feature_name)
-            if not flag:
-                return False
-            
-            flag.state = FeatureState.AB_TEST
-            flag.percentage = control_percentage
-            flag.updated_at = datetime.now()
-            
-            self._save_flags()
-            
-            self.logger.info(f"Setup A/B test for {feature_name}: {control_percentage}% control")
-            return True
-    
-    # ==========================================================================
-    # CHECKING LOGIC
-    # ==========================================================================
-    def _check_percentage(self, flag: FeatureFlag, context: Optional[Dict[str, Any]]) -> bool:
-        """Check percentage-based rollout"""
-        # Use consistent hashing for user
-        user_hash = hashlib.md5(self.user_id.encode()).hexdigest()
-        user_value = int(user_hash[:8], 16) % 100
-        
-        return user_value < flag.percentage
-    
-    def _check_ab_test(self, flag: FeatureFlag, context: Optional[Dict[str, Any]]) -> bool:
-        """Check A/B test assignment"""
-        # Consistent assignment based on user
-        user_hash = hashlib.md5(self.user_id.encode()).hexdigest()
-        user_value = int(user_hash[:8], 16) % 100
-        
-        if user_value < flag.percentage:
-            flag.ab_group = "control"
-            return False
-        else:
-            flag.ab_group = "treatment"
-            return True
-    
-    def _check_schedule(self, flag: FeatureFlag) -> bool:
-        """Check scheduled feature"""
-        now = datetime.now()
-        
-        if flag.schedule_start and now < flag.schedule_start:
-            return False
-        
-        if flag.schedule_end and now > flag.schedule_end:
-            return False
-        
-        return flag.enabled
-    
-    def _check_dependencies(self, flag: FeatureFlag) -> bool:
-        """Check if dependencies are met"""
-        for dep in flag.depends_on:
-            if not self.is_enabled(dep):
-                return False
-        return True
-    
-    def _has_conflicts(self, flag: FeatureFlag) -> bool:
-        """Check for conflicts"""
-        for conflict in flag.conflicts_with:
-            if self.is_enabled(conflict):
+        try:
+            with self.lock:
+                if name in self.features:
+                    self.logger.warning(f"Feature {name} already exists")
+                    return False
+                
+                self.features[name] = FeatureFlag(
+                    name=name,
+                    enabled=enabled,
+                    status=FeatureStatus.ENABLED if enabled else FeatureStatus.DISABLED,
+                    type=feature_type,
+                    description=description
+                )
+                
+                self._save_configuration()
+                self.logger.info(f"Created feature flag: {name}")
                 return True
-        return False
+                
+        except Exception as e:
+            self.logger.error(f"Failed to create feature {name}: {e}")
+            return False
     
-    # ==========================================================================
-    # USAGE TRACKING
-    # ==========================================================================
-    def _track_usage(self, feature_name: str, context: Optional[Dict[str, Any]]) -> None:
-        """Track feature usage"""
-        usage = FeatureUsage(
-            feature_name=feature_name,
-            timestamp=datetime.now(),
-            user_id=self.user_id,
-            session_id=self.session_id,
-            context=context or {}
-        )
-        
-        self.usage_log.append(usage)
-        
-        # Update flag usage stats
-        flag = self.flags.get(feature_name)
-        if flag:
-            flag.usage_count += 1
-            flag.last_used = datetime.now()
-    
-    def get_usage_stats(self, feature_name: Optional[str] = None) -> pd.DataFrame:
+    def get_feature_info(self, feature_name: str) -> Optional[Dict[str, Any]]:
         """
-        Get usage statistics.
+        Get detailed information about a feature.
         
         Args:
-            feature_name: Optional specific feature
+            feature_name: Name of the feature
             
         Returns:
-            DataFrame with usage stats
+            Dictionary with feature information or None
         """
-        if feature_name:
-            usage_data = [u for u in self.usage_log if u.feature_name == feature_name]
-        else:
-            usage_data = self.usage_log
-        
-        if not usage_data:
-            return pd.DataFrame()
-        
-        # Convert to DataFrame
-        df = pd.DataFrame([
-            {
-                'feature': u.feature_name,
-                'timestamp': u.timestamp,
-                'user_id': u.user_id,
-                'session_id': u.session_id,
-                'outcome': u.outcome
-            }
-            for u in usage_data
-        ])
-        
-        return df
+        if feature_name in self.features:
+            return self.features[feature_name].to_dict()
+        return None
     
-    # ==========================================================================
-    # CALLBACKS AND NOTIFICATIONS
-    # ==========================================================================
-    def register_callback(self, feature_name: str, callback: Callable[[str, bool], None]) -> None:
+    def list_features(self, feature_type: Optional[FeatureType] = None) -> List[Dict[str, Any]]:
         """
-        Register callback for feature changes.
+        List all features with optional filtering.
         
         Args:
-            feature_name: Feature to monitor
-            callback: Callback function(feature_name, enabled)
+            feature_type: Optional filter by feature type
+            
+        Returns:
+            List of feature dictionaries
         """
-        if feature_name not in self.change_callbacks:
-            self.change_callbacks[feature_name] = []
+        features = []
+        for feature in self.features.values():
+            if feature_type is None or feature.type == feature_type:
+                features.append(feature.to_dict())
         
-        self.change_callbacks[feature_name].append(callback)
-    
-    def _notify_change(self, feature_name: str, enabled: bool) -> None:
-        """Notify callbacks of feature change"""
-        # Call registered callbacks
-        for callback in self.change_callbacks.get(feature_name, []):
-            try:
-                callback(feature_name, enabled)
-            except Exception as e:
-                self.logger.error(f"Error in feature callback: {e}")
-        
-        # Emit event if available
-        if self.event_manager:
-            self.event_manager.emit(Event(
-                EventType.SYSTEM,
-                {
-                    'type': 'feature_flag_changed',
-                    'feature': feature_name,
-                    'enabled': enabled,
-                    'timestamp': datetime.now()
-                }
-            ))
+        return sorted(features, key=lambda x: x["name"])
     
     # ==========================================================================
-    # PERSISTENCE
+    # PRIVATE METHODS
     # ==========================================================================
-    def _load_flags(self) -> None:
-        """Load flags from file"""
-        if not self.flags_file.exists():
-            return
-        
+    def _load_configuration(self) -> None:
+        """Load feature flags from configuration file."""
         try:
-            with open(self.flags_file, 'r') as f:
-                data = json.load(f)
+            # Load from file if exists
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    config_data = json.load(f)
+                
+                for name, data in config_data.items():
+                    try:
+                        self.features[name] = FeatureFlag(
+                            name=name,
+                            enabled=data.get("enabled", False),
+                            status=FeatureStatus(data.get("status", "disabled")),
+                            type=FeatureType(data.get("type", "experimental")),
+                            description=data.get("description", ""),
+                            rollout_percentage=data.get("rollout_percentage", 100.0),
+                            rollout_strategy=RolloutStrategy(data.get("rollout_strategy", "all")),
+                            enabled_users=data.get("enabled_users", []),
+                            environments=data.get("environments", ["all"]),
+                            dependencies=data.get("dependencies", []),
+                            metadata=data.get("metadata", {})
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Failed to load feature {name}: {e}")
+            else:
+                # Create default configuration
+                self._create_default_configuration()
             
-            for flag_data in data.get('flags', []):
-                flag = FeatureFlag.from_dict(flag_data)
-                self.flags[flag.name] = flag
+            # Apply environment overrides
+            self._apply_environment_overrides()
             
-            self.logger.info(f"Loaded {len(self.flags)} feature flags")
+            self.cache_timestamp = time.time()
             
         except Exception as e:
-            self.logger.error(f"Error loading flags: {e}")
+            self.logger.error(f"Failed to load configuration: {e}")
+            self._create_default_configuration()
     
-    def _save_flags(self) -> None:
-        """Save flags to file"""
+    def _create_default_configuration(self) -> None:
+        """Create default feature flag configuration."""
         try:
-            # Create backup
-            if self.flags_file.exists():
-                backup_file = FLAGS_BACKUP_DIR / f"flags_backup_{datetime.now():%Y%m%d_%H%M%S}.json"
-                self.flags_file.rename(backup_file)
+            for name, enabled in DEFAULT_FEATURES.items():
+                self.features[name] = FeatureFlag(
+                    name=name,
+                    enabled=enabled,
+                    status=FeatureStatus.ENABLED if enabled else FeatureStatus.DISABLED,
+                    type=FeatureType.CORE,
+                    description=f"Default feature: {name}"
+                )
             
-            # Save current flags
-            data = {
-                'version': '1.0',
-                'updated_at': datetime.now().isoformat(),
-                'flags': [flag.to_dict() for flag in self.flags.values()]
-            }
-            
-            with open(self.flags_file, 'w') as f:
-                json.dump(data, f, indent=2)
+            # Ensure config directory exists
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            self._save_configuration()
             
         except Exception as e:
-            self.logger.error(f"Error saving flags: {e}")
+            self.logger.error(f"Failed to create default configuration: {e}")
     
-    # ==========================================================================
-    # DEFAULT FLAGS
-    # ==========================================================================
-    def _initialize_default_flags(self) -> None:
-        """Initialize default feature flags"""
-        default_flags = [
-            # Strategy flags
-            ('day_of_week_sizing', 'Monday position sizing (1-5%, others 0.5-2.5%)', 
-             CATEGORY_STRATEGY, True),
-            ('optimal_entry_window', 'Restrict entries to 10:15-11:40 AM', 
-             CATEGORY_STRATEGY, True),
-            ('time_based_exit', 'Exit positions at 12:00 PM', 
-             CATEGORY_STRATEGY, True),
-            ('iron_butterfly_strategy', 'Enable Iron Butterfly strategy', 
-             CATEGORY_STRATEGY, False),
-            ('directional_spreads', 'Enable directional credit spreads', 
-             CATEGORY_STRATEGY, False),
-            ('zero_dte_trading', 'Enable 0DTE trading', 
-             CATEGORY_STRATEGY, False),
+    def _apply_environment_overrides(self) -> None:
+        """Apply environment-specific overrides."""
+        try:
+            if self.environment in ENVIRONMENT_OVERRIDES:
+                overrides = ENVIRONMENT_OVERRIDES[self.environment]
+                
+                for feature_name, enabled in overrides.items():
+                    if feature_name == "all_features":
+                        # Enable/disable all features
+                        for feature in self.features.values():
+                            feature.enabled = enabled
+                    elif feature_name == "experimental_features":
+                        # Enable/disable experimental features
+                        for feature in self.features.values():
+                            if feature.type == FeatureType.EXPERIMENTAL:
+                                feature.enabled = enabled
+                    elif feature_name in self.features:
+                        self.features[feature_name].enabled = enabled
             
-            # Risk flags
-            ('enhanced_entry_filters', 'Use IVP, gap, RSI filters', 
-             CATEGORY_RISK, True),
-            ('volatility_regime_filter', 'Enable volatility regime detection', 
-             CATEGORY_RISK, False),
-            ('max_daily_trades', 'Enforce maximum daily trade limit', 
-             CATEGORY_RISK, True),
+        except Exception as e:
+            self.logger.error(f"Failed to apply environment overrides: {e}")
+    
+    def _save_configuration(self) -> None:
+        """Save feature flags to configuration file."""
+        try:
+            config_data = {}
+            for name, feature in self.features.items():
+                config_data[name] = feature.to_dict()
             
-            # UI flags
-            ('day_of_week_dashboard', 'Show day-of-week performance in dashboard', 
-             CATEGORY_UI, True),
-            ('advanced_analytics', 'Enable advanced analytics views', 
-             CATEGORY_UI, False),
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
             
-            # Experimental
-            ('ml_entry_optimization', 'Use ML for entry timing', 
-             CATEGORY_EXPERIMENTAL, False),
-            ('options_flow_analysis', 'Enable options flow analysis', 
-             CATEGORY_EXPERIMENTAL, False),
-        ]
-        
-        for name, description, category, enabled in default_flags:
-            if name not in self.flags:
-                self.create_flag(name, description, category, enabled)
-    
-    # ==========================================================================
-    # UTILITIES
-    # ==========================================================================
-    def _generate_session_id(self) -> str:
-        """Generate unique session ID"""
-        return hashlib.md5(f"{datetime.now()}{random.random()}".encode()).hexdigest()[:16]
-    
-    def get_all_flags(self) -> Dict[str, FeatureFlag]:
-        """Get all feature flags"""
-        with self._lock:
-            return self.flags.copy()
-    
-    def get_enabled_features(self) -> List[str]:
-        """Get list of enabled features"""
-        with self._lock:
-            return [name for name, flag in self.flags.items() 
-                   if self.is_enabled(name)]
-    
-    def export_configuration(self, filepath: Path) -> None:
-        """Export current configuration"""
-        with self._lock:
-            data = {
-                'exported_at': datetime.now().isoformat(),
-                'flags': [flag.to_dict() for flag in self.flags.values()],
-                'enabled_features': self.get_enabled_features()
-            }
+            with open(self.config_file, 'w') as f:
+                json.dump(config_data, f, indent=2, default=str)
             
-            with open(filepath, 'w') as f:
-                json.dump(data, f, indent=2)
+        except Exception as e:
+            self.logger.error(f"Failed to save configuration: {e}")
     
-    def import_configuration(self, filepath: Path) -> None:
-        """Import configuration from file"""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-        
-        with self._lock:
-            self.flags.clear()
-            for flag_data in data.get('flags', []):
-                flag = FeatureFlag.from_dict(flag_data)
-                self.flags[flag.name] = flag
-            
-            self._save_flags()
+    def _refresh_cache_if_needed(self) -> None:
+        """Refresh cache if needed based on age."""
+        current_time = time.time()
+        if current_time - self.cache_timestamp > CACHE_REFRESH_INTERVAL:
+            self._load_configuration()
 
 # ==============================================================================
-# GLOBAL INSTANCE
+# MODULE FUNCTIONS
 # ==============================================================================
-_feature_flags_instance: Optional[FeatureFlagsManager] = None
-
-def get_feature_flags() -> FeatureFlagsManager:
-    """Get singleton instance of feature flags manager"""
-    global _feature_flags_instance
-    if _feature_flags_instance is None:
-        _feature_flags_instance = FeatureFlagsManager()
-    return _feature_flags_instance
-
-# ==============================================================================
-# DECORATOR
-# ==============================================================================
-def feature_flag(flag_name: str, default: bool = False):
+def check_feature_enabled(feature_name: str, user_id: Optional[str] = None) -> bool:
     """
-    Decorator to conditionally execute functions based on feature flags.
+    Quick check for feature enablement.
     
     Args:
-        flag_name: Name of the feature flag
-        default: Default behavior if flag doesn't exist
+        feature_name: Name of the feature to check
+        user_id: Optional user ID
+        
+    Returns:
+        bool: True if feature is enabled
     """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            flags = get_feature_flags()
-            if flags.is_enabled(flag_name):
-                return func(*args, **kwargs)
-            elif default:
-                return func(*args, **kwargs)
-            else:
-                return None
-        return wrapper
-    return decorator
+    flags = get_feature_flags()
+    return flags.check_feature_enabled(feature_name, user_id)
+
+def is_feature_enabled(feature_name: str, user_id: Optional[str] = None) -> bool:
+    """
+    Alias for check_feature_enabled.
+    
+    Args:
+        feature_name: Name of the feature to check
+        user_id: Optional user ID
+        
+    Returns:
+        bool: True if feature is enabled
+    """
+    return check_feature_enabled(feature_name, user_id)
+
+def enable_feature(feature_name: str) -> bool:
+    """
+    Enable a feature flag.
+    
+    Args:
+        feature_name: Name of the feature to enable
+        
+    Returns:
+        bool: True if successful
+    """
+    flags = get_feature_flags()
+    return flags.enable_feature(feature_name)
+
+def disable_feature(feature_name: str) -> bool:
+    """
+    Disable a feature flag.
+    
+    Args:
+        feature_name: Name of the feature to disable
+        
+    Returns:
+        bool: True if successful
+    """
+    flags = get_feature_flags()
+    return flags.disable_feature(feature_name)
 
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
+# Module-level initialization code
+_feature_flags_instance: Optional[FeatureFlags] = None
+
+def get_feature_flags() -> FeatureFlags:
+    """
+    Get singleton instance of feature flags manager.
+    
+    Returns:
+        FeatureFlags instance
+    """
+    global _feature_flags_instance
+    if _feature_flags_instance is None:
+        _feature_flags_instance = FeatureFlags()
+    return _feature_flags_instance
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
-    # Test feature flags
-    flags = FeatureFlagsManager()
+    # Module testing code
+    print("=" * 80)
+    print("SPYDER U11 - Feature Flags Test")
+    print("=" * 80)
     
-    # Check default flags
-    print("Default Feature Flags:")
-    for name, flag in flags.get_all_flags().items():
-        status = "ENABLED" if flags.is_enabled(name) else "DISABLED"
-        print(f"  {name}: {status}")
+    flags = FeatureFlags()
     
-    # Test enabling/disabling
-    print("\nTesting flag operations:")
-    flags.disable('day_of_week_sizing')
-    print(f"day_of_week_sizing: {flags.is_enabled('day_of_week_sizing')}")
+    # Test basic functionality
+    print("\n1. Testing basic feature checking...")
+    print(f"   ML Strategy Selection: {flags.is_enabled('ml_strategy_selection')}")
+    print(f"   Risk Management: {flags.is_enabled('advanced_risk_management')}")
+    print(f"   Unknown Feature: {flags.is_enabled('unknown_feature')}")
     
-    flags.enable('day_of_week_sizing', percentage=50)
-    print(f"day_of_week_sizing (50%): {flags.is_enabled('day_of_week_sizing')}")
+    # Test feature management
+    print("\n2. Testing feature management...")
+    flags.create_feature("test_feature", enabled=False, description="Test feature")
+    print(f"   Test feature created: {flags.is_enabled('test_feature')}")
     
-    # Test A/B testing
-    flags.setup_ab_test('ml_entry_optimization', control_percentage=50)
-    print(f"ml_entry_optimization (A/B): {flags.is_enabled('ml_entry_optimization')}")
+    flags.enable_feature("test_feature", save=False)
+    print(f"   Test feature enabled: {flags.is_enabled('test_feature')}")
     
-    # Test scheduling
-    start = datetime.now() + timedelta(minutes=1)
-    end = datetime.now() + timedelta(hours=1)
-    flags.schedule_feature('options_flow_analysis', start, end)
-    print(f"options_flow_analysis (scheduled): {flags.is_enabled('options_flow_analysis')}")
+    # Test rollout percentage
+    print("\n3. Testing rollout percentage...")
+    flags.set_rollout_percentage("test_feature", 50.0, save=False)
+    enabled_count = 0
+    for i in range(100):
+        if flags.is_enabled("test_feature", f"user_{i}"):
+            enabled_count += 1
+    print(f"   50% rollout resulted in {enabled_count}% enabled users")
     
-    # Test decorator
-    @feature_flag('day_of_week_sizing')
-    def test_function():
-        return "Function executed!"
+    # Test enabled features list
+    print("\n4. Testing enabled features list...")
+    enabled_features = flags.get_enabled_features()
+    print(f"   Total enabled features: {len(enabled_features)}")
+    print(f"   First 5: {enabled_features[:5]}")
     
-    result = test_function()
-    print(f"\nDecorator test: {result}")
-    
-    # Export configuration
-    flags.export_configuration(Path("feature_flags_export.json"))
-    print("\nConfiguration exported to feature_flags_export.json")
-
-
-class FeatureFlags:
-    """Feature flags for enabling/disabling features."""
-    
-    def __init__(self):
-        self.features = {}
-    
-    def is_enabled(self, feature: str) -> bool:
-        """Check if a feature is enabled."""
-        return self.features.get(feature, False)
-    
-    def enable(self, feature: str):
-        """Enable a feature."""
-        self.features[feature] = True
-    
-    def disable(self, feature: str):
-        """Disable a feature."""
-        self.features[feature] = False
-
-# ==============================================================================
-# SPYDERX MIGRATION FEATURE FLAGS
-# ==============================================================================
-# Added for gradual SpyderF to SpyderX migration
-SPYDERX_FEATURE_FLAGS = {
-    "USE_AI_GREEKS": False,  # Start disabled
-    "USE_AI_RISK": False,
-    "USE_AI_MARKET_ANALYSIS": True,  # Start with low-risk features
-    "ENABLE_SPYDERX_SHADOW": True,  # Run in shadow mode
-    "LOG_AI_DIVERGENCE": True,  # Log differences between F and X
-    "AI_CONFIDENCE_THRESHOLD": 0.8,  # Minimum confidence for AI decisions
-}
-
-# Helper function to check SpyderX features
-def is_spyderx_enabled(feature: str) -> bool:
-    """Check if a SpyderX feature is enabled"""
-    return SPYDERX_FEATURE_FLAGS.get(feature, False)
-
-# Migration tracking
-MIGRATION_STATUS = {
-    "spyderf_modules_active": [
-        "SpyderF01_Indicators",
-        "SpyderF02_PriceAction", 
-        "SpyderF03_SupportResistance",
-        "SpyderF04_VolatilityAnalysis",
-        "SpyderF05_TrendDetection",
-        "SpyderF06_GreeksCalculator",
-        "SpyderF07_GapAnalyzer",
-        "SpyderF08_VolatilityRegime",
-        "SpyderF09_EntryFilters",
-        "SpyderF10_MarketRegimeDetector"
-    ],
-    "spyderx_modules_shadow": [
-        "SpyderX13_MarketAnalysisAgent",
-        "SpyderX01_GreeksAgent"
-    ],
-    "spyderx_modules_active": []
-}
+    print("\n" + "=" * 80)
+    print("✅ Feature Flags test completed!")

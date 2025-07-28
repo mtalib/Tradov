@@ -20,7 +20,7 @@ Version: 2.0 - Added ConfigManager integration and validation
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 from enum import Enum
 from datetime import datetime, timedelta
 import warnings

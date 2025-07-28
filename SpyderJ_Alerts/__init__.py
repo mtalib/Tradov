@@ -19,8 +19,9 @@ Version: 1.4
 from .SpyderJ01_AlertManager import AlertManager
 from .SpyderJ02_EmailNotifier import EmailNotifier
 from .SpyderJ04_DesktopNotifier import DesktopNotifier
+
+# Import TelegramBot with proper error handling
 try:
-    try:
     from .SpyderJ05_TelegramBot import TelegramBot
     TELEGRAM_BOT_AVAILABLE = True
 except ImportError:
@@ -28,20 +29,14 @@ except ImportError:
     # Create a dummy class for missing dependency
     class TelegramBot:
         def __init__(self, *args, **kwargs):
-            raise ImportError("Twilio not installed. Install with: pip install twilio")
-    TELEGRAM_AVAILABLE = True
-except ImportError:
-    TELEGRAM_AVAILABLE = False
-    class TelegramBot:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("Twilio not available - install with: pip install twilio")
+            raise ImportError("TelegramBot not available - install dependencies")
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
     "AlertManager",
-    "DesktopNotifier",
+    "DesktopNotifier", 
     "EmailNotifier",
     "TelegramBot",
 ]
@@ -49,6 +44,6 @@ __all__ = [
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
-__package_name__ = "{package_name}"
-__description__ = "{description}"
+__package_name__ = "SpyderJ_Alerts"
+__description__ = "Notification Systems"
 __version__ = "1.4.0"

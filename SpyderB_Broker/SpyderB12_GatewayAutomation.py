@@ -47,7 +47,7 @@ import pytz
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderB_Broker.SpyderB05_IBConnectionManager import IBConnectionManager
+from SpyderB_Broker.SpyderB05_ConnectionManager import ConnectionManager
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 
 # ==============================================================================

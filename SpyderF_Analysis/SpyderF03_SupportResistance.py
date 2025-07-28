@@ -34,7 +34,18 @@ from collections import defaultdict
 from scipy import signal
 from scipy.stats import gaussian_kde
 from sklearn.cluster import DBSCAN
-import talib
+try:
+    HAS_TALIB = False
+    # talib not available - will use pandas alternatives
+    from .mock_talib import *
+    import SpyderF_Analysis.mock_talib as talib
+    # talib not available - will use pandas alternatives
+except ImportError:
+    HAS_TALIB = False
+    # talib not available - will use alternatives
+    from .mock_talib import *
+    import SpyderF_Analysis.mock_talib as talib
+    # talib not available - will use alternatives
 
 # ==============================================================================
 # LOCAL IMPORTS

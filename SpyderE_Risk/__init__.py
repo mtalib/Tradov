@@ -1,18 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Risk Management Package (Simplified)
+SPYDER - Risk Management Package
 
-This package provides risk management functionality for the Spyder trading system.
-Simplified to avoid circular import issues during development.
+This package provides comprehensive risk management capabilities including
+Greek limits, circuit breakers, and automatic rebalancing.
 """
 
-__version__ = '1.0.0'
-
-# Only import the main RiskManager to avoid circular imports
+# Module imports with error handling
 try:
     from .SpyderE01_RiskManager import RiskManager, RiskProfile
-    __all__ = ['RiskManager', 'RiskProfile']
-except ImportError as e:
-    print(f"Warning: Could not import RiskManager: {e}")
-    __all__ = []
+except ImportError:
+    print("Warning: Could not import RiskManager")
+
+try:
+    from .SpyderE03_GreekLimitsManager import GreekLimitsManager
+except ImportError:
+    print("Warning: Could not import GreekLimitsManager")
+
+try:
+    from .SpyderE04_CircuitBreakerProtocol import CircuitBreaker
+except ImportError:
+    print("Warning: Could not import CircuitBreaker") 
+
+try:
+    from .SpyderE05_AutomaticRebalancer import AutomaticRebalancer
+except ImportError:
+    print("Warning: Could not import AutomaticRebalancer")
+
+# Package exports
+__all__ = [
+    "RiskManager",
+    "RiskProfile",
+    "GreekLimitsManager", 
+    "CircuitBreaker",
+    "AutomaticRebalancer",
+]
+
+__version__ = "1.0.0"
