@@ -76,19 +76,6 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# CORRECTED IBAPI imports for real market data (PROVEN WORKING)
-try:
-    from ibapi.client import EClient
-    from ibapi.wrapper import EWrapper
-    from ibapi.contract import Contract
-    from ibapi.common import TickerId
-    from ibapi.ticktype import TickType  # CORRECTED import
-    IBAPI_AVAILABLE = True
-    print("✅ IBAPI imports successful for dashboard")
-except ImportError as e:
-    IBAPI_AVAILABLE = False
-    print(f"⚠️ IBAPI not available: {e}")
-
 # ==============================================================================
 # LOCAL IMPORTS - MULTI-CLIENT BACKEND INTEGRATION (INVISIBLE TO USER)
 # ==============================================================================
@@ -329,275 +316,177 @@ class ConnectionInfo:
 # REAL MARKET DATA WORKER THREAD (BACKEND INTEGRATION)
 # ==============================================================================
 class RealMarketDataWorker(QThread):
-    """
-    PROVEN WORKING Real Market Data Worker
-    
-    Uses our successful test results:
-    - Client ID 123 (confirmed working)
-    - reqMarketDataType(2) for after-hours
-    - Simple connection approach
-    - Real market data flow
-    """
+    """Worker thread for REAL market data updates (backend only)"""
 
-    # Signals for dashboard communication
+    # Signals
     data_updated = pyqtSignal(dict)
     connection_status_changed = pyqtSignal(bool, str)
     error_occurred = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
-        
-        # Use our proven working client
-        self.ib_client = None
+        self.logger = SpyderLogger.get_logger(__name__)
         self.running = False
+        self.ib_client = None
         self.market_data = {}
+        self.real_spy_price = None
         self.connection_status = False
         self.last_update = datetime.now()
-        
-        # Dashboard symbols (from your existing structure)
-        self.dashboard_symbols = [
-            # S&P Core
-            'SPY', 'SPX', '/ES',
-            # Volatility
-            'VIX', 'VIX9D', 'VXV', 'VXMT', 'VVIX', 'UVXY',
-            # Market Internals
-            '$TICK', '$TRIN', '$ADD', 'CPC', 'PCALL', 'SKEW',
-            # Major Indices
-            'DIA', 'QQQ', 'IWM',
-            # Bonds & Credit
-            'TLT', 'LQD',
-            # Correlations
-            'DXY', 'GLD',
-            # Custom Metrics (will simulate these)
-            'GEX', 'DEX', 'OGL', 'DIX', 'SWAN'
-        ]
-        
-        print("🏗️ UPGRADED RealMarketDataWorker initialized")
-        print(f"   📊 Using proven Client ID 123")
-        print(f"   🎯 Will request {len(self.dashboard_symbols)} symbols")
 
     def run(self):
-        """Main worker thread execution with proven approach"""
-        print("🚀 Starting PROVEN market data worker...")
+        """Main worker thread execution"""
+        self.logger.info("🚀 Starting RealMarketDataWorker (backend)")
         self.running = True
         
-        # Connect using our proven method
-        if self.connect_to_broker():
-            print("✅ Connected successfully - starting real data flow")
-            
-            # Main data update loop
-            while self.running:
-                try:
-                    if self.connection_status and self.ib_client:
-                        # Real market data is flowing via callbacks
-                        # Just emit current data periodically to dashboard
-                        if self.market_data:
-                            self.data_updated.emit(self.market_data.copy())
-                            self.last_update = datetime.now()
-                    else:
-                        # Fallback to simulation if connection lost
-                        self.update_simulation_data()
-                    
-                    # Update every 2 seconds
-                    self.msleep(2000)
-                    
-                except Exception as e:
-                    print(f"❌ Error in market data loop: {e}")
-                    self.error_occurred.emit(str(e))
-                    self.msleep(5000)
-        else:
-            print("❌ Connection failed - using simulation mode")
-            # Run simulation loop
-            while self.running:
-                self.update_simulation_data()
-                self.msleep(2000)
+        # Try to establish connection
+        self.connect_to_broker()
+        
+        while self.running:
+            try:
+                if self.connection_status and self.ib_client:
+                    # Update real market data
+                    self.update_market_data()
+                else:
+                    # Fallback to simulation mode
+                    self.update_simulation_data()
+                
+                # Sleep for update interval
+                self.msleep(1000)  # 1 second updates
+                
+            except Exception as e:
+                self.logger.error(f"Error in market data worker: {e}")
+                self.error_occurred.emit(str(e))
+                self.msleep(5000)  # 5 second retry delay
 
     def connect_to_broker(self):
-        """Connect using our PROVEN WORKING approach"""
-        if not IBAPI_AVAILABLE:
-            print("⚠️ IBAPI not available - using simulation")
-            return False
-        
+        """Attempt to connect to IB broker"""
         try:
-            print("🔌 Connecting using PROVEN working method...")
-            print("   📡 Host: 127.0.0.1")
-            print("   📡 Port: 4002") 
-            print("   🆔 Client ID: 123 (PROVEN WORKING)")
+            if SPYDER_CLIENT_AVAILABLE:
+                self.ib_client = SpyderClient()
+                if self.ib_client.connect():
+                    self.connection_status = True
+                    self.connection_status_changed.emit(True, "REAL DATA MODE")
+                    self.logger.info("✅ Connected to IB for real market data")
+                    return True
             
-            # Create our working client
-            self.ib_client = WorkingIBClient(self)
+            # Fallback to simulation
+            self.connection_status = False
+            self.connection_status_changed.emit(False, "SIMULATION MODE")
+            self.logger.warning("⚠️ Using simulation mode for market data")
+            return False
             
-            # Connect using proven settings
-            self.ib_client.connect("127.0.0.1", 4002, 123)
-            
-            # Start API thread
-            api_thread = threading.Thread(target=self.ib_client.run, daemon=True)
-            api_thread.start()
-            
-            # Wait for connection (proven to work)
-            print("⏱️ Waiting for connection...")
-            start_time = time.time()
-            while not self.ib_client.connected and (time.time() - start_time) < 10:
-                time.sleep(0.1)
-            
-            if self.ib_client.connected:
-                print("✅ DASHBOARD IBAPI connection successful!")
-                
-                # Set market data type (PROVEN WORKING)
-                print("📊 Setting market data type to Frozen (Type 2)...")
-                self.ib_client.reqMarketDataType(2)
-                
-                # Subscribe to dashboard symbols
-                self.subscribe_to_symbols()
-                
-                self.connection_status = True
-                self.connection_status_changed.emit(True, "REAL DATA MODE - Client ID 123")
-                return True
-            else:
-                print("❌ Connection timeout")
-                return False
-                
         except Exception as e:
-            print(f"❌ Connection error: {e}")
-            self.error_occurred.emit(f"Connection error: {e}")
+            self.logger.error(f"Failed to connect to broker: {e}")
+            self.connection_status = False
+            self.connection_status_changed.emit(False, "CONNECTION ERROR")
             return False
 
-    def subscribe_to_symbols(self):
-        """Subscribe to all dashboard symbols using proven approach"""
-        print("📡 Subscribing to dashboard symbols with REAL data...")
-        
-        req_id = 2000  # Start from 2000 for dashboard
-        
-        for symbol in self.dashboard_symbols:
-            try:
-                # Skip custom metrics (simulate these)
-                if symbol in ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN']:
-                    continue
+    def update_market_data(self):
+        """Update real market data from IB"""
+        try:
+            # Get all symbols from market symbols dict
+            all_symbols = []
+            for category_symbols in MARKET_SYMBOLS.values():
+                all_symbols.extend(category_symbols)
                 
-                # Skip market internals for now (some require special setup)
+            for symbol in all_symbols:
+                if self.ib_client:
+                    data = self.ib_client.get_market_data(symbol)
+                    if data:
+                        self.market_data[symbol] = data
+                        
+                        # Special handling for SPY
+                        if symbol == 'SPY':
+                            self.real_spy_price = data.get('last', 585.0)
+            
+            # Emit updated data
+            self.data_updated.emit(self.market_data.copy())
+            self.last_update = datetime.now()
+            
+        except Exception as e:
+            self.logger.error(f"Error updating market data: {e}")
+
+    def update_simulation_data(self):
+        """Update simulated market data"""
+        try:
+            base_prices = {
+                # S&P Core
+                'SPY': 585.25, 'SPX': 5850.75, '/ES': 5852.50,
+                
+                # Volatility
+                'VIX': 15.32, 'VIX9D': 14.8, 'VXV': 16.2, 'VXMT': 17.5,
+                'VVIX': 82.45, 'UVXY': 22.18,
+                
+                # Market Internals
+                '$TICK': 234, '$TRIN': 0.85, '$ADD': 1245,
+                'CPC': 0.95, 'PCALL': 0.88, 'SKEW': 125.5,
+                
+                # Major Indices
+                'DIA': 425.33, 'QQQ': 485.92, 'IWM': 225.18,
+                
+                # Bonds & Credit
+                'TLT': 92.45, 'LQD': 105.32,
+                
+                # Correlations
+                'DXY': 103.25, 'GLD': 195.67,
+                
+                # Custom Metrics
+                'GEX': -2500000000,  # -2.5B
+                'DEX': 850000000,    # 850M
+                'OGL': 585.50,       # Price level
+                'DIX': 42.5,         # Percentage
+                'SWAN': 1.85         # Risk level
+            }
+            
+            for symbol, base_price in base_prices.items():
+                # Add some realistic movement
                 if symbol.startswith('$'):
-                    continue
-                
-                # Create contract for regular symbols
-                contract = Contract()
-                contract.symbol = symbol.replace('/', '')  # Remove / from futures
-                
-                if symbol.startswith('/'):
-                    contract.secType = "FUT"
-                    contract.exchange = "CME"
+                    # Market internals - more volatile
+                    if symbol == '$TICK':
+                        movement = random.uniform(-100, 100)
+                    else:
+                        movement = random.uniform(-0.05, 0.05)
+                elif symbol in ['GEX', 'DEX']:
+                    # Exposure metrics - larger moves
+                    movement = random.uniform(-100000000, 100000000)
+                elif symbol == 'DIX':
+                    # Percentage - smaller moves
+                    movement = random.uniform(-0.5, 0.5)
+                elif symbol == 'SWAN':
+                    # Risk indicator - gradual changes
+                    movement = random.uniform(-0.05, 0.05)
                 else:
-                    contract.secType = "STK"
-                    contract.exchange = "SMART"
+                    # Regular symbols - normal market movement
+                    movement = random.uniform(-0.2, 0.2)
                 
-                contract.currency = "USD"
+                change = movement
+                change_pct = change / base_price * 100 if base_price != 0 else 0
+                new_price = base_price + change
                 
-                # Subscribe
-                print(f"   📊 Subscribing to {symbol} with REAL data (req_id: {req_id})")
-                self.ib_client.reqMktData(req_id, contract, "", False, False, [])
-                
-                # Store subscription
                 self.market_data[symbol] = {
                     'symbol': symbol,
-                    'req_id': req_id,
-                    'last': 0.0,
-                    'change': 0.0,
-                    'change_pct': 0.0,
+                    'last': new_price,
+                    'change': change,
+                    'change_pct': change_pct,
                     'timestamp': datetime.now()
                 }
                 
-                req_id += 1
-                time.sleep(0.1)  # Small delay between subscriptions
-                
-            except Exception as e:
-                print(f"⚠️ Error subscribing to {symbol}: {e}")
-
-    def update_simulation_data(self):
-        """Fallback simulation data (from your existing dashboard)"""
-        base_prices = {
-            'SPY': 636.90, 'SPX': 6390.0, '/ES': 6392.0,
-            'VIX': 15.32, 'VIX9D': 14.8, 'VXV': 16.2,
-            'DIA': 425.33, 'QQQ': 485.92, 'IWM': 225.18,
-            'TLT': 92.45, 'LQD': 105.32,
-            'DXY': 103.25, 'GLD': 195.67,
-            'GEX': -2500000000, 'DEX': 850000000, 'OGL': 636.50,
-            'DIX': 42.5, 'SWAN': 1.85
-        }
-        
-        import random
-        for symbol, base_price in base_prices.items():
-            change = random.uniform(-0.2, 0.2)
-            change_pct = (change / base_price) * 100 if base_price != 0 else 0
+                # Update SPY for GUI
+                if symbol == 'SPY':
+                    self.real_spy_price = new_price
             
-            self.market_data[symbol] = {
-                'symbol': symbol,
-                'last': base_price + change,
-                'change': change,
-                'change_pct': change_pct,
-                'timestamp': datetime.now()
-            }
-        
-        self.data_updated.emit(self.market_data.copy())
+            # Emit updated data
+            self.data_updated.emit(self.market_data.copy())
+            self.last_update = datetime.now()
+            
+        except Exception as e:
+            self.logger.error(f"Error updating simulation data: {e}")
 
     def stop(self):
-        """Stop the worker"""
-        print("🛑 Stopping UPGRADED market data worker...")
+        """Stop the worker thread"""
         self.running = False
-        
-        if self.ib_client and hasattr(self.ib_client, 'disconnect'):
-            try:
-                self.ib_client.disconnect()
-            except:
-                pass
-
-# Helper class for dashboard integration
-class WorkingIBClient(EWrapper, EClient):
-    """
-    PROVEN WORKING IB Client for dashboard integration
-    """
-    
-    def __init__(self, worker):
-        EClient.__init__(self, self)
-        self.worker = worker
-        self.connected = False
-        self.next_order_id = None
-        
-    def nextValidId(self, orderId: int):
-        print(f"🎯 DASHBOARD connected with REAL data! Next Order ID: {orderId}")
-        self.next_order_id = orderId
-        self.connected = True
-        
-    def error(self, reqId: TickerId, errorCode: int, errorString: str):
-        if errorCode in [2104, 2106, 2107, 2158]:
-            print(f"ℹ️ System: {errorString}")
-        else:
-            print(f"📋 IB Message {errorCode}: {errorString}")
-    
-    def tickPrice(self, reqId: TickerId, tickType: TickType, price: float, attrib):
-        """Handle real-time price updates for dashboard"""
-        # Find symbol by req_id
-        symbol = None
-        for sym, data in self.worker.market_data.items():
-            if data.get('req_id') == reqId:
-                symbol = sym
-                break
-        
-        if symbol:
-            # Update market data
-            old_price = self.worker.market_data[symbol]['last']
-            change = price - old_price if old_price > 0 else 0
-            change_pct = (change / old_price) * 100 if old_price > 0 else 0
-            
-            self.worker.market_data[symbol].update({
-                'last': price,
-                'change': change,
-                'change_pct': change_pct,
-                'timestamp': datetime.now()
-            })
-            
-            # Show real-time updates
-            if tickType == 4:  # Last price
-                print(f"💰 REAL DASHBOARD UPDATE: {symbol} = ${price:.2f}")
-
+        if self.ib_client:
+            self.ib_client.disconnect()
 
 # ==============================================================================
 # SIGNAL MONITOR PANEL COMPONENTS (EXACT SpyderT09)
