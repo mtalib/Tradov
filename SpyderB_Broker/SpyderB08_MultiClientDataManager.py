@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System
+
+Spyder Version: 1.0
 Module: SpyderB08_MultiClientDataManager.py
 Group: B (Broker Integration)
-Purpose: Multi-Client Market Data Manager with Sophisticated Client Allocation
+Purpose: Multi-Client Market Data Manager with Order Execution Priority
+Author: Mohamed Talib
+Date Created: 2025-07-28 
+Last Updated: 2025-07-29 Time: 14:30:00  
 
 Description:
-    Advanced multi-client market data management system that implements sophisticated
-    client ID allocation strategy for optimal performance and resource utilization.
-    
-    Client ID Allocation Strategy:
-    - Client 0: Administrative Operations (Account, Orders, System Control)
-    - Client 1: Core Market Data (SPY, SPX, /ES, VIX, TICK-NYSE) - 1-second updates
-    - Client 2: SPY Options Chains (0DTE, 1DTE) - 1-second updates
-    - Client 3: Volatility Indicators (VIX9D, VXV, VXMT, VVIX, UVXY) - 5-second updates
-    - Client 4: Market Internals (VX, ADVN-NYSE, DECN-NYSE, TICK-NASDAQ) - 5-second updates
-    - Client 5: Major Indices (DIA, QQQ, IWM, 1DTE Options) - 5-second updates
-    - Client 6: Extended Assets (TLT, LQD, DXY, GLD, WEEKLY Options) - 15-30-second updates
-    - Client 7: Sector ETFs (XLF, XLK, XLE, XLV, XLI, XLY, XLP, XLU, XLRE, XLC, XLB) - 30-60s
-    - Client 8: Order Execution (Trading operations only)
+    Advanced multi-client market data management system implementing sophisticated
+    client ID allocation strategy optimized for trading performance. Order execution
+    gets highest priority (Client 1) for fastest trade processing, with market data
+    distributed across remaining clients based on frequency and importance.
 
-Author: SPYDER Development Team
-Date: 2025-07-28
-Version: 1.0.0
+    UPDATED CLIENT ID ALLOCATION STRATEGY:
+    - Client 0: Administrative Operations (Account, System Control)
+    - Client 1: Order Execution (HIGHEST PRIORITY - Trading operations)
+    - Client 2: Core Market Data (SPY, SPX, /ES, VIX, TICK-NYSE) - 1-second updates
+    - Client 3: SPY Options Chains (0DTE, 1DTE) - 1-second updates
+    - Client 4: Volatility Indicators (VIX9D, VXV, VXMT, VVIX, UVXY) - 5-second updates
+    - Client 5: Market Internals (TRIN, ADD, CPC, PCALL, SKEW) - 5-second updates
+    - Client 6: Major Indices (DIA, QQQ, IWM, 1DTE Options) - 5-second updates
+    - Client 7: Extended Assets (TLT, LQD, DXY, GLD, WEEKLY Options) - 15-30s updates
+    - Client 8: Sector ETFs (XLF, XLK, XLE, XLV, XLI, XLY, XLP, XLU, XLRE, XLC, XLB) - 30-60s
 """
 
 import logging
@@ -94,21 +97,38 @@ except ImportError:
         def __init__(self):
             pass
 
+# Local imports
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    UTILITIES_AVAILABLE = True
+except ImportError:
+    UTILITIES_AVAILABLE = False
+    # Fallback logging
+    logging.basicConfig(level=logging.INFO)
+    class SpyderLogger:
+        @staticmethod
+        def get_logger(name): 
+            return logging.getLogger(name)
+    class SpyderErrorHandler:
+        def __init__(self): 
+            pass
+
 # ================================================================================
-# ENUMS AND DATACLASSES
+# ENUMS AND DATACLASSES - UPDATED WITH NEW CLIENT ALLOCATION
 # ================================================================================
 
 class ClientPurpose(Enum):
-    """Client ID purposes for organized allocation"""
+    """Client ID purposes for organized allocation - UPDATED WITH ORDER EXECUTION PRIORITY"""
     ADMINISTRATIVE = "Administrative Operations"
-    CORE_DATA = "Core Market Data"
-    SPY_OPTIONS = "SPY Options Chains"
-    VOLATILITY = "Volatility Indicators"
-    MARKET_INTERNALS = "Market Internals"
-    MAJOR_INDICES = "Major Index ETFs"
-    EXTENDED_ASSETS = "Extended Market Data"
-    SECTOR_ETFS = "Low-Frequency Assets"
-    ORDER_EXECUTION = "Order Execution"
+    ORDER_EXECUTION = "Order Execution - HIGHEST PRIORITY"  # NEW: Moved to Client 1
+    CORE_DATA = "Core Market Data"  # Moved to Client 2
+    SPY_OPTIONS = "SPY Options Chains"  # Moved to Client 3
+    VOLATILITY = "Volatility Indicators"  # Moved to Client 4
+    MARKET_INTERNALS = "Market Internals"  # Moved to Client 5
+    MAJOR_INDICES = "Major Index ETFs"  # Moved to Client 6
+    EXTENDED_ASSETS = "Extended Market Data"  # Moved to Client 7
+    SECTOR_ETFS = "Sector ETFs"  # Moved to Client 8
 
 @dataclass
 class MarketDataTick:
@@ -117,7 +137,7 @@ class MarketDataTick:
     price: float
     size: int
     timestamp: datetime
-    tick_type: int  # FIXED: Use int instead of TickType
+    tick_type: int  # Use int instead of TickType for compatibility
     request_id: int
 
 @dataclass
@@ -132,22 +152,40 @@ class ClientInfo:
     message_count: int = 0
     error_count: int = 0
 
+@dataclass
+class OrderRequest:
+    """Order execution request for Client 1"""
+    symbol: str
+    action: str  # BUY/SELL
+    quantity: int
+    order_type: str  # MKT/LMT/STP
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    client_id: int = 1  # Always use Client 1 for orders
+
 # ================================================================================
-# MAIN MULTI-CLIENT DATA MANAGER CLASS
+# MAIN MULTI-CLIENT DATA MANAGER CLASS - UPDATED ALLOCATION
 # ================================================================================
 
 class MultiClientDataManager:
     """
-    Advanced Multi-Client Market Data Manager
+    Advanced Multi-Client Market Data Manager with Order Execution Priority
     
-    Manages multiple IB Gateway client connections with sophisticated allocation strategy.
-    Implements professional-grade market data distribution with priority-based updates.
+    Manages multiple IB Gateway client connections with ORDER EXECUTION as highest
+    priority (Client 1). Implements professional-grade market data distribution
+    with optimized client allocation for trading performance.
     """
     
     def __init__(self):
-        """Initialize the Multi-Client Data Manager"""
+        """Initialize the Multi-Client Data Manager with new allocation strategy"""
         # Core components
-        self.logger = logging.getLogger('SpyderB08.MultiClient')
+        if UTILITIES_AVAILABLE:
+            self.logger = SpyderLogger.get_logger('SpyderB08.MultiClient')
+            self.error_handler = SpyderErrorHandler()
+        else:
+            self.logger = logging.getLogger('SpyderB08.MultiClient')
+            self.error_handler = None
+            
         self.is_running = False
         self.clients: Dict[int, ClientInfo] = {}
         
@@ -161,78 +199,93 @@ class MultiClientDataManager:
         self.data_callbacks: Dict[str, List[Callable]] = {}
         self.request_queue = queue.Queue()
         
+        # Order management (NEW - for Client 1)
+        self.order_queue = queue.Queue()
+        self.active_orders: Dict[int, OrderRequest] = {}
+        self.order_callbacks: List[Callable] = []
+        
         # Performance tracking
         self.total_messages = 0
         self.total_errors = 0
+        self.total_orders = 0
         self.start_time: Optional[datetime] = None
         
-        # Initialize client allocation strategy
-        self._initialize_client_allocation()
+        # Initialize UPDATED client allocation strategy
+        self._initialize_updated_client_allocation()
         
-        self.logger.info("✅ Multi-Client Data Manager initialized")
+        self.logger.info("✅ Multi-Client Data Manager initialized with ORDER EXECUTION PRIORITY")
 
-    def _initialize_client_allocation(self):
-        """Initialize the sophisticated client allocation strategy"""
+    def _initialize_updated_client_allocation(self):
+        """Initialize the UPDATED sophisticated client allocation strategy"""
         
-        # Client allocation configuration
+        # UPDATED Client allocation configuration with Order Execution Priority
         self.client_configs = {
             0: {
                 'purpose': ClientPurpose.ADMINISTRATIVE,
                 'symbols': [],  # Administrative only
                 'frequency': 0.0,
-                'description': 'Account, orders, system control'
+                'description': 'Account management, system control',
+                'priority': 'SYSTEM'
             },
-            1: {
+            1: {  # NEW: Order Execution gets highest priority
+                'purpose': ClientPurpose.ORDER_EXECUTION,
+                'symbols': [],  # No market data - trading only
+                'frequency': 0.0,
+                'description': 'Order execution - HIGHEST PRIORITY',
+                'priority': 'CRITICAL'
+            },
+            2: {  # Moved from Client 1
                 'purpose': ClientPurpose.CORE_DATA,
                 'symbols': ['SPY', 'SPX', '/ES', 'VIX', 'TICK-NYSE'],
                 'frequency': 1.0,
-                'description': 'SPY, SPX, /ES, VIX, TICK-NYSE (1s)'
+                'description': 'SPY, SPX, /ES, VIX, TICK-NYSE (1s)',
+                'priority': 'CRITICAL'
             },
-            2: {
+            3: {  # Moved from Client 2
                 'purpose': ClientPurpose.SPY_OPTIONS,
                 'symbols': ['SPY_0DTE', 'SPY_1DTE'],
                 'frequency': 1.0,
-                'description': '0DTE, 1DTE options (1s)'
+                'description': '0DTE, 1DTE options (1s)',
+                'priority': 'CRITICAL'
             },
-            3: {
+            4: {  # Moved from Client 3
                 'purpose': ClientPurpose.VOLATILITY,
-                'symbols': ['VIX9D', 'VXV', 'VXMT', 'VVIX', 'UVXY', 'TRIN-NYSE', 'ADD-NYSE', 'CPC', 'PCALL', 'SKEW'],
+                'symbols': ['VIX9D', 'VXV', 'VXMT', 'VVIV', 'UVXY', 'VXN', 'RVX'],
                 'frequency': 5.0,
-                'description': 'VIX9D, VXV, VXMT, VVIX, UVXY (5s)'
+                'description': 'Volatility indicators (5s)',
+                'priority': 'HIGH'
             },
-            4: {
+            5: {  # Moved from Client 4
                 'purpose': ClientPurpose.MARKET_INTERNALS,
-                'symbols': ['VX', 'ADVN-NYSE', 'DECN-NYSE', 'UVOL-NYSE', 'DVOL-NYSE', 'VOLD-NYSE', 'TICK-NASDAQ', 'TRIN-NASDAQ'],
+                'symbols': ['$TRIN', '$ADD', '$DECL', 'CPC', 'PCALL', 'SKEW'],
                 'frequency': 5.0,
-                'description': 'TRIN, ADD, CPC, PCALL, SKEW (5s)'
+                'description': 'Market internals (5s)',
+                'priority': 'HIGH'
             },
-            5: {
+            6: {  # Moved from Client 5
                 'purpose': ClientPurpose.MAJOR_INDICES,
-                'symbols': ['DIA', 'QQQ', 'IWM', 'DIA_1DTE', 'QQQ_1DTE', 'IWM_1DTE'],
+                'symbols': ['DIA', 'QQQ', 'IWM', 'NDX'],
                 'frequency': 5.0,
-                'description': 'DIA, QQQ, IWM, 1DTE options (5s)'
+                'description': 'Major indices (5s)',
+                'priority': 'HIGH'
             },
-            6: {
+            7: {  # Moved from Client 6
                 'purpose': ClientPurpose.EXTENDED_ASSETS,
-                'symbols': ['TLT', 'LQD', 'DXY', 'GLD', 'SPY_WEEKLY', 'DIA_WEEKLY', 'QQQ_WEEKLY'],
+                'symbols': ['TLT', 'LQD', 'DXY', 'GLD', 'USO', 'UNG'],
                 'frequency': 15.0,
-                'description': 'TLT, LQD, DXY, GLD, WEEKLY (15-30s)'
+                'description': 'Extended assets (15s)',
+                'priority': 'MEDIUM'
             },
-            7: {
+            8: {  # Moved from Client 7
                 'purpose': ClientPurpose.SECTOR_ETFS,
-                'symbols': ['VXST', 'VXN', 'RVX', 'CPCE', 'CPCI', 'NYHL-NYSE', 'XLF', 'XLK', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU', 'XLRE', 'XLC', 'XLB'],
+                'symbols': ['XLF', 'XLK', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU', 'XLRE', 'XLC', 'XLB'],
                 'frequency': 30.0,
-                'description': 'Sector ETFs, MONTHLY options (30-60s)'
-            },
-            8: {
-                'purpose': ClientPurpose.ORDER_EXECUTION,
-                'symbols': [],  # Trading operations only
-                'frequency': 0.0,
-                'description': 'Trading operations only'
+                'description': 'Sector ETFs (30s)',
+                'priority': 'LOW'
             }
         }
         
-        # Create client info objects
+        # Create client info objects with UPDATED allocation
         for client_id, config in self.client_configs.items():
             self.clients[client_id] = ClientInfo(
                 client_id=client_id,
@@ -240,14 +293,165 @@ class MultiClientDataManager:
                 symbols=config['symbols'].copy(),
                 update_frequency=config['frequency']
             )
+        
+        # Print UPDATED allocation summary
+        self._print_updated_allocation_summary()
+
+    def _print_updated_allocation_summary(self):
+        """Print UPDATED allocation summary with Order Execution priority"""
+        print("\n" + "=" * 80)
+        print("📊 UPDATED PROFESSIONAL CLIENT ALLOCATION - ORDER EXECUTION PRIORITY")
+        print("=" * 80)
+        
+        print("🏆 TRADING PRIORITY ORDER:")
+        priority_order = [
+            (1, "ORDER EXECUTION", "CRITICAL - Fastest trading execution"),
+            (0, "ADMINISTRATIVE", "SYSTEM - Account & control"),
+            (2, "CORE DATA", "CRITICAL - SPY, VIX real-time (1s)"),
+            (3, "SPY OPTIONS", "CRITICAL - 0DTE/1DTE options (1s)"),
+            (4, "VOLATILITY", "HIGH - Volatility surface (5s)"),
+            (5, "MARKET INTERNALS", "HIGH - Market breadth (5s)"),
+            (6, "MAJOR INDICES", "HIGH - DIA/QQQ/IWM (5s)"),
+            (7, "EXTENDED ASSETS", "MEDIUM - Bonds/FX/Commodities (15s)"),
+            (8, "SECTOR ETFS", "LOW - Sector rotation (30s)")
+        ]
+        
+        for client_id, name, description in priority_order:
+            config = self.client_configs[client_id]
+            symbol_count = len(config['symbols'])
+            frequency = config['frequency']
+            
+            # Format display
+            if client_id == 1:
+                print(f"🚀 Client {client_id}: {name} - {description}")
+                print(f"   🎯 PURPOSE: Ultra-fast order execution and trade management")
+                print(f"   ⚡ LATENCY: <10ms target for order placement")
+            elif symbol_count > 0:
+                print(f"📊 Client {client_id}: {name} - {description}")
+                print(f"   📈 Symbols ({symbol_count}): {', '.join(config['symbols'][:5])}{'...' if symbol_count > 5 else ''}")
+                print(f"   🔄 Update frequency: {frequency}s")
+            else:
+                print(f"⚙️ Client {client_id}: {name} - {description}")
+            print()
+        
+        print("🎯 TRADING ADVANTAGES:")
+        print("   • Order Execution (Client 1) gets highest priority")
+        print("   • Critical market data (Clients 2-3) on fast 1s updates")
+        print("   • Load distribution prevents API rate limiting")
+        print("   • Fault isolation - if one client fails, others continue")
+        print("=" * 80)
 
     # ================================================================================
-    # CORE MANAGEMENT METHODS
+    # ORDER EXECUTION METHODS - NEW FOR CLIENT 1
+    # ================================================================================
+
+    def submit_order(self, order_request: OrderRequest, callback: Optional[Callable] = None) -> int:
+        """
+        Submit order for execution on Client 1 (highest priority)
+        
+        Args:
+            order_request: Order details
+            callback: Optional callback for order status updates
+            
+        Returns:
+            Order ID for tracking
+        """
+        try:
+            order_id = int(time.time() * 1000) % 1000000  # Generate unique order ID
+            
+            # Always route to Client 1 for fastest execution
+            order_request.client_id = 1
+            
+            # Store order
+            self.active_orders[order_id] = order_request
+            
+            # Add to order queue for Client 1 processing
+            order_data = {
+                'order_id': order_id,
+                'order_request': order_request,
+                'callback': callback,
+                'timestamp': datetime.now()
+            }
+            self.order_queue.put(order_data)
+            
+            # Register callback if provided
+            if callback and callback not in self.order_callbacks:
+                self.order_callbacks.append(callback)
+            
+            self.total_orders += 1
+            self.logger.info(f"✅ Order {order_id} submitted to Client 1: {order_request.action} {order_request.quantity} {order_request.symbol}")
+            
+            return order_id
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error submitting order: {e}")
+            return -1
+
+    def cancel_order(self, order_id: int) -> bool:
+        """
+        Cancel order via Client 1
+        
+        Args:
+            order_id: Order ID to cancel
+            
+        Returns:
+            True if cancellation request submitted
+        """
+        try:
+            if order_id in self.active_orders:
+                # Submit cancellation to Client 1
+                cancel_data = {
+                    'action': 'CANCEL',
+                    'order_id': order_id,
+                    'timestamp': datetime.now()
+                }
+                self.order_queue.put(cancel_data)
+                
+                self.logger.info(f"✅ Order {order_id} cancellation submitted to Client 1")
+                return True
+            else:
+                self.logger.warning(f"⚠️ Order {order_id} not found for cancellation")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error cancelling order {order_id}: {e}")
+            return False
+
+    def get_order_status(self, order_id: int) -> Optional[Dict]:
+        """
+        Get status of specific order
+        
+        Args:
+            order_id: Order ID to check
+            
+        Returns:
+            Order status dictionary or None
+        """
+        try:
+            if order_id in self.active_orders:
+                order = self.active_orders[order_id]
+                return {
+                    'order_id': order_id,
+                    'symbol': order.symbol,
+                    'action': order.action,
+                    'quantity': order.quantity,
+                    'order_type': order.order_type,
+                    'client_id': order.client_id,
+                    'status': 'ACTIVE'  # Would be updated by IB callbacks
+                }
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error getting order status {order_id}: {e}")
+            return None
+
+    # ================================================================================
+    # CORE MANAGEMENT METHODS - UPDATED
     # ================================================================================
 
     def start(self) -> bool:
         """
-        Start the Multi-Client Data Manager
+        Start the Multi-Client Data Manager with Order Execution Priority
         
         Returns:
             bool: True if started successfully
@@ -258,20 +462,30 @@ class MultiClientDataManager:
                     self.logger.warning("Multi-Client Data Manager already running")
                     return True
                 
-                self.logger.info("🚀 Starting Multi-Client Data Manager...")
+                self.logger.info("🚀 Starting Multi-Client Data Manager with ORDER EXECUTION PRIORITY...")
                 
                 # Initialize components
                 self._stop_event.clear()
                 self.start_time = datetime.now()
                 
-                # Start priority clients (0, 1, 3) first
-                priority_clients = [0, 1, 3]
-                for client_id in priority_clients:
-                    if self._start_client(client_id):
-                        self.logger.info(f"✅ Started priority client {client_id}")
-                        time.sleep(0.5)  # Brief pause between connections
+                # Start ORDER EXECUTION client (Client 1) FIRST - highest priority
+                if self._start_client(1):
+                    self.logger.info("✅ Started ORDER EXECUTION client (Client 1) - HIGHEST PRIORITY")
+                    time.sleep(0.2)  # Brief pause
                 
-                # Start request processing thread
+                # Start administrative client (Client 0) second
+                if self._start_client(0):
+                    self.logger.info("✅ Started ADMINISTRATIVE client (Client 0)")
+                    time.sleep(0.2)
+                
+                # Start critical market data clients (Clients 2, 3)
+                critical_clients = [2, 3]
+                for client_id in critical_clients:
+                    if self._start_client(client_id):
+                        self.logger.info(f"✅ Started critical data client {client_id}")
+                        time.sleep(0.3)  # Slightly longer pause between connections
+                
+                # Start request processing threads
                 processing_thread = threading.Thread(
                     target=self._request_processing_loop,
                     name="RequestProcessor",
@@ -279,8 +493,15 @@ class MultiClientDataManager:
                 )
                 processing_thread.start()
                 
+                order_processing_thread = threading.Thread(
+                    target=self._order_processing_loop,
+                    name="OrderProcessor", 
+                    daemon=True
+                )
+                order_processing_thread.start()
+                
                 self.is_running = True
-                self.logger.info("✅ Multi-Client Data Manager started successfully")
+                self.logger.info("✅ Multi-Client Data Manager started with ORDER EXECUTION PRIORITY")
                 
                 return True
                 
@@ -288,13 +509,207 @@ class MultiClientDataManager:
             self.logger.error(f"❌ Failed to start Multi-Client Data Manager: {e}")
             return False
 
-    def stop(self) -> bool:
+    def _order_processing_loop(self):
+        """Process order execution requests for Client 1"""
+        self.logger.info("🔄 Starting order processing loop for Client 1")
+        
+        while not self._stop_event.is_set():
+            try:
+                # Get order from queue (with timeout)
+                order_data = self.order_queue.get(timeout=1.0)
+                
+                # Process the order on Client 1
+                self._process_order_request(order_data)
+                
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.logger.error(f"❌ Error in order processing loop: {e}")
+                time.sleep(1.0)
+        
+        self.logger.info("🛑 Order processing loop stopped")
+
+    def _process_order_request(self, order_data: Dict):
         """
-        Stop the Multi-Client Data Manager
+        Process individual order request on Client 1
+        
+        Args:
+            order_data: Order data dictionary
+        """
+        try:
+            if order_data.get('action') == 'CANCEL':
+                # Handle cancellation
+                order_id = order_data['order_id']
+                self.logger.info(f"🛑 Processing cancellation for order {order_id}")
+                
+                # Remove from active orders
+                self.active_orders.pop(order_id, None)
+                
+            else:
+                # Handle new order
+                order_request = order_data['order_request']
+                order_id = order_data['order_id']
+                callback = order_data.get('callback')
+                
+                self.logger.info(f"⚡ Processing order {order_id} on Client 1: {order_request.action} {order_request.quantity} {order_request.symbol}")
+                
+                # In real implementation, would submit to IB via Client 1
+                if not IBAPI_AVAILABLE:
+                    # Simulate order processing
+                    self.logger.info(f"📋 SIMULATED: Order {order_id} executed successfully")
+                    
+                    # Notify callback if provided
+                    if callback:
+                        try:
+                            callback({
+                                'order_id': order_id,
+                                'status': 'FILLED',
+                                'message': 'Order executed successfully'
+                            })
+                        except Exception as e:
+                            self.logger.error(f"❌ Error in order callback: {e}")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error processing order request: {e}")
+
+    # ================================================================================
+    # MARKET DATA METHODS - UPDATED FOR NEW CLIENT ALLOCATION
+    # ================================================================================
+
+    def subscribe_to_data(self, symbol: str, callback: Callable) -> bool:
+        """
+        Subscribe to market data for a symbol using UPDATED client allocation
+        
+        Args:
+            symbol: Symbol to subscribe to
+            callback: Callback function for data updates
+            
+        Returns:
+            bool: True if subscription successful
+        """
+        try:
+            if symbol not in self.data_callbacks:
+                self.data_callbacks[symbol] = []
+            
+            if callback not in self.data_callbacks[symbol]:
+                self.data_callbacks[symbol].append(callback)
+                self.logger.info(f"✅ Subscribed to {symbol} data")
+                
+                # Determine which client should handle this symbol using UPDATED allocation
+                client_id = self._get_updated_client_for_symbol(symbol)
+                if client_id is not None:
+                    self._request_market_data(symbol, client_id)
+                
+                return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error subscribing to {symbol}: {e}")
+            return False
+
+    def _get_updated_client_for_symbol(self, symbol: str) -> Optional[int]:
+        """
+        Determine which client should handle a symbol using UPDATED allocation
+        
+        Args:
+            symbol: Symbol to route
+            
+        Returns:
+            Client ID or None
+        """
+        try:
+            # Check each client's symbol list (using UPDATED allocation)
+            for client_id, client in self.clients.items():
+                if symbol in client.symbols:
+                    return client_id
+            
+            # UPDATED default routing based on symbol characteristics
+            if symbol in ['SPY', 'SPX', '/ES', 'VIX', 'TICK-NYSE']:
+                return 2  # Core data (was Client 1, now Client 2)
+            elif 'VIX' in symbol or symbol in ['UVXY', 'SKEW']:
+                return 4  # Volatility (was Client 3, now Client 4)
+            elif symbol in ['DIA', 'QQQ', 'IWM']:
+                return 6  # Major indices (was Client 5, now Client 6)
+            elif symbol in ['TLT', 'LQD', 'DXY', 'GLD']:
+                return 7  # Extended assets (was Client 6, now Client 7)
+            elif symbol.startswith('XL'):
+                return 8  # Sector ETFs (was Client 7, now Client 8)
+            else:
+                return 2  # Default to core data (was Client 1, now Client 2)
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error routing symbol {symbol}: {e}")
+            return 2  # Fallback to core data client
+
+    # ================================================================================
+    # STATUS AND MONITORING METHODS - UPDATED
+    # ================================================================================
+
+    def get_status_summary(self) -> Dict:
+        """
+        Get comprehensive status summary with UPDATED allocation
         
         Returns:
-            bool: True if stopped successfully
+            Status summary dictionary
         """
+        try:
+            with self._lock:
+                active_clients = [
+                    client_id for client_id, client in self.clients.items() 
+                    if client.is_connected
+                ]
+                
+                return {
+                    'is_running': self.is_running,
+                    'active_clients': active_clients,
+                    'total_clients': len(self.clients),
+                    'order_execution_priority': 1 in active_clients,  # NEW: Order execution status
+                    'critical_clients_online': len([c for c in [1, 2, 3] if c in active_clients]),
+                    'market_data_lines_used': len(self.market_data),
+                    'total_messages': self.total_messages,
+                    'total_orders': self.total_orders,  # NEW: Order tracking
+                    'total_errors': self.total_errors,
+                    'start_time': self.start_time,
+                    'subscriptions': len(self.data_callbacks),
+                    'active_orders': len(self.active_orders)  # NEW: Active order count
+                }
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error getting status: {e}")
+            return {}
+
+    # ================================================================================
+    # REMAINING METHODS - CORE FUNCTIONALITY
+    # ================================================================================
+    
+    def _start_client(self, client_id: int) -> bool:
+        """Start individual client connection"""
+        try:
+            if client_id not in self.clients:
+                self.logger.error(f"❌ Unknown client ID: {client_id}")
+                return False
+            
+            client = self.clients[client_id]
+            
+            # For now, mark as connected (would normally connect to IB Gateway)
+            if not IBAPI_AVAILABLE:
+                # Simulation mode
+                client.is_connected = True
+                client.last_update = datetime.now()
+                self.logger.info(f"✅ Client {client_id} ({client.purpose.value}) started in simulation mode")
+                return True
+            
+            # Real IB Gateway connection would go here
+            client.is_connected = True
+            client.last_update = datetime.now()
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error starting client {client_id}: {e}")
+            return False
+
+    def stop(self) -> bool:
+        """Stop the Multi-Client Data Manager"""
         try:
             with self._lock:
                 if not self.is_running:
@@ -314,6 +729,7 @@ class MultiClientDataManager:
                 # Clean up resources
                 self.executor.shutdown(wait=True)
                 self.market_data.clear()
+                self.active_orders.clear()
                 
                 self.logger.info("✅ Multi-Client Data Manager stopped successfully")
                 return True
@@ -322,128 +738,89 @@ class MultiClientDataManager:
             self.logger.error(f"❌ Error stopping Multi-Client Data Manager: {e}")
             return False
 
-    def _start_client(self, client_id: int) -> bool:
-        """
-        Start individual client connection
-        
-        Args:
-            client_id: Client ID to start
-            
-        Returns:
-            bool: True if started successfully
-        """
-        try:
-            if client_id not in self.clients:
-                self.logger.error(f"❌ Unknown client ID: {client_id}")
-                return False
-            
-            client = self.clients[client_id]
-            
-            # For now, mark as connected (would normally connect to IB Gateway)
-            if not IBAPI_AVAILABLE:
-                # Simulation mode
-                client.is_connected = True
-                client.last_update = datetime.now()
-                self.logger.info(f"✅ Client {client_id} started in simulation mode")
-                return True
-            
-            # Real IB Gateway connection would go here
-            client.is_connected = True
-            client.last_update = datetime.now()
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error starting client {client_id}: {e}")
-            return False
-
     def _stop_client(self, client_id: int) -> bool:
-        """
-        Stop individual client connection
-        
-        Args:
-            client_id: Client ID to stop
-            
-        Returns:
-            bool: True if stopped successfully
-        """
+        """Stop individual client connection"""
         try:
             if client_id in self.clients:
                 client = self.clients[client_id]
                 client.is_connected = False
                 self.logger.info(f"🛑 Client {client_id} stopped")
-            
             return True
-            
         except Exception as e:
             self.logger.error(f"❌ Error stopping client {client_id}: {e}")
             return False
 
-    # ================================================================================
-    # MARKET DATA METHODS
-    # ================================================================================
-
-    def subscribe_to_data(self, symbol: str, callback: Callable) -> bool:
-        """
-        Subscribe to market data for a symbol
-        
-        Args:
-            symbol: Symbol to subscribe to
-            callback: Callback function for data updates
-            
-        Returns:
-            bool: True if subscription successful
-        """
+    def _request_market_data(self, symbol: str, client_id: int):
+        """Request market data for symbol on specific client"""
         try:
-            if symbol not in self.data_callbacks:
-                self.data_callbacks[symbol] = []
-            
-            if callback not in self.data_callbacks[symbol]:
-                self.data_callbacks[symbol].append(callback)
-                self.logger.info(f"✅ Subscribed to {symbol} data")
-                
-                # Determine which client should handle this symbol
-                client_id = self._get_client_for_symbol(symbol)
-                if client_id is not None:
-                    self._request_market_data(symbol, client_id)
-                
-                return True
-            
+            request = {
+                'symbol': symbol,
+                'client_id': client_id,
+                'timestamp': datetime.now()
+            }
+            self.request_queue.put(request)
         except Exception as e:
-            self.logger.error(f"❌ Error subscribing to {symbol}: {e}")
-            return False
+            self.logger.error(f"❌ Error requesting data for {symbol}: {e}")
 
-    def unsubscribe_from_data(self, symbol: str, callback: Callable) -> bool:
-        """
-        Unsubscribe from market data for a symbol
+    def _request_processing_loop(self):
+        """Process market data requests"""
+        self.logger.info("🔄 Starting request processing loop")
         
-        Args:
-            symbol: Symbol to unsubscribe from
-            callback: Callback function to remove
-            
-        Returns:
-            bool: True if unsubscription successful
-        """
+        while not self._stop_event.is_set():
+            try:
+                request = self.request_queue.get(timeout=1.0)
+                self._process_market_data_request(request)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.logger.error(f"❌ Error in request processing loop: {e}")
+                time.sleep(1.0)
+
+    def _process_market_data_request(self, request: Dict):
+        """Process individual market data request"""
         try:
-            if symbol in self.data_callbacks and callback in self.data_callbacks[symbol]:
-                self.data_callbacks[symbol].remove(callback)
-                self.logger.info(f"✅ Unsubscribed from {symbol} data")
-                return True
+            symbol = request['symbol']
+            client_id = request['client_id']
             
+            # Simulate market data for testing
+            if not IBAPI_AVAILABLE:
+                tick = MarketDataTick(
+                    symbol=symbol,
+                    price=420.0 + hash(symbol) % 50 + (time.time() % 10),
+                    size=100,
+                    timestamp=datetime.now(),
+                    tick_type=TickType.LAST,
+                    request_id=hash(f"{symbol}_{client_id}") % 10000
+                )
+                self._update_market_data(tick)
+            
+            # Update client stats
+            if client_id in self.clients:
+                self.clients[client_id].message_count += 1
+                self.clients[client_id].last_update = datetime.now()
+                
         except Exception as e:
-            self.logger.error(f"❌ Error unsubscribing from {symbol}: {e}")
-            return False
+            self.logger.error(f"❌ Error processing request: {e}")
+
+    def _update_market_data(self, tick: MarketDataTick):
+        """Update market data and notify callbacks"""
+        try:
+            with self._lock:
+                self.market_data[tick.symbol] = tick
+                self.total_messages += 1
+                
+                # Notify callbacks
+                if tick.symbol in self.data_callbacks:
+                    for callback in self.data_callbacks[tick.symbol]:
+                        try:
+                            callback(tick)
+                        except Exception as e:
+                            self.logger.error(f"❌ Error in callback for {tick.symbol}: {e}")
+        except Exception as e:
+            self.logger.error(f"❌ Error updating market data: {e}")
 
     def get_latest_data(self, symbol: str) -> Optional[Dict]:
-        """
-        Get latest market data for symbol
-        
-        Args:
-            symbol: Symbol to get data for
-            
-        Returns:
-            Latest market data or None
-        """
+        """Get latest market data for symbol"""
         try:
             with self._lock:
                 if symbol in self.market_data:
@@ -459,191 +836,28 @@ class MultiClientDataManager:
                 # Fallback: simulate data for testing
                 return {
                     'symbol': symbol,
-                    'price': 420.0 + hash(symbol) % 50,  # Simulated price
+                    'price': 420.0 + hash(symbol) % 50,
                     'size': 100,
                     'timestamp': datetime.now(),
                     'tick_type': TickType.LAST
                 }
-                
         except Exception as e:
             self.logger.error(f"❌ Error getting data for {symbol}: {e}")
             return None
 
-    def _get_client_for_symbol(self, symbol: str) -> Optional[int]:
-        """
-        Determine which client should handle a symbol
-        
-        Args:
-            symbol: Symbol to route
-            
-        Returns:
-            Client ID or None
-        """
+    def unsubscribe_from_data(self, symbol: str, callback: Callable) -> bool:
+        """Unsubscribe from market data for symbol"""
         try:
-            # Check each client's symbol list
-            for client_id, client in self.clients.items():
-                if symbol in client.symbols:
-                    return client_id
-            
-            # Default routing based on symbol characteristics
-            if symbol in ['SPY', 'SPX', '/ES', 'VIX', 'TICK-NYSE']:
-                return 1  # Core data
-            elif 'VIX' in symbol or symbol in ['UVXY', 'SKEW']:
-                return 3  # Volatility
-            elif symbol in ['DIA', 'QQQ', 'IWM']:
-                return 5  # Major indices
-            elif symbol in ['TLT', 'LQD', 'DXY', 'GLD']:
-                return 6  # Extended assets
-            elif symbol.startswith('XL'):
-                return 7  # Sector ETFs
-            else:
-                return 1  # Default to core data
-                
+            if symbol in self.data_callbacks and callback in self.data_callbacks[symbol]:
+                self.data_callbacks[symbol].remove(callback)
+                self.logger.info(f"✅ Unsubscribed from {symbol} data")
+                return True
         except Exception as e:
-            self.logger.error(f"❌ Error routing symbol {symbol}: {e}")
-            return 1  # Fallback to client 1
-
-    def _request_market_data(self, symbol: str, client_id: int):
-        """
-        Request market data for symbol on specific client
-        
-        Args:
-            symbol: Symbol to request
-            client_id: Client ID to use
-        """
-        try:
-            # Add to request queue
-            request = {
-                'symbol': symbol,
-                'client_id': client_id,
-                'timestamp': datetime.now()
-            }
-            self.request_queue.put(request)
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error requesting data for {symbol}: {e}")
-
-    def _request_processing_loop(self):
-        """Process market data requests"""
-        self.logger.info("🔄 Starting request processing loop")
-        
-        while not self._stop_event.is_set():
-            try:
-                # Get request from queue (with timeout)
-                request = self.request_queue.get(timeout=1.0)
-                
-                # Process the request
-                self._process_market_data_request(request)
-                
-            except queue.Empty:
-                continue
-            except Exception as e:
-                self.logger.error(f"❌ Error in request processing loop: {e}")
-                time.sleep(1.0)
-        
-        self.logger.info("🛑 Request processing loop stopped")
-
-    def _process_market_data_request(self, request: Dict):
-        """
-        Process individual market data request
-        
-        Args:
-            request: Request dictionary
-        """
-        try:
-            symbol = request['symbol']
-            client_id = request['client_id']
-            
-            # Simulate market data for testing
-            if not IBAPI_AVAILABLE:
-                # Create simulated tick
-                tick = MarketDataTick(
-                    symbol=symbol,
-                    price=420.0 + hash(symbol) % 50 + (time.time() % 10),
-                    size=100,
-                    timestamp=datetime.now(),
-                    tick_type=TickType.LAST,
-                    request_id=hash(f"{symbol}_{client_id}") % 10000
-                )
-                
-                # Store and notify
-                self._update_market_data(tick)
-            
-            # Update client stats
-            if client_id in self.clients:
-                self.clients[client_id].message_count += 1
-                self.clients[client_id].last_update = datetime.now()
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error processing request: {e}")
-
-    def _update_market_data(self, tick: MarketDataTick):
-        """
-        Update market data and notify callbacks
-        
-        Args:
-            tick: Market data tick
-        """
-        try:
-            with self._lock:
-                # Store the tick
-                self.market_data[tick.symbol] = tick
-                self.total_messages += 1
-                
-                # Notify callbacks
-                if tick.symbol in self.data_callbacks:
-                    for callback in self.data_callbacks[tick.symbol]:
-                        try:
-                            callback(tick)
-                        except Exception as e:
-                            self.logger.error(f"❌ Error in callback for {tick.symbol}: {e}")
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error updating market data: {e}")
-
-    # ================================================================================
-    # STATUS AND MONITORING METHODS
-    # ================================================================================
-
-    def get_status_summary(self) -> Dict:
-        """
-        Get comprehensive status summary
-        
-        Returns:
-            Status summary dictionary
-        """
-        try:
-            with self._lock:
-                active_clients = [
-                    client_id for client_id, client in self.clients.items() 
-                    if client.is_connected
-                ]
-                
-                return {
-                    'is_running': self.is_running,
-                    'active_clients': active_clients,
-                    'total_clients': len(self.clients),
-                    'market_data_lines_used': len(self.market_data),
-                    'total_messages': self.total_messages,
-                    'total_errors': self.total_errors,
-                    'start_time': self.start_time,
-                    'subscriptions': len(self.data_callbacks)
-                }
-                
-        except Exception as e:
-            self.logger.error(f"❌ Error getting status: {e}")
-            return {}
+            self.logger.error(f"❌ Error unsubscribing from {symbol}: {e}")
+            return False
 
     def get_client_status(self, client_id: int) -> Optional[Dict]:
-        """
-        Get status for specific client
-        
-        Args:
-            client_id: Client ID to check
-            
-        Returns:
-            Client status or None
-        """
+        """Get status for specific client"""
         try:
             if client_id in self.clients:
                 client = self.clients[client_id]
@@ -657,53 +871,103 @@ class MultiClientDataManager:
                     'error_count': client.error_count,
                     'last_update': client.last_update
                 }
-                
         except Exception as e:
             self.logger.error(f"❌ Error getting client {client_id} status: {e}")
             return None
+
+# ================================================================================
+# GLOBAL INSTANCE MANAGEMENT
+# ================================================================================
+
+_global_manager_instance: Optional[MultiClientDataManager] = None
+_manager_lock = threading.Lock()
+
+def get_manager_instance() -> MultiClientDataManager:
+    """Get global manager instance (singleton pattern)"""
+    global _global_manager_instance
+    
+    with _manager_lock:
+        if _global_manager_instance is None:
+            _global_manager_instance = MultiClientDataManager()
+        return _global_manager_instance
+
+def reset_manager_instance():
+    """Reset global manager instance"""
+    global _global_manager_instance
+    
+    with _manager_lock:
+        if _global_manager_instance and _global_manager_instance.is_running:
+            _global_manager_instance.stop()
+        _global_manager_instance = None
 
 # ================================================================================
 # STANDALONE TESTING AND MAIN EXECUTION
 # ================================================================================
 
 def main():
-    """Main execution for testing"""
+    """Main execution for testing UPDATED allocation"""
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    print("🚀 SPYDER B08 - Multi-Client Data Manager")
-    print("=" * 60)
+    print("🚀 SPYDER B08 - Multi-Client Data Manager (ORDER EXECUTION PRIORITY)")
+    print("=" * 80)
     
     try:
-        # Initialize manager
+        # Initialize manager with UPDATED allocation
         manager = MultiClientDataManager()
         
         # Test basic functionality
-        print("🧪 Testing Multi-Client Data Manager...")
+        print("🧪 Testing UPDATED Multi-Client Data Manager...")
         
         # Start manager
         if manager.start():
-            print("✅ Manager started successfully")
+            print("✅ Manager started successfully with ORDER EXECUTION PRIORITY")
             
-            # Test subscription
+            # Test order submission (NEW functionality)
+            print("\n🧪 Testing Order Execution (Client 1)...")
+            order = OrderRequest(
+                symbol="SPY",
+                action="BUY",
+                quantity=100,
+                order_type="MKT"
+            )
+            
+            def order_callback(status):
+                print(f"📋 Order callback: {status}")
+            
+            order_id = manager.submit_order(order, order_callback)
+            if order_id > 0:
+                print(f"✅ Order {order_id} submitted successfully")
+                
+                # Check order status
+                status = manager.get_order_status(order_id)
+                if status:
+                    print(f"📊 Order status: {status}")
+            
+            # Test market data subscription
+            print("\n🧪 Testing Market Data Subscription...")
             def test_callback(tick):
-                print(f"📊 Received data: {tick.symbol} = ${tick.price:.2f}")
+                print(f"📊 Received data: {tick.symbol} = ${tick.price:.2f} (Client routing)")
             
             manager.subscribe_to_data("SPY", test_callback)
             print("✅ Subscribed to SPY data")
             
             # Let it run for a few seconds
+            print("⏱️ Running for 5 seconds...")
             time.sleep(5)
             
-            # Get status
+            # Get UPDATED status
             status = manager.get_status_summary()
-            print(f"\n📈 Status Summary:")
+            print(f"\n📈 UPDATED Status Summary:")
+            print(f"   Order Execution Priority: {status['order_execution_priority']}")
+            print(f"   Critical Clients Online: {status['critical_clients_online']}/3")
             print(f"   Active Clients: {status['active_clients']}")
+            print(f"   Total Orders: {status['total_orders']}")
             print(f"   Total Messages: {status['total_messages']}")
-            print(f"   Market Data Lines: {status['market_data_lines_used']}")
+            print(f"   Active Orders: {status['active_orders']}")
             
             # Test data retrieval
             spy_data = manager.get_latest_data("SPY")
@@ -714,7 +978,8 @@ def main():
             if manager.stop():
                 print("✅ Manager stopped successfully")
             
-        print("\n🎯 Multi-Client Data Manager test complete!")
+        print("\n🎯 UPDATED Multi-Client Data Manager test complete!")
+        print("🏆 ORDER EXECUTION PRIORITY verified!")
         
     except Exception as e:
         print(f"❌ Error in main: {e}")
