@@ -54,7 +54,7 @@ try:
         HealthStatus
     )
     from SpyderB_Broker.SpyderB15_PrometheusMetrics import (
-        PrometheusMetricsManager, ClientMetrics, TradingMetrics
+        PrometheusMetricsCollector, ClientMetrics, TradingMetrics
     )
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
@@ -62,7 +62,7 @@ except ImportError as e:
     print(f"Warning: Could not import Spyder modules: {e}")
     # Create fallbacks
     MultiClientWatchdog = None
-    PrometheusMetricsManager = None
+    PrometheusMetricsCollector = None
     SpyderLogger = None
     SpyderErrorHandler = None
 
@@ -177,7 +177,7 @@ class GatewayIntegrationManager(QObject):
         self.config = config or GatewayConfig()
         self.gateway_manager = GatewayManager(self.config)
         self.watchdog = MultiClientWatchdog(self.config) if MultiClientWatchdog else None
-        self.metrics_manager = PrometheusMetricsManager() if PrometheusMetricsManager else None
+        self.metrics_manager = PrometheusMetricsCollector() if PrometheusMetricsCollector else None
         
         # Client configurations
         self.client_configs = get_client_allocation()

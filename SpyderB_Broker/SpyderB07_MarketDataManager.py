@@ -65,7 +65,7 @@ MARKET_INTERNALS = {'$TICK', '$TRIN', '$ADD', '$VOLD'}
 # All trading symbols
 TRADING_SYMBOLS = {
     # S&P ETF & Indices
-    'SPY': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
+    'SPY': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
     'SPX': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
     'XSP': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
     'NANOS': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
@@ -83,24 +83,24 @@ TRADING_SYMBOLS = {
     'VIX3M': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
     'VIX6M': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
     'VIX1Y': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'UVXY': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
+    'UVXY': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
     
     # Major ETFs
     'CPC': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'DIA': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
-    'QQQ': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
-    'IWM': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
+    'DIA': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
+    'QQQ': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
+    'IWM': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
     
     # Treasury/Bonds
-    'TLT': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
-    'IEF': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
-    'HYG': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
+    'TLT': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
+    'IEF': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
+    'HYG': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
     'DXY': {'type': SecurityType.IND, 'exchange': 'ICE', 'currency': 'USD'},
     
     # Commodities
-    'GLD': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
-    'USO': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
-    'DBC': {'type': SecurityType.STK, 'exchange': 'SMART', 'currency': 'USD'},
+    'GLD': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
+    'USO': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
+    'DBC': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
     
     # Market Breadth
     '$TICK': {'type': SecurityType.IND, 'exchange': 'NYSE', 'currency': 'USD'},
@@ -412,7 +412,7 @@ class MarketDataManager:
         try:
             sec_type = config['type']
             
-            if sec_type == SecurityType.STK:
+            if sec_type == SecurityType.STOCK:
                 return self.client.create_stock_contract(symbol)
             
             elif sec_type == SecurityType.FUT:
