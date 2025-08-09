@@ -25,14 +25,14 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-SPYDER_HOME="$HOME/Spyder"
+SPYDER_HOME="/home/adam/Projects/Spyder"
 VENV_NAME="spyder_venv"
 PYTHON_VERSION="python3.10"
 IB_GATEWAY_PATH="$HOME/Jts"
 LOG_DIR="$SPYDER_HOME/logs"
 CONFIG_DIR="$SPYDER_HOME/config"
 DATA_DIR="$SPYDER_HOME/data"
-SCRIPTS_DIR="$SPYDER_HOME/scripts"
+SCRIPTS_DIR="$SPYDER_HOME/SpyderQ_Scripts"
 
 echo -e "${BLUE}================================================${NC}"
 echo -e "${BLUE}  SPYDER Multi-Client Gateway Setup${NC}"
@@ -193,7 +193,7 @@ cat > "$SCRIPTS_DIR/SpyderQ10_StartAll.sh" << 'EOF'
 #     health checks. Ensures IB Gateway is running before starting monitors.
 # ===============================================================================
 
-SPYDER_HOME="$HOME/Spyder"
+SPYDER_HOME="/home/adam/Projects/Spyder"
 source "$SPYDER_HOME/spyder_venv/bin/activate"
 source "$SPYDER_HOME/.env"
 
@@ -319,7 +319,7 @@ cat > "$SCRIPTS_DIR/SpyderQ11_StopAll.sh" << 'EOF'
 #     Ensures graceful shutdown and removes PID files.
 # ===============================================================================
 
-SPYDER_HOME="$HOME/Spyder"
+SPYDER_HOME="/home/adam/Projects/Spyder"
 LOG_DIR="$SPYDER_HOME/logs"
 
 GREEN='\033[0;32m'
@@ -394,7 +394,7 @@ cat > "$SCRIPTS_DIR/SpyderQ20_Status.sh" << 'EOF'
 #     IB Gateway, monitoring services, ports, and system resources.
 # ===============================================================================
 
-SPYDER_HOME="$HOME/Spyder"
+SPYDER_HOME="/home/adam/Projects/Spyder"
 LOG_DIR="$SPYDER_HOME/logs"
 source "$SPYDER_HOME/.env" 2>/dev/null
 
@@ -541,7 +541,7 @@ cat > "$SCRIPTS_DIR/SpyderQ21_Monitor.sh" << 'EOF'
 #     system health metrics, and performance indicators. Updates every 5 seconds.
 # ===============================================================================
 
-SPYDER_HOME="$HOME/Spyder"
+SPYDER_HOME="/home/adam/Projects/Spyder"
 source "$SPYDER_HOME/spyder_venv/bin/activate" 2>/dev/null
 
 echo "Starting SPYDER Live Monitor (SpyderQ21)"
@@ -611,7 +611,7 @@ cat > "$SCRIPTS_DIR/SpyderQ30_TestDev.sh" << 'EOF'
 #     configurations, mock connections, and runs unit tests if available.
 # ===============================================================================
 
-SPYDER_HOME="$HOME/Spyder"
+SPYDER_HOME="/home/adam/Projects/Spyder"
 source "$SPYDER_HOME/spyder_venv/bin/activate"
 cd "$SPYDER_HOME"
 

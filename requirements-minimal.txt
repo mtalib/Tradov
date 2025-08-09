@@ -1,3 +1,0 @@
-# Just core + trading for production
--r requirements-core.txt
--r requirements-trading.txt
