@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+===============================================================================
 SPYDER - Autonomous Options Trading System
 
 Spyder Version: 1.0
 Module: SpyderG06_ClientMonitorPanel.py
 Group: G (GUI/Dashboard)
-Purpose: PyQt6 widgets for multi-client monitoring panel
+Purpose: Bottom panel widget showing System Health and Prometheus Metrics
 Author: Mohamed Talib
-Date Created: 2025-08-03
-Last Updated: 2025-08-03 Time: 16:00:00
+Date Created: 2025-01-11
+Last Updated: 2025-01-11 Time: 17:30:00
 
 Description:
-    Provides PyQt6 widgets for the bottom-right dashboard panel showing
-    System Health and Prometheus Metrics for all 9 IB Gateway clients.
-    Integrates with SpyderB16_GatewayIntegration for real-time updates.
+    This module provides the bottom panel widget for the Spyder Trading Dashboard
+    displaying System Health indicators and Prometheus Metrics for all 9 IB Gateway
+    clients. It creates a properly formatted panel with System Health on the left
+    and correctly numbered Prometheus client metrics on the right, with proper
+    title display without clipping.
+===============================================================================
 """
 
 # ==============================================================================
@@ -30,744 +34,841 @@ from pathlib import Path
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QFrame, QGroupBox, QPushButton,
-    QApplication, QMainWindow, QToolTip,
-    QMenu, QMessageBox, QFileDialog
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QLabel,
+    QFrame,
+    QGroupBox,
+    QPushButton,
+    QApplication,
+    QMainWindow,
+    QProgressBar,
 )
-from PyQt6.QtCore import (
-    Qt, QTimer, pyqtSignal, pyqtSlot,
-    QThread, QObject, QPoint, QPropertyAnimation,
-    QRect, QEasingCurve
-)
-from PyQt6.QtGui import (
-    QFont, QColor, QPalette, QAction,
-    QMouseEvent, QPainter, QPen, QBrush
-)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThread, QObject
+from PyQt6.QtGui import QFont, QColor, QPalette
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
 # ==============================================================================
 try:
-    from SpyderB_Broker.SpyderB16_GatewayIntegration import (
-        GatewayIntegrationManager, DashboardIntegrationHelper
-    )
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-except ImportError as e:
-    print(f"Warning: Could not import Spyder modules: {e}")
-    GatewayIntegrationManager = None
-    SpyderLogger = None
+
+    logger = SpyderLogger.get_logger(__name__)
+except ImportError:
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.warning("SpyderLogger not available, using standard logging")
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Colors matching existing dashboard theme
-COLOR_BACKGROUND = "#0A0E27"
-COLOR_PANEL_BG = "#1A1E37"
-COLOR_TEXT = "#FFFFFF"
-COLOR_TEXT_DIM = "#808080"
-COLOR_GREEN = "#00FF00"
-COLOR_YELLOW = "#FFD700"
-COLOR_RED = "#FF0000"
-COLOR_BLUE = "#4169E1"
-COLOR_BORDER = "#2A2E47"
+# Dashboard Theme Colors
+COLOR_BACKGROUND = "#0a0a0a"
+COLOR_PANEL_BG = "#1a1a2e"
+COLOR_TEXT = "#ffffff"
+COLOR_TEXT_DIM = "#8a8a8a"
+COLOR_GREEN = "#00ff00"
+COLOR_YELLOW = "#ffaa00"
+COLOR_RED = "#ff0000"
+COLOR_BLUE = "#4a90e2"
+COLOR_BORDER = "#2a2a3a"
+COLOR_HEADER_BG = "#0a0a0a"
+COLOR_SECTION_BG = "#0a0a1a"
 
-# Font settings
-FONT_FAMILY = "Consolas"
-FONT_SIZE_TITLE = 11
-FONT_SIZE_NORMAL = 10
-FONT_SIZE_SMALL = 9
+# Font Settings
+FONT_FAMILY = "Segoe UI"
+FONT_SIZE_TITLE = 14
+FONT_SIZE_HEADER = 12
+FONT_SIZE_NORMAL = 11
+FONT_SIZE_SMALL = 10
 
-# Update intervals
-UPDATE_INTERVAL = 10000  # 10 seconds
+# Update Intervals
+UPDATE_INTERVAL = 5000  # 5 seconds
 
-# ==============================================================================
-# STYLE SHEETS
-# ==============================================================================
-PANEL_STYLE = """
-    QFrame {
-        background-color: #1A1E37;
-        border: 1px solid #2A2E47;
-        border-radius: 4px;
-    }
-"""
+# Client Definitions (matching SpyderB15)
+CLIENT_DEFINITIONS = [
+    (0, "Admin"),
+    (1, "Orders"),
+    (2, "Core"),
+    (3, "Options"),
+    (4, "Volatility"),
+    (5, "Internals"),
+    (6, "Major ETFs"),
+    (7, "Extended Assets"),
+    (8, "Sector ETFs"),
+]
 
-TITLE_STYLE = """
-    QLabel {
-        color: #FFFFFF;
-        font-family: Consolas;
-        font-size: 11px;
-        font-weight: bold;
-        padding: 5px;
-        background-color: #0A0E27;
-        border-bottom: 1px solid #2A2E47;
-    }
-"""
-
-STATUS_LABEL_STYLE = """
-    QLabel {
-        color: #FFFFFF;
-        font-family: Consolas;
-        font-size: 10px;
-        padding: 2px 5px;
-    }
-"""
-
-BULLET_GREEN_STYLE = """
-    QLabel {
-        color: #00FF00;
-        font-size: 14px;
-        font-weight: bold;
-    }
-"""
-
-BULLET_YELLOW_STYLE = """
-    QLabel {
-        color: #FFD700;
-        font-size: 14px;
-        font-weight: bold;
-    }
-"""
-
-BULLET_RED_STYLE = """
-    QLabel {
-        color: #FF0000;
-        font-size: 14px;
-        font-weight: bold;
-    }
-"""
-
-STATUS_BAR_STYLE = """
-    QLabel {
-        color: #FFFFFF;
-        font-family: Consolas;
-        font-size: 9px;
-        padding: 3px 5px;
-        background-color: #0A0E27;
-        border-top: 1px solid #2A2E47;
-    }
-"""
 
 # ==============================================================================
-# CLIENT STATUS WIDGET
-# ==============================================================================
-class ClientStatusWidget(QWidget):
-    """Widget for displaying individual client status"""
-    
-    # Signals
-    clicked = pyqtSignal(int)  # Emits client_id when clicked
-    
-    def __init__(self, client_id: int, parent=None):
-        super().__init__(parent)
-        self.client_id = client_id
-        self.tooltip_data = {}
-        self.setup_ui()
-    
-    def setup_ui(self):
-        """Setup the UI components"""
-        layout = QHBoxLayout()
-        layout.setContentsMargins(5, 2, 5, 2)
-        layout.setSpacing(5)
-        
-        # Status bullet
-        self.bullet_label = QLabel("●")
-        self.bullet_label.setStyleSheet(BULLET_GREEN_STYLE)
-        self.bullet_label.setFixedWidth(20)
-        
-        # Client name
-        self.name_label = QLabel(f"CLIENT {self.client_id}: Loading...")
-        self.name_label.setStyleSheet(STATUS_LABEL_STYLE)
-        
-        layout.addWidget(self.bullet_label)
-        layout.addWidget(self.name_label)
-        layout.addStretch()
-        
-        self.setLayout(layout)
-        
-        # Enable mouse tracking for hover effects
-        self.setMouseTracking(True)
-    
-    def update_status(self, name: str, purpose: str, status_symbol: str, 
-                     status_color: str, tooltip_data: Dict):
-        """Update client status display"""
-        # Update text
-        self.name_label.setText(f"CLIENT {self.client_id}: {purpose}")
-        
-        # Update bullet color
-        if status_color == COLOR_GREEN:
-            self.bullet_label.setStyleSheet(BULLET_GREEN_STYLE)
-            self.bullet_label.setText("●")
-        elif status_color == COLOR_YELLOW:
-            self.bullet_label.setStyleSheet(BULLET_YELLOW_STYLE)
-            self.bullet_label.setText("⚠")
-        else:  # RED
-            self.bullet_label.setStyleSheet(BULLET_RED_STYLE)
-            self.bullet_label.setText("✗")
-        
-        # Store tooltip data
-        self.tooltip_data = tooltip_data
-        
-        # Update tooltip
-        self.update_tooltip()
-    
-    def update_tooltip(self):
-        """Update the tooltip with current data"""
-        if not self.tooltip_data:
-            return
-        
-        tooltip_text = f"""
-<b>{self.tooltip_data.get('title', f'CLIENT {self.client_id}')}</b><br>
-<hr>
-Status: {self.tooltip_data.get('status', 'Unknown')}<br>
-Priority: {self.tooltip_data.get('priority', 'Unknown')}<br>
-Latency: {self.tooltip_data.get('latency_avg', 'N/A')}<br>
-Rate Limit: {self.tooltip_data.get('rate_limit', 'N/A')}<br>
-Health Score: {self.tooltip_data.get('health_score', 0)}/100<br>
-<br>
-<b>Today's Activity:</b><br>
-Orders: {self.tooltip_data.get('orders_today', 0)}<br>
-Fills: {self.tooltip_data.get('fills', 0)}<br>
-Errors: {self.tooltip_data.get('errors', 0)}<br>
-<br>
-Last Update: {self.tooltip_data.get('last_update', 'N/A')}
-        """
-        
-        self.setToolTip(tooltip_text)
-    
-    def mousePressEvent(self, event: QMouseEvent):
-        """Handle mouse click"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.client_id)
-        super().mousePressEvent(event)
-    
-    def enterEvent(self, event):
-        """Mouse enters widget"""
-        self.setStyleSheet("background-color: #2A2E47; border-radius: 3px;")
-        super().enterEvent(event)
-    
-    def leaveEvent(self, event):
-        """Mouse leaves widget"""
-        self.setStyleSheet("")
-        super().leaveEvent(event)
-
-# ==============================================================================
-# SYSTEM HEALTH PANEL
-# ==============================================================================
-class SystemHealthPanel(QFrame):
-    """Panel showing system component health"""
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.components = {}
-        self.setup_ui()
-    
-    def setup_ui(self):
-        """Setup the UI components"""
-        self.setStyleSheet(PANEL_STYLE)
-        
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        
-        # Title
-        title = QLabel("SYSTEM HEALTH")
-        title.setStyleSheet(TITLE_STYLE)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-        
-        # Components container
-        component_widget = QWidget()
-        component_layout = QVBoxLayout()
-        component_layout.setContentsMargins(10, 10, 10, 10)
-        component_layout.setSpacing(5)
-        
-        # System components
-        components = [
-            "RISK MANAGER",
-            "MARKET DATA", 
-            "STRATEGY ENGINE",
-            "ML MODELS",
-            "DATABASE"
-        ]
-        
-        for comp_name in components:
-            comp_layout = QHBoxLayout()
-            
-            # Bullet
-            bullet = QLabel("●")
-            bullet.setStyleSheet(BULLET_GREEN_STYLE)
-            bullet.setFixedWidth(20)
-            
-            # Name
-            name = QLabel(comp_name)
-            name.setStyleSheet(STATUS_LABEL_STYLE)
-            
-            comp_layout.addWidget(bullet)
-            comp_layout.addWidget(name)
-            comp_layout.addStretch()
-            
-            component_layout.addLayout(comp_layout)
-            
-            # Store references
-            self.components[comp_name] = bullet
-        
-        component_layout.addStretch()
-        component_widget.setLayout(component_layout)
-        layout.addWidget(component_widget)
-        
-        # System health score
-        self.health_score_label = QLabel("System Health: 100/100")
-        self.health_score_label.setStyleSheet(STATUS_LABEL_STYLE)
-        self.health_score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.health_score_label)
-        
-        self.setLayout(layout)
-    
-    def update_components(self, component_status: Dict[str, bool]):
-        """Update component status indicators"""
-        for comp_name, is_healthy in component_status.items():
-            if comp_name in self.components:
-                bullet = self.components[comp_name]
-                if is_healthy:
-                    bullet.setStyleSheet(BULLET_GREEN_STYLE)
-                    bullet.setText("●")
-                else:
-                    bullet.setStyleSheet(BULLET_RED_STYLE)
-                    bullet.setText("✗")
-    
-    def update_health_score(self, score: int):
-        """Update system health score"""
-        self.health_score_label.setText(f"System Health: {score}/100")
-        
-        # Color code based on score
-        if score >= 80:
-            color = COLOR_GREEN
-        elif score >= 60:
-            color = COLOR_YELLOW
-        else:
-            color = COLOR_RED
-        
-        self.health_score_label.setStyleSheet(f"""
-            QLabel {{
-                color: {color};
-                font-family: Consolas;
-                font-size: 10px;
-                padding: 3px;
-            }}
-        """)
-
-# ==============================================================================
-# PROMETHEUS METRICS PANEL
-# ==============================================================================
-class PrometheusMetricsPanel(QFrame):
-    """Panel showing all 9 client connections in 2 columns"""
-    
-    # Signals
-    client_clicked = pyqtSignal(int)  # Emits client_id
-    reconnect_requested = pyqtSignal(int)  # Request reconnection
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.client_widgets = {}
-        self.setup_ui()
-    
-    def setup_ui(self):
-        """Setup the UI components"""
-        self.setStyleSheet(PANEL_STYLE)
-        
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # Title
-        title = QLabel("PROMETHEUS METRICS")
-        title.setStyleSheet(TITLE_STYLE)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title)
-        
-        # Clients container
-        clients_widget = QWidget()
-        clients_layout = QGridLayout()
-        clients_layout.setContentsMargins(10, 10, 10, 10)
-        clients_layout.setSpacing(5)
-        
-        # Create client widgets (2 columns)
-        # Column 1: Clients 0-4
-        for i in range(5):
-            client_widget = ClientStatusWidget(i)
-            client_widget.clicked.connect(self.on_client_clicked)
-            clients_layout.addWidget(client_widget, i, 0)
-            self.client_widgets[i] = client_widget
-        
-        # Column 2: Clients 5-8
-        for i in range(5, 9):
-            client_widget = ClientStatusWidget(i)
-            client_widget.clicked.connect(self.on_client_clicked)
-            clients_layout.addWidget(client_widget, i-5, 1)
-            self.client_widgets[i] = client_widget
-        
-        # Add empty space in column 2, row 5
-        spacer = QLabel("")
-        clients_layout.addWidget(spacer, 4, 1)
-        
-        clients_widget.setLayout(clients_layout)
-        main_layout.addWidget(clients_widget)
-        
-        self.setLayout(main_layout)
-    
-    def update_clients(self, clients_data: Dict[int, Dict]):
-        """Update all client displays"""
-        for client_id, data in clients_data.items():
-            if client_id in self.client_widgets:
-                widget = self.client_widgets[client_id]
-                widget.update_status(
-                    name=data.get('name', f'CLIENT {client_id}'),
-                    purpose=data.get('purpose', 'Unknown'),
-                    status_symbol=data.get('status_level', '●'),
-                    status_color=data.get('status_color', COLOR_GREEN),
-                    tooltip_data=data.get('tooltip', {})
-                )
-    
-    def on_client_clicked(self, client_id: int):
-        """Handle client widget click"""
-        self.client_clicked.emit(client_id)
-        
-        # Show context menu
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #1A1E37;
-                color: #FFFFFF;
-                border: 1px solid #2A2E47;
-            }
-            QMenu::item:selected {
-                background-color: #2A2E47;
-            }
-        """)
-        
-        # Actions
-        reconnect_action = QAction(f"Reconnect Client {client_id}", self)
-        reconnect_action.triggered.connect(lambda: self.reconnect_requested.emit(client_id))
-        menu.addAction(reconnect_action)
-        
-        view_logs_action = QAction(f"View Client {client_id} Logs", self)
-        view_logs_action.triggered.connect(lambda: self.view_client_logs(client_id))
-        menu.addAction(view_logs_action)
-        
-        # Show menu at cursor position
-        menu.exec(self.cursor().pos())
-    
-    def view_client_logs(self, client_id: int):
-        """View logs for specific client"""
-        QMessageBox.information(self, f"Client {client_id} Logs", 
-                               f"Logs for Client {client_id} would be displayed here.\n"
-                               f"Integration with log viewer pending.")
-
-# ==============================================================================
-# MAIN MONITOR PANEL
+# CLIENT MONITOR PANEL CLASS
 # ==============================================================================
 class ClientMonitorPanel(QWidget):
-    """Main monitoring panel combining System Health and Prometheus Metrics"""
-    
+    """
+    Bottom panel widget for Spyder Dashboard showing System Health and Prometheus Metrics.
+
+    This widget creates a properly formatted bottom panel with:
+    - Left column: System Health indicators
+    - Right section: Prometheus Metrics with correct CLIENT 0-8 numbering
+    - Fixed title display without clipping
+    """
+
+    # Signals
+    health_status_changed = pyqtSignal(str, bool)  # component_name, is_healthy
+    client_status_changed = pyqtSignal(int, bool)  # client_id, is_connected
+
     def __init__(self, parent=None):
+        """
+        Initialize the Client Monitor Panel.
+
+        Args:
+            parent: Parent widget (optional)
+        """
         super().__init__(parent)
-        
-        # Setup logging
-        if SpyderLogger:
-            self.logger = SpyderLogger.get_logger(__name__)
-        else:
-            import logging
-            self.logger = logging.getLogger(__name__)
-        
-        # Integration manager
-        self.integration_manager = None
-        
+
+        # Initialize component states
+        self.system_health = {
+            "RISK MANAGER": True,
+            "MARKET DATA": True,
+            "STRATEGY ENGINE": True,
+            "ML MODELS": True,
+            "DATABASE": True,
+        }
+
+        self.client_status = {
+            i: True for i in range(9)
+        }  # All clients active by default
+        self.metrics_data = {
+            "active_clients": 9,
+            "total_clients": 9,
+            "memory_usage": 45,
+            "cpu_usage": 22,
+            "api_calls_per_sec": 127,
+        }
+
         # Setup UI
         self.setup_ui()
-        
+
         # Setup update timer
         self.update_timer = QTimer()
-        self.update_timer.timeout.connect(self.update_display)
-        self.update_timer.setInterval(UPDATE_INTERVAL)
-    
-    def setup_ui(self):
-        """Setup the main UI"""
-        # Main layout
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # Panels container
-        panels_container = QWidget()
-        panels_layout = QHBoxLayout()
-        panels_layout.setContentsMargins(0, 0, 0, 0)
-        panels_layout.setSpacing(2)
-        
-        # System Health Panel (left)
-        self.system_health_panel = SystemHealthPanel()
-        panels_layout.addWidget(self.system_health_panel, 1)
-        
-        # Divider
-        divider = QFrame()
-        divider.setFrameShape(QFrame.Shape.VLine)
-        divider.setStyleSheet("QFrame { color: #2A2E47; }")
-        panels_layout.addWidget(divider)
-        
-        # Prometheus Metrics Panel (right)
-        self.prometheus_panel = PrometheusMetricsPanel()
-        self.prometheus_panel.client_clicked.connect(self.on_client_clicked)
-        self.prometheus_panel.reconnect_requested.connect(self.on_reconnect_requested)
-        panels_layout.addWidget(self.prometheus_panel, 2)
-        
-        panels_container.setLayout(panels_layout)
-        main_layout.addWidget(panels_container)
-        
-        # Status bar
-        self.status_bar = QLabel("System Health: --/100 | Active Clients: --/9 | Memory: --% | CPU: --% | API Calls/Sec: --")
-        self.status_bar.setStyleSheet(STATUS_BAR_STYLE)
-        main_layout.addWidget(self.status_bar)
-        
-        self.setLayout(main_layout)
-        
-        # Set background
-        self.setStyleSheet(f"background-color: {COLOR_BACKGROUND};")
-    
-    def set_integration_manager(self, manager: GatewayIntegrationManager):
-        """Set the integration manager for data updates"""
-        self.integration_manager = manager
-        
-        # Connect signals
-        manager.dashboard_update.connect(self.on_dashboard_update)
-        manager.system_log_update.connect(self.on_system_log)
-        manager.alert_signal.connect(self.on_alert)
-        
-        self.logger.info("Integration manager connected")
-    
-    def start_monitoring(self):
-        """Start monitoring updates"""
-        if self.integration_manager:
-            self.integration_manager.start()
-        self.update_timer.start()
-        self.logger.info("Monitoring started")
-    
-    def stop_monitoring(self):
-        """Stop monitoring updates"""
-        self.update_timer.stop()
-        if self.integration_manager:
-            self.integration_manager.stop()
-        self.logger.info("Monitoring stopped")
-    
-    @pyqtSlot(dict)
-    def on_dashboard_update(self, data: Dict):
-        """Handle dashboard update from integration manager"""
-        try:
-            # Update system health
-            if 'system_health' in data:
-                self.system_health_panel.update_components(data['system_health'])
-            
-            if 'system_health_score' in data:
-                self.system_health_panel.update_health_score(data['system_health_score'])
-            
-            # Update clients
-            if 'clients' in data:
-                self.prometheus_panel.update_clients(data['clients'])
-            
-            # Update status bar
-            if 'stats' in data:
-                stats = data['stats']
-                status_text = (f"System Health: {data.get('system_health_score', 0)}/100 | "
-                             f"Active Clients: {stats['active_clients']}/{stats['total_clients']} | "
-                             f"Memory: {stats['memory_percent']:.0f}% | "
-                             f"CPU: {stats['cpu_percent']:.0f}% | "
-                             f"API Calls/Sec: {stats['api_calls_per_sec']}")
-                self.status_bar.setText(status_text)
-            
-        except Exception as e:
-            self.logger.error(f"Error updating dashboard: {e}")
-    
-    @pyqtSlot(str)
-    def on_system_log(self, log_entry: str):
-        """Handle system log entry"""
-        # This would be integrated with main dashboard's log viewer
-        self.logger.info(f"System log: {log_entry}")
-    
-    @pyqtSlot(str, str)
-    def on_alert(self, severity: str, message: str):
-        """Handle alert from integration manager"""
-        if severity == "CRITICAL":
-            # Flash or highlight the affected component
-            self.logger.critical(f"Alert: {message}")
-            # Could trigger visual alert here
-    
-    def on_client_clicked(self, client_id: int):
-        """Handle client click"""
-        self.logger.info(f"Client {client_id} clicked")
-        # Could open detailed view
-    
-    def on_reconnect_requested(self, client_id: int):
-        """Handle reconnection request"""
-        if self.integration_manager:
-            self.integration_manager.reconnect_client(client_id)
-            self.logger.info(f"Reconnection requested for client {client_id}")
-    
-    def update_display(self):
-        """Manual display update"""
-        if self.integration_manager:
-            self.integration_manager.update_dashboard()
+        self.update_timer.timeout.connect(self.update_metrics)
+        self.update_timer.start(UPDATE_INTERVAL)
 
-# ==============================================================================
-# STANDALONE TEST WINDOW
-# ==============================================================================
-class TestWindow(QMainWindow):
-    """Test window for development"""
-    
-    def __init__(self):
-        super().__init__()
-        self.setup_ui()
-        self.setup_integration()
-    
+        logger.info("ClientMonitorPanel initialized successfully")
+
+    # ==========================================================================
+    # UI SETUP METHODS
+    # ==========================================================================
     def setup_ui(self):
-        """Setup test window UI"""
-        self.setWindowTitle("SPYDER - Client Monitor Panel Test")
-        self.setGeometry(100, 100, 800, 400)
-        
-        # Set dark theme
-        self.setStyleSheet(f"""
-            QMainWindow {{
+        """Setup the complete UI layout."""
+        # Main layout with proper margins to prevent clipping
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(0)  # No spacing for table-like appearance
+
+        # Set widget background
+        self.setStyleSheet(
+            f"""
+            ClientMonitorPanel {{
                 background-color: {COLOR_BACKGROUND};
             }}
-        """)
-        
-        # Create monitor panel
-        self.monitor_panel = ClientMonitorPanel()
-        self.setCentralWidget(self.monitor_panel)
-        
-        # Add menu bar
-        menubar = self.menuBar()
-        menubar.setStyleSheet("""
-            QMenuBar {
-                background-color: #0A0E27;
-                color: #FFFFFF;
-            }
-            QMenuBar::item:selected {
-                background-color: #2A2E47;
-            }
-        """)
-        
-        # File menu
-        file_menu = menubar.addMenu("File")
-        
-        export_action = QAction("Export Health Report", self)
-        export_action.triggered.connect(self.export_health_report)
-        file_menu.addAction(export_action)
-        
-        exit_action = QAction("Exit", self)
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-        
-        # Control menu
-        control_menu = menubar.addMenu("Control")
-        
-        start_action = QAction("Start Monitoring", self)
-        start_action.triggered.connect(self.monitor_panel.start_monitoring)
-        control_menu.addAction(start_action)
-        
-        stop_action = QAction("Stop Monitoring", self)
-        stop_action.triggered.connect(self.monitor_panel.stop_monitoring)
-        control_menu.addAction(stop_action)
-    
-    def setup_integration(self):
-        """Setup integration manager"""
-        if GatewayIntegrationManager:
-            self.integration_manager = GatewayIntegrationManager()
-            self.monitor_panel.set_integration_manager(self.integration_manager)
-            
-            # Start monitoring
-            self.monitor_panel.start_monitoring()
-        else:
-            # Create mock data for testing
-            self.create_mock_data()
-    
-    def create_mock_data(self):
-        """Create mock data for testing without integration"""
-        mock_data = {
-            'system_health': {
-                'RISK MANAGER': True,
-                'MARKET DATA': True,
-                'STRATEGY ENGINE': True,
-                'ML MODELS': False,  # One unhealthy for testing
-                'DATABASE': True
-            },
-            'system_health_score': 92,
-            'clients': {
-                0: {'name': 'CLIENT 0', 'purpose': 'Admin', 
-                    'status_color': COLOR_GREEN, 'status_level': '●',
-                    'tooltip': {'title': 'CLIENT 0: Admin', 'status': 'Connected'}},
-                1: {'name': 'CLIENT 1', 'purpose': 'Orders', 
-                    'status_color': COLOR_GREEN, 'status_level': '●',
-                    'tooltip': {'title': 'CLIENT 1: Orders', 'status': 'Connected'}},
-                2: {'name': 'CLIENT 2', 'purpose': 'Core', 
-                    'status_color': COLOR_GREEN, 'status_level': '●',
-                    'tooltip': {'title': 'CLIENT 2: Core', 'status': 'Connected'}},
-                3: {'name': 'CLIENT 3', 'purpose': 'Options', 
-                    'status_color': COLOR_GREEN, 'status_level': '●',
-                    'tooltip': {'title': 'CLIENT 3: Options', 'status': 'Connected'}},
-                4: {'name': 'CLIENT 4', 'purpose': 'Volatility', 
-                    'status_color': COLOR_YELLOW, 'status_level': '⚠',
-                    'tooltip': {'title': 'CLIENT 4: Volatility', 'status': 'Degraded'}},
-                5: {'name': 'CLIENT 5', 'purpose': 'Internals', 
-                    'status_color': COLOR_GREEN, 'status_level': '●',
-                    'tooltip': {'title': 'CLIENT 5: Internals', 'status': 'Connected'}},
-                6: {'name': 'CLIENT 6', 'purpose': 'Major ETFs', 
-                    'status_color': COLOR_GREEN, 'status_level': '●',
-                    'tooltip': {'title': 'CLIENT 6: ETFs', 'status': 'Connected'}},
-                7: {'name': 'CLIENT 7', 'purpose': 'Extended', 
-                    'status_color': COLOR_RED, 'status_level': '✗',
-                    'tooltip': {'title': 'CLIENT 7: Extended', 'status': 'Disconnected'}},
-                8: {'name': 'CLIENT 8', 'purpose': 'Sector ETFs', 
-                    'status_color': COLOR_GREEN, 'status_level': '●',
-                    'tooltip': {'title': 'CLIENT 8: Sectors', 'status': 'Connected'}}
-            },
-            'stats': {
-                'active_clients': 8,
-                'total_clients': 9,
-                'memory_percent': 45,
-                'cpu_percent': 22,
-                'api_calls_per_sec': 127
-            }
-        }
-        
-        # Update with mock data
-        self.monitor_panel.on_dashboard_update(mock_data)
-    
-    def export_health_report(self):
-        """Export health report to file"""
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "Export Health Report", 
-            f"health_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-            "JSON Files (*.json)"
+        """
         )
-        
-        if filename and self.integration_manager:
-            self.integration_manager.export_health_report(Path(filename))
-            QMessageBox.information(self, "Export Complete", 
-                                  f"Health report exported to:\n{filename}")
+
+        # Title Section - Fixed height to prevent clipping
+        title_widget = self.create_title_section()
+        main_layout.addWidget(title_widget)
+
+        # Main Table Widget - Grid layout for table-like appearance
+        table_widget = self.create_table_layout()
+        main_layout.addWidget(table_widget)
+
+    def create_title_section(self) -> QWidget:
+        """
+        Create the title section with proper height to prevent clipping.
+
+        Returns:
+            QWidget: Title section widget
+        """
+        title_widget = QWidget()
+        title_widget.setFixedHeight(35)  # Fixed height to prevent clipping
+
+        title_layout = QHBoxLayout(title_widget)
+        title_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Title label
+        title_label = QLabel("AUTONOMOUS AI ACTIVITY")
+        title_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {COLOR_BLUE};
+                font-size: {FONT_SIZE_TITLE}px;
+                font-weight: bold;
+                font-family: {FONT_FAMILY};
+            }}
+        """
+        )
+
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+
+        return title_widget
+
+    def create_table_layout(self) -> QWidget:
+        """
+        Create a table-like layout matching the design specification.
+
+        Returns:
+            QWidget: Table widget with grid layout
+        """
+        table_widget = QWidget()
+        table_widget.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {COLOR_BACKGROUND};
+                border: 1px solid {COLOR_BORDER};
+            }}
+        """
+        )
+
+        # Create grid layout for table structure
+        grid_layout = QGridLayout(table_widget)
+        grid_layout.setSpacing(0)  # No spacing between cells
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+
+        # ==== HEADER ROW ====
+        # System Health Header (Column 0)
+        health_header = self.create_header_cell("SYSTEM HEALTH")
+        grid_layout.addWidget(health_header, 0, 0, 1, 1)
+
+        # Prometheus Metrics Header (Columns 1-2)
+        prometheus_header = self.create_header_cell("PROMETHEUS METRICS")
+        grid_layout.addWidget(prometheus_header, 0, 1, 1, 2)
+
+        # ==== DATA ROWS ====
+        # System Health Items (Column 0, Rows 1-5)
+        health_items = [
+            "RISK MANAGER",
+            "MARKET DATA",
+            "STRATEGY ENGINE",
+            "ML MODELS",
+            "DATABASE",
+        ]
+        self.health_cells = {}
+
+        for i, item in enumerate(health_items):
+            cell = self.create_health_cell(item)
+            self.health_cells[item] = cell
+            grid_layout.addWidget(cell, i + 1, 0)
+
+        # Prometheus Client Items (Columns 1-2, Rows 1-5)
+        self.client_cells = {}
+        clients_left = [
+            (0, "Admin"),
+            (1, "Orders"),
+            (2, "Core"),
+            (3, "Options"),
+            (4, "Volatility"),
+        ]
+        clients_right = [
+            (5, "Internals"),
+            (6, "Major ETFs"),
+            (7, "Extended Assets"),
+            (8, "Sector ETFs"),
+            (None, ""),
+        ]
+
+        # Left column of clients
+        for i, (client_num, client_name) in enumerate(clients_left):
+            cell = self.create_client_cell(client_num, client_name)
+            if client_num is not None:
+                self.client_cells[client_num] = cell
+            grid_layout.addWidget(cell, i + 1, 1)
+
+        # Right column of clients
+        for i, (client_num, client_name) in enumerate(clients_right):
+            if client_num is not None:
+                cell = self.create_client_cell(client_num, client_name)
+                self.client_cells[client_num] = cell
+            else:
+                cell = self.create_empty_cell()
+            grid_layout.addWidget(cell, i + 1, 2)
+
+        # ==== BOTTOM ROW - METRICS SUMMARY ====
+        # System Health Score (Column 0)
+        self.health_score_cell = self.create_score_cell()
+        grid_layout.addWidget(self.health_score_cell, 6, 0)
+
+        # Metrics Summary (Columns 1-2)
+        self.metrics_summary_cell = self.create_metrics_summary_cell()
+        grid_layout.addWidget(self.metrics_summary_cell, 6, 1, 1, 2)
+
+        # Set column stretch to get proper proportions (1:1:1)
+        grid_layout.setColumnStretch(0, 1)
+        grid_layout.setColumnStretch(1, 1)
+        grid_layout.setColumnStretch(2, 1)
+
+        return table_widget
+
+    # ==========================================================================
+    # TABLE CELL CREATION METHODS
+    # ==========================================================================
+    def create_header_cell(self, text: str) -> QWidget:
+        """
+        Create a header cell for the table.
+
+        Args:
+            text: Header text
+
+        Returns:
+            QWidget: Header cell widget
+        """
+        cell = QWidget()
+        cell.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {COLOR_PANEL_BG};
+                border: 1px solid {COLOR_BORDER};
+                min-height: 30px;
+            }}
+        """
+        )
+
+        layout = QHBoxLayout(cell)
+        layout.setContentsMargins(10, 5, 10, 5)
+
+        label = QLabel(text)
+        label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {COLOR_TEXT};
+                font-size: {FONT_SIZE_HEADER}px;
+                font-weight: bold;
+                font-family: {FONT_FAMILY};
+            }}
+        """
+        )
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+
+        return cell
+
+    def create_health_cell(self, component: str) -> QWidget:
+        """
+        Create a health status cell.
+
+        Args:
+            component: Component name
+
+        Returns:
+            QWidget: Health status cell
+        """
+        cell = QWidget()
+        cell.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {COLOR_BACKGROUND};
+                border: 1px solid {COLOR_BORDER};
+                min-height: 25px;
+            }}
+        """
+        )
+
+        layout = QHBoxLayout(cell)
+        layout.setContentsMargins(10, 3, 10, 3)
+
+        # Status indicator
+        indicator = QLabel("●")
+        indicator.setObjectName(f"health_{component.replace(' ', '_')}")
+        color = COLOR_GREEN if self.system_health.get(component, True) else COLOR_RED
+        indicator.setStyleSheet(f"color: {color}; font-size: 12px;")
+        layout.addWidget(indicator)
+
+        # Component name
+        label = QLabel(f"  {component}")
+        label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {COLOR_TEXT};
+                font-size: {FONT_SIZE_NORMAL}px;
+                font-family: {FONT_FAMILY};
+            }}
+        """
+        )
+        layout.addWidget(label)
+        layout.addStretch()
+
+        return cell
+
+    def create_client_cell(self, client_num: int, client_name: str) -> QWidget:
+        """
+        Create a client status cell.
+
+        Args:
+            client_num: Client number
+            client_name: Client name
+
+        Returns:
+            QWidget: Client status cell
+        """
+        cell = QWidget()
+        cell.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {COLOR_BACKGROUND};
+                border: 1px solid {COLOR_BORDER};
+                min-height: 25px;
+            }}
+        """
+        )
+
+        layout = QHBoxLayout(cell)
+        layout.setContentsMargins(10, 3, 10, 3)
+
+        # Status indicator
+        indicator = QLabel("●")
+        indicator.setObjectName(f"client_{client_num}")
+        color = COLOR_GREEN if self.client_status.get(client_num, True) else COLOR_RED
+        indicator.setStyleSheet(f"color: {color}; font-size: 10px;")
+        layout.addWidget(indicator)
+
+        # Client label
+        label = QLabel(f"  CLIENT {client_num}: {client_name}")
+        label.setObjectName(f"client_label_{client_num}")
+        label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {COLOR_TEXT};
+                font-size: {FONT_SIZE_SMALL}px;
+                font-family: {FONT_FAMILY};
+            }}
+        """
+        )
+        layout.addWidget(label)
+        layout.addStretch()
+
+        return cell
+
+    def create_empty_cell(self) -> QWidget:
+        """
+        Create an empty cell for the table.
+
+        Returns:
+            QWidget: Empty cell
+        """
+        cell = QWidget()
+        cell.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {COLOR_BACKGROUND};
+                border: 1px solid {COLOR_BORDER};
+                min-height: 25px;
+            }}
+        """
+        )
+        return cell
+
+    def create_score_cell(self) -> QWidget:
+        """
+        Create the system health score cell.
+
+        Returns:
+            QWidget: Health score cell
+        """
+        cell = QWidget()
+        cell.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {COLOR_BACKGROUND};
+                border: 1px solid {COLOR_BORDER};
+                min-height: 30px;
+            }}
+        """
+        )
+
+        layout = QHBoxLayout(cell)
+        layout.setContentsMargins(10, 5, 10, 5)
+
+        label = QLabel("System Health: ")
+        label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {COLOR_TEXT_DIM};
+                font-size: {FONT_SIZE_NORMAL}px;
+                font-family: {FONT_FAMILY};
+            }}
+        """
+        )
+        layout.addWidget(label)
+
+        self.health_score_label = QLabel("92/100")
+        self.health_score_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {COLOR_GREEN};
+                font-size: {FONT_SIZE_NORMAL}px;
+                font-weight: bold;
+                font-family: {FONT_FAMILY};
+            }}
+        """
+        )
+        layout.addWidget(self.health_score_label)
+        layout.addStretch()
+
+        return cell
+
+    def create_metrics_summary_cell(self) -> QWidget:
+        """
+        Create the metrics summary cell.
+
+        Returns:
+            QWidget: Metrics summary cell
+        """
+        cell = QWidget()
+        cell.setStyleSheet(
+            f"""
+            QWidget {{
+                background-color: {COLOR_BACKGROUND};
+                border: 1px solid {COLOR_BORDER};
+                min-height: 30px;
+            }}
+        """
+        )
+
+        layout = QHBoxLayout(cell)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(15)
+
+        # Store references to value labels for updates
+        self.metrics_value_labels = {}
+
+        # Active Clients
+        active_label = QLabel("Active Clients: ")
+        active_label.setStyleSheet(
+            f"color: {COLOR_TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;"
+        )
+        layout.addWidget(active_label)
+
+        active_value = QLabel("9/9")
+        active_value.setStyleSheet(
+            f"color: {COLOR_GREEN}; font-size: {FONT_SIZE_SMALL}px; font-weight: bold;"
+        )
+        self.metrics_value_labels["active"] = active_value
+        layout.addWidget(active_value)
+
+        # Separator
+        sep1 = QLabel(" | ")
+        sep1.setStyleSheet(f"color: {COLOR_TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;")
+        layout.addWidget(sep1)
+
+        # Memory
+        memory_label = QLabel("Memory: ")
+        memory_label.setStyleSheet(
+            f"color: {COLOR_TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;"
+        )
+        layout.addWidget(memory_label)
+
+        memory_value = QLabel("45%")
+        memory_value.setStyleSheet(
+            f"color: {COLOR_YELLOW}; font-size: {FONT_SIZE_SMALL}px; font-weight: bold;"
+        )
+        self.metrics_value_labels["memory"] = memory_value
+        layout.addWidget(memory_value)
+
+        # Separator
+        sep2 = QLabel(" | ")
+        sep2.setStyleSheet(f"color: {COLOR_TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;")
+        layout.addWidget(sep2)
+
+        # CPU
+        cpu_label = QLabel("CPU: ")
+        cpu_label.setStyleSheet(
+            f"color: {COLOR_TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;"
+        )
+        layout.addWidget(cpu_label)
+
+        cpu_value = QLabel("22%")
+        cpu_value.setStyleSheet(
+            f"color: {COLOR_GREEN}; font-size: {FONT_SIZE_SMALL}px; font-weight: bold;"
+        )
+        self.metrics_value_labels["cpu"] = cpu_value
+        layout.addWidget(cpu_value)
+
+        # Separator
+        sep3 = QLabel(" | ")
+        sep3.setStyleSheet(f"color: {COLOR_TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;")
+        layout.addWidget(sep3)
+
+        # API Calls
+        api_label = QLabel("API Calls/Sec: ")
+        api_label.setStyleSheet(
+            f"color: {COLOR_TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;"
+        )
+        layout.addWidget(api_label)
+
+        api_value = QLabel("127")
+        api_value.setStyleSheet(
+            f"color: {COLOR_GREEN}; font-size: {FONT_SIZE_SMALL}px; font-weight: bold;"
+        )
+        self.metrics_value_labels["api"] = api_value
+        layout.addWidget(api_value)
+
+        layout.addStretch()
+
+        return cell
+
+    # ==========================================================================
+    # UPDATE METHODS
+    # ==========================================================================
+    @pyqtSlot()
+    def update_metrics(self):
+        """Update metrics display (called by timer)."""
+        # This would normally get data from SpyderB15_PrometheusMetrics
+        # For now, using simulated data
+        pass
+
+    def update_system_health(self, component: str, is_healthy: bool):
+        """
+        Update system health indicator.
+
+        Args:
+            component: Component name
+            is_healthy: Health status
+        """
+        if component in self.system_health:
+            self.system_health[component] = is_healthy
+
+            # Update UI - find the indicator in the cell
+            if component in self.health_cells:
+                cell = self.health_cells[component]
+                indicator = cell.findChild(
+                    QLabel, f"health_{component.replace(' ', '_')}"
+                )
+                if indicator:
+                    color = COLOR_GREEN if is_healthy else COLOR_RED
+                    indicator.setStyleSheet(f"color: {color}; font-size: 12px;")
+
+            # Emit signal
+            self.health_status_changed.emit(component, is_healthy)
+
+            # Update health score
+            self.update_health_score()
+
+    def update_health_score(self):
+        """Update the system health score."""
+        healthy_count = sum(1 for v in self.system_health.values() if v)
+        total_count = len(self.system_health)
+        score = int((healthy_count / total_count) * 100)
+
+        if hasattr(self, "health_score_label"):
+            self.health_score_label.setText(f"{score}/100")
+
+            # Update color based on score
+            if score >= 80:
+                color = COLOR_GREEN
+            elif score >= 60:
+                color = COLOR_YELLOW
+            else:
+                color = COLOR_RED
+
+            self.health_score_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: {color};
+                    font-size: {FONT_SIZE_NORMAL}px;
+                    font-weight: bold;
+                    font-family: {FONT_FAMILY};
+                }}
+            """
+            )
+
+    def update_client_status(self, client_id: int, is_connected: bool):
+        """
+        Update client connection status.
+
+        Args:
+            client_id: Client ID (0-8)
+            is_connected: Connection status
+        """
+        if client_id in self.client_cells:
+            self.client_status[client_id] = is_connected
+
+            # Update indicator in the cell
+            cell = self.client_cells[client_id]
+            indicator = cell.findChild(QLabel, f"client_{client_id}")
+            if indicator:
+                color = COLOR_GREEN if is_connected else COLOR_RED
+                indicator.setStyleSheet(f"color: {color}; font-size: 10px;")
+
+            # Update active clients count
+            self.update_active_clients_count()
+
+            # Emit signal
+            self.client_status_changed.emit(client_id, is_connected)
+
+    def update_active_clients_count(self):
+        """Update the active clients count in metrics."""
+        active_count = sum(1 for v in self.client_status.values() if v)
+        self.metrics_data["active_clients"] = active_count
+
+        # Update display
+        if (
+            hasattr(self, "metrics_value_labels")
+            and "active" in self.metrics_value_labels
+        ):
+            label = self.metrics_value_labels["active"]
+            label.setText(f"{active_count}/{self.metrics_data['total_clients']}")
+
+            # Update color based on active count
+            if active_count == self.metrics_data["total_clients"]:
+                color = COLOR_GREEN
+            elif active_count > 0:
+                color = COLOR_YELLOW
+            else:
+                color = COLOR_RED
+
+            label.setStyleSheet(
+                f"""
+                QLabel {{
+                    color: {color};
+                    font-size: {FONT_SIZE_SMALL}px;
+                    font-weight: bold;
+                    font-family: {FONT_FAMILY};
+                }}
+            """
+            )
+
+    def update_resource_metrics(self, memory_pct: int, cpu_pct: int, api_calls: int):
+        """
+        Update resource usage metrics.
+
+        Args:
+            memory_pct: Memory usage percentage
+            cpu_pct: CPU usage percentage
+            api_calls: API calls per second
+        """
+        self.metrics_data["memory_usage"] = memory_pct
+        self.metrics_data["cpu_usage"] = cpu_pct
+        self.metrics_data["api_calls_per_sec"] = api_calls
+
+        if hasattr(self, "metrics_value_labels"):
+            # Update Memory
+            if "memory" in self.metrics_value_labels:
+                label = self.metrics_value_labels["memory"]
+                label.setText(f"{memory_pct}%")
+                color = (
+                    COLOR_RED
+                    if memory_pct > 80
+                    else COLOR_YELLOW if memory_pct > 40 else COLOR_GREEN
+                )
+                label.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        color: {color};
+                        font-size: {FONT_SIZE_SMALL}px;
+                        font-weight: bold;
+                        font-family: {FONT_FAMILY};
+                    }}
+                """
+                )
+
+            # Update CPU
+            if "cpu" in self.metrics_value_labels:
+                label = self.metrics_value_labels["cpu"]
+                label.setText(f"{cpu_pct}%")
+                color = (
+                    COLOR_RED
+                    if cpu_pct > 80
+                    else COLOR_YELLOW if cpu_pct > 40 else COLOR_GREEN
+                )
+                label.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        color: {color};
+                        font-size: {FONT_SIZE_SMALL}px;
+                        font-weight: bold;
+                        font-family: {FONT_FAMILY};
+                    }}
+                """
+                )
+
+            # Update API Calls
+            if "api" in self.metrics_value_labels:
+                label = self.metrics_value_labels["api"]
+                label.setText(str(api_calls))
+
 
 # ==============================================================================
-# MODULE TEST
+# HELPER FUNCTIONS FOR INTEGRATION
+# ==============================================================================
+def create_bottom_panel() -> ClientMonitorPanel:
+    """
+    Factory function to create the bottom panel widget.
+
+    Returns:
+        ClientMonitorPanel: Configured bottom panel widget
+    """
+    return ClientMonitorPanel()
+
+
+def integrate_with_dashboard(dashboard_window, bottom_panel_widget=None):
+    """
+    Integrate the ClientMonitorPanel with an existing dashboard.
+
+    Args:
+        dashboard_window: The main dashboard window
+        bottom_panel_widget: Optional existing panel to replace
+
+    Returns:
+        ClientMonitorPanel: The integrated panel widget
+    """
+    if bottom_panel_widget is None:
+        bottom_panel_widget = create_bottom_panel()
+
+    # The dashboard should add this widget to its bottom area
+    # This is a helper function - actual integration depends on dashboard structure
+
+    return bottom_panel_widget
+
+
+# ==============================================================================
+# MAIN EXECUTION (FOR TESTING)
 # ==============================================================================
 def main():
-    """Test the monitor panel"""
+    """Main entry point for standalone testing."""
     app = QApplication(sys.argv)
-    
-    # Set application style
-    app.setStyle("Fusion")
-    
-    # Create and show test window
-    window = TestWindow()
+
+    # Create test window
+    window = QMainWindow()
+    window.setWindowTitle("SPYDER - Client Monitor Panel Test")
+    window.setGeometry(100, 100, 1200, 300)
+
+    # Set dark theme
+    window.setStyleSheet(
+        f"""
+        QMainWindow {{
+            background-color: {COLOR_BACKGROUND};
+        }}
+    """
+    )
+
+    # Create and set the monitor panel
+    panel = ClientMonitorPanel()
+    window.setCentralWidget(panel)
+
+    # Test updates
+    QTimer.singleShot(2000, lambda: panel.update_client_status(3, False))
+    QTimer.singleShot(4000, lambda: panel.update_system_health("ML MODELS", False))
+    QTimer.singleShot(6000, lambda: panel.update_resource_metrics(75, 45, 250))
+
     window.show()
-    
+
+    logger.info("Client Monitor Panel test window launched")
+
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
