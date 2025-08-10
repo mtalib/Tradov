@@ -54,7 +54,33 @@ import pytz
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
-git get_client_status   QStyle,
+# ==============================================================================
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QSplitter,
+    QFrame,
+    QScrollArea,
+    QTextEdit,
+    QComboBox,
+    QSpinBox,
+    QDoubleSpinBox,
+    QCheckBox,
+    QGroupBox,
+    QTabWidget,
+    QProgressBar,
+    QSlider,
+    QStyle,
+    QMessageBox,
 )
 from PyQt6.QtCore import (
     Qt,
@@ -115,6 +141,7 @@ from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # Try to import Prometheus metrics display module if available
 try:
     from SpyderG07_PrometheusMetricsDisplay import get_client_status, get_system_metrics
+
     PROMETHEUS_AVAILABLE = True
     print("✅ Prometheus metrics collector available")
 except ImportError:
@@ -1240,7 +1267,9 @@ class SpyderTradingDashboard(QMainWindow):
         # Start market worker with ib_async
         self.start_market_worker()
 
-        self.logger.info("Dashboard initialized with market hours awareness and Prometheus metrics")
+        self.logger.info(
+            "Dashboard initialized with market hours awareness and Prometheus metrics"
+        )
 
     def start_market_worker(self):
         """Start the thread-safe market worker with market hours awareness"""
@@ -2309,7 +2338,7 @@ class SpyderTradingDashboard(QMainWindow):
             label = QLabel(f"● {label_text}")
             label.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
             label.setFixedHeight(18)
-            self.client_indicators[label_text.split(':')[0]] = label
+            self.client_indicators[label_text.split(":")[0]] = label
             clients_layout.addWidget(label, row, col)
 
         clients_widget.setLayout(clients_layout)
@@ -2340,7 +2369,8 @@ class SpyderTradingDashboard(QMainWindow):
         self.active_clients_bar.setRange(0, 9)
         self.active_clients_bar.setValue(8)  # Example: 8 clients active
         self.active_clients_bar.setFixedHeight(16)
-        self.active_clients_bar.setStyleSheet(f"""
+        self.active_clients_bar.setStyleSheet(
+            f"""
             QProgressBar {{
                 border: 1px solid {COLORS['border']};
                 border-radius: 2px;
@@ -2351,7 +2381,8 @@ class SpyderTradingDashboard(QMainWindow):
             QProgressBar::chunk {{
                 background-color: {COLORS['positive']};
             }}
-        """)
+        """
+        )
         self.active_clients_bar.setFormat("8/9")
 
         active_clients_layout.addWidget(active_clients_label)
@@ -2365,7 +2396,9 @@ class SpyderTradingDashboard(QMainWindow):
         memory_label.setFixedWidth(80)
 
         self.memory_value = QLabel("45%")
-        self.memory_value.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
+        self.memory_value.setStyleSheet(
+            f"color: {COLORS['positive']}; font-size: 11px;"
+        )
         self.memory_value.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         memory_layout.addWidget(memory_label)
@@ -2410,7 +2443,9 @@ class SpyderTradingDashboard(QMainWindow):
         health_label.setFixedWidth(80)
 
         self.health_status = QLabel("92/100")
-        self.health_status.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px; font-weight: bold;")
+        self.health_status.setStyleSheet(
+            f"color: {COLORS['positive']}; font-size: 11px; font-weight: bold;"
+        )
         self.health_status.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         health_layout.addWidget(health_label)
@@ -2444,13 +2479,18 @@ class SpyderTradingDashboard(QMainWindow):
         for client_id, indicator in self.client_indicators.items():
             # Simulate random status
             if random.random() > 0.9:  # 10% chance of being down
-                indicator.setStyleSheet(f"color: {COLORS['negative']}; font-size: 11px;")
+                indicator.setStyleSheet(
+                    f"color: {COLORS['negative']}; font-size: 11px;"
+                )
             else:
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
+                indicator.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 11px;"
+                )
 
         # Update metrics
-        active_count = sum(1 for _ in self.client_indicators.values()
-                          if random.random() > 0.1)
+        active_count = sum(
+            1 for _ in self.client_indicators.values() if random.random() > 0.1
+        )
         self.active_clients_bar.setValue(active_count)
         self.active_clients_bar.setFormat(f"{active_count}/9")
 
@@ -2482,12 +2522,14 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.health_status.setText(f"{health_score}/100")
         if health_score > 80:
-            color = COLORS['positive']
+            color = COLORS["positive"]
         elif health_score > 60:
-            color = COLORS['neutral']
+            color = COLORS["neutral"]
         else:
-            color = COLORS['negative']
-        self.health_status.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold;")
+            color = COLORS["negative"]
+        self.health_status.setStyleSheet(
+            f"color: {color}; font-size: 11px; font-weight: bold;"
+        )
 
     def update_prometheus_metrics_real(self):
         """Update with real data from Prometheus collector"""
@@ -2496,7 +2538,7 @@ class SpyderTradingDashboard(QMainWindow):
             status = self.get_client_status(i)
             client_key = f"CLIENT {i}"
             if client_key in self.client_indicators:
-                if status['connected']:
+                if status["connected"]:
                     self.client_indicators[client_key].setStyleSheet(
                         f"color: {COLORS['positive']}; font-size: 11px;"
                     )
@@ -2511,15 +2553,15 @@ class SpyderTradingDashboard(QMainWindow):
         # Update displays
         self.memory_value.setText(f"{metrics['memory_percent']:.0f}%")
         self.cpu_value.setText(f"{metrics['cpu_percent']:.0f}%")
-        self.api_value.setText(str(metrics['api_calls_per_sec']))
+        self.api_value.setText(str(metrics["api_calls_per_sec"]))
 
         # Update health score based on real metrics
         health = 100
-        if metrics['memory_percent'] > 70:
+        if metrics["memory_percent"] > 70:
             health -= 20
-        if metrics['cpu_percent'] > 50:
+        if metrics["cpu_percent"] > 50:
             health -= 15
-        if metrics['api_calls_per_sec'] > 180:
+        if metrics["api_calls_per_sec"] > 180:
             health -= 10
 
         self.health_status.setText(f"{health}/100")
@@ -2739,7 +2781,7 @@ class SpyderTradingDashboard(QMainWindow):
         """Handle heartbeat message"""
         self.add_system_log(message)
         # Update Prometheus metrics to show system is healthy
-        if hasattr(self, 'client_indicators'):
+        if hasattr(self, "client_indicators"):
             # Could update specific client indicator based on heartbeat source
             pass
 
