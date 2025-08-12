@@ -1220,7 +1220,7 @@ class SpyderTradingDashboard(QMainWindow):
         pnl_layout.setSpacing(1)
 
         self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setFixedHeight(150)
+        self.pnl_table.setFixedHeight(122)
         pnl_layout.addWidget(self.pnl_table)
 
         pnl_group.setLayout(pnl_layout)
