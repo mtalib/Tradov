@@ -9,7 +9,7 @@ Group: G (GUI/User Interface)
 Purpose: Complete Trading Dashboard with Unified Prometheus Metrics Table
 Author: Mohamed Talib
 Date Created: 2025-07-05
-Last Updated: 2025-08-12 Time: 01:30:00
+Last Updated: 2025-08-12 Time: 19:00:00
 
 Description:
     Enhanced trading dashboard with unified Prometheus Metrics monitoring table.
@@ -17,10 +17,11 @@ Description:
     (renumbered 1-10), and System Statistics in a single professional table.
     Includes market hours awareness, IB_async integration, and comprehensive metrics.
 
-    UPDATES IN V9:
-    - Pushed ACCOUNT row up by reducing top margin
-    - Added separator row between ACCOUNT and financial data
-    - Shifted all financial data rows down by 1
+    UPDATES IN V10:
+    - Integrated Client 10 (Custom Metrics) for GEX/DEX/OGL/DIX/SWAN
+    - Updated Prometheus table to show Client 10 as "Custom Metrics"
+    - Added custom metrics widget references and update methods
+    - Connected CustomMetricsIntegration with dashboard
 """
 
 # ==============================================================================
@@ -114,6 +115,26 @@ import pandas as pd
 from ib_async import IB, Stock, Index, Future, Contract, Ticker
 
 print("✅ Using ib_async for IB Gateway connection")
+
+# ==============================================================================
+# CUSTOM METRICS INTEGRATION IMPORTS
+# ==============================================================================
+try:
+    from SpyderG10_CustomMetricsIntegration import (
+        CustomMetricsIntegration,
+        DashboardMetricsUpdater,
+    )
+    from SpyderB_Broker.SpyderB18_CustomMetricsClient import (
+        CustomMetricsClient,
+        get_metrics_client,
+    )
+
+    CUSTOM_METRICS_AVAILABLE = True
+except ImportError:
+    CUSTOM_METRICS_AVAILABLE = False
+    print(
+        "⚠️ Custom Metrics modules not available - Client 10 will run in simulation mode"
+    )
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -1016,6 +1037,7 @@ class SpyderTradingDashboard(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        global CUSTOM_METRICS_AVAILABLE
 
         # Initialize logging
         self.logger = SpyderLogger.get_logger(__name__)
@@ -1056,6 +1078,11 @@ class SpyderTradingDashboard(QMainWindow):
         self.system_stats = {}
         self.prometheus_timer = None
 
+        # Custom Metrics Integration (Client 10)
+        self.custom_metrics_integration = None
+        self.custom_metrics_updater = None
+        self.custom_metrics_widgets = {}
+
         # Try to connect to real Prometheus collector if available
         if PROMETHEUS_AVAILABLE:
             self.get_client_status = get_client_status
@@ -1069,6 +1096,29 @@ class SpyderTradingDashboard(QMainWindow):
         self.setup_timers()
         self.load_test_data()
         self.load_default_risk_parameters()
+
+        # Initialize Custom Metrics if available
+        if CUSTOM_METRICS_AVAILABLE:
+            try:
+                self.custom_metrics_integration = CustomMetricsIntegration(self)
+                self.custom_metrics_updater = DashboardMetricsUpdater(
+                    self, self.custom_metrics_integration
+                )
+                self.custom_metrics_integration.start()
+
+                # Connect status signals
+                self.custom_metrics_integration.connection_status_changed.connect(
+                    lambda connected: self.add_system_log(
+                        f"Client 10 (Custom Metrics) {'connected' if connected else 'disconnected'}"
+                    )
+                )
+
+                self.logger.info(
+                    "✅ Custom Metrics Integration (Client 10) initialized"
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to initialize Custom Metrics: {e}")
+                CUSTOM_METRICS_AVAILABLE = False
 
         # Start market worker with ib_async
         self.start_market_worker()
@@ -1120,15 +1170,13 @@ class SpyderTradingDashboard(QMainWindow):
             f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; padding: 5px;"
         )
         table_layout = QGridLayout()
-        
+
         # CHANGED: Reduced top margin from 8 to -2 to push ACCOUNT row up
         table_layout.setContentsMargins(8, -2, 8, 8)
         table_layout.setHorizontalSpacing(10)
         table_layout.setVerticalSpacing(6)
 
         cell_style = f"padding: 5px 10px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']};"
-        
-        
 
         # Row 0 - ACCOUNT row (stays at row 0)
         account_label = QLabel("ACCOUNT")
@@ -1150,13 +1198,11 @@ class SpyderTradingDashboard(QMainWindow):
         )
         self.risk_params_btn.clicked.connect(self.show_risk_parameters)
         table_layout.addWidget(self.risk_params_btn, 0, 3)
-        
-        
+
         # Row 1 - SEPARATOR (horizontal line)
         spacer_label = QLabel("")
         spacer_label.setFixedHeight(20)  # Adjust height as needed
         table_layout.addWidget(spacer_label, 1, 0, 1, 4)  # Span all columns
-        
 
         # Row 2 - SETTLED CASH & REALIZED P&L (moved from row 1)
         settled_label = QLabel("SETTLED CASH")
@@ -1305,7 +1351,7 @@ class SpyderTradingDashboard(QMainWindow):
         return panel
 
     def create_unified_prometheus_metrics(self) -> QWidget:
-        """Create the unified Prometheus Metrics table (5x4 grid) - V8 FIXES"""
+        """Create the unified Prometheus Metrics table (5x4 grid) - V10 WITH CLIENT 10"""
         container = QWidget()
         container.setStyleSheet(
             f"""
@@ -1334,7 +1380,7 @@ class SpyderTradingDashboard(QMainWindow):
         )
         title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         main_layout.addWidget(title_label)
-        
+
         # Increased spacing after title
         main_layout.addSpacing(10)
 
@@ -1350,7 +1396,7 @@ class SpyderTradingDashboard(QMainWindow):
             header_label.setStyleSheet(
                 f"""
                 color: {COLORS['cyan']};
-                font-size: 13px;  
+                font-size: 13px;
                 font-weight: normal;
                 padding: 2px;
                 border-bottom: 1px solid {COLORS['border']};
@@ -1375,11 +1421,11 @@ class SpyderTradingDashboard(QMainWindow):
             component_layout.setSpacing(3)
 
             indicator = QLabel(status)
-            indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")  
+            indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
             component_layout.addWidget(indicator)
 
             label = QLabel(name)
-            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")  
+            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
             component_layout.addWidget(label)
             component_layout.addStretch()
 
@@ -1395,7 +1441,7 @@ class SpyderTradingDashboard(QMainWindow):
             client_layout.setSpacing(3)
 
             indicator = QLabel("●")
-            indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")  
+            indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
             client_layout.addWidget(indicator)
 
             if row <= 4:
@@ -1403,8 +1449,8 @@ class SpyderTradingDashboard(QMainWindow):
                 label = QLabel(f"CLIENT {row}: {client_types[row-1]}")
             else:
                 label = QLabel(f"CLIENT {row}: Volatility")
-            
-            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")  
+
+            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
             client_layout.addWidget(label)
             client_layout.addStretch()
 
@@ -1412,7 +1458,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.client_indicators[f"CLIENT {row}"] = indicator
             grid.addWidget(client_widget, row, 1)
 
-        # Clients 6-10 (Column 3)
+        # Clients 6-10 (Column 3) - UPDATED FOR CLIENT 10
         for row in range(1, 6):
             client_num = row + 5
             client_widget = QWidget()
@@ -1421,12 +1467,16 @@ class SpyderTradingDashboard(QMainWindow):
             client_layout.setSpacing(3)
 
             indicator = QLabel("●")
-            
-            if client_num == 10:
-                indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")  
+
+            # Client 10 is now Custom Metrics (not spare)
+            if client_num <= 9:
+                indicator.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 12px;"
+                )
             else:
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;") 
-            
+                # Client 10 will be updated based on connection status
+                indicator.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+
             client_layout.addWidget(indicator)
 
             if client_num == 6:
@@ -1437,10 +1487,12 @@ class SpyderTradingDashboard(QMainWindow):
                 label = QLabel(f"CLIENT {client_num}: Extended")
             elif client_num == 9:
                 label = QLabel(f"CLIENT {client_num}: Sector ETFs")
+            elif client_num == 10:
+                label = QLabel(f"CLIENT {client_num}: Custom Metrics")  # UPDATED
             else:
-                label = QLabel(f"CLIENT {client_num}: Spare")  # Changed to "Spare"
-            
-            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")  
+                label = QLabel(f"CLIENT {client_num}: Unknown")
+
+            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
             client_layout.addWidget(label)
             client_layout.addStretch()
 
@@ -1448,10 +1500,10 @@ class SpyderTradingDashboard(QMainWindow):
             self.client_indicators[f"CLIENT {client_num}"] = indicator
             grid.addWidget(client_widget, row, 2)
 
-        # System Stats (Column 4)
+        # System Stats (Column 4) - UPDATED FOR 10 CLIENTS
         stats = [
             ("Health: 97/100", "health"),
-            ("Active Clients: 9/9", "active"),
+            ("Active Clients: 10/10", "active"),  # Changed to 10/10
             ("Memory: 54%", "memory"),
             ("CPU: 27%", "cpu"),
             ("API/Sec: 142", "api"),
@@ -1460,7 +1512,7 @@ class SpyderTradingDashboard(QMainWindow):
         for row, (stat_text, stat_key) in enumerate(stats, start=1):
             stat_label = QLabel(stat_text)
             stat_label.setStyleSheet(
-                f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"  
+                f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
             )
             self.system_stats[stat_key] = stat_label
             grid.addWidget(stat_label, row, 3)
@@ -1489,28 +1541,47 @@ class SpyderTradingDashboard(QMainWindow):
             self.update_prometheus_metrics_simulated()
 
     def update_prometheus_metrics_simulated(self):
-        """Update unified Prometheus metrics with simulated data - V8 VERSION"""
+        """Update unified Prometheus metrics with simulated data - V10 WITH CLIENT 10"""
         import random
 
         # Update system components
         for component, indicator in self.system_components.items():
             if random.random() > 0.95:  # 5% chance of issue
-                indicator.setStyleSheet(f"color: {COLORS['negative']}; font-size: 11px;")
+                indicator.setStyleSheet(
+                    f"color: {COLORS['negative']}; font-size: 11px;"
+                )
             else:
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
+                indicator.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 11px;"
+                )
 
-        # Update client statuses (1-9 active, 10 is spare)
+        # Update client statuses (1-10 with Client 10 for Custom Metrics)
         active_count = 0
         for client_id, indicator in self.client_indicators.items():
             if "CLIENT 10" in client_id:
-                # Client 10 stays as spare (dim)
-                indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+                # Client 10 is active for Custom Metrics
+                if (
+                    self.custom_metrics_integration
+                    and self.custom_metrics_integration.is_connected()
+                ):
+                    indicator.setStyleSheet(
+                        f"color: {COLORS['positive']}; font-size: 11px;"
+                    )
+                    active_count += 1
+                else:
+                    indicator.setStyleSheet(
+                        f"color: {COLORS['warning']}; font-size: 11px;"
+                    )
                 continue
             elif random.random() > 0.1:  # 90% chance of being active
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
+                indicator.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 11px;"
+                )
                 active_count += 1
             else:
-                indicator.setStyleSheet(f"color: {COLORS['negative']}; font-size: 11px;")
+                indicator.setStyleSheet(
+                    f"color: {COLORS['negative']}; font-size: 11px;"
+                )
 
         # Update system stats
         memory = random.randint(40, 60)
@@ -1535,25 +1606,61 @@ class SpyderTradingDashboard(QMainWindow):
             f"color: {color}; font-size: 12px; font-weight: normal; padding-left: 10px;"
         )
 
-        self.system_stats["active"].setText(f"Active Clients: {active_count}/9")
+        # Update system stats - Changed to show out of 10 clients
+        self.system_stats["active"].setText(f"Active Clients: {active_count}/10")
         self.system_stats["active"].setStyleSheet(
             f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
         )
-        
+
         self.system_stats["memory"].setText(f"Memory: {memory}%")
         self.system_stats["memory"].setStyleSheet(
             f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
         )
-        
+
         self.system_stats["cpu"].setText(f"CPU: {cpu}%")
         self.system_stats["cpu"].setStyleSheet(
             f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
         )
-        
+
         self.system_stats["api"].setText(f"API/Sec: {api_calls}")
         self.system_stats["api"].setStyleSheet(
             f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
         )
+
+    def setup_custom_metric_widgets(self):
+        """Store references to custom metric widgets for updates."""
+        # Find and store references to custom indicator widgets
+        for symbol in ["GEX", "DEX", "OGL", "DIX", "SWAN"]:
+            if symbol in self.symbol_widgets:
+                widget_name = f"{symbol.lower()}_widget"
+                setattr(self, widget_name, self.symbol_widgets[symbol])
+                self.custom_metrics_widgets[symbol] = self.symbol_widgets[symbol]
+                self.logger.debug(f"Stored reference to {symbol} widget")
+
+    def update_custom_metrics_display(self, metrics_data: Dict[str, Dict]):
+        """
+        Update custom metrics widgets with data from Client 10.
+
+        Args:
+            metrics_data: Dictionary of metric data from Client 10
+        """
+        for metric_name, data in metrics_data.items():
+            if metric_name in self.custom_metrics_widgets:
+                widget = self.custom_metrics_widgets[metric_name]
+                if widget and hasattr(widget, "update_data"):
+                    widget.update_data(data)
+                elif widget:
+                    # Manual update for MarketSymbolWidget
+                    if hasattr(widget, "price_label"):
+                        widget.price_label.setText(data.get("formatted_value", "--"))
+                    if hasattr(widget, "change_label"):
+                        widget.change_label.setText(data.get("formatted_change", "--"))
+                        change_color = (
+                            COLORS["positive"]
+                            if data.get("change", 0) >= 0
+                            else COLORS["negative"]
+                        )
+                        widget.change_label.setStyleSheet(f"color: {change_color};")
 
     def show_risk_parameters(self):
         """Show risk parameters dialog"""
@@ -1706,7 +1813,7 @@ class SpyderTradingDashboard(QMainWindow):
         main_layout.addWidget(content_splitter)
         central_widget.setLayout(main_layout)
 
-    # [Rest of the methods remain exactly the same as in the original v7]
+    # [Rest of the methods remain exactly the same as in the original v9]
     # Including: create_toolbar, create_left_panel, create_center_panel,
     # create_chart, update_chart, create_positions_table, create_pnl_table,
     # all signal handlers, etc.
@@ -1731,7 +1838,6 @@ class SpyderTradingDashboard(QMainWindow):
         logo_label.setStyleSheet(f"color: {COLORS['text']}; letter-spacing: 5px;")
         layout.addWidget(logo_label)
 
-               
         # Add stretch to push indices toward center
         layout.addStretch(7)  # Increased stretch value
 
@@ -1739,9 +1845,6 @@ class SpyderTradingDashboard(QMainWindow):
         center_section = QHBoxLayout()
         center_section.setSpacing(15)
 
-        # ... your existing DJI, SPX, NDX code ...
-    
-             
         # DJI
         dji_container = QHBoxLayout()
         dji_container.setSpacing(0)
@@ -1799,7 +1902,6 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Add equal stretch to balance the centering
         layout.addStretch(3)  # Equal stretch value for true centering
-        
 
         # RIGHT SECTION WITH 3 PARTS - FIXED DESIGN
         right_section = QHBoxLayout()
@@ -2848,7 +2950,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.add_automation_log(message)
 
     def load_test_data(self):
-        """Load initial test data"""
+        """Load initial test data - UPDATED WITH CUSTOM METRICS SETUP"""
         self.add_system_log("Dashboard initialized successfully")
         self.add_system_log("Connected to IB Gateway")
         self.add_system_log("Market data subscription active")
@@ -2885,6 +2987,15 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.update_greeks()
 
+        # Setup custom metric widget references
+        self.setup_custom_metric_widgets()
+
+        # Connect custom metrics updater if available
+        if self.custom_metrics_integration:
+            self.custom_metrics_integration.all_metrics_updated.connect(
+                self.update_custom_metrics_display
+            )
+
     def update_greeks(self):
         """Update Greek displays"""
         self.greek_bars["delta"].set_value(self.greek_risks.delta, "AUTO-HEDGING OFF")
@@ -2907,11 +3018,24 @@ class SpyderTradingDashboard(QMainWindow):
         self.system_log.setTextCursor(cursor)
 
     def closeEvent(self, event):
-        """Handle close event - thread-safe cleanup"""
+        """Handle application close event - UPDATED WITH CLIENT 10"""
         try:
+            # Stop Custom Metrics Integration
+            if (
+                hasattr(self, "custom_metrics_integration")
+                and self.custom_metrics_integration
+            ):
+                try:
+                    self.custom_metrics_integration.stop()
+                    self.logger.info("Custom Metrics Integration stopped")
+                except Exception as e:
+                    self.logger.error(f"Error stopping Custom Metrics Integration: {e}")
+
+            # Stop market worker
             if self.market_worker:
                 self.market_worker.stop()
 
+            # Stop market thread
             if self.market_thread and self.market_thread.isRunning():
                 self.market_thread.quit()
                 self.market_thread.wait(3000)
@@ -2935,17 +3059,22 @@ def main():
     app.setStyle("Fusion")
 
     print("\n" + "=" * 60)
-    print("SPYDER G05 - TRADING DASHBOARD (V9 - ACCOUNT TABLE FIXED)")
+    print("SPYDER G05 - TRADING DASHBOARD (V10 - CLIENT 10 INTEGRATED)")
     print("=" * 60)
-    print("✅ ACCOUNT row pushed up (reduced top margin)")
-    print("✅ Added separator row between ACCOUNT and financial data")
-    print("✅ Financial data rows shifted down by 1")
-    print("✅ All Prometheus metrics features maintained")
+    print("✅ Client 10 (Custom Metrics) integrated")
+    print("✅ GEX/DEX/OGL/DIX/SWAN indicators active")
+    print("✅ Prometheus table shows 10 clients")
+    print("✅ Custom metrics widgets connected")
     print(f"\n🔧 Using Client ID: {CLIENT_ID}")
     print(f"⏰ Current Market Status: {'OPEN' if is_market_hours() else 'CLOSED'}")
     eastern = pytz.timezone("US/Eastern")
     current_et = datetime.now(eastern).strftime("%I:%M %p ET")
     print(f"🕐 Current Time: {current_et}")
+
+    if CUSTOM_METRICS_AVAILABLE:
+        print("✅ Custom Metrics modules available - Client 10 active")
+    else:
+        print("⚠️ Custom Metrics modules not available - Client 10 in simulation")
 
     if PROMETHEUS_AVAILABLE:
         print("✅ Prometheus collector module available - using real metrics")

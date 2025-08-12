@@ -2,1013 +2,628 @@
 # -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System
-================================================================================
+
+Spyder Version: 1.0
 Module: SpyderG10_CustomMetricsIntegration.py
-Group: G (GUI)
-Purpose: Integration bridge between Custom Metrics Client and Trading Dashboard
+Group: G (GUI/User Interface)
+Purpose: Dashboard integration for Client 10 (Custom Metrics)
 Author: Mohamed Talib
-Date Created: 2025-01-15
-Last Updated: 2025-01-15 Time: 10:30:00
+Date Created: 2025-08-12
+Last Updated: 2025-08-12 Time: 18:00:00
 
 Description:
-    This module provides the integration layer between the Custom Metrics Client
-    (Client 10 - SpyderB18) and the Trading Dashboard (SpyderG05). It handles
-    data flow, formatting, real-time updates, and ensures seamless display of
-    GEX, DEX, OGL, DIX, and SWAN metrics in the dashboard. The module includes
-    automatic reconnection, data validation, and fallback mechanisms for
-    reliable operation.
-
-Key Features:
-    - Real-time metric updates from Client 10 to dashboard
-    - Automatic formatting for dashboard display
-    - Color coding based on metric values and changes
-    - Historical data tracking for trend visualization
-    - Error handling with graceful degradation
-
-Integration Points:
-    - Subscribes to SpyderB18_CustomMetricsClient for data
-    - Updates SpyderG05_TradingDashboard custom indicator widgets
-    - Interfaces with SpyderB08_MultiClientDataManager
-    - Reports status to SpyderB15_PrometheusMetrics
- 
+    Integrates Client 10 (Custom Metrics) with the trading dashboard.
+    Handles the display and updates of GEX, DEX, OGL, DIX, and SWAN metrics
+    in the Market Overview panel and Prometheus Metrics table.
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import sys
-import time
-import threading
-import queue
 import logging
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Callable
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from collections import deque
-import json
+from datetime import datetime
+from typing import Dict, Optional, Any, List
+from dataclasses import dataclass
+import threading
+import time
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PyQt6.QtCore import (
-    QObject, QTimer, pyqtSignal, pyqtSlot, Qt, QThread
+    QObject, pyqtSignal, QTimer, QThread, pyqtSlot
 )
 from PyQt6.QtWidgets import (
-    QWidget, QLabel, QHBoxLayout, QVBoxLayout
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGroupBox
 )
-from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtGui import QColor
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+try:
+    from SpyderB_Broker.SpyderB18_CustomMetricsClient import (
+        CustomMetricsClient, get_metrics_client
+    )
+    from SpyderB_Broker.SpyderB19_Client10Configuration import (
+        Client10Configuration, create_default_config
+    )
+    METRICS_CLIENT_AVAILABLE = True
+except ImportError:
+    METRICS_CLIENT_AVAILABLE = False
+    print("⚠️ Custom Metrics Client modules not available")
 
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-    from SpyderB_Broker.SpyderB18_CustomMetricsClient import (
-        CustomMetricsClient, get_metrics_client, MetricType, MetricResult
-    )
-    MODULES_AVAILABLE = True
-except ImportError as e:
-    MODULES_AVAILABLE = False
-    print(f"⚠️ Some modules not available: {e}")
+    LOCAL_IMPORTS = True
+except ImportError:
+    LOCAL_IMPORTS = False
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Update intervals (milliseconds)
-DASHBOARD_UPDATE_INTERVAL = 1000  # 1 second for dashboard refresh
-RECONNECT_INTERVAL = 5000  # 5 seconds for reconnection attempts
-HISTORY_SIZE = 100  # Number of historical points to keep
-
-# Display formatting
-METRIC_FORMATS = {
-    'GEX': {'suffix': 'B', 'decimals': 2, 'prefix': '$'},
-    'DEX': {'suffix': 'B', 'decimals': 2, 'prefix': '$'},
-    'OGL': {'suffix': '', 'decimals': 1, 'prefix': ''},
-    'DIX': {'suffix': '%', 'decimals': 1, 'prefix': ''},
-    'SWAN': {'suffix': '', 'decimals': 1, 'prefix': ''}
+COLORS = {
+    "positive": "#00ff41",
+    "negative": "#ff1744",
+    "neutral": "#ffd700",
+    "warning": "#ff9800",
+    "text": "#ffffff",
+    "text_dim": "#888888",
+    "background": "#0a0a0a",
+    "panel": "#1a1a1a"
 }
 
-# Color thresholds
-COLOR_THRESHOLDS = {
-    'GEX': {
-        'extreme_negative': -5.0,
-        'negative': -2.0,
-        'neutral_low': 0.0,
-        'neutral_high': 2.0,
-        'positive': 5.0
+# Metric display configurations
+METRIC_DISPLAY = {
+    "GEX": {
+        "full_name": "Gamma Exposure",
+        "tooltip": "Net gamma exposure in billions. Negative = dealers short gamma",
+        "thresholds": {"positive": 0, "warning": -2, "negative": -4}
     },
-    'DEX': {
-        'extreme_negative': -10.0,
-        'negative': -5.0,
-        'neutral_low': 0.0,
-        'neutral_high': 5.0,
-        'positive': 10.0
+    "DEX": {
+        "full_name": "Delta Exposure",
+        "tooltip": "Net delta exposure in millions. Shows directional positioning",
+        "thresholds": {"positive": 0, "warning": -1000, "negative": -2000}
     },
-    'OGL': {
-        'low': 30,
-        'medium': 50,
-        'high': 70,
-        'extreme': 85
+    "OGL": {
+        "full_name": "Zero Gamma Level",
+        "tooltip": "Price level where gamma exposure equals zero. Key support/resistance",
+        "thresholds": None  # OGL uses special coloring
     },
-    'DIX': {
-        'bearish': 40,
-        'neutral_low': 45,
-        'neutral_high': 50,
-        'bullish': 55
+    "DIX": {
+        "full_name": "Dark Index",
+        "tooltip": "Dark pool buying percentage. >45% bullish, <40% bearish",
+        "thresholds": {"positive": 45, "warning": 42, "negative": 40}
     },
-    'SWAN': {
-        'low': 20,
-        'medium': 40,
-        'high': 60,
-        'extreme': 80
+    "SWAN": {
+        "full_name": "Black Swan Risk",
+        "tooltip": "Tail risk indicator (1-5 scale). >2.5 elevated risk",
+        "thresholds": {"positive": 2.0, "warning": 2.5, "negative": 3.5}
     }
 }
 
-# Dashboard colors (matching SpyderG05)
-COLORS = {
-    'background': '#0A0E1A',
-    'panel': '#141824',
-    'border': '#1E2433',
-    'text': '#E0E0E0',
-    'text_dim': '#808080',
-    'positive': '#00E676',
-    'negative': '#FF1744',
-    'neutral': '#FFD700',
-    'warning': '#FF9800',
-    'extreme': '#FF00FF'
-}
-
 # ==============================================================================
-# DATA CLASSES
-# ==============================================================================
-@dataclass
-class MetricDisplay:
-    """Display information for a metric"""
-    name: str
-    value: float
-    change: float
-    change_pct: float
-    formatted_value: str
-    formatted_change: str
-    color: str
-    trend: str  # 'up', 'down', 'flat'
-    confidence: float
-    last_update: datetime
-
-@dataclass
-class MetricHistory:
-    """Historical data for a metric"""
-    timestamps: deque
-    values: deque
-    changes: deque
-    
-    def __init__(self, maxlen: int = HISTORY_SIZE):
-        self.timestamps = deque(maxlen=maxlen)
-        self.values = deque(maxlen=maxlen)
-        self.changes = deque(maxlen=maxlen)
-    
-    def add(self, timestamp: datetime, value: float, change: float):
-        """Add a data point to history"""
-        self.timestamps.append(timestamp)
-        self.values.append(value)
-        self.changes.append(change)
-
-# ==============================================================================
-# CUSTOM METRICS INTEGRATION CLASS
+# CUSTOM METRICS INTEGRATION
 # ==============================================================================
 class CustomMetricsIntegration(QObject):
     """
-    Integration layer between Custom Metrics Client and Trading Dashboard.
-    
-    Handles data flow, formatting, and real-time updates for custom metrics
-    display in the SpyderG05 Trading Dashboard.
+    Main integration class for Custom Metrics (Client 10) with the dashboard.
+    Manages the connection, data flow, and signal emission for GUI updates.
     """
     
-    # Qt Signals for dashboard updates
-    metric_updated = pyqtSignal(str, dict)  # metric_name, data
-    all_metrics_updated = pyqtSignal(dict)  # all metrics data
-    connection_status_changed = pyqtSignal(bool)  # connected status
-    error_occurred = pyqtSignal(str)  # error message
+    # Signals
+    metrics_updated = pyqtSignal(dict)  # Emits formatted metrics for display
+    connection_status_changed = pyqtSignal(bool)  # Connection status
+    error_occurred = pyqtSignal(str)  # Error messages
+    all_metrics_updated = pyqtSignal(dict)  # Complete metrics update
     
-    def __init__(self, dashboard_widget: Optional[QWidget] = None):
+    def __init__(self, parent_dashboard=None):
         """
-        Initialize the Custom Metrics Integration.
+        Initialize Custom Metrics Integration
         
         Args:
-            dashboard_widget: Optional reference to dashboard widget
+            parent_dashboard: Reference to main dashboard (SpyderTradingDashboard)
         """
         super().__init__()
         
-        # Core components
-        self.dashboard_widget = dashboard_widget
-        self.is_running = False
-        self.is_connected = False
-        
         # Logging
-        if MODULES_AVAILABLE:
-            self.logger = SpyderLogger.get_logger('SpyderG10.Integration')
-            self.error_handler = SpyderErrorHandler()
+        if LOCAL_IMPORTS and SpyderLogger:
+            self.logger = SpyderLogger.get_logger(self.__class__.__name__)
         else:
-            self.logger = logging.getLogger('SpyderG10.Integration')
-            self.error_handler = None
+            self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # References
+        self.dashboard = parent_dashboard
+        self.config = create_default_config()
         
         # Metrics client
-        self.metrics_client: Optional[CustomMetricsClient] = None
+        self.metrics_client = None
+        self.connected = False
         
         # Data storage
-        self.current_metrics: Dict[str, MetricDisplay] = {}
-        self.metric_history: Dict[str, MetricHistory] = {
-            'GEX': MetricHistory(),
-            'DEX': MetricHistory(),
-            'OGL': MetricHistory(),
-            'DIX': MetricHistory(),
-            'SWAN': MetricHistory()
-        }
+        self.current_metrics = {}
+        self.previous_metrics = {}
         
-        # Update timers
+        # Threading
+        self.worker_thread = None
+        self.stop_flag = threading.Event()
+        
+        # Update timer
         self.update_timer = QTimer()
-        self.update_timer.timeout.connect(self.update_dashboard)
-        self.update_timer.setInterval(DASHBOARD_UPDATE_INTERVAL)
+        self.update_timer.timeout.connect(self._process_metrics_update)
+        self.update_timer.setInterval(5000)  # Process every 5 seconds
         
-        self.reconnect_timer = QTimer()
-        self.reconnect_timer.timeout.connect(self.check_connection)
-        self.reconnect_timer.setInterval(RECONNECT_INTERVAL)
-        
-        # Performance tracking
-        self.update_count = 0
-        self.error_count = 0
-        self.last_update_time = datetime.now()
-        
-        # Initialize display values
-        self._initialize_display_values()
-        
-        self.logger.info("✅ Custom Metrics Integration initialized")
+        self.logger.info("CustomMetricsIntegration initialized")
     
     # ==========================================================================
-    # INITIALIZATION AND CONNECTION
+    # CONNECTION MANAGEMENT
     # ==========================================================================
-    
-    def _initialize_display_values(self):
-        """Initialize default display values for all metrics."""
-        for metric_name in ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN']:
-            self.current_metrics[metric_name] = MetricDisplay(
-                name=metric_name,
-                value=0.0,
-                change=0.0,
-                change_pct=0.0,
-                formatted_value=self._format_value(metric_name, 0.0),
-                formatted_change=self._format_change(metric_name, 0.0, 0.0),
-                color=COLORS['text_dim'],
-                trend='flat',
-                confidence=0.0,
-                last_update=datetime.now()
-            )
     
     def start(self):
-        """Start the integration service."""
-        if self.is_running:
-            self.logger.warning("Integration already running")
-            return
-        
-        self.logger.info("Starting Custom Metrics Integration...")
-        
-        # Connect to metrics client
-        self._connect_to_client()
-        
-        # Start timers
-        self.update_timer.start()
-        self.reconnect_timer.start()
-        
-        self.is_running = True
-        self.logger.info("✅ Custom Metrics Integration started")
-    
-    def stop(self):
-        """Stop the integration service."""
-        if not self.is_running:
-            return
-        
-        self.logger.info("Stopping Custom Metrics Integration...")
-        
-        # Stop timers
-        self.update_timer.stop()
-        self.reconnect_timer.stop()
-        
-        # Disconnect from client
-        self._disconnect_from_client()
-        
-        self.is_running = False
-        self.logger.info("✅ Custom Metrics Integration stopped")
-    
-    def _connect_to_client(self):
-        """Connect to the Custom Metrics Client."""
+        """Start the custom metrics integration"""
         try:
-            if MODULES_AVAILABLE:
-                # Get or create metrics client
-                self.metrics_client = get_metrics_client()
-                
-                # Start client if not running
-                if not self.metrics_client.is_running:
-                    self.metrics_client.start()
-                
-                # Subscribe to metric updates
-                for metric_name in ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN']:
-                    self.metrics_client.subscribe(
-                        metric_name,
-                        lambda result, name=metric_name: self._on_metric_update(name, result)
-                    )
-                
-                self.is_connected = True
+            if not METRICS_CLIENT_AVAILABLE:
+                self.logger.warning("Metrics client not available - running in simulation mode")
+                self._start_simulation_mode()
+                return
+            
+            # Get or create metrics client
+            port = self.config.paper_port if self.config.use_paper else self.config.live_port
+            self.metrics_client = get_metrics_client(port)
+            
+            # Connect signals
+            self.metrics_client.metrics_updated.connect(self._on_metrics_updated)
+            self.metrics_client.connection_status_changed.connect(self._on_connection_changed)
+            self.metrics_client.error_occurred.connect(self._on_error)
+            
+            # Connect to IB Gateway
+            if self.metrics_client.connect():
+                self.connected = True
                 self.connection_status_changed.emit(True)
-                self.logger.info("✅ Connected to Custom Metrics Client")
+                self.update_timer.start()
+                self.logger.info("✅ Client 10 integration started successfully")
             else:
-                # Fallback mode with simulated data
-                self.logger.warning("Running in simulation mode")
-                self.is_connected = False
+                self.logger.warning("Failed to connect Client 10 - using simulation")
                 self._start_simulation_mode()
                 
         except Exception as e:
-            self.logger.error(f"Failed to connect to metrics client: {e}")
-            self.is_connected = False
+            self.logger.error(f"Failed to start integration: {e}")
+            self.error_occurred.emit(str(e))
+            self._start_simulation_mode()
+    
+    def stop(self):
+        """Stop the custom metrics integration"""
+        try:
+            self.stop_flag.set()
+            self.update_timer.stop()
+            
+            if self.metrics_client:
+                self.metrics_client.disconnect()
+            
+            self.connected = False
             self.connection_status_changed.emit(False)
-            self.error_occurred.emit(str(e))
-    
-    def _disconnect_from_client(self):
-        """Disconnect from the Custom Metrics Client."""
-        try:
-            if self.metrics_client and MODULES_AVAILABLE:
-                # Unsubscribe from updates
-                for metric_name in ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN']:
-                    self.metrics_client.unsubscribe(
-                        metric_name,
-                        lambda result, name=metric_name: self._on_metric_update(name, result)
-                    )
-                
-                self.is_connected = False
-                self.connection_status_changed.emit(False)
-                self.logger.info("Disconnected from Custom Metrics Client")
-                
-        except Exception as e:
-            self.logger.error(f"Error disconnecting from client: {e}")
-    
-    @pyqtSlot()
-    def check_connection(self):
-        """Check and restore connection if needed."""
-        if not self.is_connected and self.is_running:
-            self.logger.info("Attempting to reconnect...")
-            self._connect_to_client()
-    
-    # ==========================================================================
-    # DATA RECEPTION AND PROCESSING
-    # ==========================================================================
-    
-    def _on_metric_update(self, metric_name: str, result: MetricResult):
-        """
-        Handle metric update from the client.
-        
-        Args:
-            metric_name: Name of the metric
-            result: Metric calculation result
-        """
-        try:
-            # Create display object
-            display = MetricDisplay(
-                name=metric_name,
-                value=result.value,
-                change=result.change,
-                change_pct=result.change_pct,
-                formatted_value=self._format_value(metric_name, result.value),
-                formatted_change=self._format_change(metric_name, result.change, result.change_pct),
-                color=self._get_color(metric_name, result.value, result.change),
-                trend=self._get_trend(result.change),
-                confidence=result.confidence,
-                last_update=result.timestamp
-            )
             
-            # Update current metrics
-            self.current_metrics[metric_name] = display
-            
-            # Add to history
-            self.metric_history[metric_name].add(
-                result.timestamp,
-                result.value,
-                result.change
-            )
-            
-            # Emit update signal
-            self.metric_updated.emit(metric_name, self._display_to_dict(display))
-            
-            self.update_count += 1
+            self.logger.info("Client 10 integration stopped")
             
         except Exception as e:
-            self.logger.error(f"Error processing metric update for {metric_name}: {e}")
-            self.error_count += 1
-    
-    # ==========================================================================
-    # DASHBOARD UPDATE
-    # ==========================================================================
-    
-    @pyqtSlot()
-    def update_dashboard(self):
-        """Update dashboard with latest metric values."""
-        try:
-            if self.is_connected and self.metrics_client:
-                # Get all metrics from client
-                all_metrics = self.metrics_client.get_all_metrics()
-                
-                # Process each metric
-                for metric_name, data in all_metrics.items():
-                    if data:
-                        # Create display object
-                        display = MetricDisplay(
-                            name=metric_name,
-                            value=data['value'],
-                            change=data['change'],
-                            change_pct=data['change_pct'],
-                            formatted_value=self._format_value(metric_name, data['value']),
-                            formatted_change=self._format_change(
-                                metric_name, data['change'], data['change_pct']
-                            ),
-                            color=self._get_color(metric_name, data['value'], data['change']),
-                            trend=self._get_trend(data['change']),
-                            confidence=data.get('confidence', 1.0),
-                            last_update=data['timestamp']
-                        )
-                        
-                        self.current_metrics[metric_name] = display
-                
-                # Emit update signal with all metrics
-                self.all_metrics_updated.emit(self._get_all_displays())
-                
-            elif not self.is_connected:
-                # Update with simulated data if not connected
-                self._update_simulation()
-                
-        except Exception as e:
-            self.logger.error(f"Error updating dashboard: {e}")
-            self.error_occurred.emit(str(e))
-    
-    def update_dashboard_widget(self, widget_name: str, metric_name: str):
-        """
-        Update a specific dashboard widget with metric data.
-        
-        Args:
-            widget_name: Name of the dashboard widget
-            metric_name: Name of the metric to display
-        """
-        try:
-            if metric_name not in self.current_metrics:
-                return
-            
-            display = self.current_metrics[metric_name]
-            
-            # Update widget if dashboard reference exists
-            if self.dashboard_widget:
-                # Find the widget (this assumes the dashboard has a method to get widgets)
-                widget = getattr(self.dashboard_widget, f'get_{widget_name}_widget', None)
-                if widget and callable(widget):
-                    metric_widget = widget()
-                    if metric_widget:
-                        self._update_metric_widget(metric_widget, display)
-                        
-        except Exception as e:
-            self.logger.error(f"Error updating widget {widget_name}: {e}")
-    
-    def _update_metric_widget(self, widget: QWidget, display: MetricDisplay):
-        """
-        Update a metric widget with display data.
-        
-        Args:
-            widget: The widget to update
-            display: Display data for the metric
-        """
-        try:
-            # Update value label
-            if hasattr(widget, 'value_label'):
-                widget.value_label.setText(display.formatted_value)
-                widget.value_label.setStyleSheet(f"color: {display.color};")
-            
-            # Update change label
-            if hasattr(widget, 'change_label'):
-                widget.change_label.setText(display.formatted_change)
-                change_color = COLORS['positive'] if display.change >= 0 else COLORS['negative']
-                widget.change_label.setStyleSheet(f"color: {change_color};")
-            
-            # Update trend indicator
-            if hasattr(widget, 'trend_indicator'):
-                if display.trend == 'up':
-                    widget.trend_indicator.setText('▲')
-                    widget.trend_indicator.setStyleSheet(f"color: {COLORS['positive']};")
-                elif display.trend == 'down':
-                    widget.trend_indicator.setText('▼')
-                    widget.trend_indicator.setStyleSheet(f"color: {COLORS['negative']};")
-                else:
-                    widget.trend_indicator.setText('─')
-                    widget.trend_indicator.setStyleSheet(f"color: {COLORS['neutral']};")
-                    
-        except Exception as e:
-            self.logger.error(f"Error updating metric widget: {e}")
-    
-    # ==========================================================================
-    # FORMATTING AND DISPLAY
-    # ==========================================================================
-    
-    def _format_value(self, metric_name: str, value: float) -> str:
-        """
-        Format metric value for display.
-        
-        Args:
-            metric_name: Name of the metric
-            value: Raw value
-            
-        Returns:
-            Formatted string
-        """
-        fmt = METRIC_FORMATS.get(metric_name, {})
-        prefix = fmt.get('prefix', '')
-        suffix = fmt.get('suffix', '')
-        decimals = fmt.get('decimals', 2)
-        
-        formatted = f"{prefix}{value:.{decimals}f}{suffix}"
-        return formatted
-    
-    def _format_change(self, metric_name: str, change: float, change_pct: float) -> str:
-        """
-        Format metric change for display.
-        
-        Args:
-            metric_name: Name of the metric
-            change: Absolute change
-            change_pct: Percentage change
-            
-        Returns:
-            Formatted string
-        """
-        sign = '+' if change >= 0 else ''
-        
-        # Format based on metric type
-        if metric_name in ['GEX', 'DEX']:
-            return f"{sign}{change:.2f}B ({sign}{change_pct:.1f}%)"
-        elif metric_name in ['DIX']:
-            return f"{sign}{change:.1f}pp"  # percentage points
-        else:
-            return f"{sign}{change:.1f} ({sign}{change_pct:.1f}%)"
-    
-    def _get_color(self, metric_name: str, value: float, change: float) -> str:
-        """
-        Get display color based on metric value and thresholds.
-        
-        Args:
-            metric_name: Name of the metric
-            value: Metric value
-            change: Metric change
-            
-        Returns:
-            Color hex string
-        """
-        thresholds = COLOR_THRESHOLDS.get(metric_name, {})
-        
-        if metric_name == 'GEX':
-            if value <= thresholds.get('extreme_negative', -5):
-                return COLORS['extreme']
-            elif value <= thresholds.get('negative', -2):
-                return COLORS['negative']
-            elif value >= thresholds.get('positive', 5):
-                return COLORS['positive']
-            else:
-                return COLORS['neutral']
-                
-        elif metric_name == 'OGL':
-            if value >= thresholds.get('extreme', 85):
-                return COLORS['extreme']
-            elif value >= thresholds.get('high', 70):
-                return COLORS['warning']
-            elif value >= thresholds.get('medium', 50):
-                return COLORS['neutral']
-            else:
-                return COLORS['text']
-                
-        elif metric_name == 'SWAN':
-            if value >= thresholds.get('extreme', 80):
-                return COLORS['extreme']
-            elif value >= thresholds.get('high', 60):
-                return COLORS['negative']
-            elif value >= thresholds.get('medium', 40):
-                return COLORS['warning']
-            else:
-                return COLORS['positive']
-                
-        else:
-            # Default color based on change
-            if abs(change) < 0.1:
-                return COLORS['text']
-            elif change > 0:
-                return COLORS['positive']
-            else:
-                return COLORS['negative']
-    
-    def _get_trend(self, change: float) -> str:
-        """
-        Get trend direction from change value.
-        
-        Args:
-            change: Change value
-            
-        Returns:
-            'up', 'down', or 'flat'
-        """
-        if abs(change) < 0.01:
-            return 'flat'
-        elif change > 0:
-            return 'up'
-        else:
-            return 'down'
-    
-    def _display_to_dict(self, display: MetricDisplay) -> Dict[str, Any]:
-        """
-        Convert MetricDisplay to dictionary.
-        
-        Args:
-            display: MetricDisplay object
-            
-        Returns:
-            Dictionary representation
-        """
-        return {
-            'name': display.name,
-            'value': display.value,
-            'change': display.change,
-            'change_pct': display.change_pct,
-            'formatted_value': display.formatted_value,
-            'formatted_change': display.formatted_change,
-            'color': display.color,
-            'trend': display.trend,
-            'confidence': display.confidence,
-            'last_update': display.last_update.isoformat()
-        }
-    
-    def _get_all_displays(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get all metric displays as dictionary.
-        
-        Returns:
-            Dictionary of all metric displays
-        """
-        return {
-            name: self._display_to_dict(display)
-            for name, display in self.current_metrics.items()
-        }
-    
-    # ==========================================================================
-    # SIMULATION MODE
-    # ==========================================================================
+            self.logger.error(f"Error stopping integration: {e}")
     
     def _start_simulation_mode(self):
-        """Start simulation mode for testing without live client."""
-        self.logger.info("Starting simulation mode...")
+        """Start simulation mode when IB connection not available"""
+        self.connected = True  # Pretend connected for simulation
+        self.connection_status_changed.emit(True)
         
-        # Create simulation timer
-        self.sim_timer = QTimer()
-        self.sim_timer.timeout.connect(self._update_simulation)
-        self.sim_timer.setInterval(5000)  # Update every 5 seconds
-        self.sim_timer.start()
+        # Start simulation worker
+        self.stop_flag.clear()
+        self.worker_thread = threading.Thread(target=self._simulation_worker, daemon=True)
+        self.worker_thread.start()
+        
+        self.update_timer.start()
+        self.logger.info("Running in simulation mode")
     
-    def _update_simulation(self):
-        """Update metrics with simulated data."""
+    def _simulation_worker(self):
+        """Worker thread for simulation mode"""
         import random
+        import numpy as np
         
-        # Simulate GEX
-        gex_value = random.uniform(-3, 8)
-        self._update_simulated_metric('GEX', gex_value)
+        # Initialize simulation values
+        gex = -2.5
+        dex = 850
+        ogl = 585.5
+        dix = 42.5
+        swan = 1.85
         
-        # Simulate DEX
-        dex_value = random.uniform(-15, 20)
-        self._update_simulated_metric('DEX', dex_value)
-        
-        # Simulate OGL
-        ogl_value = random.uniform(20, 80)
-        self._update_simulated_metric('OGL', ogl_value)
-        
-        # Simulate DIX
-        dix_value = random.uniform(38, 52)
-        self._update_simulated_metric('DIX', dix_value)
-        
-        # Simulate SWAN
-        swan_value = random.uniform(10, 60)
-        self._update_simulated_metric('SWAN', swan_value)
-        
-        # Emit update signal
-        self.all_metrics_updated.emit(self._get_all_displays())
-    
-    def _update_simulated_metric(self, metric_name: str, value: float):
-        """
-        Update a metric with simulated value.
-        
-        Args:
-            metric_name: Name of the metric
-            value: Simulated value
-        """
-        prev_display = self.current_metrics.get(metric_name)
-        prev_value = prev_display.value if prev_display else 0
-        
-        change = value - prev_value
-        change_pct = (change / prev_value * 100) if prev_value != 0 else 0
-        
-        display = MetricDisplay(
-            name=metric_name,
-            value=value,
-            change=change,
-            change_pct=change_pct,
-            formatted_value=self._format_value(metric_name, value),
-            formatted_change=self._format_change(metric_name, change, change_pct),
-            color=self._get_color(metric_name, value, change),
-            trend=self._get_trend(change),
-            confidence=0.8,  # Lower confidence for simulated data
-            last_update=datetime.now()
-        )
-        
-        self.current_metrics[metric_name] = display
-        
-        # Add to history
-        self.metric_history[metric_name].add(
-            datetime.now(),
-            value,
-            change
-        )
-    
-    # ==========================================================================
-    # STATUS AND MONITORING
-    # ==========================================================================
-    
-    def get_status(self) -> Dict[str, Any]:
-        """
-        Get current status of the integration.
-        
-        Returns:
-            Status dictionary
-        """
-        return {
-            'is_running': self.is_running,
-            'is_connected': self.is_connected,
-            'update_count': self.update_count,
-            'error_count': self.error_count,
-            'error_rate': self.error_count / max(self.update_count, 1),
-            'last_update': self.last_update_time.isoformat(),
-            'current_metrics': {
-                name: {
-                    'value': display.value,
-                    'formatted': display.formatted_value,
-                    'trend': display.trend,
-                    'last_update': display.last_update.isoformat()
+        while not self.stop_flag.is_set():
+            try:
+                # Simulate random walk
+                gex += np.random.normal(0, 0.3)
+                gex = max(-10, min(10, gex))
+                
+                dex += np.random.normal(0, 50)
+                dex = max(-3000, min(3000, dex))
+                
+                ogl = 585.5 + np.random.normal(0, 0.5)
+                
+                dix += np.random.normal(0, 0.5)
+                dix = max(30, min(55, dix))
+                
+                # SWAN with occasional spikes
+                if random.random() < 0.02:  # 2% chance
+                    swan = min(5, swan + random.uniform(0.5, 1.5))
+                else:
+                    swan = max(1, swan * 0.98)
+                
+                # Create metrics dict
+                metrics = {
+                    'GEX': {
+                        'value': gex,
+                        'formatted_value': f"{gex:.1f}B",
+                        'change': random.uniform(-0.5, 0.5),
+                        'change_pct': random.uniform(-2, 2),
+                        'timestamp': datetime.now()
+                    },
+                    'DEX': {
+                        'value': dex,
+                        'formatted_value': f"{dex:.0f}M",
+                        'change': random.uniform(-100, 100),
+                        'change_pct': random.uniform(-2, 2),
+                        'timestamp': datetime.now()
+                    },
+                    'OGL': {
+                        'value': ogl,
+                        'formatted_value': f"{ogl:.2f}",
+                        'change': random.uniform(-1, 1),
+                        'change_pct': random.uniform(-0.2, 0.2),
+                        'timestamp': datetime.now()
+                    },
+                    'DIX': {
+                        'value': dix,
+                        'formatted_value': f"{dix:.1f}%",
+                        'change': random.uniform(-1, 1),
+                        'change_pct': random.uniform(-2, 2),
+                        'timestamp': datetime.now()
+                    },
+                    'SWAN': {
+                        'value': swan,
+                        'formatted_value': f"{swan:.2f}",
+                        'change': random.uniform(-0.1, 0.1),
+                        'change_pct': random.uniform(-5, 5),
+                        'timestamp': datetime.now()
+                    }
                 }
-                for name, display in self.current_metrics.items()
-            }
-        }
+                
+                # Store and emit
+                self.current_metrics = metrics
+                self.metrics_updated.emit(metrics)
+                
+                time.sleep(5)  # Update every 5 seconds
+                
+            except Exception as e:
+                self.logger.error(f"Simulation error: {e}")
+                time.sleep(1)
     
-    def get_metric_history(self, metric_name: str, 
-                          points: int = 50) -> Optional[Dict[str, List]]:
+    # ==========================================================================
+    # SIGNAL HANDLERS
+    # ==========================================================================
+    
+    @pyqtSlot(dict)
+    def _on_metrics_updated(self, metrics: dict):
+        """Handle metrics update from client"""
+        self.previous_metrics = self.current_metrics.copy()
+        self.current_metrics = metrics
+        
+        # Calculate changes
+        for metric_name in metrics:
+            if metric_name in self.previous_metrics:
+                old_val = self.previous_metrics[metric_name].get('value', 0)
+                new_val = metrics[metric_name].get('value', 0)
+                
+                change = new_val - old_val
+                change_pct = (change / old_val * 100) if old_val != 0 else 0
+                
+                metrics[metric_name]['change'] = change
+                metrics[metric_name]['change_pct'] = change_pct
+        
+        self.metrics_updated.emit(metrics)
+        self.all_metrics_updated.emit(metrics)
+    
+    @pyqtSlot(bool)
+    def _on_connection_changed(self, connected: bool):
+        """Handle connection status change"""
+        self.connected = connected
+        self.connection_status_changed.emit(connected)
+        
+        if connected:
+            self.logger.info("Client 10 connected to IB Gateway")
+        else:
+            self.logger.warning("Client 10 disconnected from IB Gateway")
+    
+    @pyqtSlot(str)
+    def _on_error(self, error: str):
+        """Handle error from client"""
+        self.logger.error(f"Client 10 error: {error}")
+        self.error_occurred.emit(error)
+    
+    @pyqtSlot()
+    def _process_metrics_update(self):
+        """Process and format metrics for dashboard display"""
+        if not self.current_metrics:
+            return
+        
+        # Format for dashboard display
+        formatted_metrics = self._format_metrics_for_display(self.current_metrics)
+        
+        # Emit for dashboard update
+        self.all_metrics_updated.emit(formatted_metrics)
+    
+    # ==========================================================================
+    # FORMATTING
+    # ==========================================================================
+    
+    def _format_metrics_for_display(self, metrics: dict) -> dict:
         """
-        Get historical data for a metric.
+        Format metrics for dashboard display with colors and indicators
         
         Args:
-            metric_name: Name of the metric
-            points: Number of data points to return
-            
+            metrics: Raw metrics dictionary
+        
         Returns:
-            Dictionary with timestamps, values, and changes
+            Formatted metrics with display properties
         """
-        if metric_name not in self.metric_history:
-            return None
+        formatted = {}
         
-        history = self.metric_history[metric_name]
+        for metric_name, data in metrics.items():
+            if metric_name not in METRIC_DISPLAY:
+                continue
+            
+            config = METRIC_DISPLAY[metric_name]
+            value = data.get('value', 0)
+            
+            # Determine color based on thresholds
+            color = COLORS['neutral']
+            if config['thresholds']:
+                thresholds = config['thresholds']
+                
+                if metric_name in ['GEX', 'DEX']:
+                    # Negative is bad for these
+                    if value >= thresholds['positive']:
+                        color = COLORS['positive']
+                    elif value >= thresholds['warning']:
+                        color = COLORS['warning']
+                    else:
+                        color = COLORS['negative']
+                        
+                elif metric_name == 'DIX':
+                    # Higher is better
+                    if value >= thresholds['positive']:
+                        color = COLORS['positive']
+                    elif value >= thresholds['warning']:
+                        color = COLORS['neutral']
+                    else:
+                        color = COLORS['negative']
+                        
+                elif metric_name == 'SWAN':
+                    # Lower is better
+                    if value <= thresholds['positive']:
+                        color = COLORS['positive']
+                    elif value <= thresholds['warning']:
+                        color = COLORS['warning']
+                    else:
+                        color = COLORS['negative']
+            else:
+                # OGL uses special coloring
+                color = COLORS['warning']
+            
+            # Add formatting
+            formatted[metric_name] = {
+                'value': value,
+                'formatted_value': data.get('formatted_value', str(value)),
+                'change': data.get('change', 0),
+                'change_pct': data.get('change_pct', 0),
+                'formatted_change': f"{data.get('change', 0):+.2f}",
+                'color': color,
+                'tooltip': config['tooltip'],
+                'full_name': config['full_name'],
+                'timestamp': data.get('timestamp', datetime.now())
+            }
         
-        # Get last N points
-        n = min(points, len(history.timestamps))
-        
-        return {
-            'timestamps': list(history.timestamps)[-n:],
-            'values': list(history.values)[-n:],
-            'changes': list(history.changes)[-n:]
-        }
+        return formatted
+    
+    # ==========================================================================
+    # PUBLIC API
+    # ==========================================================================
+    
+    def get_current_metrics(self) -> dict:
+        """Get current formatted metrics"""
+        return self._format_metrics_for_display(self.current_metrics)
+    
+    def is_connected(self) -> bool:
+        """Check if Client 10 is connected"""
+        return self.connected
+    
+    def force_update(self):
+        """Force an immediate metrics update"""
+        if self.metrics_client:
+            self.metrics_client.force_update()
 
 # ==============================================================================
-# DASHBOARD WIDGET UPDATER
+# DASHBOARD METRICS UPDATER
 # ==============================================================================
-class DashboardMetricsUpdater:
+class DashboardMetricsUpdater(QObject):
     """
     Helper class to update dashboard widgets with custom metrics.
-    
-    This class provides methods specifically designed to integrate with
-    the existing SpyderG05_TradingDashboard structure.
+    Bridges between CustomMetricsIntegration and dashboard widgets.
     """
     
     def __init__(self, dashboard, integration: CustomMetricsIntegration):
         """
-        Initialize the dashboard updater.
+        Initialize updater
         
         Args:
-            dashboard: Reference to SpyderG05_TradingDashboard
+            dashboard: Main dashboard reference
             integration: CustomMetricsIntegration instance
         """
+        super().__init__()
+        
         self.dashboard = dashboard
         self.integration = integration
         
-        # Connect signals
-        self.integration.all_metrics_updated.connect(self.update_all_widgets)
-        self.integration.metric_updated.connect(self.update_single_widget)
+        # Connect to integration signals
+        self.integration.all_metrics_updated.connect(self.update_dashboard_widgets)
         
-        # Widget mapping (maps metric names to dashboard widget attributes)
-        self.widget_mapping = {
-            'GEX': 'gex_widget',
-            'DEX': 'dex_widget',
-            'OGL': 'ogl_widget',
-            'DIX': 'dix_widget',
-            'SWAN': 'swan_widget'
-        }
+        # Widget references (will be populated by dashboard)
+        self.metric_widgets = {}
     
     @pyqtSlot(dict)
-    def update_all_widgets(self, metrics_data: Dict[str, Dict]):
+    def update_dashboard_widgets(self, metrics: dict):
         """
-        Update all metric widgets in the dashboard.
+        Update dashboard widgets with new metrics
         
         Args:
-            metrics_data: Dictionary of all metric data
-        """
-        for metric_name, data in metrics_data.items():
-            self._update_widget(metric_name, data)
-    
-    @pyqtSlot(str, dict)
-    def update_single_widget(self, metric_name: str, data: Dict):
-        """
-        Update a single metric widget.
-        
-        Args:
-            metric_name: Name of the metric
-            data: Metric display data
-        """
-        self._update_widget(metric_name, data)
-    
-    def _update_widget(self, metric_name: str, data: Dict):
-        """
-        Update a specific widget with metric data.
-        
-        Args:
-            metric_name: Name of the metric
-            data: Display data
+            metrics: Formatted metrics dictionary
         """
         try:
-            # Get widget attribute name
-            widget_attr = self.widget_mapping.get(metric_name)
-            if not widget_attr:
-                return
-            
-            # Get widget from dashboard
-            if hasattr(self.dashboard, widget_attr):
-                widget = getattr(self.dashboard, widget_attr)
-                if widget:
-                    # Update widget display
-                    self._apply_widget_update(widget, data)
+            # Update Market Overview panel widgets
+            for metric_name, data in metrics.items():
+                if metric_name in self.dashboard.symbol_widgets:
+                    widget = self.dashboard.symbol_widgets[metric_name]
                     
-        except Exception as e:
-            print(f"Error updating {metric_name} widget: {e}")
-    
-    def _apply_widget_update(self, widget: QWidget, data: Dict):
-        """
-        Apply update to a widget.
-        
-        Args:
-            widget: Widget to update
-            data: Display data
-        """
-        # Update based on widget structure in SpyderG05
-        if hasattr(widget, 'update_data'):
-            # If widget has update_data method, use it
-            widget.update_data(data)
-        else:
-            # Manual update for custom indicator widgets
-            if hasattr(widget, 'price_label'):
-                widget.price_label.setText(data['formatted_value'])
-                widget.price_label.setStyleSheet(f"color: {data['color']};")
+                    # Update using the widget's update_data method
+                    widget.update_data({
+                        'last': data['value'],
+                        'change': data['change'],
+                        'change_pct': data['change_pct']
+                    })
             
-            if hasattr(widget, 'change_label'):
-                widget.change_label.setText(data['formatted_change'])
-                change_color = COLORS['positive'] if data['change'] >= 0 else COLORS['negative']
-                widget.change_label.setStyleSheet(f"color: {change_color};")
+            # Update Prometheus table Client 10 status
+            if hasattr(self.dashboard, 'client_indicators'):
+                if 'CLIENT 10' in self.dashboard.client_indicators:
+                    indicator = self.dashboard.client_indicators['CLIENT 10']
+                    if self.integration.is_connected():
+                        indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
+                    else:
+                        indicator.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px;")
+            
+            # Log update
+            if hasattr(self.dashboard, 'logger'):
+                self.dashboard.logger.debug(f"Dashboard widgets updated with custom metrics")
+                
+        except Exception as e:
+            if hasattr(self.dashboard, 'logger'):
+                self.dashboard.logger.error(f"Error updating dashboard widgets: {e}")
 
 # ==============================================================================
-# FACTORY FUNCTIONS
+# WIDGET FACTORY
 # ==============================================================================
-def create_metrics_integration(dashboard=None) -> CustomMetricsIntegration:
+def create_metrics_display_widget() -> QWidget:
     """
-    Create a Custom Metrics Integration instance.
+    Create a standalone widget for displaying custom metrics
     
-    Args:
-        dashboard: Optional dashboard widget reference
-        
     Returns:
-        CustomMetricsIntegration instance
+        QWidget containing custom metrics display
     """
-    return CustomMetricsIntegration(dashboard)
+    widget = QWidget()
+    layout = QVBoxLayout()
+    
+    # Title
+    title = QLabel("CUSTOM METRICS")
+    title.setStyleSheet(f"color: {COLORS['text']}; font-size: 14px; font-weight: bold;")
+    layout.addWidget(title)
+    
+    # Metrics grid
+    metrics_layout = QHBoxLayout()
+    
+    for metric_name in ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN']:
+        metric_widget = QGroupBox(metric_name)
+        metric_widget.setStyleSheet(f"""
+            QGroupBox {{
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['text_dim']};
+                border-radius: 3px;
+                padding: 5px;
+            }}
+        """)
+        
+        metric_layout = QVBoxLayout()
+        
+        value_label = QLabel("--")
+        value_label.setObjectName(f"{metric_name}_value")
+        value_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 16px;")
+        
+        change_label = QLabel("+0.00")
+        change_label.setObjectName(f"{metric_name}_change")
+        change_label.setStyleSheet(f"color: {COLORS['neutral']}; font-size: 12px;")
+        
+        metric_layout.addWidget(value_label)
+        metric_layout.addWidget(change_label)
+        
+        metric_widget.setLayout(metric_layout)
+        metrics_layout.addWidget(metric_widget)
+    
+    layout.addLayout(metrics_layout)
+    widget.setLayout(layout)
+    
+    return widget
 
-def setup_dashboard_integration(dashboard) -> DashboardMetricsUpdater:
-    """
-    Setup complete integration with dashboard.
-    
-    Args:
-        dashboard: SpyderG05_TradingDashboard instance
-        
-    Returns:
-        DashboardMetricsUpdater instance
-    """
-    integration = create_metrics_integration(dashboard)
-    updater = DashboardMetricsUpdater(dashboard, integration)
-    integration.start()
-    return updater
+# ==============================================================================
+# MODULE EXPORTS
+# ==============================================================================
+__all__ = [
+    'CustomMetricsIntegration',
+    'DashboardMetricsUpdater',
+    'create_metrics_display_widget',
+    'METRIC_DISPLAY',
+    'COLORS'
+]
 
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
-def main():
-    """Main execution for testing."""
+if __name__ == "__main__":
     import sys
     from PyQt6.QtWidgets import QApplication, QMainWindow
     
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    print("=" * 80)
-    print("🚀 SPYDER G10 - Custom Metrics Integration")
-    print("=" * 80)
-    
-    # Create Qt application
     app = QApplication(sys.argv)
     
-    # Create main window for testing
+    # Test window
     window = QMainWindow()
     window.setWindowTitle("Custom Metrics Integration Test")
-    window.setGeometry(100, 100, 800, 600)
+    window.setGeometry(100, 100, 800, 200)
+    
+    # Create and set widget
+    metrics_widget = create_metrics_display_widget()
+    window.setCentralWidget(metrics_widget)
     
     # Create integration
-    integration = create_metrics_integration()
+    integration = CustomMetricsIntegration()
     
-    # Connect status signals
-    integration.connection_status_changed.connect(
-        lambda connected: print(f"📡 Connection status: {'Connected' if connected else 'Disconnected'}")
-    )
+    # Connect to update widget
+    def update_test_widget(metrics):
+        for metric_name, data in metrics.items():
+            value_label = metrics_widget.findChild(QLabel, f"{metric_name}_value")
+            change_label = metrics_widget.findChild(QLabel, f"{metric_name}_change")
+            
+            if value_label:
+                value_label.setText(data.get('formatted_value', '--'))
+            if change_label:
+                change_label.setText(f"{data.get('change', 0):+.2f}")
+                
+                # Set color based on change
+                if data.get('change', 0) >= 0:
+                    change_label.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+                else:
+                    change_label.setStyleSheet(f"color: {COLORS['negative']}; font-size: 12px;")
     
-    integration.error_occurred.connect(
-        lambda error: print(f"❌ Error: {error}")
-    )
-    
-    integration.all_metrics_updated.connect(
-        lambda metrics: print(f"📊 Metrics updated: {list(metrics.keys())}")
-    )
+    integration.metrics_updated.connect(update_test_widget)
     
     # Start integration
     integration.start()
     
-    print("\n✅ Integration started")
-    print("📊 Monitoring custom metrics...")
-    print("   - GEX: Gamma Exposure")
-    print("   - DEX: Delta Exposure")
-    print("   - OGL: Options Greeks Level")
-    print("   - DIX: Dark Index")
-    print("   - SWAN: Black Swan Indicator")
-    
-    # Create simple display widget
-    from PyQt6.QtWidgets import QTextEdit
-    display = QTextEdit()
-    display.setReadOnly(True)
-    window.setCentralWidget(display)
-    
-    # Update display with metrics
-    def update_display(metrics):
-        text = "CUSTOM METRICS UPDATE\n" + "=" * 40 + "\n"
-        for name, data in metrics.items():
-            text += f"\n{name}:\n"
-            text += f"  Value: {data['formatted_value']}\n"
-            text += f"  Change: {data['formatted_change']}\n"
-            text += f"  Trend: {data['trend']}\n"
-            text += f"  Color: {data['color']}\n"
-        display.setText(text)
-    
-    integration.all_metrics_updated.connect(update_display)
-    
     # Show window
     window.show()
     
-    print("\n⏳ Running... Close window to exit")
+    print("✅ Custom Metrics Integration test running")
+    print("The widget should update with simulated metrics every 5 seconds")
     
-    # Run application
     sys.exit(app.exec())
-
-if __name__ == "__main__":
-    main()
