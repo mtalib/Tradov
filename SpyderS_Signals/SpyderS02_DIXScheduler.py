@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderS05_DIXScheduler.py
+Module: SpyderS02_DIXScheduler.py
 Group: S (Signals)
 Purpose: Automated DIX Calculation Scheduler and Data Fetcher
 

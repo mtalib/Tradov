@@ -57,7 +57,7 @@ except ImportError:
 
 # Internal imports
 try:
-    from SpyderC_MarketData.SpyderC18_SKEWCalculator import (
+    from SpyderS_Signals.SpyderS06_SKEWCalculator import (
         get_skew_calculator, SKEWCalculation, SKEWComponents
     )
     SKEW_CALCULATOR_AVAILABLE = True

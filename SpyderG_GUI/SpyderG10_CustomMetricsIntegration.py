@@ -42,8 +42,8 @@ from PyQt6.QtGui import QColor
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderB_Broker.SpyderB18_CustomMetricsClient import (
-        CustomMetricsClient, get_metrics_client
+    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import (
+        CustomMetricsOrchestrator, get_metrics_client
     )
     from SpyderB_Broker.SpyderB19_Client10Configuration import (
         Client10Configuration, create_default_config

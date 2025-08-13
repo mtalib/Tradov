@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderS11_BlackSwanScheduler.py
+Module: SpyderS04_BlackSwanScheduler.py
 Group: S (Signals)
 Purpose: Daily automated scheduling and alerts for Black Swan monitoring
 Author: Mohamed Talib

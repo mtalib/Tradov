@@ -51,7 +51,7 @@ from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU07_Constants import OptionType, TimeFrame
 from SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
-from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
+from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GammaExposureCalculator
 from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
 # ==============================================================================

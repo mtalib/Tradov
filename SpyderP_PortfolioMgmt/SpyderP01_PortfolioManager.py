@@ -67,7 +67,7 @@ from SpyderE_Risk.SpyderE04_DrawdownControl import DrawdownController
 # Market data and analysis
 from SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
-from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
+from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GammaExposureCalculator
 
 # Integration components
 try:
@@ -2169,7 +2169,7 @@ from SpyderE_Risk.SpyderE04_DrawdownControl import DrawdownController
 # Market data and analysis
 from SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
 from SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
-from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
+from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GammaExposureCalculator
 
 # Integration components
 try:

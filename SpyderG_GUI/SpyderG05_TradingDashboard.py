@@ -128,8 +128,8 @@ try:
         CustomMetricsIntegration,
         DashboardMetricsUpdater,
     )
-    from SpyderB_Broker.SpyderB18_CustomMetricsClient import (
-        CustomMetricsClient,
+    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import (
+        CustomMetricsOrchestrator,
         get_metrics_client,
     )
 
