@@ -697,3 +697,13 @@ if __name__ == "__main__":
     
     print("\n" + "=" * 80)
     print("✅ Data Types test completed!")
+
+# Add at the end of the file
+class PositionData:
+    """Data structure for position information"""
+    def __init__(self):
+        self.symbol = ""
+        self.quantity = 0
+        self.entry_price = 0.0
+        self.current_price = 0.0
+        self.pnl = 0.0

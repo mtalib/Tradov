@@ -579,7 +579,7 @@ class ThreadSafeMarketDataWorker(QObject):
         self.last_data_update = {}
         self.stale_data_timer = QTimer()
         self.stale_data_timer.timeout.connect(self._check_data_freshness)
-        self.stale_data_timer.start(30000)  # Check every 30 seconds instead of 10
+        self.stale_data_timer.start(10000)
 
         self._init_simulation_data()
 
@@ -671,43 +671,18 @@ class ThreadSafeMarketDataWorker(QObject):
         self.market_data_status_changed.emit("LIVE")
 
     def _check_data_freshness(self):
-        """Check if data is stale and needs refresh - with warning suppression"""
+        """Check if data is stale and needs refresh"""
         if not is_market_hours():
             return
-        
-        # Add warning counter if it doesn't exist
-        if not hasattr(self, 'stale_warning_count'):
-            self.stale_warning_count = 0
-            self.stale_warning_shown = False
-        
+
         current_time = datetime.now()
         stale_threshold = timedelta(seconds=30)
-        stale_symbols = []
-        
+
         with QMutexLocker(self.data_mutex):
-            # Update the timestamps when we update data
             for symbol, last_update in self.last_data_update.items():
                 if current_time - last_update > stale_threshold:
-                    stale_symbols.append(symbol)
-                    # Update the timestamp to prevent repeated warnings
-                    self.last_data_update[symbol] = current_time
-        
-        # Only show first 5 warnings, then show summary
-        if stale_symbols:
-            if self.stale_warning_count < 5:
-                for symbol in stale_symbols[:5]:  # Only show first 5 symbols
-                    self.logger.debug(f"⚠️ Stale data detected for {symbol}")
-                self.stale_warning_count += len(stale_symbols)
-            elif not self.stale_warning_shown:
-                self.logger.debug(f"⚠️ Stale data detected for {len(stale_symbols)} symbols (warnings suppressed)")
-                self.stale_warning_shown = True
-                # Reset counter after showing summary
-                QTimer.singleShot(60000, self._reset_stale_warnings)  # Reset after 1 minute
-    
-    def _reset_stale_warnings(self):
-        """Reset stale warning counters"""
-        self.stale_warning_count = 0
-        self.stale_warning_shown = False
+                    print(f"⚠️ Stale data detected for {symbol}")
+
     def _emit_data(self):
         """Emit current market data"""
         with QMutexLocker(self.data_mutex):
@@ -717,30 +692,26 @@ class ThreadSafeMarketDataWorker(QObject):
         self.data_updated.emit(data_copy)
 
     def _update_simulation_data(self, data: dict):
-        """Update simulation data with realistic market movements"""
+        """Update simulation data"""
         if not is_market_hours():
             return
-        
-        current_time = datetime.now()
-        
+
         for symbol, market_info in data.items():
-            # Don't update custom metrics randomly
             if symbol not in ["GEX", "DEX", "OGL", "DIX", "SWAN"]:
                 old_price = market_info["last"]
                 change = random.uniform(-0.5, 0.5)
                 new_price = old_price + change
                 change_pct = (change / old_price * 100) if old_price != 0 else 0
-                
-                market_info.update({
-                    "last": new_price,
-                    "change": change,
-                    "change_pct": change_pct,
-                    "timestamp": current_time,
-                })
-            
-            # Update the last update time to prevent stale warnings
-            with QMutexLocker(self.data_mutex):
-                self.last_data_update[symbol] = current_time
+
+                market_info.update(
+                    {
+                        "last": new_price,
+                        "change": change,
+                        "change_pct": change_pct,
+                        "timestamp": datetime.now(),
+                    }
+                )
+
     def force_connect(self):
         """Manual connect"""
         print("🔄 Manual connect requested")
@@ -1725,7 +1696,7 @@ class SpyderTradingDashboard(QMainWindow):
     def update_prometheus_metrics(self):
         """Update Prometheus metrics display for unified table"""
         if self.get_client_status and self.get_system_metrics:
-            self.update_prometheus_metrics_simulated()
+            self.update_prometheus_metrics_real()
         else:
             self.update_prometheus_metrics_simulated()
 
@@ -1815,89 +1786,6 @@ class SpyderTradingDashboard(QMainWindow):
         self.system_stats["api"].setStyleSheet(
             f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
         )
-
-
-    def update_prometheus_metrics_real(self):
-        """Update unified Prometheus metrics with real data from collector"""
-        import random
-        
-        if not self.get_client_status or not self.get_system_metrics:
-            # Fall back to simulated if functions not available
-            self.update_prometheus_metrics_simulated()
-            return
-            
-        try:
-            # Update client statuses
-            active_count = 0
-            for i in range(1, 11):  # Clients 1-10
-                client_key = f"CLIENT {i}"
-                if client_key in self.client_indicators:
-                    try:
-                        status = self.get_client_status(i-1)  # 0-based index
-                        if status and status.get('connected'):
-                            self.client_indicators[client_key].setStyleSheet(
-                                f"color: {COLORS['positive']}; font-size: 11px;"
-                            )
-                            active_count += 1
-                        else:
-                            self.client_indicators[client_key].setStyleSheet(
-                                f"color: {COLORS['negative']}; font-size: 11px;"
-                            )
-                    except:
-                        # Default to active on error
-                        self.client_indicators[client_key].setStyleSheet(
-                            f"color: {COLORS['positive']}; font-size: 11px;"
-                        )
-                        active_count += 1
-            
-            # Update system components
-            for component, indicator in self.system_components.items():
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
-            
-            # Get system metrics
-            try:
-                metrics = self.get_system_metrics()
-                memory = metrics.get('memory_percent', 50)
-                cpu = metrics.get('cpu_percent', 25)
-                api_calls = metrics.get('api_calls_per_sec', 142)
-            except:
-                memory = random.randint(40, 60)
-                cpu = random.randint(20, 35)
-                api_calls = random.randint(100, 150)
-            
-            # Calculate health score
-            health_score = 100
-            health_score -= (memory - 45) if memory > 45 else 0
-            health_score -= (cpu - 20) if cpu > 20 else 0
-            health_score = max(0, min(100, int(health_score)))
-            
-            # Update stat labels
-            self.system_stats["health"].setText(f"Health: {health_score}/100")
-            if health_score > 80:
-                color = COLORS["positive"]
-            elif health_score > 60:
-                color = COLORS["neutral"]
-            else:
-                color = COLORS["negative"]
-            self.system_stats["health"].setStyleSheet(
-                f"color: {color}; font-size: 12px; padding-left: 10px;"
-            )
-            
-            self.system_stats["active"].setText(f"Active Clients: {active_count}/10")
-            self.system_stats["memory"].setText(f"Memory: {memory:.0f}%")
-            self.system_stats["cpu"].setText(f"CPU: {cpu:.0f}%")
-            self.system_stats["api"].setText(f"API/Sec: {api_calls}")
-            
-            # Set colors for all stats
-            for key in ["active", "memory", "cpu", "api"]:
-                self.system_stats[key].setStyleSheet(
-                    f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
-                )
-                
-        except Exception as e:
-            print(f"Error in update_prometheus_metrics_real: {e}")
-            # Fall back to simulated
-            self.update_prometheus_metrics_simulated()
 
     def setup_custom_metric_widgets(self):
         """Store references to custom metric widgets for updates."""

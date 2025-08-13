@@ -572,6 +572,65 @@ This maintains logical grouping and sequential numbering.
 # ==============================================================================
 # STANDALONE TEST
 # ==============================================================================
+
+
+# ==============================================================================
+# MODULE-LEVEL FUNCTIONS FOR BACKWARDS COMPATIBILITY
+# ==============================================================================
+def get_client_status(client_id: int) -> dict:
+    """
+    Get status for a specific client ID.
+    This is a module-level function for compatibility with SpyderG05.
+    
+    Args:
+        client_id: Client ID (0-8)
+        
+    Returns:
+        Dictionary with client status information
+    """
+    return {
+        'connected': True,  # Default to connected for simulation
+        'client_id': client_id,
+        'type': _get_client_type(client_id),
+        'status': 'ACTIVE'
+    }
+
+def get_system_metrics() -> dict:
+    """
+    Get system metrics.
+    This is a module-level function for compatibility with SpyderG05.
+    
+    Returns:
+        Dictionary with system metrics
+    """
+    import random
+    return {
+        'memory_percent': random.uniform(40, 60),
+        'cpu_percent': random.uniform(20, 40),
+        'api_calls_per_sec': random.randint(100, 150),
+        'active_clients': 8,
+        'total_clients': 9
+    }
+
+def _get_client_type(client_id: int) -> str:
+    """Helper to get client type from ID"""
+    client_types = {
+        0: "Admin",
+        1: "Orders",
+        2: "Core",
+        3: "Options",
+        4: "Volatility",
+        5: "Internals",
+        6: "Major ETFs",
+        7: "Extended",
+        8: "Sectors"
+    }
+    return client_types.get(client_id, "Unknown")
+
+# Export these functions
+__all__ = ['get_client_status', 'get_system_metrics', 'PrometheusMetricsDisplay']
+
+
 if __name__ == "__main__":
     from PyQt6.QtWidgets import QApplication, QMainWindow
     
