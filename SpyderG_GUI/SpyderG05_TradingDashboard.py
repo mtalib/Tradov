@@ -6,10 +6,10 @@ SPYDER - Autonomous Options Trading System
 Spyder Version: 1.0
 Module: SpyderG05_TradingDashboard.py
 Group: G (GUI/User Interface)
-Purpose: Complete Trading Dashboard with Unified Prometheus Metrics Table
+Purpose: Complete Trading Dashboard with Unified Prometheus Metrics Table & Signal Popups
 Author: Mohamed Talib
 Date Created: 2025-07-05
-Last Updated: 2025-08-12 Time: 21:00:00
+Last Updated: 2025-08-13 Time: 14:00:00
 
 Description:
     Enhanced trading dashboard with unified Prometheus Metrics monitoring table.
@@ -17,12 +17,15 @@ Description:
     (renumbered 1-10), and System Statistics in a single professional table.
     Includes market hours awareness, IB_async integration, and comprehensive metrics.
 
-    UPDATES IN V10:
-    - Integrated Client 10 (Custom Metrics) for GEX/DEX/OGL/DIX/SWAN
-    - Updated Prometheus table to show Client 10 as "Custom Metrics"
-    - Added custom metrics widget references and update methods
-    - Connected CustomMetricsIntegration with dashboard
-    - Added HMM and SKEW buttons to Signal Monitor (2x6 grid)
+    UPDATES IN V11:
+    - Integrated SignalInfoDialog (G12) for advanced signal popups
+    - Added auto-close functionality when switching between signals
+    - Enhanced signal buttons with professional popup dialogs
+    - Maintained specialized HMM and SKEW dialog support
+    - Added fallback handling for missing dialog modules
+    - Signal Monitor now uses 420x380 standardized popups
+    - FIXED: Separated IB Clients (1-10) from Internal Calculation Modules
+    - CORRECTED: Custom Metrics now properly categorized as internal modules
 """
 
 # ==============================================================================
@@ -148,6 +151,16 @@ sys.path.insert(0, str(project_root))
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
+# Import Signal Info Dialog for popup system
+try:
+    from SpyderG_GUI.SpyderG12_SignalInfoDialog import SignalInfoDialog
+
+    SIGNAL_DIALOG_AVAILABLE = True
+    print("✅ Signal Info Dialog module available")
+except ImportError:
+    SIGNAL_DIALOG_AVAILABLE = False
+    print("⚠️ Signal Info Dialog not available - using fallback QMessageBox")
+
 # Import Risk Parameters Dialog
 try:
     from SpyderG_GUI.SpyderG09_RiskParametersDialog import (
@@ -164,6 +177,7 @@ except ImportError:
 # Import HMM and SKEW Dialog modules
 try:
     from SpyderM_Monitoring.SpyderM06_HMMRegimeDetector import HMMMonitorDialog
+
     HMM_DIALOG_AVAILABLE = True
     print("✅ HMM Monitor Dialog available")
 except ImportError:
@@ -172,6 +186,7 @@ except ImportError:
 
 try:
     from SpyderG_GUI.SpyderG11_SkewMonitorDialog import SkewMonitorDialog
+
     SKEW_DIALOG_AVAILABLE = True
     print("✅ SKEW Monitor Dialog available")
 except ImportError:
@@ -457,7 +472,7 @@ class IBAsyncWorker(QObject):
             with QMutexLocker(self.data_mutex):
                 for ticker in self.tickers.values():
                     try:
-                        self.ib.cancelMktData(ticker.contract)
+                        self.ib.cancelMktData(ticker)
                     except:
                         pass
                 self.tickers.clear()
@@ -486,7 +501,7 @@ class IBAsyncWorker(QObject):
 
             print(f"Subscribing to {symbol}")
             self.ib.qualifyContracts(contract)
-            ticker = self.ib.reqMktData(contract, "", False, False)
+            ticker = self.ib.reqMktData(contract)
 
             with QMutexLocker(self.data_mutex):
                 self.contracts[symbol] = contract
@@ -674,16 +689,16 @@ class ThreadSafeMarketDataWorker(QObject):
         """Check if data is stale and needs refresh - with warning suppression"""
         if not is_market_hours():
             return
-        
+
         # Add warning counter if it doesn't exist
-        if not hasattr(self, 'stale_warning_count'):
+        if not hasattr(self, "stale_warning_count"):
             self.stale_warning_count = 0
             self.stale_warning_shown = False
-        
+
         current_time = datetime.now()
         stale_threshold = timedelta(seconds=30)
         stale_symbols = []
-        
+
         with QMutexLocker(self.data_mutex):
             # Update the timestamps when we update data
             for symbol, last_update in self.last_data_update.items():
@@ -691,7 +706,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     stale_symbols.append(symbol)
                     # Update the timestamp to prevent repeated warnings
                     self.last_data_update[symbol] = current_time
-        
+
         # Only show first 5 warnings, then show summary
         if stale_symbols:
             if self.stale_warning_count < 5:
@@ -699,15 +714,20 @@ class ThreadSafeMarketDataWorker(QObject):
                     self.logger.debug(f"⚠️ Stale data detected for {symbol}")
                 self.stale_warning_count += len(stale_symbols)
             elif not self.stale_warning_shown:
-                self.logger.debug(f"⚠️ Stale data detected for {len(stale_symbols)} symbols (warnings suppressed)")
+                self.logger.debug(
+                    f"⚠️ Stale data detected for {len(stale_symbols)} symbols (warnings suppressed)"
+                )
                 self.stale_warning_shown = True
                 # Reset counter after showing summary
-                QTimer.singleShot(60000, self._reset_stale_warnings)  # Reset after 1 minute
-    
+                QTimer.singleShot(
+                    60000, self._reset_stale_warnings
+                )  # Reset after 1 minute
+
     def _reset_stale_warnings(self):
         """Reset stale warning counters"""
         self.stale_warning_count = 0
         self.stale_warning_shown = False
+
     def _emit_data(self):
         """Emit current market data"""
         with QMutexLocker(self.data_mutex):
@@ -720,9 +740,9 @@ class ThreadSafeMarketDataWorker(QObject):
         """Update simulation data with realistic market movements"""
         if not is_market_hours():
             return
-        
+
         current_time = datetime.now()
-        
+
         for symbol, market_info in data.items():
             # Don't update custom metrics randomly
             if symbol not in ["GEX", "DEX", "OGL", "DIX", "SWAN"]:
@@ -730,20 +750,23 @@ class ThreadSafeMarketDataWorker(QObject):
                 change = random.uniform(-0.5, 0.5)
                 new_price = old_price + change
                 change_pct = (change / old_price * 100) if old_price != 0 else 0
-                
-                market_info.update({
-                    "last": new_price,
-                    "change": change,
-                    "change_pct": change_pct,
-                    "timestamp": current_time,
-                })
-            
+
+                market_info.update(
+                    {
+                        "last": new_price,
+                        "change": change,
+                        "change_pct": change_pct,
+                        "timestamp": current_time,
+                    }
+                )
+
             # Update the last update time to prevent stale warnings
             with QMutexLocker(self.data_mutex):
                 self.last_data_update[symbol] = current_time
+
     def force_connect(self):
         """Manual connect"""
-        print("🔄 Manual connect requested")
+        print("🔥 Manual connect requested")
         if not is_market_hours():
             print("📊 Cannot connect - market is closed")
             return False
@@ -754,7 +777,7 @@ class ThreadSafeMarketDataWorker(QObject):
 
     def force_disconnect(self):
         """Manual disconnect"""
-        print("🔄 Manual disconnect requested")
+        print("🔥 Manual disconnect requested")
         if self.ib_worker:
             self.ib_worker.disconnect()
         self.ib_connected = False
@@ -836,6 +859,8 @@ class TrafficLightButton(QPushButton):
 
 
 class SignalMonitorPanel(QWidget):
+    """Updated Signal Monitor Panel with integrated popup dialogs"""
+
     def __init__(self):
         super().__init__()
         # Increased height to accommodate 6 rows
@@ -899,7 +924,7 @@ class SignalMonitorPanel(QWidget):
 
         self.setLayout(layout)
 
-        # Store current dialog reference
+        # Store current dialog reference for auto-close functionality
         self.current_dialog = None
 
         self.update_timer = QTimer()
@@ -938,108 +963,197 @@ class SignalMonitorPanel(QWidget):
         if hmm_random < 0.4:
             self.hmm_button.set_status("green")  # Low volatility regime
         elif hmm_random < 0.7:
-            self.hmm_button.set_status("blue")   # Normal regime
+            self.hmm_button.set_status("blue")  # Normal regime
         elif hmm_random < 0.9:
-            self.hmm_button.set_status("yellow") # Transitioning
+            self.hmm_button.set_status("yellow")  # Transitioning
         else:
-            self.hmm_button.set_status("red")    # High volatility regime
+            self.hmm_button.set_status("red")  # High volatility regime
 
         # SKEW - based on tail risk levels
         skew_random = random.random()
         if skew_random < 0.5:
             self.skew_button.set_status("green")  # Normal skew
         elif skew_random < 0.8:
-            self.skew_button.set_status("yellow") # Elevated skew
+            self.skew_button.set_status("yellow")  # Elevated skew
         else:
-            self.skew_button.set_status("red")    # Extreme skew
+            self.skew_button.set_status("red")  # Extreme skew
 
     def close_current_dialog(self):
         """Close the currently open dialog if any"""
-        if self.current_dialog and self.current_dialog.isVisible():
+        if (
+            self.current_dialog
+            and hasattr(self.current_dialog, "isVisible")
+            and self.current_dialog.isVisible()
+        ):
             self.current_dialog.close()
             self.current_dialog = None
 
-    # Dialog show methods (existing)
+    def show_signal_dialog(self, signal_type: str):
+        """Generic method to show signal dialog with auto-close functionality"""
+        self.close_current_dialog()
+        self.current_dialog = SignalInfoDialog(signal_type, self)
+
+        # Position the dialog to the right of the signal panel
+        parent_pos = self.mapToGlobal(self.rect().topRight())
+        self.current_dialog.move(parent_pos.x() + 10, parent_pos.y())
+
+        # Connect the closed signal to clear the reference
+        self.current_dialog.closed.connect(
+            lambda: setattr(self, "current_dialog", None)
+        )
+        self.current_dialog.show()
+
+    # Updated dialog show methods to use the new SignalInfoDialog
     def show_vix_dialog(self):
         """Show VIX Monitor dialog"""
-        QMessageBox.information(self, "VIX Monitor", 
-                               "VIX: 15.32\nStatus: Normal\nImplied Move: ±0.96%")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("VIX MONITOR")
+        else:
+            QMessageBox.information(
+                self, "VIX Monitor", "VIX: 15.32\nStatus: Normal\nImplied Move: ±0.96%"
+            )
 
     def show_ai_dialog(self):
         """Show AI Decision dialog"""
-        QMessageBox.information(self, "AI Decision", 
-                               "Current Signal: NEUTRAL\nConfidence: 72%\nNext Decision: 5 min")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("AI DECISION")
+        else:
+            QMessageBox.information(
+                self,
+                "AI Decision",
+                "Current Signal: NEUTRAL\nConfidence: 72%\nNext Decision: 5 min",
+            )
 
     def show_gex_dialog(self):
         """Show GEX dialog"""
-        QMessageBox.information(self, "GEX Monitor", 
-                               "GEX: -$2.5B\nGamma Flip: 590\nRegime: Negative Gamma")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("GEX")
+        else:
+            QMessageBox.information(
+                self,
+                "GEX Monitor",
+                "GEX: -$2.5B\nGamma Flip: 590\nRegime: Negative Gamma",
+            )
 
     def show_dix_dialog(self):
         """Show DIX dialog"""
-        QMessageBox.information(self, "DIX Monitor", 
-                               "DIX: 42.5%\nDark Pool: Normal\nSentiment: Neutral")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("DIX")
+        else:
+            QMessageBox.information(
+                self, "DIX Monitor", "DIX: 42.5%\nDark Pool: Normal\nSentiment: Neutral"
+            )
 
     def show_rsi_dialog(self):
         """Show RSI Confluence dialog"""
-        QMessageBox.information(self, "RSI Confluence", 
-                               "RSI(14): 52\nRSI(5): 48\nStatus: Neutral Range")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("RSI CONFLUENCE")
+        else:
+            QMessageBox.information(
+                self, "RSI Confluence", "RSI(14): 52\nRSI(5): 48\nStatus: Neutral Range"
+            )
 
     def show_risk_dialog(self):
         """Show Risk Triggers dialog"""
-        QMessageBox.information(self, "Risk Triggers", 
-                               "Active Triggers: 0\nRisk Level: LOW\nMax Loss Today: -$125")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("RISK TRIGGERS")
+        else:
+            QMessageBox.information(
+                self,
+                "Risk Triggers",
+                "Active Triggers: 0\nRisk Level: LOW\nMax Loss Today: -$125",
+            )
 
     def show_ogl_dialog(self):
         """Show OGL dialog"""
-        QMessageBox.information(self, "OGL Monitor", 
-                               "OGL: 585.50\nCurrent SPY: 585.39\nPosition: Below OGL")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("OGL")
+        else:
+            QMessageBox.information(
+                self,
+                "OGL Monitor",
+                "OGL: 585.50\nCurrent SPY: 585.39\nPosition: Below OGL",
+            )
 
     def show_div_dialog(self):
         """Show Divergence dialog"""
-        QMessageBox.information(self, "Divergence Monitor", 
-                               "Price/RSI: None\nPrice/MACD: None\nStatus: No Divergence")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("DIVERGENCE")
+        else:
+            QMessageBox.information(
+                self,
+                "Divergence Monitor",
+                "Price/RSI: None\nPrice/MACD: None\nStatus: No Divergence",
+            )
 
     def show_dex_dialog(self):
         """Show DEX dialog"""
-        QMessageBox.information(self, "DEX Monitor", 
-                               "DEX: $850M\nDelta Neutral: 585\nFlow: Bullish")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("DEX")
+        else:
+            QMessageBox.information(
+                self, "DEX Monitor", "DEX: $850M\nDelta Neutral: 585\nFlow: Bullish"
+            )
 
     def show_swan_dialog(self):
         """Show Black Swan dialog"""
-        QMessageBox.information(self, "BLACK SWAN Monitor", 
-                               "SWAN Score: 1.85\nRisk Level: LOW\nTail Risk: Minimal")
+        if SIGNAL_DIALOG_AVAILABLE:
+            self.show_signal_dialog("BLACK SWAN")
+        else:
+            QMessageBox.information(
+                self,
+                "BLACK SWAN Monitor",
+                "SWAN Score: 1.85\nRisk Level: LOW\nTail Risk: Minimal",
+            )
 
-    # NEW dialog methods for HMM and SKEW
+    # NEW dialog methods for HMM and SKEW with specialized dialog support
     def show_hmm_dialog(self):
         """Show HMM Regime Detector dialog"""
+        # Check if there's a specialized HMM dialog available
         if HMM_DIALOG_AVAILABLE:
+            # Use the specialized HMM dialog if available
             self.close_current_dialog()
             self.current_dialog = HMMMonitorDialog(self)
             self.current_dialog.show()
+        elif SIGNAL_DIALOG_AVAILABLE:
+            # Use the standard signal dialog
+            self.show_signal_dialog("HMM")
         else:
-            QMessageBox.information(self, "HMM Regime Detector", 
-                                   "Current Regime: NORMAL\nProbability: 0.75\n"
-                                   "Transition Risk: LOW\n\n"
-                                   "Regime History:\n"
-                                   "- Low Vol: 45%\n"
-                                   "- Normal: 40%\n"
-                                   "- High Vol: 15%")
+            # Fallback to QMessageBox
+            QMessageBox.information(
+                self,
+                "HMM Regime Detector",
+                "Current Regime: NORMAL\nProbability: 0.75\n"
+                "Transition Risk: LOW\n\n"
+                "Regime History:\n"
+                "- Low Vol: 45%\n"
+                "- Normal: 40%\n"
+                "- High Vol: 15%",
+            )
 
     def show_skew_dialog(self):
         """Show SKEW Monitor dialog"""
+        # Check if there's a specialized SKEW dialog available
         if SKEW_DIALOG_AVAILABLE:
+            # Use the specialized SKEW dialog if available
             self.close_current_dialog()
             self.current_dialog = SkewMonitorDialog(self)
             self.current_dialog.show()
+        elif SIGNAL_DIALOG_AVAILABLE:
+            # Use the standard signal dialog
+            self.show_signal_dialog("SKEW")
         else:
-            QMessageBox.information(self, "SKEW Monitor", 
-                                   "CBOE SKEW Index: 125.5\nStatus: NORMAL\n"
-                                   "Tail Risk: Moderate\n\n"
-                                   "Strategy Impact:\n"
-                                   "- Puts: Fairly priced\n"
-                                   "- Calls: Normal premium\n"
-                                   "- Recommended: Iron Condors")
+            # Fallback to QMessageBox
+            QMessageBox.information(
+                self,
+                "SKEW Monitor",
+                "CBOE SKEW Index: 125.5\nStatus: NORMAL\n"
+                "Tail Risk: Moderate\n\n"
+                "Strategy Impact:\n"
+                "- Puts: Fairly priced\n"
+                "- Calls: Normal premium\n"
+                "- Recommended: Iron Condors",
+            )
 
 
 class MarketSymbolWidget(QWidget):
@@ -1222,7 +1336,7 @@ class GreekBar(QWidget):
 # MAIN DASHBOARD CLASS - WITH UNIFIED PROMETHEUS METRICS
 # ==============================================================================
 class SpyderTradingDashboard(QMainWindow):
-    """Complete dashboard with unified Prometheus metrics table"""
+    """Complete dashboard with unified Prometheus metrics table and signal popups"""
 
     def __init__(self):
         super().__init__()
@@ -1267,7 +1381,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.system_stats = {}
         self.prometheus_timer = None
 
-        # Custom Metrics Integration (Client 10)
+        # Custom Metrics Integration (Internal Module)
         self.custom_metrics_integration = None
         self.custom_metrics_updater = None
         self.custom_metrics_widgets = {}
@@ -1298,12 +1412,12 @@ class SpyderTradingDashboard(QMainWindow):
                 # Connect status signals
                 self.custom_metrics_integration.connection_status_changed.connect(
                     lambda connected: self.add_system_log(
-                        f"Client 10 (Custom Metrics) {'connected' if connected else 'disconnected'}"
+                        f"Custom Metrics Engine {'active' if connected else 'inactive'}"
                     )
                 )
 
                 self.logger.info(
-                    "✅ Custom Metrics Integration (Client 10) initialized"
+                    "✅ Custom Metrics Integration (Internal Module) initialized"
                 )
             except Exception as e:
                 self.logger.error(f"Failed to initialize Custom Metrics: {e}")
@@ -1312,7 +1426,7 @@ class SpyderTradingDashboard(QMainWindow):
         # Start market worker with ib_async
         self.start_market_worker()
 
-        self.logger.info("Dashboard initialized with unified Prometheus metrics table")
+        self.logger.info("Dashboard initialized with signal popup integration")
 
     def create_right_panel(self) -> QWidget:
         """Create right panel with AUTONOMOUS AI ACTIVITY and unified PROMETHEUS METRICS"""
@@ -1540,7 +1654,7 @@ class SpyderTradingDashboard(QMainWindow):
         return panel
 
     def create_unified_prometheus_metrics(self) -> QWidget:
-        """Create the unified Prometheus Metrics table (5x4 grid) - V10 WITH CLIENT 10"""
+        """Create the unified Prometheus Metrics table (6x4 grid) - V11 CORRECTED ARCHITECTURE"""
         container = QWidget()
         container.setStyleSheet(
             f"""
@@ -1551,18 +1665,18 @@ class SpyderTradingDashboard(QMainWindow):
             }}
         """
         )
-        container.setFixedHeight(180)  # Increased height for better fit
+        container.setFixedHeight(200)  # Increased height for 6 rows
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(10, 8, 10, 8)  # Adjusted margins
+        main_layout.setContentsMargins(10, 8, 10, 8)
         main_layout.setSpacing(2)
 
-        # Title - BIGGER to match AUTONOMOUS AI ACTIVITY
+        # Title
         title_label = QLabel("PROMETHEUS METRICS MONITOR")
         title_label.setStyleSheet(
             f"""
             color: {COLORS['text']};
-            font-size: 14px;  # BIGGER font for title
+            font-size: 14px;
             font-weight: normal;
             padding-bottom: 1px;
         """
@@ -1570,16 +1684,20 @@ class SpyderTradingDashboard(QMainWindow):
         title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         main_layout.addWidget(title_label)
 
-        # Increased spacing after title
-        main_layout.addSpacing(10)
+        main_layout.addSpacing(8)
 
-        # Create the 5x4 grid
+        # Create the 6x4 grid (added row for Internal Modules)
         grid = QGridLayout()
-        grid.setSpacing(2)  # Slightly increased spacing
+        grid.setSpacing(2)
         grid.setContentsMargins(0, 0, 0, 0)
 
-        # Column headers - SMALLER font size
-        headers = ["SYSTEM HEALTH", "CLIENTS 1-5", "CLIENTS 6-10", "SYSTEM STATS"]
+        # Column headers
+        headers = [
+            "SYSTEM HEALTH",
+            "IB CLIENTS 1-5",
+            "IB CLIENTS 6-10",
+            "INTERNAL MODULES",
+        ]
         for col, header in enumerate(headers):
             header_label = QLabel(header)
             header_label.setStyleSheet(
@@ -1606,7 +1724,7 @@ class SpyderTradingDashboard(QMainWindow):
         for row, (name, status) in enumerate(components, start=1):
             component_widget = QWidget()
             component_layout = QHBoxLayout()
-            component_layout.setContentsMargins(5, 1, 5, 1)  # Added vertical padding
+            component_layout.setContentsMargins(5, 1, 5, 1)
             component_layout.setSpacing(3)
 
             indicator = QLabel(status)
@@ -1622,16 +1740,129 @@ class SpyderTradingDashboard(QMainWindow):
             self.system_components[name] = indicator
             grid.addWidget(component_widget, row, 0)
 
-        # Clients 1-5 (Column 2)
+        # IB Clients 1-5 (Column 2)
+        client_1_5_types = ["Admin", "Orders", "Core", "Options", "Volatility"]
         for row in range(1, 6):
             client_widget = QWidget()
             client_layout = QHBoxLayout()
-            client_layout.setContentsMargins(5, 1, 5, 1)  # Added vertical padding
+            client_layout.setContentsMargins(5, 1, 5, 1)
             client_layout.setSpacing(3)
 
             indicator = QLabel("●")
             indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
             client_layout.addWidget(indicator)
+
+            label = QLabel(f"CLIENT {row}: {client_1_5_types[row-1]}")
+            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+            client_layout.addWidget(label)
+            client_layout.addStretch()
+
+            client_widget.setLayout(client_layout)
+            self.client_indicators[f"CLIENT {row}"] = indicator
+            grid.addWidget(client_widget, row, 1)
+
+        # IB Clients 6-10 (Column 3) - CORRECTED
+        client_6_10_types = [
+            "Internals",
+            "Major ETFs",
+            "Extended",
+            "Sector ETFs",
+            "International",
+        ]
+        for row in range(1, 6):
+            client_num = row + 5
+            client_widget = QWidget()
+            client_layout = QHBoxLayout()
+            client_layout.setContentsMargins(5, 1, 5, 1)
+            client_layout.setSpacing(3)
+
+            indicator = QLabel("●")
+            indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+            client_layout.addWidget(indicator)
+
+            label = QLabel(f"CLIENT {client_num}: {client_6_10_types[row-1]}")
+            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+            client_layout.addWidget(label)
+            client_layout.addStretch()
+
+            client_widget.setLayout(client_layout)
+            self.client_indicators[f"CLIENT {client_num}"] = indicator
+            grid.addWidget(client_widget, row, 2)
+
+        # Internal Modules (Column 4) - NEW CORRECTED COLUMN
+        internal_modules = [
+            ("Custom Metrics", "custom_metrics"),
+            ("Risk Calculator", "risk_calc"),
+            ("ML Engine", "ml_engine"),
+            ("Options Analyzer", "options"),
+            ("Performance", "performance"),
+        ]
+
+        for row, (module_name, module_key) in enumerate(internal_modules, start=1):
+            module_widget = QWidget()
+            module_layout = QHBoxLayout()
+            module_layout.setContentsMargins(5, 1, 5, 1)
+            module_layout.setSpacing(3)
+
+            indicator = QLabel("●")
+            # Custom Metrics gets special treatment for connection status
+            if module_key == "custom_metrics":
+                indicator.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+            else:
+                indicator.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 12px;"
+                )
+            module_layout.addWidget(indicator)
+
+            label = QLabel(module_name)
+            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+            module_layout.addWidget(label)
+            module_layout.addStretch()
+
+            module_widget.setLayout(module_layout)
+            # Store internal module indicators separately
+            if not hasattr(self, "internal_module_indicators"):
+                self.internal_module_indicators = {}
+            self.internal_module_indicators[module_key] = indicator
+            grid.addWidget(module_widget, row, 3)
+
+        # Set equal column stretch
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+        grid.setColumnStretch(3, 1)
+
+        # Set row heights
+        for row in range(1, 6):
+            grid.setRowMinimumHeight(row, 24)
+
+        main_layout.addLayout(grid)
+        main_layout.addStretch()
+
+        container.setLayout(main_layout)
+        return container
+
+    def update_prometheus_metrics(self):
+        """Update Prometheus metrics display for unified table"""
+        if self.get_client_status and self.get_system_metrics:
+            self.update_prometheus_metrics_simulated()
+        else:
+            self.update_prometheus_metrics_simulated()
+
+    def update_prometheus_metrics_simulated(self):
+        """Update unified Prometheus metrics with simulated data - V11 CORRECTED ARCHITECTURE"""
+        import random
+
+        # Update system components
+        for component, indicator in self.system_components.items():
+            if random.random() > 0.95:  # 5% chance of issue
+                indicator.setStyleSheet(
+                    f"color: {COLORS['negative']}; font-size: 12px;"
+                )
+            else:
+                indicator.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 12px;"
+                )
 
             if row <= 4:
                 client_types = ["Admin", "Orders", "Core", "Options", "Volatility"]
@@ -1689,48 +1920,8 @@ class SpyderTradingDashboard(QMainWindow):
             self.client_indicators[f"CLIENT {client_num}"] = indicator
             grid.addWidget(client_widget, row, 2)
 
-        # System Stats (Column 4) - UPDATED FOR 10 CLIENTS
-        stats = [
-            ("Health: 97/100", "health"),
-            ("Active Clients: 10/10", "active"),  # Changed to 10/10
-            ("Memory: 54%", "memory"),
-            ("CPU: 27%", "cpu"),
-            ("API/Sec: 142", "api"),
-        ]
-
-        for row, (stat_text, stat_key) in enumerate(stats, start=1):
-            stat_label = QLabel(stat_text)
-            stat_label.setStyleSheet(
-                f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
-            )
-            self.system_stats[stat_key] = stat_label
-            grid.addWidget(stat_label, row, 3)
-
-        # Set equal column stretch - Distribute columns evenly
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 1)
-        grid.setColumnStretch(3, 1)
-
-        # Set row heights to make content taller
-        for row in range(1, 6):
-            grid.setRowMinimumHeight(row, 24)  # Set minimum height for each row
-
-        main_layout.addLayout(grid)
-        main_layout.addStretch()
-
-        container.setLayout(main_layout)
-        return container
-
-    def update_prometheus_metrics(self):
-        """Update Prometheus metrics display for unified table"""
-        if self.get_client_status and self.get_system_metrics:
-            self.update_prometheus_metrics_simulated()
-        else:
-            self.update_prometheus_metrics_simulated()
-
     def update_prometheus_metrics_simulated(self):
-        """Update unified Prometheus metrics with simulated data - V10 WITH CLIENT 10"""
+        """Update unified Prometheus metrics with simulated data - V11 CORRECTED ARCHITECTURE"""
         import random
 
         # Update system components
@@ -1744,33 +1935,45 @@ class SpyderTradingDashboard(QMainWindow):
                     f"color: {COLORS['positive']}; font-size: 11px;"
                 )
 
-        # Update client statuses (1-10 with Client 10 for Custom Metrics)
-        active_count = 0
+        # Update IB client statuses (1-10, all for IB Gateway connections)
+        active_ib_clients = 0
         for client_id, indicator in self.client_indicators.items():
-            if "CLIENT 10" in client_id:
-                # Client 10 is active for Custom Metrics
-                if (
-                    self.custom_metrics_integration
-                    and self.custom_metrics_integration.is_connected()
-                ):
-                    indicator.setStyleSheet(
-                        f"color: {COLORS['positive']}; font-size: 11px;"
-                    )
-                    active_count += 1
-                else:
-                    indicator.setStyleSheet(
-                        f"color: {COLORS['warning']}; font-size: 11px;"
-                    )
-                continue
-            elif random.random() > 0.1:  # 90% chance of being active
+            if random.random() > 0.1:  # 90% chance of being active
                 indicator.setStyleSheet(
                     f"color: {COLORS['positive']}; font-size: 11px;"
                 )
-                active_count += 1
+                active_ib_clients += 1
             else:
                 indicator.setStyleSheet(
                     f"color: {COLORS['negative']}; font-size: 11px;"
                 )
+
+        # Update internal modules
+        if hasattr(self, "internal_module_indicators"):
+            for module_key, indicator in self.internal_module_indicators.items():
+                if module_key == "custom_metrics":
+                    # Custom Metrics status based on actual integration
+                    if (
+                        self.custom_metrics_integration
+                        and self.custom_metrics_integration.is_connected()
+                    ):
+                        indicator.setStyleSheet(
+                            f"color: {COLORS['positive']}; font-size: 11px;"
+                        )
+                    else:
+                        indicator.setStyleSheet(
+                            f"color: {COLORS['warning']}; font-size: 11px;"
+                        )
+                else:
+                    # Other internal modules - mostly active
+                    if random.random() > 0.05:  # 95% chance of being active
+                        indicator.setStyleSheet(
+                            f"color: {COLORS['positive']}; font-size: 11px;"
+                        )
+                    else:
+                        indicator.setStyleSheet(
+                            f"color: {COLORS['negative']}; font-size: 11px;"
+                        )
 
         # Update system stats
         memory = random.randint(40, 60)
@@ -1783,62 +1986,66 @@ class SpyderTradingDashboard(QMainWindow):
         health_score -= (cpu - 20) if cpu > 20 else 0
         health_score = max(0, min(100, int(health_score)))
 
-        # Update stat labels with increased font size
-        self.system_stats["health"].setText(f"Health: {health_score}/100")
-        if health_score > 80:
-            color = COLORS["positive"]
-        elif health_score > 60:
-            color = COLORS["neutral"]
-        else:
-            color = COLORS["negative"]
-        self.system_stats["health"].setStyleSheet(
-            f"color: {color}; font-size: 12px; font-weight: normal; padding-left: 10px;"
-        )
+        # Update stat labels - Check if system_stats widgets exist
+        if "health" in self.system_stats:
+            self.system_stats["health"].setText(f"Health: {health_score}/100")
+            if health_score > 80:
+                color = COLORS["positive"]
+            elif health_score > 60:
+                color = COLORS["neutral"]
+            else:
+                color = COLORS["negative"]
+            self.system_stats["health"].setStyleSheet(
+                f"color: {color}; font-size: 12px; font-weight: normal; padding-left: 10px;"
+            )
 
-        # Update system stats - Changed to show out of 10 clients
-        self.system_stats["active"].setText(f"Active Clients: {active_count}/10")
-        self.system_stats["active"].setStyleSheet(
-            f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
-        )
+        # Update system stats - Now shows IB Clients specifically
+        if "active" in self.system_stats:
+            self.system_stats["active"].setText(f"IB Clients: {active_ib_clients}/10")
+            self.system_stats["active"].setStyleSheet(
+                f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
+            )
 
-        self.system_stats["memory"].setText(f"Memory: {memory}%")
-        self.system_stats["memory"].setStyleSheet(
-            f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
-        )
+        if "memory" in self.system_stats:
+            self.system_stats["memory"].setText(f"Memory: {memory}%")
+            self.system_stats["memory"].setStyleSheet(
+                f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
+            )
 
-        self.system_stats["cpu"].setText(f"CPU: {cpu}%")
-        self.system_stats["cpu"].setStyleSheet(
-            f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
-        )
+        if "cpu" in self.system_stats:
+            self.system_stats["cpu"].setText(f"CPU: {cpu}%")
+            self.system_stats["cpu"].setStyleSheet(
+                f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
+            )
 
-        self.system_stats["api"].setText(f"API/Sec: {api_calls}")
-        self.system_stats["api"].setStyleSheet(
-            f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
-        )
-
+        if "api" in self.system_stats:
+            self.system_stats["api"].setText(f"API/Sec: {api_calls}")
+            self.system_stats["api"].setStyleSheet(
+                f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
+            )
 
     def update_prometheus_metrics_real(self):
-        """Update unified Prometheus metrics with real data from collector"""
+        """Update unified Prometheus metrics with real data from collector - V11 CORRECTED"""
         import random
-        
+
         if not self.get_client_status or not self.get_system_metrics:
             # Fall back to simulated if functions not available
             self.update_prometheus_metrics_simulated()
             return
-            
+
         try:
-            # Update client statuses
-            active_count = 0
-            for i in range(1, 11):  # Clients 1-10
+            # Update IB client statuses (1-10, all for IB Gateway)
+            active_ib_clients = 0
+            for i in range(1, 11):  # IB Clients 1-10
                 client_key = f"CLIENT {i}"
                 if client_key in self.client_indicators:
                     try:
-                        status = self.get_client_status(i-1)  # 0-based index
-                        if status and status.get('connected'):
+                        status = self.get_client_status(i - 1)  # 0-based index
+                        if status and status.get("connected"):
                             self.client_indicators[client_key].setStyleSheet(
                                 f"color: {COLORS['positive']}; font-size: 11px;"
                             )
-                            active_count += 1
+                            active_ib_clients += 1
                         else:
                             self.client_indicators[client_key].setStyleSheet(
                                 f"color: {COLORS['negative']}; font-size: 11px;"
@@ -1848,52 +2055,85 @@ class SpyderTradingDashboard(QMainWindow):
                         self.client_indicators[client_key].setStyleSheet(
                             f"color: {COLORS['positive']}; font-size: 11px;"
                         )
-                        active_count += 1
-            
+                        active_ib_clients += 1
+
             # Update system components
             for component, indicator in self.system_components.items():
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 11px;")
-            
+                indicator.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 11px;"
+                )
+
+            # Update internal modules
+            if hasattr(self, "internal_module_indicators"):
+                for module_key, indicator in self.internal_module_indicators.items():
+                    if module_key == "custom_metrics":
+                        # Real status for Custom Metrics
+                        if (
+                            self.custom_metrics_integration
+                            and self.custom_metrics_integration.is_connected()
+                        ):
+                            indicator.setStyleSheet(
+                                f"color: {COLORS['positive']}; font-size: 11px;"
+                            )
+                        else:
+                            indicator.setStyleSheet(
+                                f"color: {COLORS['warning']}; font-size: 11px;"
+                            )
+                    else:
+                        # Other internal modules default to active
+                        indicator.setStyleSheet(
+                            f"color: {COLORS['positive']}; font-size: 11px;"
+                        )
+
             # Get system metrics
             try:
                 metrics = self.get_system_metrics()
-                memory = metrics.get('memory_percent', 50)
-                cpu = metrics.get('cpu_percent', 25)
-                api_calls = metrics.get('api_calls_per_sec', 142)
+                memory = metrics.get("memory_percent", 50)
+                cpu = metrics.get("cpu_percent", 25)
+                api_calls = metrics.get("api_calls_per_sec", 142)
             except:
                 memory = random.randint(40, 60)
                 cpu = random.randint(20, 35)
                 api_calls = random.randint(100, 150)
-            
+
             # Calculate health score
             health_score = 100
             health_score -= (memory - 45) if memory > 45 else 0
             health_score -= (cpu - 20) if cpu > 20 else 0
             health_score = max(0, min(100, int(health_score)))
-            
-            # Update stat labels
-            self.system_stats["health"].setText(f"Health: {health_score}/100")
-            if health_score > 80:
-                color = COLORS["positive"]
-            elif health_score > 60:
-                color = COLORS["neutral"]
-            else:
-                color = COLORS["negative"]
-            self.system_stats["health"].setStyleSheet(
-                f"color: {color}; font-size: 12px; padding-left: 10px;"
-            )
-            
-            self.system_stats["active"].setText(f"Active Clients: {active_count}/10")
-            self.system_stats["memory"].setText(f"Memory: {memory:.0f}%")
-            self.system_stats["cpu"].setText(f"CPU: {cpu:.0f}%")
-            self.system_stats["api"].setText(f"API/Sec: {api_calls}")
-            
-            # Set colors for all stats
-            for key in ["active", "memory", "cpu", "api"]:
-                self.system_stats[key].setStyleSheet(
-                    f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
+
+            # Update stat labels - Check if system_stats widgets exist
+            if "health" in self.system_stats:
+                self.system_stats["health"].setText(f"Health: {health_score}/100")
+                if health_score > 80:
+                    color = COLORS["positive"]
+                elif health_score > 60:
+                    color = COLORS["neutral"]
+                else:
+                    color = COLORS["negative"]
+                self.system_stats["health"].setStyleSheet(
+                    f"color: {color}; font-size: 12px; padding-left: 10px;"
                 )
-                
+
+            # Update system stats - Now shows IB Clients specifically
+            if "active" in self.system_stats:
+                self.system_stats["active"].setText(
+                    f"IB Clients: {active_ib_clients}/10"
+                )
+            if "memory" in self.system_stats:
+                self.system_stats["memory"].setText(f"Memory: {memory:.0f}%")
+            if "cpu" in self.system_stats:
+                self.system_stats["cpu"].setText(f"CPU: {cpu:.0f}%")
+            if "api" in self.system_stats:
+                self.system_stats["api"].setText(f"API/Sec: {api_calls}")
+
+            # Set colors for all stats that exist
+            for key in ["active", "memory", "cpu", "api"]:
+                if key in self.system_stats:
+                    self.system_stats[key].setStyleSheet(
+                        f"color: {COLORS['positive']}; font-size: 12px; padding-left: 10px;"
+                    )
+
         except Exception as e:
             print(f"Error in update_prometheus_metrics_real: {e}")
             # Fall back to simulated
@@ -2986,7 +3226,7 @@ class SpyderTradingDashboard(QMainWindow):
         """Refresh market data - callback for refresh icon click"""
         try:
             if self.market_worker:
-                self.add_system_log("🔄 Refreshing market data...")
+                self.add_system_log("🔥 Refreshing market data...")
 
                 if not self.ib_connected:
                     self.add_system_log(
@@ -3295,9 +3535,9 @@ class SpyderTradingDashboard(QMainWindow):
         self.system_log.setTextCursor(cursor)
 
     def closeEvent(self, event):
-        """Handle application close event - UPDATED WITH CLIENT 10"""
+        """Handle application close event - UPDATED WITH CORRECTED ARCHITECTURE"""
         try:
-            # Stop Custom Metrics Integration
+            # Stop Custom Metrics Integration (Internal Module)
             if (
                 hasattr(self, "custom_metrics_integration")
                 and self.custom_metrics_integration
@@ -3336,12 +3576,15 @@ def main():
     app.setStyle("Fusion")
 
     print("\n" + "=" * 60)
-    print("SPYDER G05 - TRADING DASHBOARD (V10 - WITH HMM & SKEW)")
+    print("SPYDER G05 - TRADING DASHBOARD (V11 - CORRECTED ARCHITECTURE)")
     print("=" * 60)
-    print("✅ Client 10 (Custom Metrics) integrated")
+    print("✅ Custom Metrics Engine (Internal Module) integrated")
     print("✅ GEX/DEX/OGL/DIX/SWAN indicators active")
     print("✅ HMM and SKEW buttons added to Signal Monitor")
-    print("✅ Prometheus table shows 10 clients")
+    print("✅ SignalInfoDialog (G12) integration complete")
+    print("✅ Auto-close functionality for signal popups")
+    print("✅ IB Clients 1-10 properly separated from Internal Modules")
+    print("✅ Prometheus table shows corrected architecture")
     print("✅ Custom metrics widgets connected")
     print(f"\n🔧 Using Client ID: {CLIENT_ID}")
     print(f"⏰ Current Market Status: {'OPEN' if is_market_hours() else 'CLOSED'}")
@@ -3350,9 +3593,16 @@ def main():
     print(f"🕐 Current Time: {current_et}")
 
     if CUSTOM_METRICS_AVAILABLE:
-        print("✅ Custom Metrics modules available - Client 10 active")
+        print("✅ Custom Metrics Engine available - Internal calculations active")
     else:
-        print("⚠️ Custom Metrics modules not available - Client 10 in simulation")
+        print(
+            "⚠️ Custom Metrics Engine not available - Internal calculations in simulation"
+        )
+
+    if SIGNAL_DIALOG_AVAILABLE:
+        print("✅ Signal Info Dialog (G12) available - Advanced popups enabled")
+    else:
+        print("⚠️ Signal Info Dialog not available - Using fallback QMessageBox")
 
     if HMM_DIALOG_AVAILABLE:
         print("✅ HMM Monitor Dialog available")
@@ -3381,6 +3631,20 @@ def main():
     print("   Row 4: [OGL]            [DIVERGENCE]")
     print("   Row 5: [DEX]            [BLACK SWAN]")
     print("   Row 6: [HMM]            [SKEW]  ← NEW!")
+
+    print("\n🔗 Signal Popup Features:")
+    print("   • 420x380 standardized popup dialogs")
+    print("   • Auto-close when switching between signals")
+    print("   • Comprehensive signal explanations")
+    print("   • Professional dark theme styling")
+    print("   • Fallback to QMessageBox if G12 unavailable")
+    print("   • Specialized HMM and SKEW dialogs when available")
+
+    print("\n🏗️ Corrected Architecture:")
+    print("   • IB Clients 1-10: All for Interactive Brokers connections")
+    print("   • Internal Modules: Custom Metrics, Risk Calc, ML Engine, etc.")
+    print("   • Custom Metrics: Internal calculations (GEX/DEX/OGL/DIX/SWAN)")
+    print("   • Prometheus Monitor: Proper separation of IB vs Internal systems")
     print("=" * 60 + "\n")
 
     dashboard = SpyderTradingDashboard()
