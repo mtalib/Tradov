@@ -1145,7 +1145,13 @@ class EventRouter:
             current_time = datetime.now()
             cutoff_time = current_time - timedelta(seconds=window_seconds)
             
-            recent_events = events_df#!/usr/bin/env python3
+            recent_events = events_df[events_df['timestamp'] >= cutoff_time]
+            
+            return recent_events
+            
+        except Exception as e:
+            self.logger.error(f"Error getting recent events: {e}")
+            return pd.DataFrame()
 # -*- coding: utf-8 -*-
 """
 SPYDER - Automated SPY Options Trading System

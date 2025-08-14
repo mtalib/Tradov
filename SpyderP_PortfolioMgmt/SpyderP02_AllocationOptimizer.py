@@ -2752,21 +2752,14 @@ class AllocationOptimizer:
                 M1 = linalg.inv(tau * cov_matrix.values)
                 M2 = np.dot(P.T, np.dot(linalg.inv(Omega), P))
                 M3 = np.dot(linalg.inv(tau * cov_matrix.values), pi)
-                M4
+                M4 = np.dot(P.T, np.dot(linalg.inv(Omega), Q))
                 
+                # Black-Litterman expected returns
+                mu_bl = np.dot(linalg.inv(M1 + M2), M3 + M4)
+                cov_bl = linalg.inv(M1 + M2)
                 
+                return pd.Series(mu_bl, index=expected_returns.index), pd.DataFrame(cov_bl, index=expected_returns.index, columns=expected_returns.index)
                 
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
-                
+        except Exception as e:
+            self.logger.error(f"Error in Black-Litterman optimization: {e}")
+            return expected_returns, cov_matrix

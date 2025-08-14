@@ -833,3 +833,7 @@ class RealTimePredictor:
         
         # Subscribe to model updates
         self.event_manager.subscribe(
+            EventType.MODEL_UPDATE,
+            self._on_model_update,
+            subscriber_id="realtime_predictor"
+        )

@@ -1127,8 +1127,7 @@ class AutoHedger(SpyderEngineProcess):
         self.current_exposure.gamma = greek_data.get('gamma', 0)
         self.current_exposure.theta = greek_data.get('theta', 0)
         self.current_exposure.vega = greek_data.get('vega', 0)
-        self.current_exposure.delta_dollars = greek_data.get('delta_
-            , 0)
+        self.current_exposure.delta_dollars = greek_data.get('delta_dollars', 0)
         self.current_exposure.last_update = time.time()
         
         # Add to history

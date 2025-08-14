@@ -2892,6 +2892,11 @@ class PortfolioManager:
             # Performance summary
             performance_summary = {
                 'total_return': f"{metrics.total_return:.2%}",
-                'ytd_return': f"{metrics.ytd_return     
-                
-  
+                'ytd_return': f"{metrics.ytd_return:.2%}"
+            }
+            
+            return performance_summary
+            
+        except Exception as e:
+            self.logger.error(f"Error generating performance summary: {e}")
+            return {}

@@ -638,6 +638,7 @@ Provide a JSON response with:
     async def _get_ai_alert_patterns(self, alerts: List[Alert]) -> Dict[str, Any]:
         """Get AI analysis of alert patterns."""
         if not self.ollama_client:
+            return False
     
     # ==========================================================================
     # CONDITION EVALUATION METHODS

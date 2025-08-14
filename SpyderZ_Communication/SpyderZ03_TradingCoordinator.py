@@ -511,6 +511,7 @@ class MessageSequencer:
             # Old message, discard
             self.logger.warning(f"Handling failure for engine: {engine_id}")
             
+        try:
             with self._lock:
                 if engine_id not in self.engines:
                     return
@@ -873,8 +874,7 @@ if __name__ == "__main__":
     print("   • Comprehensive monitoring and metrics")
     print("   • Circuit breaker protection")
     print("   • Automatic backup synchronization")
-    print("   • Command retry with exponential backoff")Discarding old message with sequence {sequence}")
-            return False
+    print("   • Command retry with exponential backoff")
     
     def get_expected_sequence(self, key: str) -> int:
         """Get expected sequence number for a key."""
@@ -1526,4 +1526,13 @@ class TradingCoordinator:
     def _handle_engine_failure(self, engine_id: str):
         """Handle engine failure."""
         try:
-            self.logger.warning(f"
+            self.logger.warning(f"Handling engine failure for: {engine_id}")
+            
+            # Handle the failure logic here
+            with self._lock:
+                if engine_id in self.engines:
+                    del self.engines[engine_id]
+                    self.logger.info(f"Removed failed engine: {engine_id}")
+                    
+        except Exception as e:
+            self.logger.error(f"Error handling engine failure: {e}")

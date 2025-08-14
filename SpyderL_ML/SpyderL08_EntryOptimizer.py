@@ -496,22 +496,22 @@ class EntryOptimizer:
             self.feature_names = list(X_selected.columns)
             
             # Calculate feature importance
-           self._calculate_feature_importance(X_scaled, y)
-           
+            self._calculate_feature_importance(X_scaled, y)
+            
             # Store performance metrics
-           self.model_performance = metrics
-           
-           return metrics
-           
-       except Exception as e:
-           self.logger.error(f"Error training models: {e}")
-           self.error_handler.handle_error(e, "train")
-           return {}
-   
-   # ==========================================================================
-   # PUBLIC METHODS - ANALYSIS
-   # ==========================================================================
-   def analyze_entry_patterns(
+            self.model_performance = metrics
+            
+            return metrics
+            
+        except Exception as e:
+            self.logger.error(f"Error training models: {e}")
+            self.error_handler.handle_error(e, "train")
+            return {}
+    
+    # ==========================================================================
+    # PUBLIC METHODS - ANALYSIS
+    # ==========================================================================
+    def analyze_entry_patterns(
        self,
        lookback_days: int = 30
    ) -> Dict[str, Any]:
