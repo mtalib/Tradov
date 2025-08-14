@@ -21,7 +21,7 @@ except ImportError:
 try:
     from .SpyderE04_CircuitBreakerProtocol import CircuitBreaker
 except ImportError:
-    print("Warning: Could not import CircuitBreaker") 
+    print("Warning: Could not import CircuitBreaker")
 
 try:
     from .SpyderE05_AutomaticRebalancer import AutomaticRebalancer
@@ -32,7 +32,7 @@ except ImportError:
 __all__ = [
     "RiskManager",
     "RiskProfile",
-    "GreekLimitsManager", 
+    "GreekLimitsManager",
     "CircuitBreaker",
     "AutomaticRebalancer",
 ]

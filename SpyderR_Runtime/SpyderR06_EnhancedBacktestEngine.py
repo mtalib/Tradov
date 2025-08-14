@@ -588,7 +588,7 @@ class EnhancedBacktestEngine:
             'symbol': signal['symbol'],
             'strategy_id': strategy_id,
             'quantity': position_size,
-            'order_type': signal.get('order_type', OrderType.MARKET),
+            'order_type': signal.get('order_type', MARKET),
             'direction': signal['direction'],
             'limit_price': signal.get('limit_price'),
             'stop_price': signal.get('stop_price')

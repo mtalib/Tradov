@@ -17,39 +17,37 @@ Date: 2025-01-10
 Version: 2.0 (Production-Ready)
 """
 
+import asyncio
+import json
+import threading
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import uuid
-import asyncio
 from abc import ABC, abstractmethod
-from datetime import datetime, time, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union, Callable
-from dataclasses import dataclass, field
-from enum import Enum, auto
 from collections import defaultdict
-import json
-import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from datetime import datetime, time, timedelta
+from enum import Enum, auto
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
-import numpy as np
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderU_Utilities.SpyderU07_Constants import (
-    MAX_POSITION_SIZE,
-    MAX_PORTFOLIO_RISK,
-    STOP_LOSS_PERCENTAGE,
-    TAKE_PROFIT_PERCENTAGE,
-    MAX_DAILY_TRADES
-)
+from SpyderU_Utilities.SpyderU07_Constants import (MAX_DAILY_TRADES,
+                                                MAX_PORTFOLIO_RISK,
+                                                MAX_POSITION_SIZE,
+                                                STOP_LOSS_PERCENTAGE,
+                                                TAKE_PROFIT_PERCENTAGE)
 
 # ==============================================================================
 # CONSTANTS
@@ -74,29 +72,38 @@ PERFORMANCE_WINDOW_DAYS = 30
 # ==============================================================================
 # ENUMS
 # ==============================================================================
+
+
 class SignalType(Enum):
     """Types of trading signals"""
+
     BUY = "buy"
     SELL = "sell"
     CLOSE = "close"
     ADJUST = "adjust"
     HOLD = "hold"
 
+
 class SignalStrength(Enum):
     """Signal strength classification"""
+
     WEAK = "weak"
     MODERATE = "moderate"
     STRONG = "strong"
     VERY_STRONG = "very_strong"
 
+
 class PositionType(Enum):
     """Position types"""
+
     LONG = "long"
     SHORT = "short"
     NEUTRAL = "neutral"
 
+
 class PositionState(Enum):
     """Position lifecycle states"""
+
     PENDING = "pending"
     OPENING = "opening"
     OPEN = "open"
@@ -106,19 +113,25 @@ class PositionState(Enum):
     CANCELLED = "cancelled"
     ERROR = "error"
 
+
 class RiskLevel(Enum):
     """Risk level classification"""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
+
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
+
+
 @dataclass
 class TradingSignal:
     """Trading signal data structure"""
+
     signal_id: str
     signal_type: SignalType
     symbol: str
@@ -131,31 +144,33 @@ class TradingSignal:
     timestamp: datetime
     expires_at: datetime
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def is_valid(self) -> bool:
         """Check if signal is still valid"""
         return datetime.now() < self.expires_at
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""
         return {
-            'signal_id': self.signal_id,
-            'signal_type': self.signal_type.value,
-            'symbol': self.symbol,
-            'strength': self.strength.value,
-            'confidence': self.confidence,
-            'entry_price': self.entry_price,
-            'stop_loss': self.stop_loss,
-            'take_profit': self.take_profit,
-            'position_size': self.position_size,
-            'timestamp': self.timestamp.isoformat(),
-            'expires_at': self.expires_at.isoformat(),
-            'metadata': self.metadata
+            "signal_id": self.signal_id,
+            "signal_type": self.signal_type.value,
+            "symbol": self.symbol,
+            "strength": self.strength.value,
+            "confidence": self.confidence,
+            "entry_price": self.entry_price,
+            "stop_loss": self.stop_loss,
+            "take_profit": self.take_profit,
+            "position_size": self.position_size,
+            "timestamp": self.timestamp.isoformat(),
+            "expires_at": self.expires_at.isoformat(),
+            "metadata": self.metadata,
         }
+
 
 @dataclass
 class StrategyPosition:
     """Strategy position tracking"""
+
     position_id: str
     strategy_name: str
     symbol: str
@@ -173,7 +188,7 @@ class StrategyPosition:
     exit_price: Optional[float] = None
     exit_reason: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def update_pnl(self, current_price: float) -> None:
         """Update P&L calculations"""
         self.current_price = current_price
@@ -181,24 +196,26 @@ class StrategyPosition:
             self.unrealized_pnl = (current_price - self.entry_price) * self.position_size
         else:  # SHORT
             self.unrealized_pnl = (self.entry_price - current_price) * self.position_size
-    
+
     def close_position(self, exit_price: float, exit_reason: str) -> None:
         """Close position and finalize P&L"""
         self.exit_time = datetime.now()
         self.exit_price = exit_price
         self.exit_reason = exit_reason
         self.state = PositionState.CLOSED
-        
+
         if self.position_type == PositionType.LONG:
             self.realized_pnl = (exit_price - self.entry_price) * self.position_size
         else:  # SHORT
             self.realized_pnl = (self.entry_price - exit_price) * self.position_size
-        
+
         self.unrealized_pnl = 0.0
+
 
 @dataclass
 class RiskProfile:
     """Risk management profile"""
+
     account_size: float
     max_position_size: float = DEFAULT_POSITION_SIZE
     max_portfolio_risk: float = MAX_PORTFOLIO_RISK
@@ -206,23 +223,25 @@ class RiskProfile:
     max_daily_loss: float = 0.03  # 3% daily loss limit
     max_positions: int = DEFAULT_MAX_POSITIONS
     risk_level: RiskLevel = RiskLevel.MEDIUM
-    
+
     def calculate_position_size(self, signal_strength: SignalStrength) -> float:
         """Calculate position size based on signal strength"""
         base_size = self.account_size * self.max_position_size
-        
+
         multipliers = {
             SignalStrength.WEAK: 0.5,
             SignalStrength.MODERATE: 0.75,
             SignalStrength.STRONG: 1.0,
-            SignalStrength.VERY_STRONG: 1.25
+            SignalStrength.VERY_STRONG: 1.25,
         }
-        
+
         return base_size * multipliers.get(signal_strength, 0.75)
+
 
 @dataclass
 class PerformanceMetrics:
     """Strategy performance tracking"""
+
     total_trades: int = 0
     winning_trades: int = 0
     losing_trades: int = 0
@@ -237,19 +256,20 @@ class PerformanceMetrics:
     max_win_streak: int = 0
     max_loss_streak: int = 0
     daily_pnl: Dict[str, float] = field(default_factory=dict)
-    
+
     def update(self, position: StrategyPosition) -> None:
         """Update metrics with closed position"""
         if position.state != PositionState.CLOSED:
             return
-            
+
         self.total_trades += 1
         pnl = position.realized_pnl
-        
+
         if pnl > 0:
             self.winning_trades += 1
-            self.average_win = ((self.average_win * (self.winning_trades - 1) + pnl) / 
-                               self.winning_trades)
+            self.average_win = (
+                self.average_win * (self.winning_trades - 1) + pnl
+            ) / self.winning_trades
             if self.current_streak >= 0:
                 self.current_streak += 1
             else:
@@ -257,29 +277,36 @@ class PerformanceMetrics:
             self.max_win_streak = max(self.max_win_streak, self.current_streak)
         else:
             self.losing_trades += 1
-            self.average_loss = ((self.average_loss * (self.losing_trades - 1) + abs(pnl)) / 
-                                self.losing_trades)
+            self.average_loss = (
+                self.average_loss * (self.losing_trades - 1) + abs(pnl)
+            ) / self.losing_trades
             if self.current_streak <= 0:
                 self.current_streak -= 1
             else:
                 self.current_streak = -1
             self.max_loss_streak = max(self.max_loss_streak, abs(self.current_streak))
-        
+
         self.total_pnl += pnl
         self.win_rate = self.winning_trades / self.total_trades if self.total_trades > 0 else 0
-        
+
         if self.average_loss > 0:
-            self.profit_factor = (self.average_win * self.winning_trades) / (self.average_loss * self.losing_trades)
-        
+            self.profit_factor = (self.average_win * self.winning_trades) / (
+                self.average_loss * self.losing_trades
+            )
+
         # Update daily P&L
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = datetime.now().strftime("%Y-%m-%d")
         self.daily_pnl[today] = self.daily_pnl.get(today, 0) + pnl
+
 
 # ==============================================================================
 # EVENT MANAGEMENT
 # ==============================================================================
+
+
 class EventType(Enum):
     """Event types for strategy communication"""
+
     SIGNAL_GENERATED = "signal_generated"
     POSITION_OPENED = "position_opened"
     POSITION_CLOSED = "position_closed"
@@ -289,62 +316,67 @@ class EventType(Enum):
     PERFORMANCE_UPDATE = "performance_update"
     ERROR_OCCURRED = "error_occurred"
 
+
 @dataclass
 class Event:
     """Event data structure"""
+
     event_id: str
     event_type: EventType
     source: str
     timestamp: datetime
     data: Dict[str, Any]
-    
+
     @staticmethod
-    def create(event_type: EventType, source: str, data: Dict[str, Any]) -> 'Event':
+    def create(event_type: EventType, source: str, data: Dict[str, Any]) -> "Event":
         """Factory method to create events"""
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=event_type,
             source=source,
             timestamp=datetime.now(),
-            data=data
+            data=data,
         )
+
 
 class EventManager:
     """Event management system"""
+
     def __init__(self):
         self.subscribers: Dict[EventType, List[Callable]] = defaultdict(list)
         self.event_history: List[Event] = []
         self.max_history_size = 1000
         self._lock = threading.Lock()
-    
+
     def subscribe(self, event_type: EventType, callback: Callable) -> None:
         """Subscribe to event type"""
         with self._lock:
             self.subscribers[event_type].append(callback)
-    
+
     def unsubscribe(self, event_type: EventType, callback: Callable) -> None:
         """Unsubscribe from event type"""
         with self._lock:
             if callback in self.subscribers[event_type]:
                 self.subscribers[event_type].remove(callback)
-    
+
     def publish(self, event: Event) -> None:
         """Publish event to subscribers"""
         with self._lock:
             # Add to history
             self.event_history.append(event)
             if len(self.event_history) > self.max_history_size:
-                self.event_history = self.event_history[-self.max_history_size:]
-            
+                self.event_history = self.event_history[-self.max_history_size :]
+
             # Notify subscribers
             for callback in self.subscribers[event.event_type]:
                 try:
                     callback(event)
                 except Exception as e:
                     print(f"Error in event callback: {e}")
-    
-    def get_recent_events(self, event_type: Optional[EventType] = None, 
-                         limit: int = 100) -> List[Event]:
+
+    def get_recent_events(
+        self, event_type: Optional[EventType] = None, limit: int = 100
+    ) -> List[Event]:
         """Get recent events"""
         with self._lock:
             events = self.event_history
@@ -352,23 +384,31 @@ class EventManager:
                 events = [e for e in events if e.event_type == event_type]
             return events[-limit:]
 
+
 # ==============================================================================
 # BASE STRATEGY CLASS
 # ==============================================================================
+
+
 class BaseStrategy(ABC):
     """
     Abstract base class for all trading strategies.
-    
+
     This class provides the foundational framework that all strategies must
     implement. It handles common functionality like position management,
     risk controls, performance tracking, and event handling.
     """
-    
-    def __init__(self, name: str, event_manager: EventManager, 
-                 risk_profile: RiskProfile, config: Dict[str, Any]):
+
+    def __init__(
+        self,
+        name: str,
+        event_manager: EventManager,
+        risk_profile: RiskProfile,
+        config: Dict[str, Any],
+    ):
         """
         Initialize base strategy.
-        
+
         Args:
             name: Strategy name
             event_manager: Event management system
@@ -381,155 +421,156 @@ class BaseStrategy(ABC):
         self.event_manager = event_manager
         self.risk_profile = risk_profile
         self.config = config
-        
+
         # Logging and error handling
         self.logger = SpyderLogger.get_logger(f"Strategy.{name}")
         self.error_handler = SpyderErrorHandler()
-        
+
         # State management
         self.state = STRATEGY_INACTIVE
         self.start_time: Optional[datetime] = None
         self.last_update: Optional[datetime] = None
-        
+
         # Position tracking
         self.positions: Dict[str, StrategyPosition] = {}
         self.position_history: List[StrategyPosition] = []
-        self.max_positions = config.get('max_positions', DEFAULT_MAX_POSITIONS)
-        
+        self.max_positions = config.get("max_positions", DEFAULT_MAX_POSITIONS)
+
         # Signal management
         self.active_signals: Dict[str, TradingSignal] = {}
         self.signal_history: List[TradingSignal] = []
-        
+
         # Performance tracking
         self.performance = PerformanceMetrics()
         self.daily_trades = 0
         self.last_trade_date: Optional[datetime] = None
-        
+
         # Threading for async operations
         self.executor = ThreadPoolExecutor(max_workers=2)
         self._stop_event = threading.Event()
-        
+
         # Subscribe to relevant events
         self._setup_event_subscriptions()
-        
+
         self.logger.info(f"Strategy {name} initialized with ID {self.strategy_id}")
-    
+
     # ==========================================================================
     # ABSTRACT METHODS (Must be implemented by subclasses)
     # ==========================================================================
-    
+
     @abstractmethod
     def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
         """
         Generate trading signals based on market data.
-        
+
         Args:
             market_data: Current market data
-            
+
         Returns:
             List of trading signals
         """
         pass
-    
+
     @abstractmethod
     def validate_signal(self, signal: TradingSignal) -> bool:
         """
         Validate a trading signal before execution.
-        
+
         Args:
             signal: Trading signal to validate
-            
+
         Returns:
             True if signal is valid
         """
         pass
-    
+
     @abstractmethod
     def calculate_position_size(self, signal: TradingSignal) -> int:
         """
         Calculate position size for a signal.
-        
+
         Args:
             signal: Trading signal
-            
+
         Returns:
             Position size in contracts
         """
         pass
-    
+
     @abstractmethod
-    def should_exit_position(self, position: StrategyPosition, 
-                           market_data: pd.DataFrame) -> Tuple[bool, str]:
+    def should_exit_position(
+        self, position: StrategyPosition, market_data: pd.DataFrame
+    ) -> Tuple[bool, str]:
         """
         Determine if position should be exited.
-        
+
         Args:
             position: Current position
             market_data: Current market data
-            
+
         Returns:
             Tuple of (should_exit, reason)
         """
         pass
-    
+
     # ==========================================================================
     # LIFECYCLE METHODS
     # ==========================================================================
-    
+
     def start(self) -> bool:
         """Start the strategy"""
         try:
             if self.state != STRATEGY_INACTIVE:
                 self.logger.warning(f"Cannot start strategy in state {self.state}")
                 return False
-            
+
             self.state = STRATEGY_INITIALIZING
             self.start_time = datetime.now()
-            
+
             # Perform initialization
             self._initialize_strategy()
-            
+
             self.state = STRATEGY_ACTIVE
             self.logger.info(f"Strategy {self.name} started successfully")
-            
+
             # Publish status event
             self._publish_status_event("Strategy started")
-            
+
             return True
-            
+
         except Exception as e:
-            self.error_handler.handle_error(e, {'method': 'start'})
+            self.error_handler.handle_error(e, {"method": "start"})
             self.state = STRATEGY_ERROR
             return False
-    
+
     def stop(self) -> bool:
         """Stop the strategy"""
         try:
             if self.state not in [STRATEGY_ACTIVE, STRATEGY_PAUSED]:
                 self.logger.warning(f"Cannot stop strategy in state {self.state}")
                 return False
-            
+
             self.state = STRATEGY_CLOSING
             self._stop_event.set()
-            
+
             # Close all open positions
             self._close_all_positions("Strategy stopped")
-            
+
             # Cleanup
             self.executor.shutdown(wait=True)
-            
+
             self.state = STRATEGY_INACTIVE
             self.logger.info(f"Strategy {self.name} stopped successfully")
-            
+
             # Publish status event
             self._publish_status_event("Strategy stopped")
-            
+
             return True
-            
+
         except Exception as e:
-            self.error_handler.handle_error(e, {'method': 'stop'})
+            self.error_handler.handle_error(e, {"method": "stop"})
             return False
-    
+
     def pause(self) -> bool:
         """Pause the strategy"""
         if self.state == STRATEGY_ACTIVE:
@@ -538,7 +579,7 @@ class BaseStrategy(ABC):
             self._publish_status_event("Strategy paused")
             return True
         return False
-    
+
     def resume(self) -> bool:
         """Resume the strategy"""
         if self.state == STRATEGY_PAUSED:
@@ -547,52 +588,51 @@ class BaseStrategy(ABC):
             self._publish_status_event("Strategy resumed")
             return True
         return False
-    
+
     # ==========================================================================
     # CORE METHODS
     # ==========================================================================
-    
+
     def process_market_data(self, market_data: pd.DataFrame) -> None:
         """
         Process market data and manage positions.
-        
+
         Args:
             market_data: Current market data
         """
         if self.state != STRATEGY_ACTIVE:
             return
-        
+
         try:
             self.last_update = datetime.now()
-            
+
             # Update existing positions
             self._update_positions(market_data)
-            
+
             # Check for exit conditions
             self._check_exit_conditions(market_data)
-            
+
             # Generate new signals
             if self._can_trade():
                 signals = self.generate_signals(market_data)
                 for signal in signals:
                     self._process_signal(signal)
-            
+
             # Update performance metrics
             self._update_performance_metrics()
-            
+
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': 'process_market_data',
-                'strategy': self.name
-            })
-    
+            self.error_handler.handle_error(
+                e, {"method": "process_market_data", "strategy": self.name}
+            )
+
     def add_position(self, signal: TradingSignal) -> Optional[StrategyPosition]:
         """
         Add new position from signal.
-        
+
         Args:
             signal: Trading signal
-            
+
         Returns:
             Created position or None
         """
@@ -601,57 +641,57 @@ class BaseStrategy(ABC):
             if not self.validate_signal(signal):
                 self.logger.warning(f"Invalid signal: {signal.signal_id}")
                 return None
-            
+
             # Check position limits
             if len(self.positions) >= self.max_positions:
                 self.logger.warning("Maximum positions reached")
                 return None
-            
+
             # Create position
             position = StrategyPosition(
                 position_id=str(uuid.uuid4()),
                 strategy_name=self.name,
                 symbol=signal.symbol,
-                position_type=PositionType.LONG if signal.signal_type == SignalType.BUY else PositionType.SHORT,
+                position_type=(
+                    PositionType.LONG
+                    if signal.signal_type == SignalType.BUY
+                    else PositionType.SHORT
+                ),
                 state=PositionState.PENDING,
                 entry_time=datetime.now(),
                 entry_price=signal.entry_price,
                 position_size=signal.position_size,
                 stop_loss=signal.stop_loss,
                 take_profit=signal.take_profit,
-                metadata=signal.metadata
+                metadata=signal.metadata,
             )
-            
+
             # Add to tracking
             self.positions[position.position_id] = position
-            
+
             # Publish event
-            self.event_manager.publish(Event.create(
-                EventType.POSITION_OPENED,
-                self.name,
-                position.__dict__
-            ))
-            
+            self.event_manager.publish(
+                Event.create(EventType.POSITION_OPENED, self.name, position.__dict__)
+            )
+
             self.logger.info(f"Position opened: {position.position_id}")
             return position
-            
+
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': 'add_position',
-                'signal': signal.signal_id
-            })
+            self.error_handler.handle_error(
+                e, {"method": "add_position", "signal": signal.signal_id}
+            )
             return None
-    
-    def close_position(self, position_id: str, exit_price: float, 
-                      reason: str = "Manual") -> bool:
+
+    def close_position(self, position_id: str, exit_price: float, reason: str = "Manual") -> bool:
         """
         Close a position.
-        
+
         Args:
             position_id: Position ID to close
             exit_price: Exit price
             reason: Reason for closing
-            
+
         Returns:
             Success status
         """
@@ -660,86 +700,80 @@ class BaseStrategy(ABC):
             if not position:
                 self.logger.warning(f"Position not found: {position_id}")
                 return False
-            
+
             # Close position
             position.close_position(exit_price, reason)
-            
+
             # Update performance
             self.performance.update(position)
-            
+
             # Move to history
             self.position_history.append(position)
             del self.positions[position_id]
-            
+
             # Publish event
-            self.event_manager.publish(Event.create(
-                EventType.POSITION_CLOSED,
-                self.name,
-                position.__dict__
-            ))
-            
+            self.event_manager.publish(
+                Event.create(EventType.POSITION_CLOSED, self.name, position.__dict__)
+            )
+
             self.logger.info(f"Position closed: {position_id}, PnL: {position.realized_pnl}")
             return True
-            
+
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': 'close_position',
-                'position_id': position_id
-            })
+            self.error_handler.handle_error(
+                e, {"method": "close_position", "position_id": position_id}
+            )
             return False
-    
+
     # ==========================================================================
     # UTILITY METHODS
     # ==========================================================================
-    
+
     def get_state(self) -> Dict[str, Any]:
         """Get current strategy state"""
         return {
-            'strategy_id': self.strategy_id,
-            'name': self.name,
-            'state': self.state,
-            'start_time': self.start_time.isoformat() if self.start_time else None,
-            'last_update': self.last_update.isoformat() if self.last_update else None,
-            'open_positions': len(self.positions),
-            'total_positions': len(self.position_history),
-            'active_signals': len(self.active_signals),
-            'performance': {
-                'total_pnl': self.performance.total_pnl,
-                'win_rate': self.performance.win_rate,
-                'sharpe_ratio': self.performance.sharpe_ratio
-            }
+            "strategy_id": self.strategy_id,
+            "name": self.name,
+            "state": self.state,
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "last_update": self.last_update.isoformat() if self.last_update else None,
+            "open_positions": len(self.positions),
+            "total_positions": len(self.position_history),
+            "active_signals": len(self.active_signals),
+            "performance": {
+                "total_pnl": self.performance.total_pnl,
+                "win_rate": self.performance.win_rate,
+                "sharpe_ratio": self.performance.sharpe_ratio,
+            },
         }
-    
+
     def get_positions(self) -> List[StrategyPosition]:
         """Get all open positions"""
         return list(self.positions.values())
-    
+
     def get_performance(self) -> PerformanceMetrics:
         """Get performance metrics"""
         return self.performance
-    
+
     def get_signals(self) -> List[TradingSignal]:
         """Get active signals"""
         self._cleanup_expired_signals()
         return list(self.active_signals.values())
-    
+
     # ==========================================================================
     # PRIVATE METHODS
     # ==========================================================================
-    
+
     def _initialize_strategy(self) -> None:
         """Initialize strategy components"""
         # Override in subclasses for custom initialization
         pass
-    
+
     def _setup_event_subscriptions(self) -> None:
         """Setup event subscriptions"""
         # Subscribe to risk alerts
-        self.event_manager.subscribe(
-            EventType.RISK_ALERT,
-            self._handle_risk_alert
-        )
-    
+        self.event_manager.subscribe(EventType.RISK_ALERT, self._handle_risk_alert)
+
     def _can_trade(self) -> bool:
         """Check if strategy can trade"""
         # Check daily trade limit
@@ -747,83 +781,80 @@ class BaseStrategy(ABC):
         if self.last_trade_date != today:
             self.daily_trades = 0
             self.last_trade_date = today
-        
-        if self.daily_trades >= self.config.get('max_daily_trades', MAX_DAILY_TRADES):
+
+        if self.daily_trades >= self.config.get("max_daily_trades", MAX_DAILY_TRADES):
             return False
-        
+
         # Check account risk
         total_exposure = sum(p.position_size * p.entry_price for p in self.positions.values())
         if total_exposure >= self.risk_profile.account_size * self.risk_profile.max_portfolio_risk:
             return False
-        
+
         return True
-    
+
     def _process_signal(self, signal: TradingSignal) -> None:
         """Process a trading signal"""
         try:
             # Add to active signals
             self.active_signals[signal.signal_id] = signal
-            
+
             # Calculate position size
             signal.position_size = self.calculate_position_size(signal)
-            
+
             # Validate and potentially execute
             if self.validate_signal(signal):
                 # Publish signal event
-                self.event_manager.publish(Event.create(
-                    EventType.SIGNAL_GENERATED,
-                    self.name,
-                    signal.to_dict()
-                ))
-                
+                self.event_manager.publish(
+                    Event.create(EventType.SIGNAL_GENERATED, self.name, signal.to_dict())
+                )
+
                 # Optionally auto-execute (depending on configuration)
-                if self.config.get('auto_execute', False):
+                if self.config.get("auto_execute", False):
                     self.add_position(signal)
-            
+
         except Exception as e:
-            self.error_handler.handle_error(e, {
-                'method': '_process_signal',
-                'signal': signal.signal_id
-            })
-    
+            self.error_handler.handle_error(
+                e, {"method": "_process_signal", "signal": signal.signal_id}
+            )
+
     def _update_positions(self, market_data: pd.DataFrame) -> None:
         """Update position P&L"""
         for position in self.positions.values():
             if position.symbol in market_data.columns:
                 current_price = market_data[position.symbol].iloc[-1]
                 position.update_pnl(current_price)
-    
+
     def _check_exit_conditions(self, market_data: pd.DataFrame) -> None:
         """Check exit conditions for all positions"""
         positions_to_close = []
-        
+
         for position_id, position in self.positions.items():
             should_exit, reason = self.should_exit_position(position, market_data)
-            
+
             if should_exit:
                 positions_to_close.append((position_id, position.current_price, reason))
-        
+
         # Close positions
         for position_id, exit_price, reason in positions_to_close:
             self.close_position(position_id, exit_price, reason)
-    
+
     def _close_all_positions(self, reason: str) -> None:
         """Close all open positions"""
         position_ids = list(self.positions.keys())
         for position_id in position_ids:
             position = self.positions[position_id]
             self.close_position(position_id, position.current_price, reason)
-    
+
     def _cleanup_expired_signals(self) -> None:
         """Remove expired signals"""
         expired = []
         for signal_id, signal in self.active_signals.items():
             if not signal.is_valid():
                 expired.append(signal_id)
-        
+
         for signal_id in expired:
             del self.active_signals[signal_id]
-    
+
     def _update_performance_metrics(self) -> None:
         """Update performance metrics"""
         # Calculate drawdown
@@ -831,70 +862,79 @@ class BaseStrategy(ABC):
             cumulative_pnl = 0
             peak = 0
             max_dd = 0
-            
+
             for position in sorted(self.position_history, key=lambda x: x.exit_time):
                 cumulative_pnl += position.realized_pnl
                 peak = max(peak, cumulative_pnl)
                 drawdown = (peak - cumulative_pnl) / peak if peak > 0 else 0
                 max_dd = max(max_dd, drawdown)
-            
+
             self.performance.max_drawdown = max_dd
-        
+
         # Calculate Sharpe ratio (simplified)
         if len(self.performance.daily_pnl) > 30:
             returns = list(self.performance.daily_pnl.values())
             if np.std(returns) > 0:
-                self.performance.sharpe_ratio = (np.mean(returns) * 252) / (np.std(returns) * np.sqrt(252))
-    
+                self.performance.sharpe_ratio = (np.mean(returns) * 252) / (
+                    np.std(returns) * np.sqrt(252)
+                )
+
     def _publish_status_event(self, message: str) -> None:
         """Publish strategy status event"""
-        self.event_manager.publish(Event.create(
-            EventType.STRATEGY_STATUS,
-            self.name,
-            {
-                'message': message,
-                'state': self.state,
-                'timestamp': datetime.now().isoformat()
-            }
-        ))
-    
+        self.event_manager.publish(
+            Event.create(
+                EventType.STRATEGY_STATUS,
+                self.name,
+                {"message": message, "state": self.state, "timestamp": datetime.now().isoformat()},
+            )
+        )
+
     def _handle_risk_alert(self, event: Event) -> None:
         """Handle risk alert events"""
-        if event.data.get('severity') == 'critical':
+        if event.data.get("severity") == "critical":
             self.logger.warning(f"Critical risk alert received: {event.data.get('message')}")
             # Potentially pause strategy or close positions
-            if self.config.get('pause_on_critical_risk', True):
+            if self.config.get("pause_on_critical_risk", True):
                 self.pause()
+
 
 # ==============================================================================
 # STRATEGY FACTORY
 # ==============================================================================
+
+
 class StrategyFactory:
     """Factory for creating strategy instances"""
-    
+
     _strategies: Dict[str, type] = {}
-    
+
     @classmethod
     def register(cls, name: str, strategy_class: type) -> None:
         """Register a strategy class"""
         if not issubclass(strategy_class, BaseStrategy):
             raise ValueError(f"{strategy_class} must inherit from BaseStrategy")
         cls._strategies[name] = strategy_class
-    
+
     @classmethod
-    def create(cls, name: str, event_manager: EventManager,
-               risk_profile: RiskProfile, config: Dict[str, Any]) -> BaseStrategy:
+    def create(
+        cls,
+        name: str,
+        event_manager: EventManager,
+        risk_profile: RiskProfile,
+        config: Dict[str, Any],
+    ) -> BaseStrategy:
         """Create a strategy instance"""
         strategy_class = cls._strategies.get(name)
         if not strategy_class:
             raise ValueError(f"Unknown strategy: {name}")
-        
+
         return strategy_class(name, event_manager, risk_profile, config)
-    
+
     @classmethod
     def list_strategies(cls) -> List[str]:
         """List registered strategies"""
         return list(cls._strategies.keys())
+
 
 # ==============================================================================
 # MODULE TESTING
@@ -903,53 +943,59 @@ if __name__ == "__main__":
     # Example implementation of a concrete strategy
     class SimpleMovingAverageStrategy(BaseStrategy):
         """Simple MA crossover strategy for testing"""
-        
-        def __init__(self, name: str, event_manager: EventManager,
-                     risk_profile: RiskProfile, config: Dict[str, Any]):
+
+        def __init__(
+            self,
+            name: str,
+            event_manager: EventManager,
+            risk_profile: RiskProfile,
+            config: Dict[str, Any],
+        ):
             super().__init__(name, event_manager, risk_profile, config)
-            self.fast_period = config.get('fast_period', 10)
-            self.slow_period = config.get('slow_period', 20)
-        
+            self.fast_period = config.get("fast_period", 10)
+            self.slow_period = config.get("slow_period", 20)
+
         def generate_signals(self, market_data: pd.DataFrame) -> List[TradingSignal]:
             signals = []
-            
+
             if len(market_data) < self.slow_period:
                 return signals
-            
+
             # Calculate moving averages
-            fast_ma = market_data['close'].rolling(self.fast_period).mean()
-            slow_ma = market_data['close'].rolling(self.slow_period).mean()
-            
+            fast_ma = market_data["close"].rolling(self.fast_period).mean()
+            slow_ma = market_data["close"].rolling(self.slow_period).mean()
+
             # Check for crossover
             if fast_ma.iloc[-1] > slow_ma.iloc[-1] and fast_ma.iloc[-2] <= slow_ma.iloc[-2]:
                 signal = TradingSignal(
                     signal_id=str(uuid.uuid4()),
                     signal_type=SignalType.BUY,
-                    symbol='SPY',
+                    symbol="SPY",
                     strength=SignalStrength.MODERATE,
                     confidence=0.7,
-                    entry_price=market_data['close'].iloc[-1],
-                    stop_loss=market_data['close'].iloc[-1] * 0.98,
-                    take_profit=market_data['close'].iloc[-1] * 1.02,
+                    entry_price=market_data["close"].iloc[-1],
+                    stop_loss=market_data["close"].iloc[-1] * 0.98,
+                    take_profit=market_data["close"].iloc[-1] * 1.02,
                     position_size=1,
                     timestamp=datetime.now(),
-                    expires_at=datetime.now() + timedelta(seconds=SIGNAL_EXPIRY_SECONDS)
+                    expires_at=datetime.now() + timedelta(seconds=SIGNAL_EXPIRY_SECONDS),
                 )
                 signals.append(signal)
-            
+
             return signals
-        
+
         def validate_signal(self, signal: TradingSignal) -> bool:
             return signal.confidence >= 0.6
-        
+
         def calculate_position_size(self, signal: TradingSignal) -> int:
             base_size = self.risk_profile.calculate_position_size(signal.strength)
             return max(1, int(base_size / (signal.entry_price * 100)))
-        
-        def should_exit_position(self, position: StrategyPosition,
-                               market_data: pd.DataFrame) -> Tuple[bool, str]:
+
+        def should_exit_position(
+            self, position: StrategyPosition, market_data: pd.DataFrame
+        ) -> Tuple[bool, str]:
             current_price = position.current_price
-            
+
             # Check stop loss
             if position.position_type == PositionType.LONG:
                 if current_price <= position.stop_loss:
@@ -961,75 +1007,67 @@ if __name__ == "__main__":
                     return True, "Stop loss hit"
                 if current_price <= position.take_profit:
                     return True, "Take profit hit"
-            
+
             return False, ""
-    
+
     # Test the base strategy
     print("Testing BaseStrategy implementation...")
-    
+
     # Create components
     event_manager = EventManager()
     risk_profile = RiskProfile(
         account_size=100000,
         max_position_size=0.02,
         max_portfolio_risk=0.06,
-        max_loss_per_trade=0.01
+        max_loss_per_trade=0.01,
     )
-    
-    config = {
-        'fast_period': 10,
-        'slow_period': 20,
-        'max_positions': 3,
-        'auto_execute': False
-    }
-    
+
+    config = {"fast_period": 10, "slow_period": 20, "max_positions": 3, "auto_execute": False}
+
     # Create strategy
-    strategy = SimpleMovingAverageStrategy(
-        "SMA_Test",
-        event_manager,
-        risk_profile,
-        config
-    )
-    
+    strategy = SimpleMovingAverageStrategy("SMA_Test", event_manager, risk_profile, config)
+
     # Test lifecycle
     print(f"Strategy created: {strategy.name}")
     print(f"Initial state: {strategy.state}")
-    
+
     # Start strategy
     if strategy.start():
         print("Strategy started successfully")
-    
+
     # Create sample market data
-    dates = pd.date_range(end=datetime.now(), periods=50, freq='5min')
+    dates = pd.date_range(end=datetime.now(), periods=50, freq="5min")
     prices = 450 + np.cumsum(np.random.randn(50) * 0.5)
-    market_data = pd.DataFrame({
-        'timestamp': dates,
-        'open': prices + np.random.randn(50) * 0.1,
-        'high': prices + abs(np.random.randn(50) * 0.2),
-        'low': prices - abs(np.random.randn(50) * 0.2),
-        'close': prices,
-        'volume': np.random.randint(1000000, 5000000, 50)
-    })
-    
+    market_data = pd.DataFrame(
+        {
+            "timestamp": dates,
+            "open": prices + np.random.randn(50) * 0.1,
+            "high": prices + abs(np.random.randn(50) * 0.2),
+            "low": prices - abs(np.random.randn(50) * 0.2),
+            "close": prices,
+            "volume": np.random.randint(1000000, 5000000, 50),
+        }
+    )
+
     # Process market data
     strategy.process_market_data(market_data)
-    
+
     # Check for signals
     signals = strategy.get_signals()
     print(f"\nGenerated {len(signals)} signals")
-    
+
     # Create a test position
     if signals:
         position = strategy.add_position(signals[0])
         if position:
             print(f"Position created: {position.position_id}")
-    
+
     # Get strategy state
     state = strategy.get_state()
     print(f"\nStrategy state: {json.dumps(state, indent=2)}")
-    
+
     # Stop strategy
     if strategy.stop():
         print("\nStrategy stopped successfully")
-    
+
     print("\nBaseStrategy test completed!")

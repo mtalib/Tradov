@@ -37,7 +37,7 @@ import math
 import pandas as pd
 import numpy as np
 from scipy.stats import norm
-from ibapi.contract import Contract
+from ib_insync import Contract
 
 # ==============================================================================
 # LOCAL IMPORTS

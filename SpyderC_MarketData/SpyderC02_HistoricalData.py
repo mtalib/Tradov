@@ -36,7 +36,7 @@ from enum import Enum
 # ==============================================================================
 import pandas as pd
 import numpy as np
-from ibapi.contract import Contract
+from ib_insync import Contract
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -698,7 +698,7 @@ class HistoricalDataManager:
             Data series or None
         """
         # Create dummy contract for cache key
-        contract = Contract()
+        contract = Contract()  # Note: Set attributes or use Stock/Option/etc.
         contract.symbol = symbol
         
         cache_key = self._get_cache_key(contract, bar_size, data_type)
@@ -788,7 +788,7 @@ class HistoricalDataManager:
 if __name__ == "__main__":
     # Test historical data manager
     from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from ibapi.contract import Contract
+    from ib_insync import Contract
     
     # Mock IB client
     class MockIBClient:
@@ -838,9 +838,9 @@ if __name__ == "__main__":
     historical_manager.start()
     
     # Create SPY contract
-    spy_contract = Contract()
+    spy_contract = Contract()  # Note: Set attributes or use Stock/Option/etc.
     spy_contract.symbol = "SPY"
-    spy_contract.secType = "STK"
+    spy_contract.secType = "STK"  # Consider using Stock() class instead
     spy_contract.exchange = "SMART"
     spy_contract.currency = "USD"
     

@@ -1014,7 +1014,7 @@ class TradingEngine:
                 strategy_id=strategy_id,
                 symbol=signal['symbol'],
                 action=OrderAction(signal['action']),
-                order_type=OrderType(signal.get('order_type', OrderType.MARKET)),
+                order_type=OrderType(signal.get('order_type', MARKET)),
                 quantity=int(signal['quantity']),
                 price=signal.get('price'),
                 metadata=signal.get('metadata', {})

@@ -311,16 +311,16 @@ class SPYFeedProcessor:
             self.stats['ticks_processed'] += 1
             
             # Update current state
-            if tick.tick_type == TickType.TRADE:
+            if tick.tick_type == TickerField.TRADE:
                 self.current_price = tick.price
                 self._process_trade(tick)
-            elif tick.tick_type == TickType.BID:
+            elif tick.tick_type == TickerField.BID:
                 self.current_bid = tick.price
-            elif tick.tick_type == TickType.ASK:
+            elif tick.tick_type == TickerField.ASK:
                 self.current_ask = tick.price
                 
             # Update VWAP
-            if tick.tick_type == TickType.TRADE:
+            if tick.tick_type == TickerField.TRADE:
                 for vwap in self.vwap_calculators.values():
                     vwap.add_trade(tick.price, tick.size, tick.timestamp)
                     
@@ -604,7 +604,7 @@ class SPYFeedProcessor:
             tick_direction = 0
             if len(self.tick_buffer) >= 2:
                 recent_trades = [t for t in list(self.tick_buffer)[-10:] 
-                               if t.tick_type == TickType.TRADE]
+                               if t.tick_type == TickerField.TRADE]
                 if len(recent_trades) >= 2:
                     if recent_trades[-1].price > recent_trades[-2].price:
                         tick_direction = 1
@@ -634,7 +634,7 @@ class SPYFeedProcessor:
         """Calculate volatility from recent ticks."""
         try:
             recent_trades = [t for t in list(self.tick_buffer)[-100:] 
-                           if t.tick_type == TickType.TRADE]
+                           if t.tick_type == TickerField.TRADE]
             
             if len(recent_trades) < 10:
                 return 0.0
@@ -799,7 +799,7 @@ class SPYFeedProcessor:
                 # Create tick data
                 tick = TickData(
                     timestamp=datetime.now(),
-                    tick_type=TickType.TRADE,
+                    tick_type=TickerField.TRADE,
                     price=data.get('last', 0),
                     size=data.get('size', 0),
                     bid=data.get('bid', 0),

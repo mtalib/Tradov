@@ -18,47 +18,55 @@ Date Created: 2025-07-01
 Last Updated: 2025-07-01 Time: 17:30:00
 """
 
+from dataclasses import dataclass, field
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 
+
 class HealthStatus(Enum):
     """System health status levels"""
-    EXCELLENT = "excellent"     # 90-100%
-    GOOD = "good"              # 70-89%
-    WARNING = "warning"        # 50-69%
-    CRITICAL = "critical"      # 30-49%
-    FAILING = "failing"        # 0-29%
+
+    EXCELLENT = "excellent"  # 90-100%
+    GOOD = "good"  # 70-89%
+    WARNING = "warning"  # 50-69%
+    CRITICAL = "critical"  # 30-49%
+    FAILING = "failing"  # 0-29%
+
 
 class DiagnosticCategory(Enum):
     """Diagnostic categories"""
-    SYSTEM = "system"                    # OS-level diagnostics
-    NETWORK = "network"                  # Network connectivity
-    MODULES = "modules"                  # Module health
-    INTEGRATION = "integration"          # Inter-module communication
-    PERFORMANCE = "performance"          # Performance metrics
-    CONFIGURATION = "configuration"      # Configuration issues
-    DEPENDENCIES = "dependencies"        # Dependency health
-    SECURITY = "security"               # Security diagnostics
+
+    SYSTEM = "system"  # OS-level diagnostics
+    NETWORK = "network"  # Network connectivity
+    MODULES = "modules"  # Module health
+    INTEGRATION = "integration"  # Inter-module communication
+    PERFORMANCE = "performance"  # Performance metrics
+    CONFIGURATION = "configuration"  # Configuration issues
+    DEPENDENCIES = "dependencies"  # Dependency health
+    SECURITY = "security"  # Security diagnostics
+
 
 class ProblemSeverity(Enum):
     """Problem severity levels"""
+
     INFO = "info"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
+
 class DiagnosticType(Enum):
     """Types of diagnostic checks"""
+
     HEALTH_CHECK = "health_check"
     PERFORMANCE_TEST = "performance_test"
     INTEGRATION_TEST = "integration_test"
@@ -67,13 +75,16 @@ class DiagnosticType(Enum):
     CONFIGURATION_AUDIT = "configuration_audit"
     SECURITY_SCAN = "security_scan"
 
+
 # ==============================================================================
 # SYSTEM METRICS
 # ==============================================================================
 
+
 @dataclass
 class SystemMetrics:
     """System-level metrics"""
+
     timestamp: datetime
     cpu_percent: float
     memory_percent: float
@@ -86,9 +97,11 @@ class SystemMetrics:
     file_descriptors: int
     load_average: Optional[Tuple[float, float, float]] = None
 
+
 @dataclass
 class NetworkMetrics:
     """Network-specific metrics"""
+
     timestamp: datetime
     latency: float  # milliseconds
     packet_loss: float  # percentage
@@ -96,20 +109,23 @@ class NetworkMetrics:
     connection_count: int
     error_rate: float  # percentage
 
+
 # ==============================================================================
 # MODULE HEALTH
 # ==============================================================================
 
+
 @dataclass
 class ModuleHealth:
     """Individual module health status"""
+
     module_id: str
     module_name: str
     status: HealthStatus
     response_time: float  # milliseconds
-    error_rate: float    # percentage
-    memory_usage: int    # bytes
-    cpu_usage: float     # percentage
+    error_rate: float  # percentage
+    memory_usage: int  # bytes
+    cpu_usage: float  # percentage
     last_heartbeat: datetime
     active_connections: int
     processed_requests: int
@@ -118,9 +134,11 @@ class ModuleHealth:
     dependencies_healthy: bool
     configuration_valid: bool
 
+
 @dataclass
 class IntegrationHealth:
     """Integration between modules health"""
+
     source_module: str
     target_module: str
     connection_status: HealthStatus
@@ -132,13 +150,16 @@ class IntegrationHealth:
     retry_count: int
     circuit_breaker_status: str
 
+
 # ==============================================================================
 # DIAGNOSTIC ISSUES
 # ==============================================================================
 
+
 @dataclass
 class DiagnosticIssue:
     """Identified diagnostic issue"""
+
     issue_id: str
     category: DiagnosticCategory
     severity: ProblemSeverity
@@ -153,9 +174,11 @@ class DiagnosticIssue:
     resolution_status: str = "open"  # open, investigating, resolved
     impact_score: float = 0.0  # 0-1 scale
 
+
 @dataclass
 class IssuePattern:
     """Pattern detected in diagnostic issues"""
+
     pattern_id: str
     pattern_type: str
     frequency: int
@@ -165,13 +188,16 @@ class IssuePattern:
     first_seen: datetime
     last_seen: datetime
 
+
 # ==============================================================================
 # PERFORMANCE ANALYSIS
 # ==============================================================================
 
+
 @dataclass
 class PerformanceBaseline:
     """Performance baseline for comparison"""
+
     component: str
     metric_name: str
     baseline_value: float
@@ -181,9 +207,11 @@ class PerformanceBaseline:
     established_at: datetime
     last_updated: datetime
 
+
 @dataclass
 class PerformanceTrend:
     """Performance trend analysis"""
+
     metric_name: str
     component: str
     trend_direction: str  # "increasing", "decreasing", "stable"
@@ -192,9 +220,11 @@ class PerformanceTrend:
     time_period: timedelta
     confidence: float  # 0-1 scale
 
+
 @dataclass
 class BottleneckInfo:
     """Information about a performance bottleneck"""
+
     component: str
     bottleneck_type: str  # "cpu", "memory", "disk", "network", "queue"
     severity: float  # 0-1 scale
@@ -203,13 +233,16 @@ class BottleneckInfo:
     recommendations: List[str]
     estimated_impact: float  # 0-1 scale
 
+
 # ==============================================================================
 # ANOMALY DETECTION
 # ==============================================================================
 
+
 @dataclass
 class AnomalyInfo:
     """Information about detected anomaly"""
+
     anomaly_id: str
     metric_name: str
     component: str
@@ -221,13 +254,16 @@ class AnomalyInfo:
     deviation: float
     confidence: float  # 0-1 scale
 
+
 # ==============================================================================
 # DIAGNOSTIC REPORTS
 # ==============================================================================
 
+
 @dataclass
 class HealthSnapshot:
     """Point-in-time health snapshot"""
+
     timestamp: datetime
     overall_score: float
     system_metrics: SystemMetrics
@@ -235,18 +271,22 @@ class HealthSnapshot:
     integration_health: List[IntegrationHealth]
     active_issues: List[DiagnosticIssue]
 
+
 @dataclass
 class PerformanceSummary:
     """Performance analysis summary"""
+
     trends: List[PerformanceTrend]
     bottlenecks: List[BottleneckInfo]
     anomalies: List[AnomalyInfo]
     baselines: Dict[str, PerformanceBaseline]
     overall_performance_score: float
 
+
 @dataclass
 class DiagnosticReport:
     """Comprehensive diagnostic report"""
+
     report_id: str
     generated_at: datetime
     overall_health_score: float
@@ -258,13 +298,16 @@ class DiagnosticReport:
     recommendations: List[str]
     executive_summary: str
 
+
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
 
+
 @dataclass
 class DiagnosticConfig:
     """Configuration for diagnostic operations"""
+
     monitoring_enabled: bool = True
     deep_analysis_enabled: bool = True
     auto_healing_enabled: bool = False
@@ -283,9 +326,11 @@ class DiagnosticConfig:
     network_latency_warning: float = 100.0  # ms
     network_latency_critical: float = 500.0  # ms
 
+
 # ==============================================================================
 # THRESHOLDS AND CONSTANTS
 # ==============================================================================
+
 
 # Performance thresholds
 CPU_USAGE_WARNING = 70  # percent
@@ -314,35 +359,37 @@ MAX_HEALTH_SNAPSHOTS = 500
 
 # Health score weights
 HEALTH_SCORE_WEIGHTS = {
-    'system': 0.4,      # System metrics weight
-    'modules': 0.3,     # Module health weight
-    'integration': 0.2, # Integration health weight
-    'issues': 0.1       # Issues impact weight
+    "system": 0.4,  # System metrics weight
+    "modules": 0.3,  # Module health weight
+    "integration": 0.2,  # Integration health weight
+    "issues": 0.1,  # Issues impact weight
 }
 
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
 
+
 def create_diagnostic_config(**kwargs) -> DiagnosticConfig:
     """
     Create diagnostic configuration with optional overrides.
-    
+
     Args:
         **kwargs: Configuration overrides
-        
+
     Returns:
         DiagnosticConfig instance
     """
     return DiagnosticConfig(**kwargs)
 
+
 def severity_to_score(severity: ProblemSeverity) -> float:
     """
     Convert problem severity to numeric score.
-    
+
     Args:
         severity: Problem severity
-        
+
     Returns:
         Numeric score (0-1 scale)
     """
@@ -351,17 +398,18 @@ def severity_to_score(severity: ProblemSeverity) -> float:
         ProblemSeverity.LOW: 0.3,
         ProblemSeverity.MEDIUM: 0.5,
         ProblemSeverity.HIGH: 0.8,
-        ProblemSeverity.CRITICAL: 1.0
+        ProblemSeverity.CRITICAL: 1.0,
     }
     return severity_scores.get(severity, 0.5)
+
 
 def health_status_to_score(status: HealthStatus) -> float:
     """
     Convert health status to numeric score.
-    
+
     Args:
         status: Health status
-        
+
     Returns:
         Numeric score (0-1 scale)
     """
@@ -370,17 +418,18 @@ def health_status_to_score(status: HealthStatus) -> float:
         HealthStatus.GOOD: 0.8,
         HealthStatus.WARNING: 0.6,
         HealthStatus.CRITICAL: 0.3,
-        HealthStatus.FAILING: 0.0
+        HealthStatus.FAILING: 0.0,
     }
     return status_scores.get(status, 0.5)
+
 
 def score_to_health_status(score: float) -> HealthStatus:
     """
     Convert numeric score to health status.
-    
+
     Args:
         score: Numeric score (0-1 scale)
-        
+
     Returns:
         HealthStatus enum
     """

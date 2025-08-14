@@ -340,7 +340,7 @@ class IBContract:
         """Convert to ib_insync Contract object."""
         from ib_insync import Contract, ComboLeg as IBComboLeg
         
-        contract = Contract()
+        contract = Contract()  # Note: Set attributes or use Stock/Option/etc.
         contract.symbol = self.symbol
         contract.secType = self.sec_type.value
         contract.exchange = self.exchange
@@ -557,7 +557,7 @@ class IBOrder:
         """Convert to ib_insync Order object."""
         from ib_insync import Order, OrderCondition, TagValue
         
-        order = Order()
+        order = Order()  # Consider using MarketOrder/LimitOrder/etc.
         order.action = self.action.value
         order.totalQuantity = self.total_quantity
         order.orderType = self.order_type.value
@@ -1098,6 +1098,7 @@ class IBDataTypeManager:
     """
     
     def __init__(self):
+        self.ib = IB()  # IB connection instance
         """Initialize the IB data type manager."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
@@ -1195,7 +1196,7 @@ class IBDataTypeManager:
         order = IBOrder(
             action=action,
             total_quantity=quantity,
-            order_type=OrderType.MARKET
+            order_type=MARKET
         )
         
         # Apply additional attributes
@@ -1216,7 +1217,7 @@ class IBDataTypeManager:
         order = IBOrder(
             action=action,
             total_quantity=quantity,
-            order_type=OrderType.LIMIT,
+            order_type=LIMIT,
             lmt_price=limit_price
         )
         
@@ -1238,7 +1239,7 @@ class IBDataTypeManager:
         order = IBOrder(
             action=action,
             total_quantity=quantity,
-            order_type=OrderType.STOP,
+            order_type=STOP,
             aux_price=stop_price
         )
         
@@ -1253,7 +1254,7 @@ class IBDataTypeManager:
                            stop_loss: float) -> Tuple[IBOrder, IBOrder, IBOrder]:
         """Create a bracket order (parent + take profit + stop loss)."""
         # Validate parent order
-        if parent_order.order_type != OrderType.LIMIT:
+        if parent_order.order_type != LIMIT:
             raise ValueError("Parent order must be a limit order")
         
         # Create take profit order
@@ -1322,11 +1323,11 @@ class IBDataTypeManager:
                 return False
             
             # Order type specific validation
-            if order.order_type in [OrderType.LIMIT, OrderType.STOP_LIMIT]:
+            if order.order_type in [LIMIT, STOP_LIMIT]:
                 if not order.lmt_price or order.lmt_price <= 0:
                     return False
             
-            if order.order_type in [OrderType.STOP, OrderType.STOP_LIMIT]:
+            if order.order_type in [STOP, STOP_LIMIT]:
                 if not order.aux_price or order.aux_price <= 0:
                     return False
             

@@ -16,7 +16,7 @@ Version: 1.4
 # ==============================================================================
 # MODULE IMPORTS
 # ==============================================================================
-from .SpyderN08_VolatilitySurface import VolatilitySurface, VolAnalytics
+from .SpyderN08_VolatilitySurface import VolAnalytics, VolatilitySurface
 
 # ==============================================================================
 # PACKAGE EXPORTS

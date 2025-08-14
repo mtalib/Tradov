@@ -440,7 +440,7 @@ class GatewayIntegrationManager(QObject):
             'latency_max': 'N/A',  # Would need historical data
             'rate_limit': f"{config.rate_limit} req/s" if config else 'N/A',
             'health_score': health.score,
-            'errors': health.error_count,
+            'errors': health.error_countt,
             'last_update': health.timestamp.strftime("%H:%M:%S")
         }
         

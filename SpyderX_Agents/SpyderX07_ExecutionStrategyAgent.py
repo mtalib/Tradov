@@ -723,7 +723,7 @@ async def test_execution_agent():
         symbol="SPY",
         quantity=50,
         side="BUY",
-        order_type=OrderType.MARKET,
+        order_type=MARKET,
         urgency=ExecutionUrgency.HIGH
     )
     
@@ -755,7 +755,7 @@ async def test_execution_agent():
         symbol="SPY",
         quantity=200,
         side="SELL",
-        order_type=OrderType.LIMIT,
+        order_type=LIMIT,
         urgency=ExecutionUrgency.LOW,
         price_limit=449.90
     )
@@ -788,7 +788,7 @@ async def test_execution_agent():
         symbol="SPY",
         quantity=30,
         side="BUY",
-        order_type=OrderType.MARKET,
+        order_type=MARKET,
         urgency=ExecutionUrgency.CRITICAL
     )
     

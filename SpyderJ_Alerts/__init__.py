@@ -23,20 +23,23 @@ from .SpyderJ04_DesktopNotifier import DesktopNotifier
 # Import TelegramBot with proper error handling
 try:
     from .SpyderJ05_TelegramBot import TelegramBot
+
     TELEGRAM_BOT_AVAILABLE = True
 except ImportError:
     TELEGRAM_BOT_AVAILABLE = False
     # Create a dummy class for missing dependency
+
     class TelegramBot:
         def __init__(self, *args, **kwargs):
             raise ImportError("TelegramBot not available - install dependencies")
+
 
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
 __all__ = [
     "AlertManager",
-    "DesktopNotifier", 
+    "DesktopNotifier",
     "EmailNotifier",
     "TelegramBot",
 ]

@@ -18,12 +18,16 @@ Date: 2025-06-13
 Version: 1.4
 """
 
+import asyncio
+import logging
+import pickle
+import warnings
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Dict, List, Tuple, Optional, Any
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -33,26 +37,25 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.preprocessing import StandardScaler, RobustScaler
-from sklearn.model_selection import train_test_split
-import logging
-import pickle
-import warnings
 from scipy.stats import norm
-import asyncio
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import RobustScaler, StandardScaler
+from torch.utils.data import DataLoader, TensorDataset
 
 # ==============================================================================
 # MODULE IMPLEMENTATION
 # ==============================================================================
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
+
+
 @dataclass
 class LSTMConfig:
     """LSTM model configuration."""
+
     input_features: int = 15
     hidden_size: int = 160
     num_layers: int = 3
@@ -65,9 +68,12 @@ class LSTMConfig:
     max_epochs: int = 100
     early_stopping_patience: int = 10
     gradient_clip: float = 1.0
+
+
 @dataclass
 class TrainingMetrics:
     """Training performance metrics."""
+
     epoch: int
     train_loss: float
     val_loss: float
@@ -75,6 +81,8 @@ class TrainingMetrics:
     val_rmse: float
     improvement_vs_bs: float  # vs Black-Scholes
     training_time: float
+
+
 class OptionsLSTM(nn.Module):
     """
     LSTM network for options pricing.
@@ -84,6 +92,7 @@ class OptionsLSTM(nn.Module):
     - Batch normalization
     - Residual connections
     """
+
     def __init__(self, config: LSTMConfig):
         super(OptionsLSTM, self).__init__()
         self.config = config
@@ -96,7 +105,7 @@ class OptionsLSTM(nn.Module):
             num_layers=config.num_layers,
             batch_first=True,
             dropout=config.dropout if config.num_layers > 1 else 0,
-            bidirectional=config.bidirectional
+            bidirectional=config.bidirectional,
         )
         # Calculate output size
         lstm_output_size = config.hidden_size * (2 if config.bidirectional else 1)
@@ -104,7 +113,7 @@ class OptionsLSTM(nn.Module):
         self.attention = nn.Sequential(
             nn.Linear(lstm_output_size, config.hidden_size),
             nn.Tanh(),
-            nn.Linear(config.hidden_size, 1)
+            nn.Linear(config.hidden_size, 1),
         )
         # Output layers
         self.fc1 = nn.Linear(lstm_output_size, config.hidden_size)
@@ -119,13 +128,15 @@ class OptionsLSTM(nn.Module):
         self.elu = nn.ELU()
         # Initialize weights
         self._initialize_weights()
+
     def _initialize_weights(self):
         """Initialize weights using Xavier initialization."""
         for name, param in self.named_parameters():
-            if 'weight' in name and len(param.shape) >= 2:
+            if "weight" in name and len(param.shape) >= 2:
                 nn.init.xavier_uniform_(param)
-            elif 'bias' in name:
+            elif "bias" in name:
                 nn.init.zeros_(param)
+
     def forward(self, x):
         """
         Forward pass through the network.
@@ -159,6 +170,7 @@ class OptionsLSTM(nn.Module):
         out = self.fc3(out)
         out = torch.abs(out)  # Ensure positive prices
         return out
+
     def predict_with_uncertainty(self, x, n_samples=100):
         """
         Predict with uncertainty estimation using dropout.
@@ -179,6 +191,8 @@ class OptionsLSTM(nn.Module):
         std_pred = predictions.std(dim=0)
         self.eval()  # Disable dropout
         return mean_pred, std_pred
+
+
 class SpyderLSTMPricer:
     """
     LSTM-based options pricer with professional features.
@@ -189,6 +203,7 @@ class SpyderLSTMPricer:
     - Real-time inference optimization
     - Performance comparison vs traditional models
     """
+
     def __init__(self, config: Optional[LSTMConfig] = None):
         """Initialize LSTM pricer."""
         self.config = config or LSTMConfig()
@@ -196,11 +211,11 @@ class SpyderLSTMPricer:
         self.scaler = RobustScaler()  # Robust to outliers
         # Feature configuration based on research
         self.FEATURE_CONFIG = {
-            'price_features': ['moneyness', 'log_moneyness', 'moneyness_squared'],
-            'time_features': ['time_to_expiry', 'sqrt_time', 'time_squared'],
-            'volatility_features': ['implied_vol', 'historical_vol', 'vol_spread'],
-            'greek_features': ['delta', 'gamma', 'vega', 'theta'],
-            'microstructure_features': ['bid_ask_spread', 'volume', 'open_interest']
+            "price_features": ["moneyness", "log_moneyness", "moneyness_squared"],
+            "time_features": ["time_to_expiry", "sqrt_time", "time_squared"],
+            "volatility_features": ["implied_vol", "historical_vol", "vol_spread"],
+            "greek_features": ["delta", "gamma", "vega", "theta"],
+            "microstructure_features": ["bid_ask_spread", "volume", "open_interest"],
         }
         # Model state
         self.is_trained = False
@@ -211,6 +226,7 @@ class SpyderLSTMPricer:
         # Performance tracking
         self.inference_times = []
         self.prediction_errors = []
+
     def prepare_features(self, raw_data: pd.DataFrame) -> np.ndarray:
         """
         Prepare features for LSTM model.
@@ -221,36 +237,40 @@ class SpyderLSTMPricer:
         """
         features = []
         # Price features
-        features.append(raw_data['spot_price'] / raw_data['strike'])  # Moneyness
-        features.append(np.log(raw_data['spot_price'] / raw_data['strike']))
-        features.append((raw_data['spot_price'] / raw_data['strike']) ** 2)
+        features.append(raw_data["spot_price"] / raw_data["strike"])  # Moneyness
+        features.append(np.log(raw_data["spot_price"] / raw_data["strike"]))
+        features.append((raw_data["spot_price"] / raw_data["strike"]) ** 2)
         # Time features
-        features.append(raw_data['days_to_expiry'] / 365)
-        features.append(np.sqrt(raw_data['days_to_expiry'] / 365))
-        features.append((raw_data['days_to_expiry'] / 365) ** 2)
+        features.append(raw_data["days_to_expiry"] / 365)
+        features.append(np.sqrt(raw_data["days_to_expiry"] / 365))
+        features.append((raw_data["days_to_expiry"] / 365) ** 2)
         # Volatility features
-        features.append(raw_data['implied_volatility'])
-        features.append(raw_data.get('historical_volatility', raw_data['implied_volatility']))
-        features.append(raw_data['implied_volatility'] - 
-                       raw_data.get('historical_volatility', raw_data['implied_volatility']))
+        features.append(raw_data["implied_volatility"])
+        features.append(raw_data.get("historical_volatility", raw_data["implied_volatility"]))
+        features.append(
+            raw_data["implied_volatility"]
+            - raw_data.get("historical_volatility", raw_data["implied_volatility"])
+        )
         # Greeks (if available)
-        for greek in ['delta', 'gamma', 'vega', 'theta']:
+        for greek in ["delta", "gamma", "vega", "theta"]:
             if greek in raw_data.columns:
                 features.append(raw_data[greek])
             else:
                 # Approximate if not available
                 features.append(self._approximate_greek(raw_data, greek))
         # Microstructure features
-        features.append(raw_data.get('bid_ask_spread', 0.02))
-        features.append(np.log1p(raw_data.get('volume', 1000)))
-        features.append(np.log1p(raw_data.get('open_interest', 100)))
+        features.append(raw_data.get("bid_ask_spread", 0.02))
+        features.append(np.log1p(raw_data.get("volume", 1000)))
+        features.append(np.log1p(raw_data.get("open_interest", 100)))
         # Option type encoding
-        features.append((raw_data['option_type'] == 'call').astype(float))
+        features.append((raw_data["option_type"] == "call").astype(float))
         # Stack features
         feature_array = np.column_stack(features)
         return feature_array
-    def create_sequences(self, features: np.ndarray, 
-                        targets: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+
+    def create_sequences(
+        self, features: np.ndarray, targets: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Create sequences for LSTM training.
         Args:
@@ -263,13 +283,15 @@ class SpyderLSTMPricer:
         sequences = []
         sequence_targets = []
         for i in range(len(features) - seq_length):
-            seq = features[i:i + seq_length]
+            seq = features[i : i + seq_length]
             target = targets[i + seq_length]
             sequences.append(seq)
             sequence_targets.append(target)
         return np.array(sequences), np.array(sequence_targets)
-    async def train(self, training_data: pd.DataFrame,
-                   validation_split: float = 0.2) -> TrainingMetrics:
+
+    async def train(
+        self, training_data: pd.DataFrame, validation_split: float = 0.2
+    ) -> TrainingMetrics:
         """
         Train LSTM model on options data.
         Args:
@@ -282,7 +304,7 @@ class SpyderLSTMPricer:
         start_time = datetime.now()
         # Prepare features
         features = self.prepare_features(training_data)
-        targets = training_data['option_price'].values
+        targets = training_data["option_price"].values
         # Normalize features
         features_scaled = self.scaler.fit_transform(features)
         # Create sequences
@@ -299,30 +321,22 @@ class SpyderLSTMPricer:
         # Create data loaders
         train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
         val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
-        train_loader = DataLoader(
-            train_dataset, 
-            batch_size=self.config.batch_size,
-            shuffle=True
-        )
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=self.config.batch_size,
-            shuffle=False
-        )
+        train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=self.config.batch_size, shuffle=False)
         # Initialize optimizer and loss
         optimizer = optim.AdamW(
             self.model.parameters(),
             lr=self.config.learning_rate,
-            weight_decay=self.config.weight_decay
+            weight_decay=self.config.weight_decay,
         )
         # Learning rate scheduler
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', patience=5, factor=0.5
+            optimizer, mode="min", patience=5, factor=0.5
         )
         # Custom loss function for options
         criterion = self._options_loss_function()
         # Training loop
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
         patience_counter = 0
         for epoch in range(self.config.max_epochs):
             # Training phase
@@ -336,10 +350,7 @@ class SpyderLSTMPricer:
                 # Backward pass
                 loss.backward()
                 # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.gradient_clip
-                )
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip)
                 optimizer.step()
                 train_losses.append(loss.item())
             # Validation phase
@@ -369,7 +380,7 @@ class SpyderLSTMPricer:
                 best_val_loss = val_loss
                 patience_counter = 0
                 # Save best model
-                self._save_checkpoint('best_model.pth')
+                self._save_checkpoint("best_model.pth")
             else:
                 patience_counter += 1
             if patience_counter >= self.config.early_stopping_patience:
@@ -377,11 +388,13 @@ class SpyderLSTMPricer:
                 break
             # Log progress
             if epoch % 10 == 0:
-                logger.info(f"Epoch {epoch}: Train Loss={train_loss:.4f}, "
-                           f"Val Loss={val_loss:.4f}, "
-                           f"Improvement vs BS={improvement:.1f}%")
+                logger.info(
+                    f"Epoch {epoch}: Train Loss={train_loss:.4f}, "
+                    f"Val Loss={val_loss:.4f}, "
+                    f"Improvement vs BS={improvement:.1f}%"
+                )
         # Load best model
-        self._load_checkpoint('best_model.pth')
+        self._load_checkpoint("best_model.pth")
         # Final metrics
         training_time = (datetime.now() - start_time).total_seconds()
         final_metrics = TrainingMetrics(
@@ -391,17 +404,18 @@ class SpyderLSTMPricer:
             train_rmse=train_rmse,
             val_rmse=val_rmse,
             improvement_vs_bs=improvement,
-            training_time=training_time
+            training_time=training_time,
         )
         # Update model state
         self.is_trained = True
         self.last_training_date = datetime.now()
         self.training_history.append(final_metrics)
-        logger.info(f"Training complete - Val RMSE: {val_rmse:.4f}, "
-                   f"Improvement: {improvement:.1f}%")
+        logger.info(
+            f"Training complete - Val RMSE: {val_rmse:.4f}, " f"Improvement: {improvement:.1f}%"
+        )
         return final_metrics
-    def predict(self, option_data: pd.DataFrame,
-               return_uncertainty: bool = False) -> np.ndarray:
+
+    def predict(self, option_data: pd.DataFrame, return_uncertainty: bool = False) -> np.ndarray:
         """
         Predict option prices using trained model.
         Args:
@@ -420,17 +434,15 @@ class SpyderLSTMPricer:
         if len(features_scaled) >= self.config.sequence_length:
             sequences = []
             for i in range(len(features_scaled) - self.config.sequence_length + 1):
-                seq = features_scaled[i:i + self.config.sequence_length]
+                seq = features_scaled[i : i + self.config.sequence_length]
                 sequences.append(seq)
             sequences = np.array(sequences)
         else:
             # Pad if necessary
             padding = self.config.sequence_length - len(features_scaled)
-            sequences = np.pad(
-                features_scaled,
-                ((padding, 0), (0, 0)),
-                mode='edge'
-            ).reshape(1, self.config.sequence_length, -1)
+            sequences = np.pad(features_scaled, ((padding, 0), (0, 0)), mode="edge").reshape(
+                1, self.config.sequence_length, -1
+            )
         # Convert to tensor
         X_tensor = torch.FloatTensor(sequences).to(device)
         # Predict
@@ -452,6 +464,7 @@ class SpyderLSTMPricer:
             inference_time = (datetime.now() - start_time).total_seconds() * 1000
             self.inference_times.append(inference_time)
             return predictions
+
     def _options_loss_function(self):
         """
         Custom loss function for options pricing.
@@ -460,64 +473,68 @@ class SpyderLSTMPricer:
         - Asymmetric penalty for underpricing
         - Moneyness-weighted errors
         """
+
         def loss_fn(predictions, targets):
             # Basic MSE
             mse = torch.mean((predictions - targets) ** 2)
             # Asymmetric penalty (underpricing is worse)
             errors = predictions - targets
-            underpricing_penalty = torch.mean(
-                torch.where(errors < 0, errors ** 2 * 1.5, errors ** 2)
-            )
+            underpricing_penalty = torch.mean(torch.where(errors < 0, errors**2 * 1.5, errors**2))
             # Combine losses
             total_loss = 0.7 * mse + 0.3 * underpricing_penalty
             return total_loss
+
         return loss_fn
+
     def _approximate_greek(self, data: pd.DataFrame, greek: str) -> np.ndarray:
         """Approximate Greeks if not provided."""
         # Simplified approximations
-        moneyness = data['spot_price'] / data['strike']
-        time_to_expiry = data['days_to_expiry'] / 365
-        if greek == 'delta':
+        moneyness = data["spot_price"] / data["strike"]
+        time_to_expiry = data["days_to_expiry"] / 365
+        if greek == "delta":
             # Rough delta approximation
-            if 'option_type' in data.columns:
-                call_mask = data['option_type'] == 'call'
-                delta = np.where(call_mask,
-                               np.clip(0.5 + 0.5 * (moneyness - 1), 0, 1),
-                               np.clip(-0.5 + 0.5 * (1 - moneyness), -1, 0))
+            if "option_type" in data.columns:
+                call_mask = data["option_type"] == "call"
+                delta = np.where(
+                    call_mask,
+                    np.clip(0.5 + 0.5 * (moneyness - 1), 0, 1),
+                    np.clip(-0.5 + 0.5 * (1 - moneyness), -1, 0),
+                )
             else:
                 delta = np.clip(0.5 + 0.5 * (moneyness - 1), 0, 1)
             return delta
-        elif greek == 'gamma':
+        elif greek == "gamma":
             # Peak gamma at ATM
             return 0.4 * np.exp(-2 * (moneyness - 1) ** 2) / np.sqrt(time_to_expiry)
-        elif greek == 'vega':
+        elif greek == "vega":
             # Vega proportional to time and ATM-ness
-            return 0.3 * np.sqrt(time_to_expiry) * np.exp(-(moneyness - 1) ** 2)
-        elif greek == 'theta':
+            return 0.3 * np.sqrt(time_to_expiry) * np.exp(-((moneyness - 1) ** 2))
+        elif greek == "theta":
             # Theta decay
             return -0.1 / np.sqrt(time_to_expiry)
         return np.zeros(len(data))
+
     def _calculate_black_scholes_rmse(self, data: pd.DataFrame) -> float:
         """Calculate RMSE for Black-Scholes baseline."""
         bs_prices = []
-        actual_prices = data['option_price'].values
+        actual_prices = data["option_price"].values
         for _, row in data.iterrows():
-            S = row['spot_price']
-            K = row['strike']
-            T = row['days_to_expiry'] / 365
+            S = row["spot_price"]
+            K = row["strike"]
+            T = row["days_to_expiry"] / 365
             r = 0.05  # Risk-free rate
-            sigma = row['implied_volatility']
+            sigma = row["implied_volatility"]
             # Black-Scholes formula
             if T > 0:
-                d1 = (np.log(S/K) + (r + sigma**2/2)*T) / (sigma*np.sqrt(T))
-                d2 = d1 - sigma*np.sqrt(T)
-                if row.get('option_type', 'call') == 'call':
-                    price = S*norm.cdf(d1) - K*np.exp(-r*T)*norm.cdf(d2)
+                d1 = (np.log(S / K) + (r + sigma**2 / 2) * T) / (sigma * np.sqrt(T))
+                d2 = d1 - sigma * np.sqrt(T)
+                if row.get("option_type", "call") == "call":
+                    price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
                 else:
-                    price = K*np.exp(-r*T)*norm.cdf(-d2) - S*norm.cdf(-d1)
+                    price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
             else:
                 # At expiration
-                if row.get('option_type', 'call') == 'call':
+                if row.get("option_type", "call") == "call":
                     price = max(S - K, 0)
                 else:
                     price = max(K - S, 0)
@@ -525,26 +542,29 @@ class SpyderLSTMPricer:
         bs_prices = np.array(bs_prices)
         rmse = np.sqrt(np.mean((bs_prices - actual_prices) ** 2))
         return rmse
+
     def _save_checkpoint(self, filename: str):
         """Save model checkpoint."""
         checkpoint = {
-            'model_state_dict': self.model.state_dict(),
-            'config': self.config,
-            'scaler': self.scaler,
-            'is_trained': self.is_trained,
-            'model_version': self.model_version,
-            'training_history': self.training_history
+            "model_state_dict": self.model.state_dict(),
+            "config": self.config,
+            "scaler": self.scaler,
+            "is_trained": self.is_trained,
+            "model_version": self.model_version,
+            "training_history": self.training_history,
         }
         torch.save(checkpoint, filename)
+
     def _load_checkpoint(self, filename: str):
         """Load model checkpoint."""
         checkpoint = torch.load(filename, map_location=device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.config = checkpoint['config']
-        self.scaler = checkpoint['scaler']
-        self.is_trained = checkpoint['is_trained']
-        self.model_version = checkpoint['model_version']
-        self.training_history = checkpoint['training_history']
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.config = checkpoint["config"]
+        self.scaler = checkpoint["scaler"]
+        self.is_trained = checkpoint["is_trained"]
+        self.model_version = checkpoint["model_version"]
+        self.training_history = checkpoint["training_history"]
+
     def analyze_feature_importance(self, validation_data: pd.DataFrame) -> Dict[str, float]:
         """
         Analyze feature importance using permutation.
@@ -557,9 +577,9 @@ class SpyderLSTMPricer:
             raise ValueError("Model must be trained first")
         # Get baseline performance
         baseline_predictions = self.predict(validation_data)
-        baseline_rmse = np.sqrt(np.mean(
-            (baseline_predictions - validation_data['option_price'].values) ** 2
-        ))
+        baseline_rmse = np.sqrt(
+            np.mean((baseline_predictions - validation_data["option_price"].values) ** 2)
+        )
         feature_importance = {}
         feature_names = list(self.FEATURE_CONFIG.values())
         feature_names = [item for sublist in feature_names for item in sublist]
@@ -573,50 +593,52 @@ class SpyderLSTMPricer:
                     permuted_data[col] = np.random.permutation(permuted_data[col])
             # Get new predictions
             permuted_predictions = self.predict(permuted_data)
-            permuted_rmse = np.sqrt(np.mean(
-                (permuted_predictions - validation_data['option_price'].values) ** 2
-            ))
+            permuted_rmse = np.sqrt(
+                np.mean((permuted_predictions - validation_data["option_price"].values) ** 2)
+            )
             # Calculate importance
             importance = (permuted_rmse - baseline_rmse) / baseline_rmse
             feature_importance[feature_group] = importance
         # Normalize to sum to 1
         total_importance = sum(feature_importance.values())
         if total_importance > 0:
-            feature_importance = {
-                k: v/total_importance for k, v in feature_importance.items()
-            }
+            feature_importance = {k: v / total_importance for k, v in feature_importance.items()}
         self.feature_importance = feature_importance
         return feature_importance
+
     def get_model_diagnostics(self) -> Dict[str, Any]:
         """Get comprehensive model diagnostics."""
         diagnostics = {
-            'model_info': {
-                'version': self.model_version,
-                'is_trained': self.is_trained,
-                'last_training': self.last_training_date,
-                'total_parameters': sum(p.numel() for p in self.model.parameters()),
-                'device': str(device)
+            "model_info": {
+                "version": self.model_version,
+                "is_trained": self.is_trained,
+                "last_training": self.last_training_date,
+                "total_parameters": sum(p.numel() for p in self.model.parameters()),
+                "device": str(device),
             },
-            'performance': {
-                'avg_inference_time_ms': np.mean(self.inference_times[-100:]) if self.inference_times else 0,
-                'feature_importance': self.feature_importance
+            "performance": {
+                "avg_inference_time_ms": (
+                    np.mean(self.inference_times[-100:]) if self.inference_times else 0
+                ),
+                "feature_importance": self.feature_importance,
             },
-            'architecture': {
-                'input_features': self.config.input_features,
-                'hidden_size': self.config.hidden_size,
-                'num_layers': self.config.num_layers,
-                'sequence_length': self.config.sequence_length
-            }
+            "architecture": {
+                "input_features": self.config.input_features,
+                "hidden_size": self.config.hidden_size,
+                "num_layers": self.config.num_layers,
+                "sequence_length": self.config.sequence_length,
+            },
         }
         if self.training_history:
             latest = self.training_history[-1]
-            diagnostics['training'] = {
-                'final_val_rmse': latest.val_rmse,
-                'improvement_vs_bs': latest.improvement_vs_bs,
-                'training_time_seconds': latest.training_time,
-                'epochs_trained': latest.epoch
+            diagnostics["training"] = {
+                "final_val_rmse": latest.val_rmse,
+                "improvement_vs_bs": latest.improvement_vs_bs,
+                "training_time_seconds": latest.training_time,
+                "epochs_trained": latest.epoch,
             }
         return diagnostics
+
     async def incremental_update(self, new_data: pd.DataFrame):
         """
         Incrementally update model with new data.
@@ -638,6 +660,8 @@ class SpyderLSTMPricer:
         self.config.learning_rate = original_lr
         self.config.max_epochs = original_epochs
         logger.info("Incremental update complete")
+
+
 async def main():
     """Example usage of LSTM pricer."""
     # Initialize LSTM pricer
@@ -646,35 +670,37 @@ async def main():
     np.random.seed(42)
     n_samples = 10000
     # Create realistic option data
-    training_data = pd.DataFrame({
-        'spot_price': np.random.uniform(440, 460, n_samples),
-        'strike': np.random.choice(np.arange(430, 470, 5), n_samples),
-        'days_to_expiry': np.random.choice([7, 14, 30, 45, 60], n_samples),
-        'implied_volatility': np.random.uniform(0.15, 0.35, n_samples),
-        'option_type': np.random.choice(['call', 'put'], n_samples),
-        'volume': np.random.lognormal(8, 1.5, n_samples),
-        'open_interest': np.random.lognormal(7, 1.5, n_samples),
-        'bid_ask_spread': np.random.uniform(0.01, 0.05, n_samples)
-    })
+    training_data = pd.DataFrame(
+        {
+            "spot_price": np.random.uniform(440, 460, n_samples),
+            "strike": np.random.choice(np.arange(430, 470, 5), n_samples),
+            "days_to_expiry": np.random.choice([7, 14, 30, 45, 60], n_samples),
+            "implied_volatility": np.random.uniform(0.15, 0.35, n_samples),
+            "option_type": np.random.choice(["call", "put"], n_samples),
+            "volume": np.random.lognormal(8, 1.5, n_samples),
+            "open_interest": np.random.lognormal(7, 1.5, n_samples),
+            "bid_ask_spread": np.random.uniform(0.01, 0.05, n_samples),
+        }
+    )
     # Calculate synthetic option prices (Black-Scholes + noise)
     option_prices = []
     for _, row in training_data.iterrows():
-        S = row['spot_price']
-        K = row['strike']
-        T = row['days_to_expiry'] / 365
+        S = row["spot_price"]
+        K = row["strike"]
+        T = row["days_to_expiry"] / 365
         r = 0.05
-        sigma = row['implied_volatility']
+        sigma = row["implied_volatility"]
         # Black-Scholes
-        d1 = (np.log(S/K) + (r + sigma**2/2)*T) / (sigma*np.sqrt(T))
-        d2 = d1 - sigma*np.sqrt(T)
-        if row['option_type'] == 'call':
-            price = S*norm.cdf(d1) - K*np.exp(-r*T)*norm.cdf(d2)
+        d1 = (np.log(S / K) + (r + sigma**2 / 2) * T) / (sigma * np.sqrt(T))
+        d2 = d1 - sigma * np.sqrt(T)
+        if row["option_type"] == "call":
+            price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
         else:
-            price = K*np.exp(-r*T)*norm.cdf(-d2) - S*norm.cdf(-d1)
+            price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
         # Add realistic noise
         noise = np.random.normal(0, price * 0.05)  # 5% noise
         option_prices.append(max(0.01, price + noise))
-    training_data['option_price'] = option_prices
+    training_data["option_price"] = option_prices
     print("=== LSTM Options Pricer ===")
     print(f"Training samples: {len(training_data)}")
     print(f"Device: {device}")
@@ -688,22 +714,26 @@ async def main():
     # Test predictions
     print("\n=== Testing Predictions ===")
     # Create test data
-    test_data = pd.DataFrame({
-        'spot_price': [450, 450, 450],
-        'strike': [445, 450, 455],
-        'days_to_expiry': [30, 30, 30],
-        'implied_volatility': [0.20, 0.20, 0.20],
-        'option_type': ['put', 'call', 'call'],
-        'volume': [1000, 2000, 1500],
-        'open_interest': [5000, 10000, 7500],
-        'bid_ask_spread': [0.02, 0.02, 0.02]
-    })
+    test_data = pd.DataFrame(
+        {
+            "spot_price": [450, 450, 450],
+            "strike": [445, 450, 455],
+            "days_to_expiry": [30, 30, 30],
+            "implied_volatility": [0.20, 0.20, 0.20],
+            "option_type": ["put", "call", "call"],
+            "volume": [1000, 2000, 1500],
+            "open_interest": [5000, 10000, 7500],
+            "bid_ask_spread": [0.02, 0.02, 0.02],
+        }
+    )
     # Make predictions
     predictions, uncertainties = lstm_pricer.predict(test_data, return_uncertainty=True)
     print("\nPredictions:")
     for i, row in test_data.iterrows():
-        print(f"{row['option_type'].upper()} Strike {row['strike']}: "
-              f"${predictions[i]:.2f} ± ${uncertainties[i]:.2f}")
+        print(
+            f"{row['option_type'].upper()} Strike {row['strike']}: "
+            f"${predictions[i]:.2f} ± ${uncertainties[i]:.2f}"
+        )
     # Analyze feature importance
     print("\n=== Feature Importance ===")
     importance = lstm_pricer.analyze_feature_importance(training_data.iloc[:1000])
@@ -715,8 +745,10 @@ async def main():
     print(f"Model Version: {diagnostics['model_info']['version']}")
     print(f"Total Parameters: {diagnostics['model_info']['total_parameters']:,}")
     print(f"Average Inference Time: {diagnostics['performance']['avg_inference_time_ms']:.1f} ms")
-    if 'training' in diagnostics:
+    if "training" in diagnostics:
         print(f"Final Validation RMSE: ${diagnostics['training']['final_val_rmse']:.3f}")
         print(f"Improvement vs BS: {diagnostics['training']['improvement_vs_bs']:.1f}%")
+
+
 if __name__ == "__main__":
     asyncio.run(main())

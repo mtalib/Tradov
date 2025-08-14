@@ -19,7 +19,7 @@ Version: 1.4
 # ==============================================================================
 from .SpyderM01_SystemMonitor import SystemMonitor, get_system_monitor
 from .SpyderM03_AIAgentMonitor import AIAgentMonitor
-from .SpyderM04_TradingMetrics import TradingMetrics, MetricsCollector
+from .SpyderM04_TradingMetrics import MetricsCollector, TradingMetrics
 
 # ==============================================================================
 # PACKAGE EXPORTS
@@ -28,10 +28,8 @@ __all__ = [
     # System monitoring
     "SystemMonitor",
     "get_system_monitor",
-    
     # AI monitoring
     "AIAgentMonitor",
-    
     # Trading metrics
     "TradingMetrics",
     "MetricsCollector",

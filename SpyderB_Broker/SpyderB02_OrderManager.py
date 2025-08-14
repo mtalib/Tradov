@@ -53,6 +53,8 @@ from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 from SpyderB_Broker.SpyderB00_OrderTypes import OrderRequest, OrderAction, OrderType, OrderStatus
 from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
+from ib_insync import Contract, Stock, Option, Order
+
 
 # ==============================================================================
 # CONSTANTS
@@ -120,29 +122,33 @@ class OrderValidationResult(Enum):
 # ==============================================================================
 # DATA CLASSES
 # ==============================================================================
-@dataclass
-class OrderRequest:
-    """Order request with complete specifications"""
-    order_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    symbol: str = ""
-    action: OrderAction = OrderAction.BUY
-    quantity: int = 0
-    order_type: OrderType = OrderType.MARKET
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
-    time_in_force: str = "DAY"
-    strategy_id: Optional[str] = None
-    parent_order_id: Optional[str] = None
-    oca_group: Optional[str] = None
-    priority: OrderPriority = OrderPriority.NORMAL
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    # Option-specific fields
-    is_option: bool = False
-    expiry: Optional[str] = None
-    strike: Optional[float] = None
-    right: Optional[str] = None  # 'C' or 'P'
+# @dataclass
 
+# Fixed: Using OrderRequest from SpyderB00_OrderTypes instead
+# The duplicate OrderRequest class below has been commented out
+
+# class OrderRequest:
+#     """Order request with complete specifications"""
+#     order_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+#     symbol: str = ""
+#     action: OrderAction = OrderAction.BUY
+#     quantity: int = 0
+#     order_type: OrderType = MARKET
+#     limit_price: Optional[float] = None
+#     stop_price: Optional[float] = None
+#     time_in_force: str = "DAY"
+#     strategy_id: Optional[str] = None
+#     parent_order_id: Optional[str] = None
+#     oca_group: Optional[str] = None
+#     priority: OrderPriority = OrderPriority.NORMAL
+#     metadata: Dict[str, Any] = field(default_factory=dict)
+#     
+    # Option-specific fields
+#     is_option: bool = False
+#     expiry: Optional[str] = None
+#     strike: Optional[float] = None
+#     right: Optional[str] = None  # 'C' or 'P'
+# 
 @dataclass
 class OrderExecution:
     """Order execution tracking"""
@@ -218,7 +224,7 @@ class OrderManager:
         ...     symbol='SPY',
         ...     action=OrderAction.BUY,
         ...     quantity=100,
-        ...     order_type=OrderType.LIMIT,
+        ...     order_type=LIMIT,
         ...     limit_price=450.50
         ... )
         >>> result = order_mgr.submit_order(order_req)
@@ -657,7 +663,7 @@ class OrderManager:
                 )
             
             # Price validation for limit orders
-            if order_request.order_type in [OrderType.LIMIT, OrderType.STOP_LIMIT]:
+            if order_request.order_type in [LIMIT, STOP_LIMIT]:
                 if not order_request.limit_price or order_request.limit_price <= 0:
                     return OrderValidation(
                         is_valid=False,
@@ -667,7 +673,7 @@ class OrderManager:
                     )
             
             # Price validation for stop orders
-            if order_request.order_type in [OrderType.STOP, OrderType.STOP_LIMIT]:
+            if order_request.order_type in [STOP, STOP_LIMIT]:
                 if not order_request.stop_price or order_request.stop_price <= 0:
                     return OrderValidation(
                         is_valid=False,
@@ -901,7 +907,7 @@ class OrderManager:
     
     def _estimate_order_cost(self, order_request: OrderRequest) -> float:
         """Estimate order cost for validation."""
-        if order_request.order_type == OrderType.MARKET:
+        if order_request.order_type == MARKET:
             # Use last price or estimate
             # TODO: Get actual market price
             estimated_price = 100.0  # Placeholder
@@ -911,7 +917,7 @@ class OrderManager:
         cost = order_request.quantity * estimated_price
         
         # Add buffer for market orders
-        if order_request.order_type == OrderType.MARKET:
+        if order_request.order_type == MARKET:
             cost *= 1.02  # 2% buffer
         
         return cost
@@ -936,10 +942,10 @@ class OrderManager:
     def _map_order_type(self, order_type: OrderType) -> str:
         """Map internal order type to IB order type."""
         mapping = {
-            OrderType.MARKET: 'MKT',
-            OrderType.LIMIT: 'LMT',
-            OrderType.STOP: 'STP',
-            OrderType.STOP_LIMIT: 'STP_LMT'
+            MARKET: 'MKT',
+            LIMIT: 'LMT',
+            STOP: 'STP',
+            STOP_LIMIT: 'STP_LMT'
         }
         return mapping.get(order_type, 'MKT')
     

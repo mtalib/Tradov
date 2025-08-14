@@ -409,17 +409,17 @@ class OptionsFlowTracker:
         if oi_change > 0:
             # Opening position
             if trade_data.get('aggressor') == 'BUY':
-                return OrderType.BUY_TO_OPEN
+                return BUY_TO_OPEN
             else:
-                return OrderType.SELL_TO_OPEN
+                return SELL_TO_OPEN
         elif oi_change < 0:
             # Closing position
             if trade_data.get('aggressor') == 'BUY':
-                return OrderType.BUY_TO_CLOSE
+                return BUY_TO_CLOSE
             else:
-                return OrderType.SELL_TO_CLOSE
+                return SELL_TO_CLOSE
         else:
-            return OrderType.UNKNOWN
+            return UNKNOWN
     
     def _determine_aggressor(self, trade_data: Dict) -> AggressorSide:
         """Determine trade aggressor"""
@@ -556,14 +556,14 @@ class OptionsFlowTracker:
         
         # Base sentiment from option type and order type
         if flow.option_type == 'CALL':
-            if flow.order_type == OrderType.BUY_TO_OPEN:
+            if flow.order_type == BUY_TO_OPEN:
                 sentiment = 0.8  # Bullish
-            elif flow.order_type == OrderType.SELL_TO_OPEN:
+            elif flow.order_type == SELL_TO_OPEN:
                 sentiment = -0.3  # Slightly bearish (could be covered call)
         else:  # PUT
-            if flow.order_type == OrderType.BUY_TO_OPEN:
+            if flow.order_type == BUY_TO_OPEN:
                 sentiment = -0.8  # Bearish
-            elif flow.order_type == OrderType.SELL_TO_OPEN:
+            elif flow.order_type == SELL_TO_OPEN:
                 sentiment = 0.3  # Slightly bullish (could be cash-secured put)
         
         # Adjust for aggressiveness

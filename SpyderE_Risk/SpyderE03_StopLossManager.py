@@ -843,7 +843,7 @@ class StopLossManager:
             broker_order = {
                 'action': OrderAction.SELL if stop_order.side == PositionSide.LONG else OrderAction.BUY,
                 'quantity': stop_order.quantity,
-                'order_type': OrderType.STOP,
+                'order_type': STOP,
                 'stop_price': stop_order.stop_price,
                 'time_in_force': 'GTC',  # Good Till Cancelled
                 'order_ref': stop_order.order_id
