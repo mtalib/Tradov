@@ -50,7 +50,8 @@ from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU07_Constants import OrderAction, OrderType
 from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient, OrderRequest as IBOrderRequest
+from SpyderB_Broker.SpyderB00_OrderTypes import OrderRequest, OrderAction, OrderType, OrderStatus
+from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
 
 # ==============================================================================

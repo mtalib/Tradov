@@ -41,6 +41,12 @@ from threading import Lock, RLock, Event as ThreadEvent
 
 # ==============================================================================
 # LOCAL IMPORTS
+# Import for Greeks calculations (with fallback)
+try:
+    import talib
+except ImportError:
+    from SpyderF_Analysis import mock_talib as talib
+
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler

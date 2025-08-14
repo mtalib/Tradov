@@ -33,28 +33,28 @@ import numpy as np
 # S-SERIES SIGNAL IMPORTS (UPDATED)
 # ==============================================================================
 try:
-    from SpyderS01_DIXCalculator import DIXCalculator, get_calculator_instance
+    from SpyderS_Signals.SpyderS01_DIXCalculator import DIXCalculator, get_calculator_instance
     DIX_AVAILABLE = True
 except ImportError:
     DIX_AVAILABLE = False
     print("⚠️ S01_DIXCalculator not available")
 
 try:
-    from SpyderS03_BlackSwanIndicator import BlackSwanIndicator, get_black_swan_indicator
+    from SpyderS_Signals.SpyderS03_BlackSwanIndicator import BlackSwanIndicator, get_black_swan_indicator
     SWAN_AVAILABLE = True
 except ImportError:
     SWAN_AVAILABLE = False
     print("⚠️ S03_BlackSwanIndicator not available")
 
 try:
-    from SpyderS05_GEXDEXCalculator import GEXDEXCalculator
+    from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GEXDEXCalculator
     GEX_AVAILABLE = True
 except ImportError:
     GEX_AVAILABLE = False
     print("⚠️ S05_GEXDEXCalculator not available")
 
 try:
-    from SpyderS06_SKEWCalculator import SpyderS06_SKEWCalculator, get_skew_calculator
+    from SpyderS_Signals.SpyderS06_SKEWCalculator import SpyderS06_SKEWCalculator, get_skew_calculator
     SKEW_AVAILABLE = True
 except ImportError:
     SKEW_AVAILABLE = False

@@ -1,0 +1,5 @@
+# Ignore actual secrets file
+secrets.json
+*.key
+*.pem
+*.crt

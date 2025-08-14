@@ -12,6 +12,15 @@ Uses ib-insync library (NO IBAPI dependencies).
 # Version - Updated to 2.0 for multi-client architecture
 __version__ = '2.0.0'
 
+
+# Order Types
+try:
+    from .SpyderB00_OrderTypes import OrderRequest, OrderAction, OrderType, OrderStatus
+    HAS_ORDER_TYPES = True
+except ImportError:
+    print('WARNING: OrderTypes not available')
+    HAS_ORDER_TYPES = False
+
 # ==============================================================================
 # CORE CLIENT MODULES (B01-B07)
 # ==============================================================================

@@ -707,3 +707,25 @@ class PositionData:
         self.entry_price = 0.0
         self.current_price = 0.0
         self.pnl = 0.0
+
+
+@dataclass
+class OptionData:
+    """
+    Option contract data structure
+    """
+    symbol: str
+    expiration: datetime
+    strike: float
+    option_type: str  # 'call' or 'put'
+    bid: float = 0.0
+    ask: float = 0.0
+    last: float = 0.0
+    volume: int = 0
+    open_interest: int = 0
+    implied_volatility: float = 0.0
+    delta: float = 0.0
+    gamma: float = 0.0
+    theta: float = 0.0
+    vega: float = 0.0
+    timestamp: datetime = field(default_factory=datetime.now)

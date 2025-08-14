@@ -22,6 +22,9 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from SpyderB_Broker.SpyderB00_OrderTypes import OrderRequest, OrderAction, OrderType, OrderStatus
 
 # ==============================================================================
 # COMPLETE IBAPI IMPORTS - ALL FUNCTIONALITY INCLUDED
@@ -60,6 +63,20 @@ from dataclasses import dataclass
 from typing import Optional
 
 @dataclass
+
+class OrderRequest:
+    """Order request data structure for OrderManager"""
+    symbol: str
+    action: OrderAction
+    quantity: int
+    order_type: OrderType = OrderType.MARKET
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    time_in_force: str = "DAY"
+    account: Optional[str] = None
+    strategy_id: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
 class IBConfig:
     """
     Interactive Brokers connection configuration
@@ -105,7 +122,7 @@ class IBConfig:
         )
 
 
-    class EClient: pass
+    class SpyderClient: pass
     class EWrapper: pass
     class Contract: pass
     class Order: pass
@@ -118,6 +135,8 @@ class IBConfig:
 
 # ==============================================================================
 # LOCAL IMPORTS
+from SpyderB_Broker.SpyderB00_OrderTypes import OrderRequest, OrderAction, OrderType, OrderStatus
+
 # ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

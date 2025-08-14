@@ -48,6 +48,8 @@ import pandas as pd
 from threading import Lock, Event as ThreadEvent, RLock
 
 # ==============================================================================
+
+from SpyderE_Risk.SpyderE02_PositionSizer import PositionSizer, PositionSizeRequest
 # LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
 try:
@@ -227,30 +229,12 @@ class RiskManager:
         self._state_lock = RLock()
         self._position_risks: Dict[str, PositionRisk] = {}
         self._portfolio_risk = self._create_empty_portfolio_risk()
-        self._risk_alerts: deque = deque(maxlen=1000)
-        self._risk_history: deque = deque(maxlen=10000)
         
-        # Historical data for calculations
-        self._returns_buffer: deque = deque(maxlen=VAR_LOOKBACK_DAYS)
-        self._price_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
-        
-        # Monitoring
-        self._monitoring_active = False
-        self._monitor_thread: Optional[threading.Thread] = None
-        self._executor = ThreadPoolExecutor(max_workers=4)
-        self._event_queue = queue.Queue()
-        
-        # Callbacks
-        self._alert_callbacks: List[Callable] = []
-        self._mitigation_callbacks: List[Callable] = []
-        
-        # Initialize
-        self._initialized = False
-        self._initialize()
-        
-    # ==========================================================================
-    # INITIALIZATION
-    # ==========================================================================
+        # Initialize position sizer
+        self.position_sizer = PositionSizer(
+            portfolio_value=self.portfolio_value,
+            config=self.config
+        )
     def _initialize(self) -> None:
         """Initialize risk management components."""
         try:
@@ -1217,3 +1201,86 @@ if __name__ == "__main__":
     
     # Cleanup
     risk_mgr.shutdown()
+
+    def calculate_position_size(self, symbol: str, strategy: str = None, 
+                               stop_loss: float = None, confidence: float = 0.5,
+                               market_conditions: dict = None) -> dict:
+        """
+        Calculate optimal position size for a trade.
+        
+        Args:
+            symbol: Trading symbol
+            strategy: Strategy name (optional)
+            stop_loss: Stop loss price or percentage (optional)
+            confidence: Confidence level (0-1)
+            market_conditions: Current market conditions (optional)
+            
+        Returns:
+            Dictionary containing:
+                - size: Recommended position size (number of shares/contracts)
+                - size_pct: Size as percentage of portfolio
+                - risk_amount: Dollar risk for the position
+                - confidence: Confidence in the recommendation
+                - method: Sizing method used
+                - warnings: Any risk warnings
+        """
+        try:
+            # Create position size request
+            from SpyderE_Risk.SpyderE02_PositionSizer import PositionSizeRequest
+            
+            request = PositionSizeRequest(
+                symbol=symbol,
+                strategy_name=strategy or 'default',
+                entry_price=0,  # Will be determined by PositionSizer
+                stop_loss=stop_loss or 0,
+                confidence=confidence,
+                volatility=0.20,  # Default volatility
+                market_conditions=market_conditions or {}
+            )
+            
+            # Use PositionSizer to calculate
+            if hasattr(self, 'position_sizer'):
+                recommendation = self.position_sizer.calculate_position_size(request)
+                
+                return {
+                    'size': recommendation.contracts if hasattr(recommendation, 'contracts') else 1,
+                    'size_pct': recommendation.size_pct,
+                    'risk_amount': recommendation.risk_amount,
+                    'confidence': recommendation.confidence,
+                    'method': recommendation.method.value if hasattr(recommendation.method, 'value') else str(recommendation.method),
+                    'warnings': recommendation.warnings
+                }
+            else:
+                # Fallback calculation if PositionSizer not available
+                self.logger.warning("PositionSizer not initialized, using fallback calculation")
+                
+                # Simple Kelly Criterion calculation
+                portfolio_value = self.portfolio_value
+                risk_per_trade = self.config.get('risk_per_trade', 0.02)
+                
+                # Calculate position size as percentage of portfolio
+                size_pct = min(risk_per_trade * confidence, 0.10)  # Max 10% per position
+                risk_amount = portfolio_value * size_pct
+                
+                return {
+                    'size': 1,  # Default to 1 contract
+                    'size_pct': size_pct,
+                    'risk_amount': risk_amount,
+                    'confidence': confidence,
+                    'method': 'fallback',
+                    'warnings': ['Using fallback calculation - PositionSizer not available']
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error calculating position size: {e}")
+            
+            # Return minimal safe position
+            return {
+                'size': 1,
+                'size_pct': 0.01,  # 1% of portfolio
+                'risk_amount': self.portfolio_value * 0.01,
+                'confidence': 0.0,
+                'method': 'error_fallback',
+                'warnings': [f'Error in calculation: {str(e)}']
+            }
+
