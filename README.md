@@ -23,6 +23,7 @@ SpyderA_Core/
   SpyderA06_MasterController.py
 SpyderB_Broker/
   __init__.py
+  SpyderB00_OrderTypes.py
   SpyderB01_SpyderClient.py
   SpyderB02_OrderManager.py
   SpyderB03_PositionTracker.py
@@ -40,7 +41,6 @@ SpyderB_Broker/
   SpyderB15_PrometheusMetrics.py
   SpyderB16_GatewayIntegration.py
   SpyderB17_SPYOptionsChainManager.py
-  SpyderB18_CustomMetricsClient.py
   SpyderB19_Client10Configuration.py
 SpyderC_MarketData/
   __init__.py
@@ -59,7 +59,6 @@ SpyderC_MarketData/
   SpyderC12_DarkPoolFlow.py
   SpyderC13_IndexComponents.py
   SpyderC14_UltraLowLatencyFeed.py
-  SpyderC15_GEXDEXCalculator.py
   SpyderC15_MicrostructureAnalyzer.py
   SpyderC16_MarketDataCache.py
   SpyderC17_MarketConfigManager.py
@@ -143,7 +142,10 @@ SpyderI_Integration/
   SpyderI04_DiagnosticsEngine_HealthChecks.py
   SpyderI04_DiagnosticsEngine_Types.py
   SpyderI04_DiagnosticsEngine_Utils.py
+  SpyderI04_SyntaxValidator.py
+  SpyderI05_IBAPIMigrator.py
   SpyderI06_AgentMessageBus.py
+  syntax_error_detector.py
 SpyderJ_Alerts/
   __init__.py
   SpyderJ01_AlertManager.py
@@ -164,6 +166,7 @@ SpyderK_Reports/
   SpyderK10_RealTimePerformanceAnalytics.py
 SpyderL_ML/
   __init__.py
+  SpyderD00_StrategyConstants.py
   SpyderL01_MLPredictor.py
   SpyderL07_PaperTradeLearner.py
   SpyderL08_EntryOptimizer.py
@@ -244,15 +247,14 @@ SpyderR_Runtime/
   SpyderR06_EnhancedBacktestEngine.py
 SpyderS_Signals/
   SpyderS01_DIXCalculator.py
-  SpyderS02_DIXDemo.py
+  SpyderS02_DIXScheduler.py
   SpyderS03_BlackSwanIndicator.py
-  SpyderS03_DIXVisualizer.py
-  SpyderS04_DIXQuickStart.py
-  SpyderS05_DIXScheduler.py
-  SpyderS06_BlackSwanDataCollector.py
+  SpyderS04_BlackSwanScheduler.py
+  SpyderS05_GEXDEXCalculator.py
+  SpyderS06_SKEWCalculator.py
   SpyderS07_CustomMetricsOrchestrator.py
-  SpyderS08_BlackSwanGUI.py
-  SpyderS11_BlackSwanScheduler.py
+SpyderT_Technical/
+  pure_python_indicators.py
 SpyderT_Testing/
   SpyderT01_UnitTestFramework.py
   SpyderT02_BrokerTestSuite.py
@@ -267,6 +269,10 @@ SpyderT_Testing/
   SpyderT12_FullSystemIntegration.py
   SpyderT13_MultiClientIntegrationTest.py
   SpyderT14_RiskSuiteIntegrationTest.py
+  SpyderT15_FullSystemTest.py
+  SpyderT16_SystemHealthMonitor.py
+  SpyderT20_DIXDemo.py
+  SpyderT21_DIXQuickStart.py
 SpyderU_Utilities/
   __init__.py
   SpyderU01_Logger.py
@@ -305,7 +311,6 @@ SpyderX_Agents/
   SpyderX12_SystemHealthAgent.py
   SpyderX13_MarketAnalysisAgent.py
   SpyderX14_OrchestratorAgent.py
-  SpyderX15_StrategyGeneratorAgent_Mock.py
   SpyderX15_StrategyGeneratorAgent.py
   SpyderX16_MetaCoordinator.py
 SpyderZ_Communication/
@@ -317,7 +322,6 @@ SpyderZ_Communication/
   SpyderZ05_OrderRouter.py
   SpyderZ06_AutoHedger.py
   SpyderZ07_MultiProcessManager.py
-
 
 
 
