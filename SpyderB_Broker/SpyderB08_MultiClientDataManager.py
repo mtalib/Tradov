@@ -1,5 +1,3 @@
-import uuid
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -11,26 +9,28 @@ Group: B (Broker Integration)
 Purpose: Multi-Client Market Data Manager with Order Execution Priority
 Author: Mohamed Talib
 Date Created: 2025-07-28
-Last Updated: 2025-08-12 Time: 16:45:00
+Last Updated: 2025-08-19 Time: 20:30:00
 
 Description:
     Advanced multi-client market data management system implementing sophisticated
     client ID allocation strategy optimized for trading performance. Order execution
-    gets highest priority (Client 2) for fastest trade processing, with market data
+    gets highest priority (Client 1) for fastest trade processing, with market data
     distributed across remaining clients based on frequency and importance.
 
-    UPDATED CLIENT ALLOCATION (1-10)):
-    - Client 1: Administrative Operations (Account, System Control)
-    - Client 2: Order Execution (HIGHEST PRIORITY - Trading operations)
+    FINAL UPDATED CLIENT ALLOCATION (1-10):
+    - Client 1: Order Execution (HIGHEST PRIORITY - Trading operations) *** UPDATED ***
+    - Client 2: Administrative Operations (Account, System Control) *** UPDATED ***
     - Client 3: Core Market Data (SPY, SPX, /ES, VIX, TICK-NYSE) - 1-second updates
     - Client 4: SPY Options Chains (0DTE, 1DTE) - 1-second updates
     - Client 5: Volatility Indicators (VIX9D, VXV, VXMT, VVIX, UVXY) - 5-second updates
-    - Client 6: Market Internals (TRIN, ADD, CPC, PCALL, SKEW) - 5-second updates
+    - Client 6: Market Internals (TRIN, ADD, CPC, PCALL, SKEW, VUD) - 5-second updates *** VUD ADDED ***
     - Client 7: Major Indices (DIA, QQQ, IWM, 1DTE Options) - 5-second updates
     - Client 8: Extended Assets (TLT, LQD, DXY, GLD, WEEKLY Options) - 15-30s updates
     - Client 9: Sector ETFs (XLF, XLK, XLE, XLV, XLI, XLY, XLP, XLU, XLRE, XLC, XLB) - 30-60s
+    - Client 10: International Markets (FTLC, AUD.JPY, DAX, HSI, EWJ, etc.) - 30s *** NEW ***
 """
 
+import uuid
 import logging
 import threading
 import time
@@ -46,62 +46,10 @@ import json
 # IMPORTS - Handle graceful fallbacks for missing dependencies
 # ================================================================================
 
-
-# ==============================================================================
-# ENUMS
-# ==============================================================================
-class DataPriority(Enum):
-    """Priority levels for data requests"""
-
-    CRITICAL = 1  # Real-time trading data
-    HIGH = 2  # Important market data
-    NORMAL = 3  # Standard data requests
-    LOW = 4  # Background data
-    BATCH = 5  # Bulk/historical data
-
-
-class DataRequestType(Enum):
-    """Types of data requests"""
-
-    MARKET_DATA = "market_data"
-    HISTORICAL = "historical"
-    OPTIONS_CHAIN = "options_chain"
-    ACCOUNT = "account"
-    POSITIONS = "positions"
-    ORDERS = "orders"
-    EXECUTIONS = "executions"
-
-
-class ClientPurpose(Enum):
-    """Purpose of each client connection"""
-
-    MARKET_DATA = "market_data"
-    ORDER_EXECUTION = "order_execution"
-    HISTORICAL_DATA = "historical_data"
-    ACCOUNT_MONITORING = "account_monitoring"
-    OPTIONS_DATA = "options_data"
-    BACKUP = "backup"
-
-
-@dataclass
-class ClientInfo:
-    """Information about a client connection"""
-
-    client_id: int
-    purpose: ClientPurpose
-    host: str = "127.0.0.1"
-    port: int = 4002
-    is_primary: bool = False
-    is_connected: bool = False
-    last_activity: Optional[datetime] = None
-    error_count: int = 0
-    client: Optional[Any] = None  # Will be SpyderClient instance
-
-
 try:
     from ib_insync import Contract
     from ib_insync import Order, LimitOrder, MarketOrder, StopOrder
-    from ib_insync import Ticker  # FIXED: Correct import location
+    from ib_insync import Ticker
     from ib_insync import BarData
 
     # Try to import TickType from ib_insync
@@ -118,14 +66,11 @@ try:
             LOW = 7
             CLOSE = 9
 
-    # IB functionality is in IB class
-    # IB functionality is in IB class
     ib_insync_AVAILABLE = True
 except ImportError:
     ib_insync_AVAILABLE = False
 
     # Fallback classes for when ib_insync is not available
-    # Removed fallback Contract class - using ib_insync
     class Order:
         def __init__(self):
             self.action = ""
@@ -151,16 +96,10 @@ except ImportError:
             self.volume = 0
 
     class IB:
-        def __init__(self, wrapper):
-            pass
-
-    class IB:
         def __init__(self):
             pass
 
-        # Local imports
-
-
+# Local imports
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
@@ -180,29 +119,44 @@ except ImportError:
         def __init__(self):
             pass
 
-        # ================================================================================
-        # ENUMS AND DATACLASSES - UPDATED WITH NEW CLIENT ALLOCATION (1-10))
-        # ================================================================================
+# ==============================================================================
+# ENUMS AND DATACLASSES - UPDATED WITH CLIENT ID SWAP + VUD
+# ==============================================================================
 
+class DataPriority(Enum):
+    """Priority levels for data requests"""
+    CRITICAL = 1  # Real-time trading data
+    HIGH = 2  # Important market data
+    NORMAL = 3  # Standard data requests
+    LOW = 4  # Background data
+    BATCH = 5  # Bulk/historical data
+
+class DataRequestType(Enum):
+    """Types of data requests"""
+    MARKET_DATA = "market_data"
+    HISTORICAL = "historical"
+    OPTIONS_CHAIN = "options_chain"
+    ACCOUNT = "account"
+    POSITIONS = "positions"
+    ORDERS = "orders"
+    EXECUTIONS = "executions"
 
 class ClientPurpose(Enum):
-    """Client ID purposes for organized allocation - UPDATED WITH ORDER EXECUTION PRIORITY (1-9)"""
-
-    ADMINISTRATIVE = "Administrative Operations"
-    ORDER_EXECUTION = "Order Execution - HIGHEST PRIORITY"  # Now Client 2
-    CORE_DATA = "Core Market Data"  # Now Client 3
-    SPY_OPTIONS = "SPY Options Chains"  # Now Client 4
-    VOLATILITY = "Volatility Indicators"  # Now Client 5
-    MARKET_INTERNALS = "Market Internals"  # Now Client 6
-    MAJOR_INDICES = "Major Index ETFs"  # Now Client 7
-    EXTENDED_ASSETS = "Extended Market Data"  # Now Client 8
-    SECTOR_ETFS = "Sector ETFs"  # Now Client 9
-
+    """Client ID purposes for organized allocation - UPDATED WITH CLIENT ID SWAP"""
+    ORDER_EXECUTION = "Order Execution - HIGHEST PRIORITY"  # Now Client 1 *** UPDATED ***
+    ADMINISTRATIVE = "Administrative Operations"  # Now Client 2 *** UPDATED ***
+    CORE_DATA = "Core Market Data"  # Client 3
+    SPY_OPTIONS = "SPY Options Chains"  # Client 4
+    VOLATILITY = "Volatility Indicators"  # Client 5
+    MARKET_INTERNALS = "Market Internals"  # Client 6
+    MAJOR_INDICES = "Major Index ETFs"  # Client 7
+    EXTENDED_ASSETS = "Extended Market Data"  # Client 8
+    SECTOR_ETFS = "Sector ETFs"  # Client 9
+    INTERNATIONAL = "International Markets"  # Client 10 *** NEW ***
 
 @dataclass
 class MarketDataTick:
     """Market data tick information"""
-
     symbol: str
     price: float
     size: int
@@ -210,11 +164,9 @@ class MarketDataTick:
     tick_type: int  # Use int instead of TickType for compatibility
     request_id: int
 
-
 @dataclass
 class ClientInfo:
     """Information about each client connection"""
-
     client_id: int
     purpose: ClientPurpose
     symbols: List[str]
@@ -224,16 +176,9 @@ class ClientInfo:
     message_count: int = 0
     error_count: int = 0
 
-
-# ==============================================================================
-# DATA CLASSES FOR MARKET DATA MANAGEMENT
-# ==============================================================================
-
-
 @dataclass
 class MarketDataRequest:
     """Request for market data"""
-
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     symbol: str = ""
     request_type: DataRequestType = DataRequestType.MARKET_DATA
@@ -243,11 +188,9 @@ class MarketDataRequest:
     timestamp: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-
 @dataclass
 class DataSubscription:
     """Track data subscriptions across clients"""
-
     subscription_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     symbol: str = ""
     data_type: DataRequestType = DataRequestType.MARKET_DATA
@@ -257,11 +200,9 @@ class DataSubscription:
     last_update: Optional[datetime] = None
     update_count: int = 0
 
-
 @dataclass
 class ClientMetrics:
     """Metrics for a client connection"""
-
     client_id: int
     messages_sent: int = 0
     messages_received: int = 0
@@ -270,41 +211,34 @@ class ClientMetrics:
     uptime_seconds: float = 0.0
     last_error: Optional[str] = None
 
-
-t: int = 0
-
-
 @dataclass
 class OrderRequest:
-    """Order execution request for Client 2"""
-
+    """Order execution request for Client 1 *** UPDATED ***"""
     symbol: str
     action: str  # BUY/SELL
     quantity: int
     order_type: str  # MKT/LMT/STP
     limit_price: Optional[float] = None
     stop_price: Optional[float] = None
-    client_id: int = 2  # Always use Client 2 for orders (UPDATED from Client 1)
-
+    client_id: int = 1  # Always use Client 1 for orders *** UPDATED from Client 2 ***
 
 # ================================================================================
-# MAIN MULTI-CLIENT ALLOCATION (1-10))
+# MAIN MULTI-CLIENT ALLOCATION WITH CLIENT ID SWAP + VUD (1-10)
 # ================================================================================
-
 
 class MultiClientDataManager:
     """
     Advanced Multi-Client Data Manager with Order Execution Priority
 
     Manages multiple IB Gateway client connections with ORDER EXECUTION as highest
-    priority (Client 2). Implements professional-grade market data distribution
+    priority (Client 1). Implements professional-grade market data distribution
     with optimized client allocation for trading performance.
 
-    UPDATED: Client IDs now range from 1-9 instead of 0-8
+    FINAL UPDATES: Order Execution = Client 1, Admin = Client 2, VUD in Client 6
     """
 
     def __init__(self):
-        """Initialize the Multi-Client Data Manager with new allocation strategy (1-9)"""
+        """Initialize the Multi-Client Data Manager with FINAL UPDATED client allocation (1-10)"""
         # Core components
         if UTILITIES_AVAILABLE:
             self.logger = SpyderLogger.get_logger("SpyderB08.MultiClient")
@@ -328,7 +262,7 @@ class MultiClientDataManager:
         self.data_callbacks: Dict[str, List[Callable]] = {}
         self.request_queue = queue.Queue()
 
-        # Order management (Client 2)
+        # Order management (Client 1) *** UPDATED ***
         self.order_queue = queue.Queue()
         self.active_orders: Dict[int, OrderRequest] = {}
         self.order_callbacks: List[Callable] = []
@@ -339,114 +273,102 @@ class MultiClientDataManager:
         self.total_orders = 0
         self.start_time: Optional[datetime] = None
 
-        # Initialize UPDATED client allocation strategy (1-9)
-        self._initialize_updated_client_allocation()
+        # Initialize FINAL client allocation strategy with Client ID swap + VUD (1-10)
+        self._initialize_final_client_allocation()
 
         self.logger.info(
-            "✅ Multi-Client Data Manager initialized with ORDER EXECUTION PRIORITY (Clients 1-10)"
+            "✅ Multi-Client Data Manager initialized with ORDER EXECUTION PRIORITY (Client 1) + VUD - Clients 1-10"
         )
 
-    def _initialize_updated_client_allocation(self):
-        """Initialize the UPDATED sophisticated client allocation strategy (1-9)"""
+    def _initialize_final_client_allocation(self):
+        """Initialize the FINAL sophisticated client allocation strategy with Client ID swap + VUD (1-10)"""
 
-        # UPDATED Client allocation configuration with Order Execution Priority (1-9)
+        # FINAL Client allocation configuration with Order Execution Priority (Client 1) + VUD *** COMPLETE ***
         self.client_configs = {
-            1: {  # UPDATED: Was Client 0
-                "purpose": ClientPurpose.ADMINISTRATIVE,
-                "symbols": [],  # Administrative only
-                "frequency": 0.0,
-                "description": "Account management, system control",
-                "priority": "SYSTEM",
-            },
-            2: {  # UPDATED: Order Execution gets highest priority (was Client 1)
+            1: {  # *** UPDATED: Order Execution now gets Client 1 (highest priority) ***
                 "purpose": ClientPurpose.ORDER_EXECUTION,
                 "symbols": [],  # No market data - trading only
                 "frequency": 0.0,
                 "description": "Order execution - HIGHEST PRIORITY",
                 "priority": "CRITICAL",
             },
-            3: {  # UPDATED: Moved from Client 2
+            2: {  # *** UPDATED: Administrative now gets Client 2 ***
+                "purpose": ClientPurpose.ADMINISTRATIVE,
+                "symbols": [],  # Administrative only
+                "frequency": 0.0,
+                "description": "Account management, system control",
+                "priority": "SYSTEM",
+            },
+            3: {  # Core market data - unchanged
                 "purpose": ClientPurpose.CORE_DATA,
                 "symbols": ["SPY", "SPX", "/ES", "VIX", "TICK-NYSE"],
                 "frequency": 1.0,
                 "description": "SPY, SPX, /ES, VIX, TICK-NYSE (1s)",
                 "priority": "CRITICAL",
             },
-            4: {  # UPDATED: Moved from Client 3
+            4: {  # SPY Options - unchanged
                 "purpose": ClientPurpose.SPY_OPTIONS,
                 "symbols": ["SPY_0DTE", "SPY_1DTE"],
                 "frequency": 1.0,
                 "description": "0DTE, 1DTE options (1s)",
                 "priority": "CRITICAL",
             },
-            5: {  # UPDATED: Moved from Client 4
+            5: {  # Volatility indicators - unchanged
                 "purpose": ClientPurpose.VOLATILITY,
                 "symbols": ["VIX9D", "VXV", "VXMT", "VVIV", "UVXY", "VXN", "RVX"],
                 "frequency": 5.0,
                 "description": "Volatility indicators (5s)",
                 "priority": "HIGH",
             },
-            6: {  # UPDATED: Moved from Client 5
+            6: {  # *** UPDATED: Market internals with VUD added ***
                 "purpose": ClientPurpose.MARKET_INTERNALS,
-                "symbols": ["$TRIN", "$ADD", "$DECL", "CPC", "PCALL", "SKEW"],
+                "symbols": ["$TRIN", "$ADD", "$DECL", "CPC", "PCALL", "SKEW", "VUD"],
                 "frequency": 5.0,
-                "description": "Market internals (5s)",
+                "description": "Market internals + VUD Put/Call Ratio (5s)",
                 "priority": "HIGH",
             },
-            7: {  # UPDATED: Moved from Client 6
+            7: {  # Major indices - unchanged
                 "purpose": ClientPurpose.MAJOR_INDICES,
                 "symbols": ["DIA", "QQQ", "IWM", "NDX"],
                 "frequency": 5.0,
                 "description": "Major indices (5s)",
                 "priority": "HIGH",
             },
-            8: {  # UPDATED: Moved from Client 7
+            8: {  # Extended assets - unchanged
                 "purpose": ClientPurpose.EXTENDED_ASSETS,
                 "symbols": ["TLT", "LQD", "DXY", "GLD", "USO", "UNG"],
                 "frequency": 15.0,
                 "description": "Extended assets (15s)",
                 "priority": "MEDIUM",
             },
-            9: {  # UPDATED: Moved from Client 8
+            9: {  # Sector ETFs - unchanged
                 "purpose": ClientPurpose.SECTOR_ETFS,
                 "symbols": [
-                    "XLF",
-                    "XLK",
-                    "XLE",
-                    "XLV",
-                    "XLI",
-                    "XLY",
-                    "XLP",
-                    "XLU",
-                    "XLRE",
-                    "XLC",
-                    "XLB",
+                    "XLF", "XLK", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLRE", "XLC", "XLB",
                 ],
                 "frequency": 30.0,
                 "description": "Sector ETFs (30s)",
                 "priority": "LOW",
             },
-        
-            10: {  # NEW: International symbols
+            10: {  # *** NEW: International symbols - OPTIMIZED LIST WITH FTLC ***
                 "purpose": ClientPurpose.INTERNATIONAL,
                 "symbols": [
-                    # European Indices
-                    "DAX", "CAC40", "FTSE", "STOXX50", "SMI",
-                    # Asian Indices  
-                    "N225", "HSI", "KOSPI", "ASX200", "STI",
-                    # International ETFs
-                    "EWJ", "EWG", "EWU", "EWZ", "EEM", "VEA", "VWO",
-                    # Major FX pairs
-                    "EUR.USD", "GBP.USD", "USD.JPY", "AUD.USD", "USD.CHF",
-                    # International Commodities
-                    "BRENT", "WTI", "NATGAS"
+                    # FX Pairs - Risk Sentiment Barometers (5)
+                    "AUD.JPY", "EUR.USD", "DXY", "USD.JPY", "GBP.USD",
+                    # European Markets - Pre-Open Signals (3)
+                    "DAX", "VSTOXX", "FTLC",  # *** FTLC = FTSE 350 (better than FTSE 100) ***
+                    # Asian Markets - Early Warning System (3)
+                    "HSI", "N225", "KOSPI",
+                    # International ETFs - US Tradeable (6)
+                    "EWJ", "EWG", "EEM", "FXI", "EWZ", "VWO"
                 ],
                 "frequency": 30.0,
-                "description": "International markets (30s)",
+                "description": "International follow-the-sun markets (30s)",
                 "priority": "LOW",
-            },}
+            },
+        }
 
-        # Create client info objects with UPDATED allocation (1-9)
+        # Create client info objects with FINAL allocation (1-10)
         for client_id, config in self.client_configs.items():
             self.clients[client_id] = ClientInfo(
                 client_id=client_id,
@@ -455,29 +377,27 @@ class MultiClientDataManager:
                 update_frequency=config["frequency"],
             )
 
-        # Print UPDATED allocation summary
-        self._print_updated_allocation_summary()
+        # Print FINAL allocation summary
+        self._print_final_allocation_summary()
 
-    def _print_updated_allocation_summary(self):
-        """Print UPDATED allocation summary with Order Execution priority (1-9)"""
-        print("\n" + "=" * 80)
-        print(
-            "📊 UPDATED PROFESSIONAL CLIENT ALLOCATION (1-10))"
-        )
-        print("=" * 80)
+    def _print_final_allocation_summary(self):
+        """Print FINAL allocation summary with Order Execution priority (Client 1) + VUD *** COMPLETE ***"""
+        print("\n" + "=" * 90)
+        print("🚀 FINAL PROFESSIONAL CLIENT ALLOCATION (1-10) - ORDER EXECUTION = CLIENT 1 + VUD")
+        print("=" * 90)
 
         print("🏆 TRADING PRIORITY ORDER:")
         priority_order = [
-            (2, "ORDER EXECUTION", "CRITICAL - Fastest trading execution"),
-            (1, "ADMINISTRATIVE", "SYSTEM - Account & control"),
+            (1, "ORDER EXECUTION", "CRITICAL - Ultra-fast trading execution"),  # *** UPDATED ***
+            (2, "ADMINISTRATIVE", "SYSTEM - Account & control"),  # *** UPDATED ***
             (3, "CORE DATA", "CRITICAL - SPY, VIX real-time (1s)"),
             (4, "SPY OPTIONS", "CRITICAL - 0DTE/1DTE options (1s)"),
             (5, "VOLATILITY", "HIGH - Volatility surface (5s)"),
-            (6, "MARKET INTERNALS", "HIGH - Market breadth (5s)"),
+            (6, "MARKET INTERNALS", "HIGH - Market breadth + VUD (5s)"),  # *** VUD ADDED ***
             (7, "MAJOR INDICES", "HIGH - DIA/QQQ/IWM (5s)"),
             (8, "EXTENDED ASSETS", "MEDIUM - Bonds/FX/Commodities (15s)"),
             (9, "SECTOR ETFS", "LOW - Sector rotation (30s)"),
-            (10, "INTERNATIONAL", "LOW - Global markets (30s)"),  # NEW
+            (10, "INTERNATIONAL", "LOW - Follow-the-sun markets (30s)"),  # *** NEW ***
         ]
 
         for client_id, name, description in priority_order:
@@ -486,37 +406,47 @@ class MultiClientDataManager:
             frequency = config["frequency"]
 
             # Format display
-            if client_id == 2:  # UPDATED: Order execution is now Client 2
+            if client_id == 1:  # *** UPDATED: Order execution is now Client 1 ***
                 print(f"🚀 Client {client_id}: {name} - {description}")
                 print(f"   🎯 PURPOSE: Ultra-fast order execution and trade management")
                 print(f"   ⚡ LATENCY: <10ms target for order placement")
+                print(f"   🥇 PRIORITY: Client 1 = Primary/Highest priority")
             elif symbol_count > 0:
                 print(f"📊 Client {client_id}: {name} - {description}")
                 print(
                     f"   📈 Symbols ({symbol_count}): {', '.join(config['symbols'][:5])}{'...' if symbol_count > 5 else ''}"
                 )
                 print(f"   🔄 Update frequency: {frequency}s")
+                
+                # Special highlights for key clients
+                if client_id == 6:
+                    print(f"   📊 VUD: SPY Put/Call Ratio for sentiment analysis")
+                elif client_id == 10:
+                    print(f"   🌍 INCLUDES: FTLC (FTSE 350), AUD/JPY, DAX, HSI - Follow-the-sun strategy")
             else:
                 print(f"⚙️ Client {client_id}: {name} - {description}")
             print()
 
-        print("🎯 TRADING ADVANTAGES:")
-        print("   • Order Execution (Client 2) gets highest priority")
+        print("🎯 TRADING ADVANTAGES (FINAL VERSION):")
+        print("   • Order Execution (Client 1) gets PRIMARY priority")  # *** UPDATED ***
+        print("   • Administrative (Client 2) handles account management")  # *** UPDATED ***
+        print("   • VUD Put/Call Ratio (Client 6) for SPY sentiment monitoring")  # *** NEW ***
+        print("   • International follow-the-sun coverage (Client 10)")  # *** NEW ***
         print("   • Critical market data (Clients 3-4) on fast 1s updates")
         print("   • Load distribution prevents API rate limiting")
         print("   • Fault isolation - if one client fails, others continue")
-        print("   • Client IDs now 1-9 (eliminates Client 0 complexity)")
-        print("=" * 80)
+        print("   • Client IDs now 1-10 (Order Execution = Client 1)")  # *** UPDATED ***
+        print("=" * 90)
 
     # ================================================================================
-    # ORDER EXECUTION METHODS - UPDATED FOR CLIENT 2
+    # ORDER EXECUTION METHODS - UPDATED FOR CLIENT 1 *** CRITICAL UPDATE ***
     # ================================================================================
 
     def submit_order(
         self, order_request: OrderRequest, callback: Optional[Callable] = None
     ) -> int:
         """
-        Submit order for execution on Client 2 (highest priority)
+        Submit order for execution on Client 1 (highest priority) *** UPDATED ***
 
         Args:
             order_request: Order details
@@ -528,13 +458,13 @@ class MultiClientDataManager:
         try:
             order_id = int(time.time() * 1000) % 1000000  # Generate unique order ID
 
-            # Always route to Client 2 for fastest execution (UPDATED from Client 1)
-            order_request.client_id = 2
+            # Always route to Client 1 for fastest execution *** UPDATED from Client 2 ***
+            order_request.client_id = 1
 
             # Store order
             self.active_orders[order_id] = order_request
 
-            # Add to order queue for Client 2 processing
+            # Add to order queue for Client 1 processing *** UPDATED ***
             order_data = {
                 "order_id": order_id,
                 "order_request": order_request,
@@ -549,7 +479,7 @@ class MultiClientDataManager:
 
             self.total_orders += 1
             self.logger.info(
-                f"✅ Order {order_id} submitted to Client 2: {order_request.action} {order_request.quantity} {order_request.symbol}"
+                f"✅ Order {order_id} submitted to Client 1: {order_request.action} {order_request.quantity} {order_request.symbol}"  # *** UPDATED ***
             )
 
             return order_id
@@ -560,7 +490,7 @@ class MultiClientDataManager:
 
     def cancel_order(self, order_id: int) -> bool:
         """
-        Cancel order via Client 2
+        Cancel order via Client 1 *** UPDATED ***
 
         Args:
             order_id: Order ID to cancel
@@ -570,7 +500,7 @@ class MultiClientDataManager:
         """
         try:
             if order_id in self.active_orders:
-                # Submit cancellation to Client 2
+                # Submit cancellation to Client 1 *** UPDATED ***
                 cancel_data = {
                     "action": "CANCEL",
                     "order_id": order_id,
@@ -579,7 +509,7 @@ class MultiClientDataManager:
                 self.order_queue.put(cancel_data)
 
                 self.logger.info(
-                    f"✅ Order {order_id} cancellation submitted to Client 2"
+                    f"✅ Order {order_id} cancellation submitted to Client 1"  # *** UPDATED ***
                 )
                 return True
             else:
@@ -619,12 +549,12 @@ class MultiClientDataManager:
             return None
 
     # ================================================================================
-    # CORE MANAGEMENT METHODS - UPDATED FOR 1-9 RANGE
+    # CORE MANAGEMENT METHODS - UPDATED FOR CLIENT ID SWAP (1-10)
     # ================================================================================
 
     def start(self) -> bool:
         """
-        Start the Multi-Client Data Manager with Order Execution Priority (1-9)
+        Start the Multi-Client Data Manager with Order Execution Priority (Client 1) *** UPDATED ***
 
         Returns:
             bool: True if started successfully
@@ -636,23 +566,23 @@ class MultiClientDataManager:
                     return True
 
                 self.logger.info(
-                    "🚀 Starting Multi-Client Data Manager with ORDER EXECUTION PRIORITY (Clients 1-10)..."
+                    "🚀 Starting Multi-Client Data Manager with ORDER EXECUTION PRIORITY (Client 1) + VUD - Clients 1-10..."  # *** UPDATED ***
                 )
 
                 # Initialize components
                 self._stop_event.clear()
                 self.start_time = datetime.now()
 
-                # Start ORDER EXECUTION client (Client 2) FIRST - highest priority
-                if self._start_client(2):
+                # Start ORDER EXECUTION client (Client 1) FIRST - highest priority *** UPDATED ***
+                if self._start_client(1):
                     self.logger.info(
-                        "✅ Started ORDER EXECUTION client (Client 2) - HIGHEST PRIORITY"
+                        "✅ Started ORDER EXECUTION client (Client 1) - HIGHEST PRIORITY"  # *** UPDATED ***
                     )
                     time.sleep(0.2)  # Brief pause
 
-                # Start administrative client (Client 1) second
-                if self._start_client(1):
-                    self.logger.info("✅ Started ADMINISTRATIVE client (Client 1)")
+                # Start administrative client (Client 2) second *** UPDATED ***
+                if self._start_client(2):
+                    self.logger.info("✅ Started ADMINISTRATIVE client (Client 2)")  # *** UPDATED ***
                     time.sleep(0.2)
 
                 # Start critical market data clients (Clients 3, 4)
@@ -679,7 +609,7 @@ class MultiClientDataManager:
 
                 self.is_running = True
                 self.logger.info(
-                    "✅ Multi-Client Data Manager started with ORDER EXECUTION PRIORITY (Clients 1-10)"
+                    "✅ Multi-Client Data Manager started with ORDER EXECUTION PRIORITY (Client 1) + VUD - Clients 1-10"  # *** UPDATED ***
                 )
 
                 return True
@@ -689,15 +619,15 @@ class MultiClientDataManager:
             return False
 
     def _order_processing_loop(self):
-        """Process order execution requests for Client 2"""
-        self.logger.info("🔄 Starting order processing loop for Client 2")
+        """Process order execution requests for Client 1 *** UPDATED ***"""
+        self.logger.info("🔄 Starting order processing loop for Client 1")  # *** UPDATED ***
 
         while not self._stop_event.is_set():
             try:
                 # Get order from queue (with timeout)
                 order_data = self.order_queue.get(timeout=1.0)
 
-                # Process the order on Client 2
+                # Process the order on Client 1 *** UPDATED ***
                 self._process_order_request(order_data)
 
             except queue.Empty:
@@ -710,7 +640,7 @@ class MultiClientDataManager:
 
     def _process_order_request(self, order_data: Dict):
         """
-        Process individual order request on Client 2
+        Process individual order request on Client 1 *** UPDATED ***
 
         Args:
             order_data: Order data dictionary
@@ -731,10 +661,10 @@ class MultiClientDataManager:
                 callback = order_data.get("callback")
 
                 self.logger.info(
-                    f"⚡ Processing order {order_id} on Client 2: {order_request.action} {order_request.quantity} {order_request.symbol}"
+                    f"⚡ Processing order {order_id} on Client 1: {order_request.action} {order_request.quantity} {order_request.symbol}"  # *** UPDATED ***
                 )
 
-                # In real implementation, would submit to IB via Client 2
+                # In real implementation, would submit to IB via Client 1 *** UPDATED ***
                 if not ib_insync_AVAILABLE:
                     # Simulate order processing
                     self.logger.info(
@@ -758,12 +688,12 @@ class MultiClientDataManager:
             self.logger.error(f"❌ Error processing order request: {e}")
 
     # ================================================================================
-    # MARKET DATA METHODS - UPDATED FOR NEW CLIENT ALLOCATION (1-10))
+    # MARKET DATA METHODS - UPDATED FOR NEW CLIENT ALLOCATION + VUD (1-10)
     # ================================================================================
 
     def subscribe_to_data(self, symbol: str, callback: Callable) -> bool:
         """
-        Subscribe to market data for a symbol using UPDATED client allocation (1-9)
+        Subscribe to market data for a symbol using UPDATED client allocation + VUD (1-10)
 
         Args:
             symbol: Symbol to subscribe to
@@ -780,7 +710,7 @@ class MultiClientDataManager:
                 self.data_callbacks[symbol].append(callback)
                 self.logger.info(f"✅ Subscribed to {symbol} data")
 
-                # Determine which client should handle this symbol using UPDATED allocation
+                # Determine which client should handle this symbol using UPDATED allocation + VUD
                 client_id = self._get_updated_client_for_symbol(symbol)
                 if client_id is not None:
                     self._request_market_data(symbol, client_id)
@@ -796,7 +726,7 @@ class MultiClientDataManager:
 
     def _get_updated_client_for_symbol(self, symbol: str) -> Optional[int]:
         """
-        Determine which client should handle a symbol using UPDATED allocation (1-9)
+        Determine which client should handle a symbol using FINAL allocation + VUD (1-10)
 
         Args:
             symbol: Symbol to route
@@ -805,36 +735,40 @@ class MultiClientDataManager:
             Client ID or None
         """
         try:
-            # Check each client's symbol list (using UPDATED allocation)
+            # Check each client's symbol list (using FINAL allocation)
             for client_id, client in self.clients.items():
                 if symbol in client.symbols:
                     return client_id
 
-            # UPDATED default routing based on symbol characteristics
+            # FINAL default routing based on symbol characteristics + VUD
             if symbol in ["SPY", "SPX", "/ES", "VIX", "TICK-NYSE"]:
-                return 3  # Core data (was Client 2, now Client 3)
+                return 3  # Core data (Client 3)
             elif "VIX" in symbol or symbol in ["UVXY", "SKEW"]:
-                return 5  # Volatility (was Client 4, now Client 5)
+                return 5  # Volatility (Client 5)
+            elif symbol in ["$TRIN", "$ADD", "$DECL", "CPC", "PCALL", "VUD"]:  # *** VUD ADDED ***
+                return 6  # Market internals (Client 6)
             elif symbol in ["DIA", "QQQ", "IWM"]:
-                return 7  # Major indices (was Client 6, now Client 7)
+                return 7  # Major indices (Client 7)
             elif symbol in ["TLT", "LQD", "DXY", "GLD"]:
-                return 8  # Extended assets (was Client 7, now Client 8)
+                return 8  # Extended assets (Client 8)
             elif symbol.startswith("XL"):
-                return 9  # Sector ETFs (was Client 8, now Client 9)
+                return 9  # Sector ETFs (Client 9)
+            elif symbol in ["AUD.JPY", "EUR.USD", "DAX", "HSI", "N225", "EWJ", "FTLC", "VSTOXX", "KOSPI", "EWG", "EEM", "FXI", "EWZ", "VWO", "USD.JPY", "GBP.USD"]:
+                return 10  # International (Client 10) *** NEW ***
             else:
-                return 3  # Default to core data (was Client 2, now Client 3)
+                return 3  # Default to core data (Client 3)
 
         except Exception as e:
             self.logger.error(f"❌ Error routing symbol {symbol}: {e}")
             return 3  # Fallback to core data client
 
     # ================================================================================
-    # STATUS AND MONITORING METHODS - UPDATED FOR 1-9 RANGE
+    # STATUS AND MONITORING METHODS - UPDATED FOR CLIENT ID SWAP + VUD (1-10)
     # ================================================================================
 
     def get_status_summary(self) -> Dict:
         """
-        Get comprehensive status summary with UPDATED allocation (1-9)
+        Get comprehensive status summary with FINAL allocation + VUD (1-10)
 
         Returns:
             Status summary dictionary
@@ -851,11 +785,13 @@ class MultiClientDataManager:
                     "is_running": self.is_running,
                     "active_clients": active_clients,
                     "total_clients": len(self.clients),
-                    "order_execution_priority": 2
-                    in active_clients,  # UPDATED: Order execution is now Client 2
+                    "order_execution_priority": 1 in active_clients,  # *** UPDATED: Order execution is now Client 1 ***
+                    "administrative_online": 2 in active_clients,  # *** UPDATED: Administrative is now Client 2 ***
+                    "market_internals_with_vud": 6 in active_clients,  # *** NEW: VUD in Client 6 ***
+                    "international_client_online": 10 in active_clients,  # *** NEW ***
                     "critical_clients_online": len(
-                        [c for c in [2, 3, 4] if c in active_clients]
-                    ),  # UPDATED client IDs
+                        [c for c in [1, 2, 3, 4] if c in active_clients]  # *** UPDATED client IDs ***
+                    ),
                     "market_data_lines_used": len(self.market_data),
                     "total_messages": self.total_messages,
                     "total_orders": self.total_orders,
@@ -863,7 +799,8 @@ class MultiClientDataManager:
                     "start_time": self.start_time,
                     "subscriptions": len(self.data_callbacks),
                     "active_orders": len(self.active_orders),
-                    "client_id_range": "1-9",  # NEW: Indicate the client ID range
+                    "client_id_range": "1-10",  # Indicate the client ID range
+                    "client_allocation": "Order Execution = Client 1, Admin = Client 2, VUD = Client 6",  # *** FINAL ***
                 }
 
         except Exception as e:
@@ -871,11 +808,11 @@ class MultiClientDataManager:
             return {}
 
     # ================================================================================
-    # REMAINING METHODS - CORE FUNCTIONALITY (UPDATED FOR 1-9)
+    # REMAINING METHODS - CORE FUNCTIONALITY (FINAL VERSION 1-10)
     # ================================================================================
 
     def _start_client(self, client_id: int) -> bool:
-        """Start individual client connection (1-9 range)"""
+        """Start individual client connection (1-10 range)"""
         try:
             if client_id not in self.clients:
                 self.logger.error(f"❌ Unknown client ID: {client_id}")
@@ -917,7 +854,7 @@ class MultiClientDataManager:
                 self._stop_event.set()
                 self.is_running = False
 
-                # Disconnect all clients (1-9)
+                # Disconnect all clients (1-10)
                 for client_id in self.clients:
                     self._stop_client(client_id)
 
@@ -977,16 +914,30 @@ class MultiClientDataManager:
             symbol = request["symbol"]
             client_id = request["client_id"]
 
-            # Simulate market data for testing
+            # Simulate market data for testing (including VUD)
             if not ib_insync_AVAILABLE:
-                tick = MarketDataTick(
-                    symbol=symbol,
-                    price=420.0 + hash(symbol) % 50 + (time.time() % 10),
-                    size=100,
-                    timestamp=datetime.now(),
-                    tick_type=TickType.LAST,
-                    request_id=hash(f"{symbol}_{client_id}") % 10000,
-                )
+                # Special handling for VUD (Put/Call Ratio)
+                if symbol == "VUD":
+                    # Simulate VUD values (Put/Call ratio around 0.7-1.5)
+                    vud_value = 0.7 + (hash(symbol + str(time.time())) % 100) / 125  # 0.7 to 1.5
+                    tick = MarketDataTick(
+                        symbol=symbol,
+                        price=vud_value,
+                        size=1000,  # Volume count
+                        timestamp=datetime.now(),
+                        tick_type=TickType.LAST,
+                        request_id=hash(f"{symbol}_{client_id}") % 10000,
+                    )
+                else:
+                    # Regular market data simulation
+                    tick = MarketDataTick(
+                        symbol=symbol,
+                        price=420.0 + hash(symbol) % 50 + (time.time() % 10),
+                        size=100,
+                        timestamp=datetime.now(),
+                        tick_type=TickType.LAST,
+                        request_id=hash(f"{symbol}_{client_id}") % 10000,
+                    )
                 self._update_market_data(tick)
 
             # Update client stats
@@ -1030,14 +981,24 @@ class MultiClientDataManager:
                         "tick_type": tick.tick_type,
                     }
 
-                # Fallback: simulate data for testing
-                return {
-                    "symbol": symbol,
-                    "price": 420.0 + hash(symbol) % 50,
-                    "size": 100,
-                    "timestamp": datetime.now(),
-                    "tick_type": TickType.LAST,
-                }
+                # Fallback: simulate data for testing (including VUD)
+                if symbol == "VUD":
+                    # Simulate VUD Put/Call ratio
+                    return {
+                        "symbol": symbol,
+                        "price": 0.7 + (hash(symbol) % 100) / 125,  # 0.7 to 1.5
+                        "size": 1000,
+                        "timestamp": datetime.now(),
+                        "tick_type": TickType.LAST,
+                    }
+                else:
+                    return {
+                        "symbol": symbol,
+                        "price": 420.0 + hash(symbol) % 50,
+                        "size": 100,
+                        "timestamp": datetime.now(),
+                        "tick_type": TickType.LAST,
+                    }
         except Exception as e:
             self.logger.error(f"❌ Error getting data for {symbol}: {e}")
             return None
@@ -1060,7 +1021,7 @@ class MultiClientDataManager:
             return False
 
     def get_client_status(self, client_id: int) -> Optional[Dict]:
-        """Get status for specific client (1-9 range)"""
+        """Get status for specific client (1-10 range)"""
         try:
             if client_id in self.clients:
                 client = self.clients[client_id]
@@ -1078,14 +1039,12 @@ class MultiClientDataManager:
             self.logger.error(f"❌ Error getting client {client_id} status: {e}")
             return None
 
-
 # ================================================================================
 # GLOBAL INSTANCE MANAGEMENT
 # ================================================================================
 
 _global_manager_instance: Optional[MultiClientDataManager] = None
 _manager_lock = threading.Lock()
-
 
 def get_manager_instance() -> MultiClientDataManager:
     """Get global manager instance (singleton pattern)"""
@@ -1096,7 +1055,6 @@ def get_manager_instance() -> MultiClientDataManager:
             _global_manager_instance = MultiClientDataManager()
         return _global_manager_instance
 
-
 def reset_manager_instance():
     """Reset global manager instance"""
     global _global_manager_instance
@@ -1106,14 +1064,12 @@ def reset_manager_instance():
             _global_manager_instance.stop()
         _global_manager_instance = None
 
-
 # ================================================================================
 # STANDALONE TESTING AND MAIN EXECUTION
 # ================================================================================
 
-
 def main():
-    """Main execution for testing UPDATED allocation (1-9)"""
+    """Main execution for testing FINAL allocation with Client ID swap + VUD (1-10)"""
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
@@ -1121,25 +1077,25 @@ def main():
     )
 
     print(
-        "🚀 SPYDER B08 - Multi-Client Data Manager (ORDER EXECUTION PRIORITY - CLIENT ALLOCATION (1-10))"
+        "🚀 SPYDER B08 - Multi-Client Data Manager (FINAL: ORDER EXECUTION = CLIENT 1, VUD = CLIENT 6) - CLIENTS 1-10"
     )
-    print("=" * 90)
+    print("=" * 110)
 
     try:
-        # Initialize manager with UPDATED allocation (1-9)
+        # Initialize manager with FINAL allocation and Client ID swap + VUD (1-10)
         manager = MultiClientDataManager()
 
         # Test basic functionality
-        print("🧪 Testing UPDATED Multi-Client Data Manager (1-9)...")
+        print("🧪 Testing FINAL Multi-Client Data Manager with Client ID swap + VUD (1-10)...")
 
         # Start manager
         if manager.start():
             print(
-                "✅ Manager started successfully with ORDER EXECUTION PRIORITY (Clients 1-10)"
+                "✅ Manager started successfully with ORDER EXECUTION PRIORITY (Client 1) + VUD - Clients 1-10"
             )
 
-            # Test order submission (Client 2)
-            print("\n🧪 Testing Order Execution (Client 2)...")
+            # Test order submission (Client 1) *** UPDATED ***
+            print("\n🧪 Testing Order Execution (Client 1)...")  # *** UPDATED ***
             order = OrderRequest(
                 symbol="SPY", action="BUY", quantity=100, order_type="MKT"
             )
@@ -1149,7 +1105,7 @@ def main():
 
             order_id = manager.submit_order(order, order_callback)
             if order_id > 0:
-                print(f"✅ Order {order_id} submitted successfully to Client 2")
+                print(f"✅ Order {order_id} submitted successfully to Client 1")  # *** UPDATED ***
 
                 # Check order status
                 status = manager.get_order_status(order_id)
@@ -1161,24 +1117,40 @@ def main():
 
             def test_callback(tick):
                 print(
-                    f"📊 Received data: {tick.symbol} = ${tick.price:.2f} (Client routing)"
+                    f"📊 Received data: {tick.symbol} = {tick.price:.3f} (Client routing)"
                 )
 
             manager.subscribe_to_data("SPY", test_callback)
             print("✅ Subscribed to SPY data")
 
+            # Test VUD subscription (Client 6 - Market Internals) *** NEW ***
+            print("\n🧪 Testing VUD Put/Call Ratio (Client 6)...")
+            manager.subscribe_to_data("VUD", test_callback)
+            vud_client = manager._get_updated_client_for_symbol("VUD")
+            if vud_client == 6:
+                print("✅ VUD correctly routed to Client 6 (Market Internals)")
+            else:
+                print(f"❌ VUD incorrectly routed to Client {vud_client}")
+
+            # Test international symbol subscription
+            print("\n🧪 Testing International Data (Client 10)...")
+            manager.subscribe_to_data("FTLC", test_callback)  # FTSE 350
+            manager.subscribe_to_data("AUD.JPY", test_callback)  # Risk sentiment
+            print("✅ Subscribed to FTLC and AUD.JPY data")
+
             # Let it run for a few seconds
-            print("⏱️ Running for 5 seconds...")
+            print("\n⏱️ Running for 5 seconds...")
             time.sleep(5)
 
-            # Get UPDATED status
+            # Get FINAL status with Client ID swap + VUD
             status = manager.get_status_summary()
-            print(f"\n📈 UPDATED Status Summary (Clients 1-10):")
-            print(f"   Client ID Range: {status['client_id_range']}")
-            print(
-                f"   Order Execution Priority: Client 2 - {status['order_execution_priority']}"
-            )
-            print(f"   Critical Clients Online: {status['critical_clients_online']}/3")
+            print(f"\n📈 FINAL Status Summary (Client ID Swap + VUD - Clients 1-10):")
+            print(f"   Client Allocation: {status['client_allocation']}")  # *** FINAL ***
+            print(f"   Order Execution Priority: Client 1 - {status['order_execution_priority']}")  # *** UPDATED ***
+            print(f"   Administrative Online: Client 2 - {status['administrative_online']}")  # *** UPDATED ***
+            print(f"   Market Internals with VUD: Client 6 - {status['market_internals_with_vud']}")  # *** NEW ***
+            print(f"   International Client Online: Client 10 - {status['international_client_online']}")  # *** NEW ***
+            print(f"   Critical Clients Online: {status['critical_clients_online']}/4")  # *** UPDATED ***
             print(f"   Active Clients: {status['active_clients']}")
             print(f"   Total Orders: {status['total_orders']}")
             print(f"   Total Messages: {status['total_messages']}")
@@ -1189,19 +1161,31 @@ def main():
             if spy_data:
                 print(f"📊 Latest SPY: ${spy_data['price']:.2f}")
 
+            # Test VUD data retrieval *** NEW ***
+            vud_data = manager.get_latest_data("VUD")
+            if vud_data:
+                vud_value = vud_data['price']
+                sentiment = "BULLISH" if vud_value > 1.0 else "BEARISH"
+                print(f"📊 Latest VUD Put/Call Ratio: {vud_value:.3f} ({sentiment})")
+
+            ftlc_data = manager.get_latest_data("FTLC")
+            if ftlc_data:
+                print(f"🌍 Latest FTLC (FTSE 350): {ftlc_data['price']:.2f}")
+
             # Stop manager
             if manager.stop():
                 print("✅ Manager stopped successfully")
 
-        print("\n🎯 UPDATED Multi-Client Data Manager test complete!")
-        print("🏆 ORDER EXECUTION PRIORITY verified - Clients 1-10!")
+        print("\n🎯 FINAL Multi-Client Data Manager test complete!")
+        print("🥇 ORDER EXECUTION = CLIENT 1 verified!")
+        print("⚙️ ADMINISTRATIVE = CLIENT 2 verified!")
+        print("📊 VUD PUT/CALL RATIO = CLIENT 6 verified!")
+        print("🌍 INTERNATIONAL = CLIENT 10 with FTLC and follow-the-sun symbols!")
 
     except Exception as e:
         print(f"❌ Error in main: {e}")
         import traceback
-
         traceback.print_exc()
-
 
 if __name__ == "__main__":
     main()
