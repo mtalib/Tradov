@@ -1,38 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System v1.0
+SPYDER - Autonomous Options Trading System
 
-Series: SpyderG_GUI [Application Name] [Group Letter] [Group Name]   
-Module: SpyderG05_TradingDashboard.py [Application Name][Group Letter] [Module Number]_[Purpose].py
-Purpose: Complete Trading Dashboard with Real Data Integration & Enhanced Features
+Spyder Version: 1.0
+Module: SpyderG05_TradingDashboard.py
+Group: G (GUI/User Interface)
+Purpose: Complete Trading Dashboard with Real Data Integration & Unified Prometheus Metrics
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-18 Time: 23:15:00  
+Date Created: 2025-07-05
+Last Updated: 2025-08-18 Time: 22:30:00
 
 Module Description:
-    Enhanced trading dashboard that seamlessly integrates real market data from IB Gateway
-    while maintaining full functionality in simulation mode. Features automatic detection
-    and switching between real and simulation data, comprehensive signal monitoring,
-    unified Prometheus metrics, and professional dark theme interface. Built on the
-    proven real data integration pattern from temp_WorkingRealDashboard.py.
+    Enhanced trading dashboard with integrated real market data detection and switching.
+    Automatically detects live IB Gateway data from JSON file and switches from simulation
+    to real-time market data seamlessly. Features unified Prometheus Metrics monitoring,
+    comprehensive signal popups, and robust error handling with graceful fallbacks.
 
 FEATURES:
-    • Automatic real data detection and seamless switching
-    • Simulation fallback with monitoring for real data availability  
-    • Professional signal monitor with 12 indicators including HMM/SKEW
+    • Real-time IB Gateway data integration with automatic detection
+    • Simulation fallback when real data unavailable
     • Unified Prometheus Metrics table (IB Clients 1-10 + Internal Modules)
+    • Advanced Signal Monitor with popup dialogs (12 signals including HMM/SKEW)
     • Market hours awareness and connection health monitoring
     • Custom metrics integration (GEX/DEX/OGL/DIX/SWAN)
-    • Enhanced P&L tracking and risk monitoring
     • Professional dark theme with traffic light indicators
 
 REAL DATA INTEGRATION:
     • Data Source: ~/Projects/Spyder/market_data/live_data.json
-    • Auto-detection with fallback to simulation mode
-    • Status indicators show real vs simulation data source
-    • Enhanced refresh functionality for both data modes
-    • Proven integration pattern from working test module
+    • Auto-detection every 5 seconds when in simulation mode
+    • Post-initialization patching for seamless switching
+    • Status indicators: "LIVE - REAL" and "IB CONNECTED - REAL DATA"
+    • Graceful error handling with simulation fallback
 """
 
 # ==============================================================================
@@ -122,13 +121,28 @@ import matplotlib.patches as patches
 import pandas as pd
 
 # ==============================================================================
-# IB_ASYNC IMPORTS
+# IB_ASYNC IMPORTS (NO IBAPI!)
+# ==============================================================================
+from ib_async import IB, Stock, Index, Future, Contract, Ticker
+
+print("✅ Using ib_async for IB Gateway connection")
+
+# ==============================================================================
+# CUSTOM METRICS INTEGRATION IMPORTS
 # ==============================================================================
 try:
-    from ib_async import IB, Stock, Index, Future, Contract, Ticker
-    print("✅ Using ib_async for IB Gateway connection")
+    from SpyderG10_CustomMetricsIntegration import (
+        CustomMetricsIntegration,
+        DashboardMetricsUpdater,
+    )
+    from SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator import (
+        CustomMetricsOrchestrator,
+        get_metrics_client,
+    )
+    CUSTOM_METRICS_AVAILABLE = True
 except ImportError:
-    print("⚠️ ib_async not available - using simulation mode")
+    CUSTOM_METRICS_AVAILABLE = False
+    print("⚠️ Custom Metrics modules not available - Client 10 will run in simulation mode")
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -198,6 +212,12 @@ CLIENT_ID = 123
 # Market hours (Eastern Time)
 MARKET_OPEN_TIME = dt_time(4, 0)  # 4:00 AM ET
 MARKET_CLOSE_TIME = dt_time(16, 30)  # 4:30 PM ET
+
+# Phased symbol loading to prevent overload
+PHASE_1_SYMBOLS = ["SPY", "VIX", "QQQ"]
+PHASE_2_SYMBOLS = ["IWM", "DIA", "SPX"]
+PHASE_3_SYMBOLS = ["TLT", "GLD"]
+SUBSCRIPTION_DELAY_MS = 1000
 
 # COMPLETE MARKET SYMBOLS FROM T09
 MARKET_SYMBOLS = {
@@ -329,10 +349,199 @@ class ConnectionInfo:
     last_update: Optional[datetime] = None
 
 # ==============================================================================
-# THREAD-SAFE MARKET DATA WORKER - SIMPLIFIED
+# IB_ASYNC WORKER (using only ib_async, no IBAPI)
+# ==============================================================================
+class IBAsyncWorker(QObject):
+    """ib_async-based worker with heartbeat for reliable IB Gateway connection"""
+
+    # Signals for thread-safe communication
+    connected = pyqtSignal(bool)
+    disconnected = pyqtSignal()
+    market_data_ready = pyqtSignal()
+    error_occurred = pyqtSignal(int, int, str)
+    price_update = pyqtSignal(str, float, float, float)
+    heartbeat_status = pyqtSignal(bool, str)
+
+    def __init__(self):
+        super().__init__()
+        self.ib = None
+        self.tickers = {}
+        self.contracts = {}
+        self.subscribed_symbols = set()
+        self.data_mutex = QMutex()
+        self._connected = False
+        self.heartbeat_count = 0
+        self.last_heartbeat_time = None
+
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self._emit_price_updates)
+        self.update_timer.setInterval(500)
+
+        self.heartbeat_timer = QTimer()
+        self.heartbeat_timer.timeout.connect(self._send_heartbeat)
+
+        print("ib_async Worker with market hours awareness initialized")
+
+    def connect_to_ib(self, host="127.0.0.1", port=4002, client_id=CLIENT_ID):
+        """Connect to IB Gateway"""
+        try:
+            print(f"Connecting to {host}:{port} with client ID {client_id}")
+            self.ib = IB()
+            self.ib.connect(host, port, clientId=client_id, timeout=10)
+
+            if self.ib.isConnected():
+                print("Connected to IB Gateway")
+                self._connected = True
+                self.connected.emit(True)
+                self.update_timer.start()
+
+                if is_market_hours():
+                    self._configure_heartbeat()
+                    self.heartbeat_timer.start()
+                else:
+                    print("💤 After market hours - heartbeat disabled")
+
+                QTimer.singleShot(1000, self.market_data_ready.emit)
+                return True
+            return False
+        except Exception as e:
+            print(f"Connection error: {e}")
+            self.error_occurred.emit(0, 0, str(e))
+            return False
+
+    def _configure_heartbeat(self):
+        """Configure heartbeat based on market hours"""
+        if not is_market_hours():
+            self.heartbeat_timer.stop()
+            print("💤 Market closed - heartbeat stopped")
+            return
+
+        current_time = datetime.now()
+        market_open = current_time.replace(hour=9, minute=30, second=0)
+        market_close = current_time.replace(hour=16, minute=0, second=0)
+
+        if market_open <= current_time <= market_close:
+            self.heartbeat_timer.setInterval(300000)
+            print("💓 Heartbeat configured for regular trading hours (5 min intervals)")
+        else:
+            self.heartbeat_timer.setInterval(60000)
+            print("💓 Heartbeat configured for extended hours (60 sec intervals)")
+
+    def _send_heartbeat(self):
+        """Send heartbeat to keep connection alive"""
+        if not self._connected or not self.ib:
+            return
+
+        if not is_market_hours():
+            self.heartbeat_timer.stop()
+            print("💤 Market closed - stopping heartbeat")
+            return
+
+        try:
+            server_time = self.ib.reqCurrentTime()
+            self.heartbeat_count += 1
+            self.last_heartbeat_time = datetime.now()
+
+            local_time = datetime.now().strftime("%H:%M:%S")
+            server_time_str = server_time.strftime("%H:%M:%S %Z")
+
+            message = f"Heartbeat #{self.heartbeat_count} | Local: {local_time} | Server: {server_time_str}"
+            self.heartbeat_status.emit(True, message)
+            self._configure_heartbeat()
+
+        except Exception as e:
+            print(f"❌ Heartbeat failed: {e}")
+            self.heartbeat_status.emit(False, f"Heartbeat failed: {e}")
+
+            if not self.ib.isConnected():
+                self._connected = False
+                self.disconnected.emit()
+
+    def disconnect(self):
+        """Disconnect from IB Gateway"""
+        if self.ib and self.ib.isConnected():
+            with QMutexLocker(self.data_mutex):
+                for ticker in self.tickers.values():
+                    try:
+                        self.ib.cancelMktData(ticker)
+                    except:
+                        pass
+                self.tickers.clear()
+                self.contracts.clear()
+                self.subscribed_symbols.clear()
+
+            self.update_timer.stop()
+            self.heartbeat_timer.stop()
+            self.ib.disconnect()
+            self.ib = None
+            self._connected = False
+            self.heartbeat_count = 0
+            self.disconnected.emit()
+
+    def subscribe_symbol(self, symbol):
+        """Subscribe to market data for a symbol"""
+        with QMutexLocker(self.data_mutex):
+            if symbol in self.subscribed_symbols or not self._connected:
+                return
+            self.subscribed_symbols.add(symbol)
+
+        try:
+            contract = self._create_contract(symbol)
+            if not contract:
+                return
+
+            print(f"Subscribing to {symbol}")
+            self.ib.qualifyContracts(contract)
+            ticker = self.ib.reqMktData(contract)
+
+            with QMutexLocker(self.data_mutex):
+                self.contracts[symbol] = contract
+                self.tickers[symbol] = ticker
+
+        except Exception as e:
+            print(f"Error subscribing to {symbol}: {e}")
+            self.error_occurred.emit(0, 0, f"Subscribe error: {e}")
+
+    def _create_contract(self, symbol):
+        """Create IB contract based on symbol"""
+        try:
+            if symbol in ["SPY", "DIA", "QQQ", "IWM", "TLT", "GLD", "LQD", "UVXY"]:
+                return Stock(symbol, "SMART", "USD")
+            elif symbol in ["SPX", "VIX", "VIX9D", "VXV", "VXMT", "VVIX"]:
+                return Index(symbol, "CBOE")
+            elif symbol == "/ES":
+                return Future("ES", "CME")
+            elif symbol == "DXY":
+                return Index("DXY", "ICE")
+            elif symbol in ["CPC", "PCALL", "SKEW"]:
+                return Index(symbol, "CBOE")
+            elif symbol in ["GEX", "DEX", "OGL", "DIX", "SWAN", "$TICK", "$TRIN", "$ADD"]:
+                return None
+            else:
+                return None
+        except Exception as e:
+            print(f"Error creating contract for {symbol}: {e}")
+            return None
+
+    def _emit_price_updates(self):
+        """Emit price updates for all subscribed symbols"""
+        with QMutexLocker(self.data_mutex):
+            for symbol, ticker in self.tickers.items():
+                last = ticker.last if ticker.last and ticker.last > 0 else 0
+                bid = ticker.bid if ticker.bid and ticker.bid > 0 else 0
+                ask = ticker.ask if ticker.ask and ticker.ask > 0 else 0
+
+                if last > 0 or bid > 0 or ask > 0:
+                    if last == 0 and bid > 0 and ask > 0:
+                        last = (bid + ask) / 2
+
+                    self.price_update.emit(symbol, last, bid, ask)
+
+# ==============================================================================
+# THREAD-SAFE MARKET DATA WORKER (FIXED)
 # ==============================================================================
 class ThreadSafeMarketDataWorker(QObject):
-    """Thread-safe market data worker with market hours awareness"""
+    """Thread-safe market data worker using ib_async with market hours awareness"""
 
     data_updated = pyqtSignal(dict)
     connection_status_changed = pyqtSignal(bool, str)
@@ -343,11 +552,17 @@ class ThreadSafeMarketDataWorker(QObject):
     def __init__(self):
         super().__init__()
         self.logger = SpyderLogger.get_logger(__name__)
+        self.ib_worker = None
         self.ib_connected = True
         self.market_data = {}
         self.data_mutex = QMutex()
         self.client_id = CLIENT_ID
         self.market_hours = is_market_hours()
+
+        self.symbols_queue = []
+        self.current_symbol_index = 0
+        self.subscription_timer = QTimer()
+        self.subscription_timer.timeout.connect(self._subscribe_next_symbol)
 
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self._emit_data)
@@ -358,13 +573,16 @@ class ThreadSafeMarketDataWorker(QObject):
         self.market_hours_timer.start(60000)
 
         self.last_data_update = {}
+        self.stale_data_timer = QTimer()
+        self.stale_data_timer.timeout.connect(self._check_data_freshness)
+        self.stale_data_timer.start(30000)
 
         self._init_simulation_data()
 
-        print(f"📧 Market Data Worker initialized - Market {'OPEN' if self.market_hours else 'CLOSED'}")
+        print(f"🔧 Market Data Worker initialized - Market {'OPEN' if self.market_hours else 'CLOSED'}")
 
     def _init_simulation_data(self):
-        """Initialize simulation data with all symbols"""
+        """Initialize simulation data with all symbols from T09"""
         base_prices = {
             "SPY": 585.25, "SPX": 5850.75, "/ES": 5852.50,
             "VIX": 15.32, "VIX9D": 14.8, "VXV": 16.2, "VXMT": 17.5, "VVIX": 82.45, "UVXY": 22.18,
@@ -381,6 +599,22 @@ class ThreadSafeMarketDataWorker(QObject):
                     "symbol": symbol, "last": price, "change": 0, "change_pct": 0, "timestamp": datetime.now(),
                 }
                 self.last_data_update[symbol] = datetime.now()
+
+    def _subscribe_next_symbol(self):
+        """Subscribe to next symbol in queue (FIXED METHOD)"""
+        if not self.symbols_queue or self.current_symbol_index >= len(self.symbols_queue):
+            self.subscription_timer.stop()
+            return
+
+        symbol = self.symbols_queue[self.current_symbol_index]
+        if self.ib_worker:
+            self.ib_worker.subscribe_symbol(symbol)
+
+        self.current_symbol_index += 1
+
+        if self.current_symbol_index >= len(self.symbols_queue):
+            self.subscription_timer.stop()
+            print(f"✅ Subscribed to all {len(self.symbols_queue)} symbols")
 
     def _check_market_hours(self):
         """Check if market hours status has changed"""
@@ -400,6 +634,40 @@ class ThreadSafeMarketDataWorker(QObject):
         print("🚀 Starting Thread-Safe Market Data Worker...")
         self.connection_status_changed.emit(True, "IB CONNECTED")
         self.market_data_status_changed.emit("LIVE")
+
+    def _check_data_freshness(self):
+        """Check if data is stale and needs refresh - with warning suppression"""
+        if not is_market_hours():
+            return
+
+        if not hasattr(self, "stale_warning_count"):
+            self.stale_warning_count = 0
+            self.stale_warning_shown = False
+
+        current_time = datetime.now()
+        stale_threshold = timedelta(seconds=30)
+        stale_symbols = []
+
+        with QMutexLocker(self.data_mutex):
+            for symbol, last_update in self.last_data_update.items():
+                if current_time - last_update > stale_threshold:
+                    stale_symbols.append(symbol)
+                    self.last_data_update[symbol] = current_time
+
+        if stale_symbols:
+            if self.stale_warning_count < 5:
+                for symbol in stale_symbols[:5]:
+                    self.logger.debug(f"⚠️ Stale data detected for {symbol}")
+                self.stale_warning_count += len(stale_symbols)
+            elif not self.stale_warning_shown:
+                self.logger.debug(f"⚠️ Stale data detected for {len(stale_symbols)} symbols (warnings suppressed)")
+                self.stale_warning_shown = True
+                QTimer.singleShot(60000, self._reset_stale_warnings)
+
+    def _reset_stale_warnings(self):
+        """Reset stale warning counters"""
+        self.stale_warning_count = 0
+        self.stale_warning_shown = False
 
     def _emit_data(self):
         """Emit current market data"""
@@ -444,6 +712,8 @@ class ThreadSafeMarketDataWorker(QObject):
     def force_disconnect(self):
         """Manual disconnect"""
         print("🔥 Manual disconnect requested")
+        if self.ib_worker:
+            self.ib_worker.disconnect()
         self.ib_connected = False
         self.connection_status_changed.emit(False, "IB DISCONNECTED")
         self.market_data_status_changed.emit("NONE")
@@ -451,11 +721,15 @@ class ThreadSafeMarketDataWorker(QObject):
     def stop(self):
         """Stop worker"""
         print("🛑 Stopping worker...")
+        if self.ib_worker:
+            self.ib_worker.disconnect()
+        self.subscription_timer.stop()
         self.update_timer.stop()
+        self.stale_data_timer.stop()
         self.market_hours_timer.stop()
 
 # ==============================================================================
-# WIDGET CLASSES
+# WIDGET CLASSES (keeping existing implementations)
 # ==============================================================================
 class TrafficLightButton(QPushButton):
     """Custom button that looks like a traffic light with label"""
@@ -515,7 +789,7 @@ class TrafficLightButton(QPushButton):
         painter.drawEllipse(circle_rect)
 
 class SignalMonitorPanel(QWidget):
-    """Enhanced Signal Monitor Panel with integrated popup dialogs"""
+    """Updated Signal Monitor Panel with integrated popup dialogs"""
 
     def __init__(self):
         super().__init__()
@@ -631,78 +905,89 @@ class SignalMonitorPanel(QWidget):
     def show_signal_dialog(self, signal_type: str):
         """Generic method to show signal dialog with auto-close functionality"""
         self.close_current_dialog()
-        
-        if SIGNAL_DIALOG_AVAILABLE:
-            self.current_dialog = SignalInfoDialog(signal_type, self)
-            # Position the dialog to the right of the signal panel
-            parent_pos = self.mapToGlobal(self.rect().topRight())
-            self.current_dialog.move(parent_pos.x() + 10, parent_pos.y())
-            # Connect the closed signal to clear the reference
-            self.current_dialog.closed.connect(lambda: setattr(self, "current_dialog", None))
-            self.current_dialog.show()
+        self.current_dialog = SignalInfoDialog(signal_type, self)
 
-    # Dialog show methods
+        # Position the dialog to the right of the signal panel
+        parent_pos = self.mapToGlobal(self.rect().topRight())
+        self.current_dialog.move(parent_pos.x() + 10, parent_pos.y())
+
+        # Connect the closed signal to clear the reference
+        self.current_dialog.closed.connect(lambda: setattr(self, "current_dialog", None))
+        self.current_dialog.show()
+
+    # Updated dialog show methods to use the new SignalInfoDialog
     def show_vix_dialog(self):
+        """Show VIX Monitor dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("VIX MONITOR")
         else:
             QMessageBox.information(self, "VIX Monitor", "VIX: 15.32\nStatus: Normal\nImplied Move: ±0.96%")
 
     def show_ai_dialog(self):
+        """Show AI Decision dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("AI DECISION")
         else:
             QMessageBox.information(self, "AI Decision", "Current Signal: NEUTRAL\nConfidence: 72%\nNext Decision: 5 min")
 
     def show_gex_dialog(self):
+        """Show GEX dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("GEX")
         else:
             QMessageBox.information(self, "GEX Monitor", "GEX: -$2.5B\nGamma Flip: 590\nRegime: Negative Gamma")
 
     def show_dix_dialog(self):
+        """Show DIX dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("DIX")
         else:
             QMessageBox.information(self, "DIX Monitor", "DIX: 42.5%\nDark Pool: Normal\nSentiment: Neutral")
 
     def show_rsi_dialog(self):
+        """Show RSI Confluence dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("RSI CONFLUENCE")
         else:
             QMessageBox.information(self, "RSI Confluence", "RSI(14): 52\nRSI(5): 48\nStatus: Neutral Range")
 
     def show_risk_dialog(self):
+        """Show Risk Triggers dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("RISK TRIGGERS")
         else:
             QMessageBox.information(self, "Risk Triggers", "Active Triggers: 0\nRisk Level: LOW\nMax Loss Today: -$125")
 
     def show_ogl_dialog(self):
+        """Show OGL dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("OGL")
         else:
             QMessageBox.information(self, "OGL Monitor", "OGL: 585.50\nCurrent SPY: 585.39\nPosition: Below OGL")
 
     def show_div_dialog(self):
+        """Show Divergence dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("DIVERGENCE")
         else:
             QMessageBox.information(self, "Divergence Monitor", "Price/RSI: None\nPrice/MACD: None\nStatus: No Divergence")
 
     def show_dex_dialog(self):
+        """Show DEX dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("DEX")
         else:
             QMessageBox.information(self, "DEX Monitor", "DEX: $850M\nDelta Neutral: 585\nFlow: Bullish")
 
     def show_swan_dialog(self):
+        """Show Black Swan dialog"""
         if SIGNAL_DIALOG_AVAILABLE:
             self.show_signal_dialog("BLACK SWAN")
         else:
             QMessageBox.information(self, "BLACK SWAN Monitor", "SWAN Score: 1.85\nRisk Level: LOW\nTail Risk: Minimal")
 
     def show_hmm_dialog(self):
+        """Show HMM Regime Detector dialog"""
         if HMM_DIALOG_AVAILABLE:
             self.close_current_dialog()
             self.current_dialog = HMMMonitorDialog(self)
@@ -715,6 +1000,7 @@ class SignalMonitorPanel(QWidget):
                 "Regime History:\n- Low Vol: 45%\n- Normal: 40%\n- High Vol: 15%")
 
     def show_skew_dialog(self):
+        """Show SKEW Monitor dialog"""
         if SKEW_DIALOG_AVAILABLE:
             self.close_current_dialog()
             self.current_dialog = SkewMonitorDialog(self)
@@ -897,13 +1183,14 @@ class GreekBar(QWidget):
         painter.drawText(status_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, self.status)
 
 # ==============================================================================
-# MAIN DASHBOARD CLASS - WITH ENHANCED REAL DATA INTEGRATION
+# MAIN DASHBOARD CLASS - WITH REAL DATA INTEGRATION
 # ==============================================================================
 class SpyderTradingDashboard(QMainWindow):
-    """Complete dashboard with enhanced real data integration based on proven pattern"""
+    """Complete dashboard with real data integration and unified Prometheus metrics"""
 
     def __init__(self):
         super().__init__()
+        global CUSTOM_METRICS_AVAILABLE
 
         # Initialize logging
         self.logger = SpyderLogger.get_logger(__name__)
@@ -925,6 +1212,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.account_mode = "PAPER"
         self.ib_connected = False
         self.trading_active = False
+        self.es_update_timer = None
         self.auto_connect_attempts = 0
 
         # Risk parameters
@@ -940,12 +1228,17 @@ class SpyderTradingDashboard(QMainWindow):
         self.system_stats = {}
         self.prometheus_timer = None
 
+        # Custom Metrics Integration (Internal Module)
+        self.custom_metrics_integration = None
+        self.custom_metrics_updater = None
+        self.custom_metrics_widgets = {}
+
         # =======================================================================
-        # REAL DATA INTEGRATION ATTRIBUTES - PROVEN PATTERN
+        # REAL DATA INTEGRATION ATTRIBUTES
         # =======================================================================
         self.real_data_active = False
+        self.real_data_timer = None
         self.data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
-        self._real_data_timer = None
         self._check_timer = None
         self._error_count = 0
 
@@ -963,52 +1256,63 @@ class SpyderTradingDashboard(QMainWindow):
         self.load_test_data()
         self.load_default_risk_parameters()
 
-        # Start market worker 
+        # Initialize Custom Metrics if available
+        if CUSTOM_METRICS_AVAILABLE:
+            try:
+                self.custom_metrics_integration = CustomMetricsIntegration(self)
+                self.custom_metrics_updater = DashboardMetricsUpdater(self, self.custom_metrics_integration)
+                self.custom_metrics_integration.start()
+
+                # Connect status signals
+                self.custom_metrics_integration.connection_status_changed.connect(
+                    lambda connected: self.add_system_log(f"Custom Metrics Engine {'active' if connected else 'inactive'}")
+                )
+                self.logger.info("✅ Custom Metrics Integration (Internal Module) initialized")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize Custom Metrics: {e}")
+                CUSTOM_METRICS_AVAILABLE = False
+
+        # Start market worker with ib_async
         self.start_market_worker()
 
         # =======================================================================
-        # REAL DATA INTEGRATION - APPLY PROVEN PATTERN AFTER UI IS READY
+        # REAL DATA INTEGRATION - AUTO-DETECT AFTER UI IS READY
         # =======================================================================
-        QTimer.singleShot(1000, self.apply_proven_real_data_pattern)
+        QTimer.singleShot(2000, self.check_and_apply_real_data)
 
-        self.logger.info("Enhanced Dashboard initialized with proven real data pattern")
+        self.logger.info("Dashboard initialized with real data integration")
 
     # ==========================================================================
-    # PROVEN REAL DATA INTEGRATION PATTERN
+    # REAL DATA INTEGRATION METHODS
     # ==========================================================================
-    def apply_proven_real_data_pattern(self):
-        """Apply the proven real data integration pattern from temp_WorkingRealDashboard"""
+    def check_and_apply_real_data(self):
+        """Check for real data and apply patch if available"""
         try:
-            # Check if real data is available
-            real_data_available = False
-            
             if self.data_file.exists():
-                try:
-                    with open(self.data_file, 'r') as f:
-                        data = json.load(f)
+                with open(self.data_file, 'r') as f:
+                    data = json.load(f)
+                
+                if data:
                     spy_price = data.get('SPY', {}).get('last', 'N/A')
                     self.add_system_log(f"🔥 Real data detected - SPY: ${spy_price}")
-                    real_data_available = True
-                except:
-                    self.add_system_log("⚠️ Real data file exists but couldn't read it")
-            else:
-                self.add_system_log("📊 No real data detected - will monitor for availability")
-
-            # Apply the appropriate pattern
-            if real_data_available:
-                self.add_system_log("🔥 Applying proven real data patch...")
-                self.apply_real_data_patch()
-            else:
-                self.add_system_log("📊 Starting with simulation - will switch to real data when available")
-                self.setup_real_data_monitoring()
-
+                    self.apply_real_data_patch()
+                    return True
+            
+            # No real data found - setup monitoring
+            self.add_system_log("📊 No real data detected - will monitor for availability")
+            self.setup_real_data_monitoring()
+            return False
+            
         except Exception as e:
-            self.add_system_log(f"❌ Error applying real data pattern: {e}")
+            self.add_system_log(f"⚠️ Error checking real data: {e}")
+            return False
 
     def apply_real_data_patch(self):
-        """Apply real data patch using the proven working pattern"""
+        """Apply real data patch to existing dashboard"""
         try:
-            # Stop the original simulation timer (proven pattern)
+            self.add_system_log("🔥 Applying real data patch...")
+            
+            # Stop the simulation timer in market worker
             if hasattr(self, 'market_worker'):
                 worker = self.market_worker
                 if hasattr(worker, 'update_timer') and worker.update_timer:
@@ -1019,54 +1323,25 @@ class SpyderTradingDashboard(QMainWindow):
             if hasattr(self, 'automation_timer'):
                 self.automation_timer.setInterval(20000)  # 20 seconds instead of 3
             
-            # Start real data updates using proven timer pattern
-            self._real_data_timer = QTimer()
-            self._real_data_timer.timeout.connect(self.update_with_real_data)
-            self._real_data_timer.start(1000)  # Update every second
+            # Start real data updates
+            self.real_data_timer = QTimer()
+            self.real_data_timer.timeout.connect(self.update_with_real_data)
+            self.real_data_timer.start(1000)  # Update every second
             
             self.real_data_active = True
             
-            # Initial update
-            self.update_with_real_data()
-            
-            # Update status using proven method
-            self.update_status_for_real_data()
+            # Update status immediately
+            self.update_real_data_status()
             
             # Log success
             self.add_system_log("🔥 REAL MARKET DATA ACTIVE - IB Gateway prices")
             self.add_automation_log("Real-time market data from Interactive Brokers")
             
-            self.add_system_log("✅ Real data patch applied successfully!")
-            
         except Exception as e:
             self.add_system_log(f"❌ Error applying real data patch: {e}")
 
-    def setup_real_data_monitoring(self):
-        """Setup monitoring for real data to become available (proven pattern)"""
-        def check_for_real_data():
-            """Check if real data becomes available"""
-            if self.real_data_active:
-                return  # Already using real data
-            
-            if self.data_file.exists():
-                try:
-                    with open(self.data_file, 'r') as f:
-                        data = json.load(f)
-                    
-                    if data:
-                        self.add_system_log("🔥 Real data detected - switching from simulation!")
-                        self._check_timer.stop()
-                        self.apply_real_data_patch()
-                except:
-                    pass
-        
-        # Check every 5 seconds for real data
-        self._check_timer = QTimer()
-        self._check_timer.timeout.connect(check_for_real_data)
-        self._check_timer.start(5000)
-
     def update_with_real_data(self):
-        """Update dashboard with real market data (proven pattern)"""
+        """Update dashboard with real market data"""
         try:
             if not self.data_file.exists():
                 return
@@ -1077,7 +1352,7 @@ class SpyderTradingDashboard(QMainWindow):
             if not live_data:
                 return
             
-            # Update symbol widgets directly (proven method)
+            # Update symbol widgets directly
             for symbol, data in live_data.items():
                 if symbol in self.symbol_widgets:
                     widget = self.symbol_widgets[symbol]
@@ -1102,11 +1377,11 @@ class SpyderTradingDashboard(QMainWindow):
                         color = "#00ff41" if pct >= 0 else "#ff1744"
                         widget.pct_label.setStyleSheet(f"color: {color};")
             
-            # Update toolbar indices (proven method)
+            # Update toolbar indices
             self.update_toolbar_with_real_data(live_data)
             
         except Exception as e:
-            # Suppress frequent errors in logs (proven pattern)
+            # Suppress frequent errors in logs
             if not hasattr(self, '_error_count'):
                 self._error_count = 0
             
@@ -1115,7 +1390,7 @@ class SpyderTradingDashboard(QMainWindow):
                 self.add_system_log(f"⚠️ Real data update error: {e}")
 
     def update_toolbar_with_real_data(self, live_data):
-        """Update toolbar indices with real data (proven pattern)"""
+        """Update toolbar indices with real data"""
         try:
             # Update SPX from SPY (SPY * 10)
             if 'SPY' in live_data:
@@ -1165,8 +1440,8 @@ class SpyderTradingDashboard(QMainWindow):
         except Exception as e:
             pass  # Suppress toolbar update errors
 
-    def update_status_for_real_data(self):
-        """Update status indicators for real data (proven pattern)"""
+    def update_real_data_status(self):
+        """Update status indicators for real data"""
         try:
             # Update market data status
             if hasattr(self, 'market_data_status'):
@@ -1183,6 +1458,30 @@ class SpyderTradingDashboard(QMainWindow):
             
         except Exception as e:
             pass  # Not critical
+
+    def setup_real_data_monitoring(self):
+        """Setup monitoring for real data to become available"""
+        def check_for_real_data():
+            """Check if real data becomes available"""
+            if self.real_data_active:
+                return  # Already using real data
+            
+            if self.data_file.exists():
+                try:
+                    with open(self.data_file, 'r') as f:
+                        data = json.load(f)
+                    
+                    if data:
+                        self.add_system_log("🔥 Real data detected - switching from simulation!")
+                        self._check_timer.stop()
+                        self.apply_real_data_patch()
+                except:
+                    pass
+        
+        # Check every 5 seconds for real data
+        self._check_timer = QTimer()
+        self._check_timer.timeout.connect(check_for_real_data)
+        self._check_timer.start(5000)
 
     def refresh_market_data(self):
         """Enhanced refresh market data - callback for refresh icon click"""
@@ -2298,14 +2597,12 @@ class SpyderTradingDashboard(QMainWindow):
         self.connection_info.market_data_status = status
 
         if status == "LIVE":
-            if not self.real_data_active:  # Only update if not using real data
-                self.market_data_status.setText("LIVE")
-                self.market_data_status.setStyleSheet(f"color: {COLORS['positive']};")
+            self.market_data_status.setText("LIVE")
+            self.market_data_status.setStyleSheet(f"color: {COLORS['positive']};")
             self.add_system_log("📊 Market data: LIVE")
         else:
-            if not self.real_data_active:  # Only update if not using real data
-                self.market_data_status.setText("NONE")
-                self.market_data_status.setStyleSheet(f"color: {COLORS['negative']};")
+            self.market_data_status.setText("NONE")
+            self.market_data_status.setStyleSheet(f"color: {COLORS['negative']};")
 
             if self.trading_active:
                 self.trading_active = False
@@ -2323,10 +2620,7 @@ class SpyderTradingDashboard(QMainWindow):
 
     @pyqtSlot(dict)
     def on_market_data_updated(self, data: dict):
-        """Handle market data update - only if not using real data"""
-        if self.real_data_active:
-            return  # Skip simulation updates when using real data
-
+        """Handle market data update"""
         try:
             for symbol, market_info in data.items():
                 if symbol in self.symbol_widgets:
@@ -2401,8 +2695,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log("Cannot start trading - IB not connected")
             return
 
-        data_status = self.market_data_status.text()
-        if data_status not in ["LIVE", "LIVE - REAL"]:
+        if self.market_data_status.text() not in ["LIVE", "LIVE - REAL"]:
             QMessageBox.warning(
                 self, "No Live Data",
                 "NO LIVE DATA\n\n" "Cannot start trading without live market data.",
@@ -2422,11 +2715,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.add_system_log("Trading started successfully")
         self.add_automation_log("TRADING ACTIVE - Autonomous AI Engine engaged")
-        
-        if self.real_data_active:
-            self.add_automation_log("Using REAL market data from IB Gateway")
-        else:
-            self.add_automation_log("Monitoring SPY options for trading opportunities")
+        self.add_automation_log("Monitoring SPY options for trading opportunities")
 
     def stop_trading(self):
         """Handle stop trading button click"""
@@ -2494,581 +2783,10 @@ class SpyderTradingDashboard(QMainWindow):
     # UTILITY METHODS
     # ==========================================================================
     def start_market_worker(self):
-        """Start the simplified market worker"""
+        """Start the thread-safe market worker with market hours awareness"""
         try:
             self.market_thread = QThread()
             self.market_worker = ThreadSafeMarketDataWorker()
             self.market_worker.moveToThread(self.market_thread)
 
-            self.market_worker.data_updated.connect(self.on_market_data_updated)
-            self.market_worker.connection_status_changed.connect(self.on_connection_status_changed)
-            self.market_worker.market_data_status_changed.connect(self.on_market_data_status_changed)
-            self.market_worker.error_occurred.connect(self.on_market_error)
-            self.market_worker.heartbeat_received.connect(self.on_heartbeat_received)
-
-            self.market_thread.started.connect(self.market_worker.start)
-            self.market_thread.start()
-
-            self.add_system_log("📈 Market data worker started")
-
-        except Exception as e:
-            self.logger.error(f"Error starting market worker: {e}")
-            self.add_system_log(f"❌ Market worker error: {e}")
-
-    def setup_timers(self):
-        """Setup various timers"""
-        # Date/time update timer
-        self.datetime_timer = QTimer()
-        self.datetime_timer.timeout.connect(self.update_datetime)
-        self.datetime_timer.start(1000)
-
-        # Automation activity timer
-        self.automation_timer = QTimer()
-        self.automation_timer.timeout.connect(self.generate_automation_activity)
-        self.automation_timer.start(3000)
-
-        # Greek risk update timer
-        self.greek_timer = QTimer()
-        self.greek_timer.timeout.connect(self.update_greek_risks)
-        self.greek_timer.start(4000)
-
-        # Chart update timer
-        self.chart_timer = QTimer()
-        self.chart_timer.timeout.connect(self.update_chart)
-        self.chart_timer.start(30000)
-
-        # Prometheus metrics simulation timer
-        self.prometheus_timer = QTimer()
-        self.prometheus_timer.timeout.connect(self.update_prometheus_metrics)
-        self.prometheus_timer.start(8000)
-
-    def update_datetime(self):
-        """Update date/time display"""
-        current_time = datetime.now().strftime("%Y-%m-%d   %H:%M:%S  ET")
-        self.datetime_label.setText(current_time)
-
-    def generate_automation_activity(self):
-        """Generate automation activity logs"""
-        if not hasattr(self, 'automation_activity_count'):
-            self.automation_activity_count = 0
-
-        activities = [
-            "Scanning options chains for SPY",
-            "Analyzing volatility surface patterns", 
-            "Monitoring delta-gamma hedging flows",
-            "Evaluating iron condor opportunities",
-            "Checking risk parameter compliance",
-            "Calculating position Greeks",
-            "Analyzing market microstructure",
-            "Monitoring VIX term structure",
-            "Evaluating covered call opportunities",
-            "Scanning for unusual options activity",
-            "Analyzing skew and smile patterns",
-            "Monitoring earnings event calendar",
-            "Evaluating butterfly spread setups",
-            "Checking correlation patterns",
-            "Analyzing order flow imbalances"
-        ]
-
-        self.automation_activity_count += 1
-        activity = activities[self.automation_activity_count % len(activities)]
-        self.add_automation_log(activity)
-
-    def update_greek_risks(self):
-        """Update Greek risk displays"""
-        for name, bar in self.greek_bars.items():
-            if name == "delta":
-                value = random.uniform(-100, 100)
-                status = "HIGH RISK" if abs(value) > 80 else "NORMAL"
-            elif name == "gamma":
-                value = random.uniform(-10, 10)
-                status = "HIGH RISK" if abs(value) > 8 else "NORMAL"
-            elif name == "theta":
-                value = random.uniform(-400, 0)
-                status = "HIGH DECAY" if value < -300 else "NORMAL"
-            else:  # vega
-                value = random.uniform(-600, 0)
-                status = "HIGH RISK" if value < -450 else "NORMAL"
-
-            bar.set_value(value, status)
-
-    def update_prometheus_metrics(self):
-        """Update Prometheus metrics simulation"""
-        import random
-
-        # Update system components
-        for name, indicator in self.system_components.items():
-            status = random.choice(["●", "●", "●", "●", "○"])  # 80% green, 20% gray
-            if status == "●":
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
-            else:
-                indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
-
-        # Update client indicators
-        for name, indicator in self.client_indicators.items():
-            status = random.choice(["●", "●", "●", "○"])  # 75% green, 25% gray
-            if status == "●":
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
-            else:
-                indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
-
-        # Update internal modules
-        if hasattr(self, 'internal_module_indicators'):
-            for name, indicator in self.internal_module_indicators.items():
-                if name == "custom_metrics":
-                    # Custom metrics stays yellow/warning
-                    indicator.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
-                else:
-                    status = random.choice(["●", "●", "●", "○"])  # 75% green, 25% gray
-                    if status == "●":
-                        indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
-                    else:
-                        indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
-
-    def load_test_data(self):
-        """Load test positions data"""
-        test_positions = [
-            {
-                "date": "08/18", "symbol": "SPY", "contracts": "10", 
-                "strikes": "584P/586C", "expiry": "08/23", "strategy": "Iron Condor",
-                "status": "OPEN", "cost": "-$2,350", "pnl": "+$435", "auto_status": "AI MANAGED"
-            },
-            {
-                "date": "08/18", "symbol": "SPY", "contracts": "5",
-                "strikes": "588C", "expiry": "08/30", "strategy": "Covered Call", 
-                "status": "OPEN", "cost": "+$425", "pnl": "+$125", "auto_status": "AI MANAGED"
-            },
-            {
-                "date": "08/17", "symbol": "SPY", "contracts": "20",
-                "strikes": "582P/584P/586C/588C", "expiry": "08/25", "strategy": "Iron Butterfly",
-                "status": "CLOSED", "cost": "-$4,200", "pnl": "+$1,250", "auto_status": "AI CLOSED"
-            }
-        ]
-
-        for i, pos in enumerate(test_positions):
-            self.positions_table.insertRow(i)
-            self.positions_table.setItem(i, 0, QTableWidgetItem(pos["date"]))
-            self.positions_table.setItem(i, 1, QTableWidgetItem(pos["symbol"]))
-            self.positions_table.setItem(i, 2, QTableWidgetItem(pos["contracts"]))
-            self.positions_table.setItem(i, 3, QTableWidgetItem(pos["strikes"]))
-            self.positions_table.setItem(i, 4, QTableWidgetItem(pos["expiry"]))
-            self.positions_table.setItem(i, 5, QTableWidgetItem(pos["strategy"]))
-            
-            status_item = QTableWidgetItem(pos["status"])
-            if pos["status"] == "OPEN":
-                status_item.setForeground(QColor(COLORS["positive"]))
-            else:
-                status_item.setForeground(QColor(COLORS["neutral"]))
-            self.positions_table.setItem(i, 6, status_item)
-            
-            self.positions_table.setItem(i, 7, QTableWidgetItem(pos["cost"]))
-            
-            pnl_item = QTableWidgetItem(pos["pnl"])
-            if pos["pnl"].startswith("+"):
-                pnl_item.setForeground(QColor(COLORS["positive"]))
-            else:
-                pnl_item.setForeground(QColor(COLORS["negative"]))
-            self.positions_table.setItem(i, 8, pnl_item)
-            
-            auto_item = QTableWidgetItem(pos["auto_status"])
-            auto_item.setForeground(QColor(COLORS["automation_active"]))
-            self.positions_table.setItem(i, 9, auto_item)
-
-    def load_default_risk_parameters(self):
-        """Load default risk parameters"""
-        self.current_risk_params = {
-            "max_position_size": 50000,
-            "max_daily_loss": 5000,
-            "max_portfolio_delta": 100,
-            "max_portfolio_gamma": 50,
-            "vix_threshold": 30,
-            "correlation_limit": 0.8
-        }
-
-    def show_risk_parameters(self):
-        """Show risk parameters dialog"""
-        if RISK_DIALOG_AVAILABLE:
-            show_risk_parameters_dialog(self)
-        else:
-            QMessageBox.information(
-                self, "Risk Parameters",
-                "Risk Parameters Configuration\n\n"
-                "Max Position Size: $50,000\n"
-                "Max Daily Loss: $5,000\n"
-                "Max Portfolio Delta: 100\n"
-                "Max Portfolio Gamma: 50\n"
-                "VIX Threshold: 30\n"
-                "Correlation Limit: 0.8"
-            )
-
-    def add_system_log(self, message: str):
-        """Add message to system log"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}"
-        
-        self.system_logs.append(formatted_message)
-        
-        # Keep only last 100 entries
-        if len(self.system_logs) > 100:
-            self.system_logs = self.system_logs[-100:]
-        
-        # Update display
-        self.system_log.clear()
-        self.system_log.append("\n".join(self.system_logs[-20:]))  # Show last 20
-        
-        # Scroll to bottom
-        cursor = self.system_log.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.system_log.setTextCursor(cursor)
-
-    def add_automation_log(self, message: str):
-        """Add message to automation log"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}"
-        
-        self.automation_logs.append(formatted_message)
-        
-        # Keep only last 100 entries
-        if len(self.automation_logs) > 100:
-            self.automation_logs = self.automation_logs[-100:]
-        
-        # Update display
-        self.auto_log.clear()
-        self.auto_log.append("\n".join(self.automation_logs[-15:]))  # Show last 15
-        
-        # Scroll to bottom
-        cursor = self.auto_log.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.auto_log.setTextCursor(cursor)
-
-    def closeEvent(self, event):
-        """Enhanced close event handler with real data cleanup"""
-        try:
-            # Stop real data timer if active
-            if hasattr(self, '_real_data_timer') and self._real_data_timer:
-                self._real_data_timer.stop()
-                
-            # Stop monitoring timer if active
-            if hasattr(self, '_check_timer') and self._check_timer:
-                self._check_timer.stop()
-
-            # Stop market worker
-            if self.market_worker:
-                self.market_worker.stop()
-            
-            # Stop market thread
-            if self.market_thread and self.market_thread.isRunning():
-                self.market_thread.quit()
-                self.market_thread.wait(3000)
-
-            # Stop all timers
-            if hasattr(self, 'datetime_timer'):
-                self.datetime_timer.stop()
-            if hasattr(self, 'automation_timer'):
-                self.automation_timer.stop()
-            if hasattr(self, 'greek_timer'):
-                self.greek_timer.stop()
-            if hasattr(self, 'chart_timer'):
-                self.chart_timer.stop()
-            if hasattr(self, 'prometheus_timer'):
-                self.prometheus_timer.stop()
-
-            # Log shutdown
-            self.add_system_log("🔥 Enhanced Trading Dashboard shutting down...")
-            self.add_automation_log("Dashboard session ended")
-            
-            # Accept close event
-            event.accept()
-            
-        except Exception as e:
-            print(f"Error during enhanced dashboard close: {e}")
-            event.accept()
-
-# ==============================================================================
-# ENHANCED REAL DATA INTEGRATION FUNCTIONS (PROVEN PATTERN)
-# ==============================================================================
-def apply_real_data_patch_to_dashboard(dashboard, data_file):
-    """Apply real data patch to existing dashboard using proven pattern"""
-    
-    def update_with_real_data():
-        """Update dashboard with real market data"""
-        try:
-            if not data_file.exists():
-                return
-            
-            with open(data_file, 'r') as f:
-                live_data = json.load(f)
-            
-            if not live_data:
-                return
-            
-            # Update symbol widgets directly
-            for symbol, data in live_data.items():
-                if symbol in dashboard.symbol_widgets:
-                    widget = dashboard.symbol_widgets[symbol]
-                    
-                    # Update price
-                    if hasattr(widget, 'price_label'):
-                        widget.price_label.setText(f"{data['last']:.2f}")
-                    
-                    # Update change with color
-                    if hasattr(widget, 'change_label'):
-                        change = data['change']
-                        sign = "+" if change >= 0 else ""
-                        widget.change_label.setText(f"{sign}{change:.2f}")
-                        color = "#00ff41" if change >= 0 else "#ff1744"
-                        widget.change_label.setStyleSheet(f"color: {color};")
-                    
-                    # Update percentage with color
-                    if hasattr(widget, 'pct_label'):
-                        pct = data['change_pct']
-                        sign = "+" if pct >= 0 else ""
-                        widget.pct_label.setText(f"{sign}{pct:.2f}%")
-                        color = "#00ff41" if pct >= 0 else "#ff1744"
-                        widget.pct_label.setStyleSheet(f"color: {color};")
-            
-            # Update toolbar indices
-            update_toolbar_with_real_data_helper(dashboard, live_data)
-            
-        except Exception as e:
-            print(f"❌ Error updating real data: {e}")
-    
-    # Stop original simulation
-    try:
-        if hasattr(dashboard, 'market_worker'):
-            worker = dashboard.market_worker
-            if hasattr(worker, 'update_timer') and worker.update_timer:
-                worker.update_timer.stop()
-                print("✅ Stopped simulation timer")
-        
-        if hasattr(dashboard, 'automation_timer'):
-            dashboard.automation_timer.setInterval(20000)  # Slow down automation
-            
-    except Exception as e:
-        print(f"⚠️ Could not stop simulation: {e}")
-    
-    # Start real data updates
-    dashboard._real_data_timer = QTimer()
-    dashboard._real_data_timer.timeout.connect(update_with_real_data)
-    dashboard._real_data_timer.start(1000)  # Update every second
-    
-    # Initial update
-    update_with_real_data()
-    
-    # Add log entries
-    dashboard.add_system_log("🔥 REAL MARKET DATA ACTIVE - IB Gateway prices")
-    dashboard.add_automation_log("Real-time market data from Interactive Brokers")
-    
-    print("✅ Real data patch applied successfully!")
-
-def setup_real_data_monitoring_for_dashboard(dashboard, data_file):
-    """Setup monitoring for real data to become available (proven pattern)"""
-    
-    def check_for_real_data():
-        """Check if real data becomes available"""
-        if getattr(dashboard, 'real_data_active', False):
-            return  # Already using real data
-        
-        if data_file.exists():
-            try:
-                with open(data_file, 'r') as f:
-                    data = json.load(f)
-                
-                if data:
-                    print("🔥 Real data detected - switching from simulation!")
-                    dashboard.add_system_log("🔥 Real data detected - switching from simulation!")
-                    dashboard._check_timer.stop()
-                    apply_real_data_patch_to_dashboard(dashboard, data_file)
-                    dashboard.real_data_active = True
-            except:
-                pass
-    
-    # Check every 5 seconds for real data
-    dashboard._check_timer = QTimer()
-    dashboard._check_timer.timeout.connect(check_for_real_data)
-    dashboard._check_timer.start(5000)
-
-def update_toolbar_with_real_data_helper(dashboard, live_data):
-    """Update toolbar indices with real data (proven pattern)"""
-    try:
-        # Update SPX from SPY (SPY * 10)
-        if 'SPY' in live_data:
-            spy_data = live_data['SPY']
-            
-            if hasattr(dashboard, 'spx_value'):
-                dashboard.spx_value.setText(f" {spy_data['last'] * 10:.0f}")
-            
-            if hasattr(dashboard, 'spx_change'):
-                change = spy_data['change'] * 10
-                pct = spy_data['change_pct']
-                sign = "+" if change >= 0 else ""
-                dashboard.spx_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
-                color = "#00ff41" if change >= 0 else "#ff1744"
-                dashboard.spx_change.setStyleSheet(f"color: {color};")
-        
-        # Update NDX from QQQ (QQQ * 35)
-        if 'QQQ' in live_data:
-            qqq_data = live_data['QQQ']
-            
-            if hasattr(dashboard, 'ndx_value'):
-                dashboard.ndx_value.setText(f" {qqq_data['last'] * 35:.0f}")
-            
-            if hasattr(dashboard, 'ndx_change'):
-                change = qqq_data['change'] * 35
-                pct = qqq_data['change_pct']
-                sign = "+" if change >= 0 else ""
-                dashboard.ndx_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
-                color = "#00ff41" if change >= 0 else "#ff1744"
-                dashboard.ndx_change.setStyleSheet(f"color: {color};")
-        
-        # Update DJI from DIA (DIA * 98)
-        if 'DIA' in live_data:
-            dia_data = live_data['DIA']
-            
-            if hasattr(dashboard, 'dji_value'):
-                dashboard.dji_value.setText(f" {dia_data['last'] * 98:.0f}")
-            
-            if hasattr(dashboard, 'dji_change'):
-                change = dia_data['change'] * 98
-                pct = dia_data['change_pct']
-                sign = "+" if change >= 0 else ""
-                dashboard.dji_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
-                color = "#00ff41" if change >= 0 else "#ff1744"
-                dashboard.dji_change.setStyleSheet(f"color: {color};")
-    
-    except Exception as e:
-        pass  # Suppress toolbar update errors
-
-def update_status_for_real_data_helper(dashboard):
-    """Update status indicators for real data (proven pattern)"""
-    try:
-        # Update market data status
-        if hasattr(dashboard, 'market_data_status'):
-            dashboard.market_data_status.setText("LIVE - REAL")
-            dashboard.market_data_status.setStyleSheet("color: #00ff41;")
-        
-        # Update connection status
-        if hasattr(dashboard, 'connection_label'):
-            dashboard.connection_label.setText("IB CONNECTED - REAL DATA")
-            dashboard.connection_label.setStyleSheet("color: #00ff41;")
-        
-        if hasattr(dashboard, 'connection_dot'):
-            dashboard.connection_dot.setStyleSheet("color: #00ff41;")
-        
-    except Exception as e:
-        pass  # Not critical
-
-# ==============================================================================
-# STANDALONE FUNCTIONS FOR EXTERNAL USE
-# ==============================================================================
-def create_spyder_trading_dashboard():
-    """Factory function to create SpyderTradingDashboard instance"""
-    return SpyderTradingDashboard()
-
-def get_dashboard_with_real_data_integration():
-    """Create dashboard with real data integration pre-configured"""
-    dashboard = SpyderTradingDashboard()
-    
-    # The dashboard automatically applies real data integration in __init__
-    # This function is provided for external modules that need explicit integration
-    
-    return dashboard
-
-def apply_external_real_data_patch(dashboard, data_file_path=None):
-    """Apply real data patch from external module"""
-    if data_file_path is None:
-        data_file_path = Path.home() / "Projects/Spyder/market_data/live_data.json"
-    
-    data_file = Path(data_file_path)
-    
-    if data_file.exists():
-        try:
-            with open(data_file, 'r') as f:
-                data = json.load(f)
-            
-            if data:
-                apply_real_data_patch_to_dashboard(dashboard, data_file)
-                update_status_for_real_data_helper(dashboard)
-                dashboard.real_data_active = True
-                return True
-        except Exception as e:
-            print(f"❌ Error applying external real data patch: {e}")
-    
-    return False
-
-# ==============================================================================
-# MAIN EXECUTION - FOR STANDALONE TESTING
-# ==============================================================================
-def main():
-    """Main function for standalone testing"""
-    print("=" * 70)
-    print("🔥 SPYDER G05 - ENHANCED TRADING DASHBOARD")
-    print("=" * 70)
-    print("🔥 Real data integration with proven pattern")
-    print("📊 Automatic detection and seamless switching")
-    print("🚀 Enhanced signal monitoring and Prometheus metrics")
-    print("⚡ Professional dark theme with traffic light indicators")
-    print("=" * 70)
-    
-    # Create Qt application
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    app.setApplicationName("Spyder Enhanced Trading Dashboard")
-    app.setOrganizationName("Spyder Trading System")
-    
-    try:
-        # Create enhanced dashboard
-        print("📊 Initializing enhanced dashboard...")
-        dashboard = SpyderTradingDashboard()
-        
-        # Show dashboard
-        dashboard.show()
-        
-        # Check real data status
-        data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
-        if data_file.exists():
-            try:
-                with open(data_file, 'r') as f:
-                    data = json.load(f)
-                spy_price = data.get('SPY', {}).get('last', 'N/A')
-                print(f"✅ Real data detected - SPY: ${spy_price}")
-            except:
-                print("⚠️ Real data file exists but couldn't read it")
-        else:
-            print("📊 No real data detected - using simulation")
-            print("   Start injector: python temp_WorkingDataInjector.py")
-        
-        print("\n💡 USAGE TIPS:")
-        print("   • Real data automatically detected from ~/Projects/Spyder/market_data/live_data.json")
-        print("   • Dashboard shows 'LIVE - REAL' when using real market data")
-        print("   • Click refresh icon to force data update")
-        print("   • All signal monitors and features work with both real and simulation data")
-        print("   • Enhanced with proven real data integration pattern")
-        
-        print("\n🔥 Enhanced Trading Dashboard is ready!")
-        print("   Navigate to START TRADING when ready to begin operations\n")
-        
-        # Run application
-        return app.exec()
-        
-    except Exception as e:
-        print(f"\n❌ Startup error: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Show error dialog if possible
-        try:
-            QMessageBox.critical(
-                None,
-                "Enhanced Trading Dashboard Error",
-                f"Failed to start Enhanced Trading Dashboard:\n\n{e}\n\n"
-                "Please check the console for detailed error information."
-            )
-        except:
-            pass
-        
-        return 1
-
-if __name__ == "__main__":
-    sys.exit(main())
-        
+            self.market_worker.data

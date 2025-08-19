@@ -1,0 +1,63 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SPYDER Enhanced Trading
+Comment=Enhanced SPY Options Trading System with Real Data Integration
+GenericName=SPY Trading Enhanced
+# MAIN ACTION - Launch Enhanced R05 Dashboard (FAST!)
+Exec=/home/adam/Projects/Spyder/.venv/bin/python /home/adam/Projects/Spyder/SpyderR05_LiveDashboard.py
+# No terminal for main GUI launch
+Terminal=false
+# Icon
+Icon=/home/adam/Projects/Spyder/assets/spyder-icon.png
+# Working directory
+Path=/home/adam/Projects/Spyder
+# Categories
+Categories=Finance;Trading;Application;
+# Keywords
+Keywords=trading;options;spy;spyder;stocks;market;dashboard;enhanced;real-data;
+# Startup
+StartupNotify=true
+StartupWMClass=SPYDER
+# RIGHT-CLICK MENU ACTIONS (Updated for Enhanced System)
+Actions=Monitor;TestIntegration;QuickLaunch;Stop;Status;Terminal;Config;Logs;
+# Enhanced System Monitor
+[Desktop Action Monitor]
+Name=Enhanced System Monitor
+Exec=gnome-terminal --working-directory=/home/adam/Projects/Spyder -- python test_R05_G05_Integration.py
+Icon=utilities-system-monitor
+# Test Integration
+[Desktop Action TestIntegration]
+Name=Test R05/G05 Integration
+Exec=gnome-terminal --working-directory=/home/adam/Projects/Spyder -- bash -c "source .venv/bin/activate && python test_R05_G05_Integration.py; echo ''; echo 'Press Enter to close...'; read"
+Icon=applications-debugging
+# Quick Launch Test
+[Desktop Action QuickLaunch]
+Name=Quick Launch Test
+Exec=gnome-terminal --working-directory=/home/adam/Projects/Spyder -- bash -c "source .venv/bin/activate && time python SpyderR05_LiveDashboard.py"
+Icon=media-playback-start
+# Stop Enhanced System
+[Desktop Action Stop]
+Name=Stop Enhanced Dashboard
+Exec=bash -c "pkill -f 'SpyderR05\|SpyderG05'; notify-send 'Spyder' 'Enhanced dashboard stopped'"
+Icon=process-stop
+# Check Enhanced Status
+[Desktop Action Status]
+Name=Check Enhanced Status
+Exec=gnome-terminal --working-directory=/home/adam/Projects/Spyder -- bash -c "echo 'SPYDER ENHANCED STATUS'; echo '=================='; ps aux | grep -E 'SpyderR05|SpyderG05' | grep -v grep; echo ''; echo 'Real Data Status:'; ls -la ~/Projects/Spyder/market_data/live_data.json 2>/dev/null || echo 'No real data file'; echo ''; echo 'Press Enter to close...'; read"
+Icon=dialog-information
+# Open Terminal in Spyder directory
+[Desktop Action Terminal]
+Name=Open Spyder Terminal
+Exec=gnome-terminal --working-directory=/home/adam/Projects/Spyder -- bash -c "source .venv/bin/activate; bash"
+Icon=utilities-terminal
+# Edit Enhanced Config
+[Desktop Action Config]
+Name=Edit Configuration
+Exec=gedit /home/adam/Projects/Spyder/.env
+Icon=preferences-system
+# View Enhanced Logs
+[Desktop Action Logs]
+Name=View Dashboard Logs
+Exec=gnome-terminal --working-directory=/home/adam/Projects/Spyder -- bash -c "echo 'Enhanced Dashboard Logs'; echo '======================'; if [ -f logs/system/main.log ]; then tail -f logs/system/main.log; else echo 'No logs directory found - Enhanced system uses in-memory logging'; fi"
+Icon=text-x-log
