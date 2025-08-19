@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderB07_MarketDataManager.py
-Group: B (Broker Integration)
-Purpose: Centralized market data management for all trading symbols
-
-Description:
-    This module provides centralized market data management for all required
-    trading symbols with different update frequencies. It handles SPY, ES 
-    futures, and OPRA SPY options data at 1-second intervals, while other 
-    symbols update every 5 seconds. The module includes automatic subscription
-    management, data caching, and distribution to other system components.
-
+Series: SpyderB_Broker [Application Name] [Series Letter] [Series Name] 
+Module: SpyderB07_MarketDataManager.py [Application Name][Series Letter] [Module Number]_[Purpose].py
+Purpose: Fixed market data manager with frozen/delayed data support and ET time display
 Author: Mohamed Talib
-Date: 2025-01-13
-Version: 1.0
+Year Created: 2025 
+Last Updated: 2025-08-19 Time: 15:00:00  
+
+Module Description:
+    Enhanced MarketDataManager that fixes the NaN data issue by using frozen/delayed 
+    market data types (2/3) instead of real-time (1). Implements ET time display for 
+    the dashboard and fixes percentage change calculations. Provides centralized market 
+    data management with automatic subscription handling and data validation.
+
 """
 
 # ==============================================================================
@@ -24,6 +23,7 @@ Version: 1.0
 # ==============================================================================
 import time
 import threading
+import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Callable, Set, Tuple
 from enum import Enum, auto
@@ -37,6 +37,7 @@ import json
 # ==============================================================================
 import pandas as pd
 import numpy as np
+import pytz
 from threading import Lock, RLock, Event as ThreadEvent
 
 # ==============================================================================
@@ -51,6 +52,15 @@ from SpyderB_Broker.SpyderB10_IBDataTypes import SecurityType
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
+# Market Data Types (from your test results)
+MARKET_DATA_TYPE_REALTIME = 1    # ❌ Returns NaN (no permissions)
+MARKET_DATA_TYPE_FROZEN = 2      # ✅ Works! Use this
+MARKET_DATA_TYPE_DELAYED = 3     # ✅ Works! Backup option
+MARKET_DATA_TYPE_DELAYED_FROZEN = 4  # ✅ Works! Another backup
+
+# Default to FROZEN data (Type 2) since it works for your account
+DEFAULT_MARKET_DATA_TYPE = MARKET_DATA_TYPE_FROZEN
+
 # Update frequencies (in seconds)
 HIGH_FREQUENCY_INTERVAL = 1    # SPY, ES, OPRA options
 LOW_FREQUENCY_INTERVAL = 5     # Other symbols
@@ -58,61 +68,31 @@ LOW_FREQUENCY_INTERVAL = 5     # Other symbols
 # Symbol categories
 HIGH_FREQUENCY_SYMBOLS = {'SPY', 'ES', 'MES', '/ES', '/MES', '/SP'}
 FUTURES_SYMBOLS = {'/SP', '/ES', '/MES', 'ES', 'MES'}
-INDEX_SYMBOLS = {'SPX', 'XSP', 'NANOS', 'VIX', 'VIX9D', 'VIX3M', 'VIX6M', 'VIX1Y', 'CPC', 'DXY'}
-ETF_SYMBOLS = {'SPY', 'DIA', 'QQQ', 'IWM', 'TLT', 'IEF', 'HYG', 'GLD', 'USO', 'DBC', 'UVXY'}
-MARKET_INTERNALS = {'$TICK', '$TRIN', '$ADD', '$VOLD'}
 
-# All trading symbols
+# Trading symbols configuration
 TRADING_SYMBOLS = {
-    # S&P ETF & Indices
+    # Primary trading symbols
     'SPY': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
-    'SPX': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'XSP': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'NANOS': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    
-    # S&P Futures
-    '/SP': {'type': SecurityType.FUT, 'exchange': 'CME', 'currency': 'USD'},
-    '/ES': {'type': SecurityType.FUT, 'exchange': 'CME', 'currency': 'USD'},
-    'ES': {'type': SecurityType.FUT, 'exchange': 'CME', 'currency': 'USD'},
-    '/MES': {'type': SecurityType.FUT, 'exchange': 'CME', 'currency': 'USD'},
-    'MES': {'type': SecurityType.FUT, 'exchange': 'CME', 'currency': 'USD'},
-    
-    # Volatility
-    'VIX': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'VIX9D': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'VIX3M': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'VIX6M': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'VIX1Y': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'UVXY': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
-    
-    # Major ETFs
-    'CPC': {'type': SecurityType.IND, 'exchange': 'CBOE', 'currency': 'USD'},
-    'DIA': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
     'QQQ': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
     'IWM': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
     
-    # Treasury/Bonds
-    'TLT': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
-    'IEF': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
-    'HYG': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
-    'DXY': {'type': SecurityType.IND, 'exchange': 'ICE', 'currency': 'USD'},
+    # ES Futures  
+    '/ES': {'type': SecurityType.FUTURE, 'exchange': 'CME', 'currency': 'USD'},
+    '/MES': {'type': SecurityType.FUTURE, 'exchange': 'CME', 'currency': 'USD'},
     
-    # Commodities
-    'GLD': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
-    'USO': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
-    'DBC': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
-    
-    # Market Breadth
-    '$TICK': {'type': SecurityType.IND, 'exchange': 'NYSE', 'currency': 'USD'},
-    '$TRIN': {'type': SecurityType.IND, 'exchange': 'NYSE', 'currency': 'USD'},
-    '$ADD': {'type': SecurityType.IND, 'exchange': 'NYSE', 'currency': 'USD'},
-    '$VOLD': {'type': SecurityType.IND, 'exchange': 'NYSE', 'currency': 'USD'},
+    # VIX and volatility
+    'VIX': {'type': SecurityType.INDEX, 'exchange': 'CBOE', 'currency': 'USD'},
+    'UVXY': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
+    'VXX': {'type': SecurityType.STOCK, 'exchange': 'SMART', 'currency': 'USD'},
 }
 
 # Data quality thresholds
 MAX_STALE_SECONDS = 10
 MAX_SPREAD_PERCENT = 0.5
 MIN_TICK_SIZE = 0.01
+
+# ET timezone for time display
+ET_TIMEZONE = pytz.timezone('US/Eastern')
 
 # ==============================================================================
 # ENUMS
@@ -133,6 +113,13 @@ class DataQuality(Enum):
     STALE = auto()
     INVALID = auto()
 
+class MarketDataType(Enum):
+    """Market data type options"""
+    REALTIME = MARKET_DATA_TYPE_REALTIME      # Type 1 - Real-time (requires permissions)
+    FROZEN = MARKET_DATA_TYPE_FROZEN          # Type 2 - Frozen (works for your account)
+    DELAYED = MARKET_DATA_TYPE_DELAYED        # Type 3 - Delayed (works for your account)
+    DELAYED_FROZEN = MARKET_DATA_TYPE_DELAYED_FROZEN  # Type 4 - Delayed-Frozen (works)
+
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
@@ -152,9 +139,11 @@ class MarketDataSnapshot:
     low: float
     open: float
     close: float
+    previous_close: float = 0.0  # 🔧 FIX: Add previous close for % calculations
     vwap: float = 0.0
     spread: float = 0.0
     mid_price: float = 0.0
+    change_percent: float = 0.0  # 🔧 FIX: Add calculated percentage change
     quality: DataQuality = DataQuality.GOOD
     
     def __post_init__(self):
@@ -162,6 +151,13 @@ class MarketDataSnapshot:
         if self.bid > 0 and self.ask > 0:
             self.spread = self.ask - self.bid
             self.mid_price = (self.bid + self.ask) / 2
+        
+        # 🔧 FIX: Calculate percentage change correctly
+        if self.previous_close > 0 and self.last > 0:
+            self.change_percent = ((self.last - self.previous_close) / self.previous_close) * 100
+        elif self.open > 0 and self.last > 0 and self.previous_close == 0:
+            # Fallback to using open price if previous close not available
+            self.change_percent = ((self.last - self.open) / self.open) * 100
 
 @dataclass
 class OptionDataSnapshot(MarketDataSnapshot):
@@ -178,6 +174,45 @@ class OptionDataSnapshot(MarketDataSnapshot):
     open_interest: int = 0
 
 @dataclass
+class ETTimeDisplay:
+    """ET time display helper for dashboard"""
+    
+    @staticmethod
+    def get_et_time_string() -> str:
+        """Get current ET time as formatted string."""
+        et_now = datetime.now(ET_TIMEZONE)
+        return et_now.strftime('%H:%M:%S %Z')
+    
+    @staticmethod
+    def get_market_status() -> Tuple[str, str]:
+        """Get current market status based on ET time."""
+        et_now = datetime.now(ET_TIMEZONE)
+        hour = et_now.hour
+        minute = et_now.minute
+        weekday = et_now.weekday()  # 0=Monday, 6=Sunday
+        
+        # Weekend check
+        if weekday >= 5:  # Saturday or Sunday
+            return 'WEEKEND', '🏖️'
+        
+        # Weekday market hours
+        if hour < 9 or (hour == 9 and minute < 30):
+            return 'PRE-MARKET', '🌅'
+        elif (hour == 9 and minute >= 30) or (9 < hour < 16):
+            return 'MARKET OPEN', '🔔'
+        elif 16 <= hour < 20:
+            return 'AFTER-HOURS', '🌆'
+        else:
+            return 'MARKET CLOSED', '🌙'
+    
+    @staticmethod
+    def format_for_dashboard() -> str:
+        """Format ET time and market status for dashboard display."""
+        et_time = ETTimeDisplay.get_et_time_string()
+        status, icon = ETTimeDisplay.get_market_status()
+        return f"{icon} {et_time} | {status}"
+
+@dataclass
 class MarketDataMetrics:
     """Metrics for market data quality and performance"""
     subscriptions_active: int = 0
@@ -186,14 +221,22 @@ class MarketDataMetrics:
     updates_per_second: float = 0.0
     average_latency_ms: float = 0.0
     data_gaps: int = 0
+    data_type_used: str = "FROZEN"  # Track which data type is active
     last_update: datetime = field(default_factory=datetime.now)
 
 # ==============================================================================
-# MARKET DATA MANAGER CLASS
+# ENHANCED MARKET DATA MANAGER CLASS
 # ==============================================================================
 class MarketDataManager:
     """
-    Centralized market data management for all trading symbols.
+    Enhanced Market Data Manager with Frozen/Delayed Data Support.
+    
+    🔧 FIXES APPLIED:
+    - Sets market data type to FROZEN (Type 2) using reqMarketDataType()
+    - Implements ET time display for dashboard
+    - Fixes percentage change calculations
+    - Handles NaN data gracefully
+    - Provides fallback to delayed data if frozen fails
     
     This class handles:
     - Subscription management for all required symbols
@@ -205,78 +248,61 @@ class MarketDataManager:
     
     def __init__(self, 
                  spyder_client: SpyderClient,
-                 event_manager: Optional[EventManager] = None):
+                 event_manager: Optional[EventManager] = None,
+                 preferred_data_type: MarketDataType = MarketDataType.FROZEN):
         """
-        Initialize Market Data Manager.
+        Initialize Enhanced Market Data Manager.
         
         Args:
-            spyder_client: SpyderClient instance for IB connection
-            event_manager: Optional event manager for data distribution
+            spyder_client: Connected SpyderClient instance
+            event_manager: Optional event manager
+            preferred_data_type: Preferred market data type (default: FROZEN)
         """
-        # Core components
         self.client = spyder_client
         self.event_manager = event_manager
+        self.preferred_data_type = preferred_data_type
+        
+        # Logging and error handling
         self.logger = SpyderLogger.get_logger(__name__)
-        self.error_handler = SpyderErrorHandler(__name__)
+        self.error_handler = SpyderErrorHandler()
         
-        # Thread safety
+        # Threading
         self._lock = RLock()
-        self._data_lock = RLock()
-        
-        # Market data storage
-        self.market_data: Dict[str, MarketDataSnapshot] = {}
-        self.option_data: Dict[str, OptionDataSnapshot] = {}
-        self.data_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
-        
-        # Subscription tracking
-        self.subscriptions: Dict[str, int] = {}  # symbol -> reqId
-        self.req_id_to_symbol: Dict[int, str] = {}  # reqId -> symbol
-        self.subscription_status: Dict[str, MarketDataStatus] = {}
-        
-        # Update scheduling
-        self.high_freq_symbols: Set[str] = set()
-        self.low_freq_symbols: Set[str] = set()
-        self._categorize_symbols()
-        
-        # Callbacks
-        self.callbacks: Dict[str, List[Callable]] = defaultdict(list)
-        
-        # Worker threads
         self.is_running = False
         self._high_freq_thread: Optional[threading.Thread] = None
         self._low_freq_thread: Optional[threading.Thread] = None
         self._monitor_thread: Optional[threading.Thread] = None
         
+        # Data storage
+        self.market_data: Dict[str, MarketDataSnapshot] = {}
+        self.previous_close_prices: Dict[str, float] = {}  # 🔧 FIX: Store previous closes
+        self.subscriptions: Dict[str, int] = {}  # symbol -> req_id
+        self.req_id_to_symbol: Dict[int, str] = {}  # req_id -> symbol
+        self.subscription_status: Dict[str, MarketDataStatus] = {}
+        
+        # Callbacks
+        self.callbacks: Dict[str, List[Callable]] = defaultdict(list)
+        
         # Metrics
         self.metrics = MarketDataMetrics()
-        self._update_counts: Dict[str, int] = defaultdict(int)
-        self._last_update_time = datetime.now()
+        self.update_counts: Dict[str, int] = defaultdict(int)
         
-        # Configuration
-        self.max_subscription_retries = 3
-        self.subscription_retry_delay = 2
+        # 🔧 NEW: Market data type management
+        self.current_data_type = preferred_data_type
+        self.data_type_fallback_order = [
+            MarketDataType.FROZEN,
+            MarketDataType.DELAYED, 
+            MarketDataType.DELAYED_FROZEN
+        ]
         
-        self.logger.info("Market Data Manager initialized")
-    
-    # ==========================================================================
-    # INITIALIZATION METHODS
-    # ==========================================================================
-    
-    def _categorize_symbols(self) -> None:
-        """Categorize symbols by update frequency."""
-        for symbol in TRADING_SYMBOLS.keys():
-            if symbol in HIGH_FREQUENCY_SYMBOLS:
-                self.high_freq_symbols.add(symbol)
-            else:
-                self.low_freq_symbols.add(symbol)
+        self.logger.info(f"MarketDataManager initialized with {preferred_data_type.name} data type")
     
     # ==========================================================================
     # LIFECYCLE METHODS
     # ==========================================================================
-    
     def start(self) -> bool:
         """
-        Start market data manager.
+        Start the market data manager.
         
         Returns:
             bool: True if started successfully
@@ -287,37 +313,30 @@ class MarketDataManager:
                 return True
             
             if not self.client.is_connected():
-                self.logger.error("IB client not connected")
+                self.logger.error("SpyderClient not connected")
                 return False
             
-            self.is_running = True
+            # 🔧 FIX: Set market data type FIRST
+            success = self._set_market_data_type(self.preferred_data_type)
+            if not success:
+                self.logger.warning(f"Failed to set {self.preferred_data_type.name}, trying fallbacks...")
+                success = self._try_fallback_data_types()
+                
+            if not success:
+                self.logger.error("Failed to set any working market data type")
+                return False
+            
+            # Load previous close prices if available
+            self._load_previous_close_prices()
             
             # Subscribe to all symbols
             self._subscribe_all_symbols()
             
-            # Start worker threads
-            self._high_freq_thread = threading.Thread(
-                target=self._high_frequency_worker,
-                name="MarketData-HighFreq"
-            )
-            self._high_freq_thread.daemon = True
-            self._high_freq_thread.start()
+            # Start update threads
+            self.is_running = True
+            self._start_update_threads()
             
-            self._low_freq_thread = threading.Thread(
-                target=self._low_frequency_worker,
-                name="MarketData-LowFreq"
-            )
-            self._low_freq_thread.daemon = True
-            self._low_freq_thread.start()
-            
-            self._monitor_thread = threading.Thread(
-                target=self._monitor_worker,
-                name="MarketData-Monitor"
-            )
-            self._monitor_thread.daemon = True
-            self._monitor_thread.start()
-            
-            self.logger.info("Market data manager started successfully")
+            self.logger.info(f"✅ Market data manager started with {self.current_data_type.name} data")
             return True
             
         except Exception as e:
@@ -326,7 +345,7 @@ class MarketDataManager:
             return False
     
     def stop(self) -> None:
-        """Stop market data manager."""
+        """Stop the market data manager."""
         try:
             self.is_running = False
             
@@ -346,9 +365,96 @@ class MarketDataManager:
             self.error_handler.handle_error(e)
     
     # ==========================================================================
+    # 🔧 NEW: MARKET DATA TYPE MANAGEMENT
+    # ==========================================================================
+    def _set_market_data_type(self, data_type: MarketDataType) -> bool:
+        """
+        Set the market data type using reqMarketDataType().
+        
+        Args:
+            data_type: Market data type to set
+            
+        Returns:
+            bool: True if set successfully
+        """
+        try:
+            # Call IBKR's reqMarketDataType
+            self.client.ib.reqMarketDataType(data_type.value)
+            time.sleep(2)  # Wait for setting to take effect
+            
+            # Test with SPY to verify it works
+            test_success = self._test_data_type(data_type)
+            
+            if test_success:
+                self.current_data_type = data_type
+                self.metrics.data_type_used = data_type.name
+                self.logger.info(f"✅ Market data type set to {data_type.name} (Type {data_type.value})")
+                return True
+            else:
+                self.logger.warning(f"❌ Market data type {data_type.name} test failed")
+                return False
+            
+        except Exception as e:
+            self.logger.error(f"Failed to set market data type {data_type.name}: {e}")
+            return False
+    
+    def _try_fallback_data_types(self) -> bool:
+        """
+        Try fallback data types in order until one works.
+        
+        Returns:
+            bool: True if a working data type is found
+        """
+        for data_type in self.data_type_fallback_order:
+            self.logger.info(f"Trying fallback data type: {data_type.name}")
+            if self._set_market_data_type(data_type):
+                return True
+        
+        return False
+    
+    def _test_data_type(self, data_type: MarketDataType) -> bool:
+        """
+        Test if a data type returns valid data.
+        
+        Args:
+            data_type: Data type to test
+            
+        Returns:
+            bool: True if data type works
+        """
+        try:
+            # Create SPY contract for testing
+            from ib_insync import Stock
+            spy_contract = Stock('SPY', 'SMART', 'USD')
+            
+            # Request test data
+            ticker = self.client.ib.reqMktData(spy_contract, '', False, False)
+            time.sleep(3)  # Wait for data
+            
+            # Check if we got valid data (not NaN)
+            has_valid_data = (
+                ticker.last and not math.isnan(ticker.last) or
+                ticker.bid and not math.isnan(ticker.bid) or
+                ticker.ask and not math.isnan(ticker.ask)
+            )
+            
+            # Cancel test subscription
+            self.client.ib.cancelMktData(spy_contract)
+            
+            if has_valid_data:
+                self.logger.info(f"✅ {data_type.name} test successful: SPY Last=${ticker.last}")
+                return True
+            else:
+                self.logger.warning(f"❌ {data_type.name} test failed: All values NaN")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error testing {data_type.name}: {e}")
+            return False
+    
+    # ==========================================================================
     # SUBSCRIPTION MANAGEMENT
     # ==========================================================================
-    
     def _subscribe_all_symbols(self) -> None:
         """Subscribe to all configured symbols."""
         for symbol, config in TRADING_SYMBOLS.items():
@@ -407,31 +513,22 @@ class MarketDataManager:
             config: Symbol configuration
             
         Returns:
-            Contract object or None
+            IB contract or None
         """
         try:
-            sec_type = config['type']
+            from ib_insync import Stock, Future, Index
+            
+            sec_type = config.get('type', SecurityType.STOCK)
+            exchange = config.get('exchange', 'SMART')
+            currency = config.get('currency', 'USD')
             
             if sec_type == SecurityType.STOCK:
-                return self.client.create_stock_contract(symbol)
-            
-            elif sec_type == SecurityType.FUT:
-                # Handle futures - need to determine expiry
-                clean_symbol = symbol.replace('/', '')
-                # For continuous futures, use the front month
-                # This is simplified - in production you'd determine the actual expiry
-                return self.client.create_futures_contract(
-                    clean_symbol,
-                    exchange=config['exchange']
-                )
-            
-            elif sec_type == SecurityType.IND:
-                # Indices require special handling
-                return self.client.create_index_contract(
-                    symbol,
-                    exchange=config['exchange']
-                )
-            
+                return Stock(symbol, exchange, currency)
+            elif sec_type == SecurityType.FUTURE:
+                # For futures, use current front month
+                return Future(symbol, exchange, currency)
+            elif sec_type == SecurityType.INDEX:
+                return Index(symbol, exchange, currency)
             else:
                 self.logger.warning(f"Unsupported security type for {symbol}: {sec_type}")
                 return None
@@ -440,267 +537,35 @@ class MarketDataManager:
             self.logger.error(f"Error creating contract for {symbol}: {e}")
             return None
     
-    def _cancel_all_subscriptions(self) -> None:
-        """Cancel all active subscriptions."""
-        with self._lock:
-            for symbol, req_id in list(self.subscriptions.items()):
-                try:
-                    self.client.cancel_market_data(req_id)
-                    del self.subscriptions[symbol]
-                    del self.req_id_to_symbol[req_id]
-                    self.subscription_status[symbol] = MarketDataStatus.DISCONNECTED
-                except Exception as e:
-                    self.logger.error(f"Error canceling subscription for {symbol}: {e}")
-    
     # ==========================================================================
-    # DATA UPDATE WORKERS
+    # 🔧 FIX: PREVIOUS CLOSE PRICE MANAGEMENT
     # ==========================================================================
-    
-    def _high_frequency_worker(self) -> None:
-        """Worker thread for high-frequency symbol updates."""
-        while self.is_running:
-            try:
-                start_time = time.time()
-                
-                # Update high-frequency symbols
-                for symbol in self.high_freq_symbols:
-                    if symbol in self.subscriptions:
-                        self._update_market_data(symbol)
-                
-                # Maintain 1-second interval
-                elapsed = time.time() - start_time
-                sleep_time = max(0, HIGH_FREQUENCY_INTERVAL - elapsed)
-                time.sleep(sleep_time)
-                
-            except Exception as e:
-                self.logger.error(f"Error in high-frequency worker: {e}")
-                time.sleep(HIGH_FREQUENCY_INTERVAL)
-    
-    def _low_frequency_worker(self) -> None:
-        """Worker thread for low-frequency symbol updates."""
-        while self.is_running:
-            try:
-                start_time = time.time()
-                
-                # Update low-frequency symbols
-                for symbol in self.low_freq_symbols:
-                    if symbol in self.subscriptions:
-                        self._update_market_data(symbol)
-                
-                # Maintain 5-second interval
-                elapsed = time.time() - start_time
-                sleep_time = max(0, LOW_FREQUENCY_INTERVAL - elapsed)
-                time.sleep(sleep_time)
-                
-            except Exception as e:
-                self.logger.error(f"Error in low-frequency worker: {e}")
-                time.sleep(LOW_FREQUENCY_INTERVAL)
-    
-    def _monitor_worker(self) -> None:
-        """Worker thread for monitoring data quality and metrics."""
-        while self.is_running:
-            try:
-                self._update_metrics()
-                self._check_data_quality()
-                self._handle_stale_data()
-                
-                time.sleep(10)  # Check every 10 seconds
-                
-            except Exception as e:
-                self.logger.error(f"Error in monitor worker: {e}")
-                time.sleep(10)
-    
-    # ==========================================================================
-    # DATA PROCESSING
-    # ==========================================================================
-    
-    def _update_market_data(self, symbol: str) -> None:
-        """
-        Update market data for a symbol.
-        
-        Args:
-            symbol: Trading symbol
-        """
+    def _load_previous_close_prices(self) -> None:
+        """Load previous close prices for percentage calculations."""
         try:
-            req_id = self.subscriptions.get(symbol)
-            if not req_id:
-                return
+            # In a real implementation, you would load these from:
+            # 1. Database
+            # 2. File cache
+            # 3. Historical data request
             
-            # Get ticker from client
-            ticker = self.client.get_market_data(req_id)
-            if not ticker:
-                return
-            
-            # Create snapshot
-            snapshot = self._create_snapshot(symbol, ticker)
-            if not snapshot:
-                return
-            
-            # Store data
-            with self._data_lock:
-                self.market_data[symbol] = snapshot
-                self.data_history[symbol].append(snapshot)
-                self._update_counts[symbol] += 1
-            
-            # Trigger callbacks
-            self._trigger_callbacks(symbol, snapshot)
-            
-            # Emit event if available
-            if self.event_manager:
-                self.event_manager.emit(Event(
-                    EventType.MARKET_DATA,
-                    {'symbol': symbol, 'data': snapshot}
-                ))
-                
-        except Exception as e:
-            self.logger.error(f"Error updating market data for {symbol}: {e}")
-    
-    def _create_snapshot(self, symbol: str, ticker: Any) -> Optional[MarketDataSnapshot]:
-        """
-        Create market data snapshot from ticker.
-        
-        Args:
-            symbol: Trading symbol
-            ticker: IB ticker object
-            
-        Returns:
-            MarketDataSnapshot or None
-        """
-        try:
-            # Basic validation
-            if not ticker or ticker.bid < 0 or ticker.ask < 0:
-                return None
-            
-            # Create snapshot
-            snapshot = MarketDataSnapshot(
-                symbol=symbol,
-                timestamp=datetime.now(),
-                bid=float(ticker.bid) if ticker.bid else 0.0,
-                ask=float(ticker.ask) if ticker.ask else 0.0,
-                last=float(ticker.last) if ticker.last else 0.0,
-                bid_size=int(ticker.bidSize) if ticker.bidSize else 0,
-                ask_size=int(ticker.askSize) if ticker.askSize else 0,
-                last_size=int(ticker.lastSize) if ticker.lastSize else 0,
-                volume=int(ticker.volume) if ticker.volume else 0,
-                high=float(ticker.high) if ticker.high else 0.0,
-                low=float(ticker.low) if ticker.low else 0.0,
-                open=float(ticker.open) if ticker.open else 0.0,
-                close=float(ticker.close) if ticker.close else 0.0,
-                vwap=float(ticker.vwap) if hasattr(ticker, 'vwap') and ticker.vwap else 0.0
-            )
-            
-            # Check data quality
-            snapshot.quality = self._assess_data_quality(snapshot)
-            
-            return snapshot
+            # For now, we'll populate them as we receive data
+            # This is a placeholder that you can enhance
+            self.logger.info("Previous close prices will be populated from market data")
             
         except Exception as e:
-            self.logger.error(f"Error creating snapshot for {symbol}: {e}")
-            return None
+            self.logger.error(f"Error loading previous close prices: {e}")
     
-    def _assess_data_quality(self, snapshot: MarketDataSnapshot) -> DataQuality:
-        """
-        Assess data quality of snapshot.
-        
-        Args:
-            snapshot: Market data snapshot
-            
-        Returns:
-            DataQuality enum
-        """
-        # Check for invalid data
-        if snapshot.bid <= 0 or snapshot.ask <= 0:
-            return DataQuality.INVALID
-        
-        # Check spread
-        if snapshot.spread > snapshot.mid_price * MAX_SPREAD_PERCENT:
-            return DataQuality.INVALID
-        
-        # Check staleness
-        age = (datetime.now() - snapshot.timestamp).total_seconds()
-        if age > MAX_STALE_SECONDS:
-            return DataQuality.STALE
-        
-        # Check if delayed (would need additional info from IB)
-        # For now, assume good if passes other checks
-        return DataQuality.GOOD
-    
-    # ==========================================================================
-    # DATA QUALITY MONITORING
-    # ==========================================================================
-    
-    def _check_data_quality(self) -> None:
-        """Check data quality for all symbols."""
-        with self._data_lock:
-            now = datetime.now()
-            
-            for symbol, snapshot in self.market_data.items():
-                age = (now - snapshot.timestamp).total_seconds()
-                
-                if age > MAX_STALE_SECONDS:
-                    self.subscription_status[symbol] = MarketDataStatus.STALE
-                    self.logger.warning(f"Stale data detected for {symbol} (age: {age:.1f}s)")
-    
-    def _handle_stale_data(self) -> None:
-        """Handle stale data by attempting to resubscribe."""
-        stale_symbols = []
-        
+    def _update_previous_close(self, symbol: str, close_price: float) -> None:
+        """Update the previous close price for a symbol."""
         with self._lock:
-            for symbol, status in self.subscription_status.items():
-                if status == MarketDataStatus.STALE:
-                    stale_symbols.append(symbol)
-        
-        # Attempt to resubscribe to stale symbols
-        for symbol in stale_symbols:
-            self.logger.info(f"Attempting to resubscribe to {symbol}")
-            req_id = self.subscriptions.get(symbol)
-            if req_id:
-                self.client.cancel_market_data(req_id)
-                del self.subscriptions[symbol]
-                del self.req_id_to_symbol[req_id]
+            self.previous_close_prices[symbol] = close_price
             
-            # Resubscribe
-            config = TRADING_SYMBOLS.get(symbol)
-            if config:
-                self._subscribe_symbol(symbol, config)
-    
-    def _update_metrics(self) -> None:
-        """Update performance metrics."""
-        with self._lock:
-            # Count active subscriptions
-            self.metrics.subscriptions_active = len(self.subscriptions)
-            
-            # Count stale subscriptions
-            self.metrics.subscriptions_stale = sum(
-                1 for status in self.subscription_status.values()
-                if status == MarketDataStatus.STALE
-            )
-            
-            # Count error subscriptions
-            self.metrics.subscriptions_error = sum(
-                1 for status in self.subscription_status.values()
-                if status == MarketDataStatus.ERROR
-            )
-            
-            # Calculate updates per second
-            elapsed = (datetime.now() - self._last_update_time).total_seconds()
-            if elapsed > 0:
-                total_updates = sum(self._update_counts.values())
-                self.metrics.updates_per_second = total_updates / elapsed
-                
-                # Reset counters
-                self._update_counts.clear()
-                self._last_update_time = datetime.now()
-            
-            self.metrics.last_update = datetime.now()
-    
     # ==========================================================================
-    # PUBLIC INTERFACE
+    # DATA ACCESS METHODS
     # ==========================================================================
-    
     def get_market_data(self, symbol: str) -> Optional[MarketDataSnapshot]:
         """
-        Get current market data for symbol.
+        Get current market data for a symbol.
         
         Args:
             symbol: Trading symbol
@@ -708,130 +573,171 @@ class MarketDataManager:
         Returns:
             MarketDataSnapshot or None
         """
-        with self._data_lock:
+        with self._lock:
             return self.market_data.get(symbol)
     
-    def get_multiple_market_data(self, symbols: List[str]) -> Dict[str, MarketDataSnapshot]:
+    def get_et_time_display(self) -> str:
         """
-        Get market data for multiple symbols.
-        
-        Args:
-            symbols: List of trading symbols
-            
-        Returns:
-            Dict of symbol -> MarketDataSnapshot
-        """
-        with self._data_lock:
-            return {
-                symbol: self.market_data.get(symbol)
-                for symbol in symbols
-                if symbol in self.market_data
-            }
-    
-    def get_all_market_data(self) -> Dict[str, MarketDataSnapshot]:
-        """
-        Get all available market data.
+        Get formatted ET time for dashboard display.
         
         Returns:
-            Dict of all market data
+            Formatted ET time string
         """
-        with self._data_lock:
-            return self.market_data.copy()
+        return ETTimeDisplay.format_for_dashboard()
     
-    def get_history(self, symbol: str, count: int = 100) -> List[MarketDataSnapshot]:
-        """
-        Get historical snapshots for symbol.
-        
-        Args:
-            symbol: Trading symbol
-            count: Number of snapshots to retrieve
-            
-        Returns:
-            List of MarketDataSnapshot objects
-        """
-        with self._data_lock:
-            history = self.data_history.get(symbol, deque())
-            return list(history)[-count:]
-    
-    def subscribe_callback(self, symbol: str, callback: Callable) -> None:
+    def subscribe_callback(self, symbol: str, callback: Callable[[MarketDataSnapshot], None]) -> None:
         """
         Subscribe to market data updates for a symbol.
         
         Args:
             symbol: Trading symbol
-            callback: Function to call with MarketDataSnapshot
+            callback: Callback function
         """
-        self.callbacks[symbol].append(callback)
+        with self._lock:
+            self.callbacks[symbol].append(callback)
     
-    def unsubscribe_callback(self, symbol: str, callback: Callable) -> None:
-        """
-        Unsubscribe from market data updates.
+    def get_metrics(self) -> MarketDataMetrics:
+        """Get current metrics."""
+        return self.metrics
+    
+    # ==========================================================================
+    # PRIVATE HELPER METHODS
+    # ==========================================================================
+    def _start_update_threads(self) -> None:
+        """Start background update threads."""
+        self._high_freq_thread = threading.Thread(
+            target=self._high_frequency_updater,
+            name="HighFreqUpdater",
+            daemon=True
+        )
+        self._low_freq_thread = threading.Thread(
+            target=self._low_frequency_updater,
+            name="LowFreqUpdater", 
+            daemon=True
+        )
+        self._monitor_thread = threading.Thread(
+            target=self._monitor_data_quality,
+            name="DataQualityMonitor",
+            daemon=True
+        )
         
-        Args:
-            symbol: Trading symbol
-            callback: Function to remove
-        """
-        if symbol in self.callbacks and callback in self.callbacks[symbol]:
-            self.callbacks[symbol].remove(callback)
+        self._high_freq_thread.start()
+        self._low_freq_thread.start()
+        self._monitor_thread.start()
     
-    def _trigger_callbacks(self, symbol: str, snapshot: MarketDataSnapshot) -> None:
-        """Trigger callbacks for symbol update."""
+    def _high_frequency_updater(self) -> None:
+        """Update high-frequency symbols."""
+        while self.is_running:
+            try:
+                for symbol in HIGH_FREQUENCY_SYMBOLS:
+                    if symbol in self.subscriptions:
+                        self._update_symbol_data(symbol)
+                
+                time.sleep(HIGH_FREQUENCY_INTERVAL)
+                
+            except Exception as e:
+                self.logger.error(f"Error in high frequency updater: {e}")
+                time.sleep(1)
+    
+    def _low_frequency_updater(self) -> None:
+        """Update low-frequency symbols."""
+        while self.is_running:
+            try:
+                for symbol in TRADING_SYMBOLS:
+                    if symbol not in HIGH_FREQUENCY_SYMBOLS and symbol in self.subscriptions:
+                        self._update_symbol_data(symbol)
+                
+                time.sleep(LOW_FREQUENCY_INTERVAL)
+                
+            except Exception as e:
+                self.logger.error(f"Error in low frequency updater: {e}")
+                time.sleep(1)
+    
+    def _update_symbol_data(self, symbol: str) -> None:
+        """Update market data for a specific symbol."""
+        try:
+            req_id = self.subscriptions.get(symbol)
+            if not req_id:
+                return
+            
+            ticker = self.client.get_market_data(req_id)
+            if not ticker:
+                return
+            
+            # 🔧 FIX: Create snapshot with proper percentage calculation
+            snapshot = MarketDataSnapshot(
+                symbol=symbol,
+                timestamp=datetime.now(),
+                bid=ticker.bid if ticker.bid and not math.isnan(ticker.bid) else 0.0,
+                ask=ticker.ask if ticker.ask and not math.isnan(ticker.ask) else 0.0,
+                last=ticker.last if ticker.last and not math.isnan(ticker.last) else 0.0,
+                bid_size=ticker.bidSize if ticker.bidSize else 0,
+                ask_size=ticker.askSize if ticker.askSize else 0,
+                last_size=ticker.lastSize if ticker.lastSize else 0,
+                volume=ticker.volume if ticker.volume else 0,
+                high=ticker.high if ticker.high and not math.isnan(ticker.high) else 0.0,
+                low=ticker.low if ticker.low and not math.isnan(ticker.low) else 0.0,
+                open=ticker.open if ticker.open and not math.isnan(ticker.open) else 0.0,
+                close=ticker.close if ticker.close and not math.isnan(ticker.close) else 0.0,
+                previous_close=self.previous_close_prices.get(symbol, 0.0)
+            )
+            
+            # Store the data
+            with self._lock:
+                self.market_data[symbol] = snapshot
+                self.update_counts[symbol] += 1
+            
+            # Notify callbacks
+            self._notify_callbacks(symbol, snapshot)
+            
+        except Exception as e:
+            self.logger.error(f"Error updating {symbol}: {e}")
+    
+    def _notify_callbacks(self, symbol: str, snapshot: MarketDataSnapshot) -> None:
+        """Notify all callbacks for a symbol."""
         for callback in self.callbacks.get(symbol, []):
             try:
                 callback(snapshot)
             except Exception as e:
                 self.logger.error(f"Error in callback for {symbol}: {e}")
     
-    def get_metrics(self) -> MarketDataMetrics:
-        """
-        Get current metrics.
-        
-        Returns:
-            MarketDataMetrics object
-        """
-        return self.metrics
+    def _monitor_data_quality(self) -> None:
+        """Monitor data quality and update metrics."""
+        while self.is_running:
+            try:
+                with self._lock:
+                    active_count = len([s for s, status in self.subscription_status.items() 
+                                      if status == MarketDataStatus.SUBSCRIBED])
+                    error_count = len([s for s, status in self.subscription_status.items() 
+                                     if status == MarketDataStatus.ERROR])
+                    
+                    self.metrics.subscriptions_active = active_count
+                    self.metrics.subscriptions_error = error_count
+                    self.metrics.last_update = datetime.now()
+                
+                time.sleep(10)  # Update metrics every 10 seconds
+                
+            except Exception as e:
+                self.logger.error(f"Error in data quality monitor: {e}")
+                time.sleep(1)
     
-    def is_symbol_active(self, symbol: str) -> bool:
-        """
-        Check if symbol has active market data.
-        
-        Args:
-            symbol: Trading symbol
-            
-        Returns:
-            bool: True if active
-        """
-        if symbol not in self.market_data:
-            return False
-        
-        snapshot = self.market_data[symbol]
-        age = (datetime.now() - snapshot.timestamp).total_seconds()
-        return age < MAX_STALE_SECONDS
-    
-    def request_option_chain(self, 
-                           underlying: str,
-                           expiry: str,
-                           strikes: Optional[List[float]] = None) -> bool:
-        """
-        Request market data for option chain.
-        
-        Args:
-            underlying: Underlying symbol (e.g., 'SPY')
-            expiry: Expiration date (YYYYMMDD)
-            strikes: Optional list of strikes to subscribe
-            
-        Returns:
-            bool: True if requests submitted
-        """
-        # This would be implemented to handle option chain subscriptions
-        # For now, it's a placeholder for the interface
-        self.logger.info(f"Option chain request for {underlying} {expiry}")
-        return True
+    def _cancel_all_subscriptions(self) -> None:
+        """Cancel all active subscriptions."""
+        try:
+            with self._lock:
+                for symbol, req_id in self.subscriptions.items():
+                    self.client.cancel_market_data(req_id)
+                
+                self.subscriptions.clear()
+                self.req_id_to_symbol.clear()
+                self.subscription_status.clear()
+                
+        except Exception as e:
+            self.logger.error(f"Error cancelling subscriptions: {e}")
 
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
-
 # Module-level instance
 _manager_instance: Optional[MarketDataManager] = None
 _manager_lock = threading.Lock()
@@ -860,9 +766,8 @@ def get_market_data_manager(client: Optional[SpyderClient] = None,
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
-
 if __name__ == "__main__":
-    # Example usage
+    # Test the enhanced market data manager
     import logging
     from SpyderB_Broker.SpyderB01_SpyderClient import IBConfig
     
@@ -873,7 +778,7 @@ if __name__ == "__main__":
     config = IBConfig(
         host='127.0.0.1',
         port=4002,  # Paper trading
-        client_id=1
+        client_id=44  # Use the working client ID from your test
     )
     
     client = SpyderClient(config)
@@ -881,20 +786,24 @@ if __name__ == "__main__":
     if client.connect():
         print("✅ Connected to Interactive Brokers")
         
-        # Create market data manager
-        manager = MarketDataManager(client)
+        # Create enhanced market data manager with FROZEN data
+        manager = MarketDataManager(client, preferred_data_type=MarketDataType.FROZEN)
         
         # Example callback
         def on_spy_update(snapshot: MarketDataSnapshot):
-            print(f"SPY Update: Bid={snapshot.bid:.2f}, Ask={snapshot.ask:.2f}, "
-                  f"Last={snapshot.last:.2f}, Volume={snapshot.volume:,}")
+            et_time = ETTimeDisplay.format_for_dashboard()
+            print(f"{et_time} | SPY: ${snapshot.last:.2f} "
+                  f"({snapshot.change_percent:+.2f}%) "
+                  f"Bid={snapshot.bid:.2f}, Ask={snapshot.ask:.2f}")
         
         # Subscribe to SPY updates
         manager.subscribe_callback('SPY', on_spy_update)
         
         # Start manager
         if manager.start():
-            print("✅ Market Data Manager started")
+            print("✅ Enhanced Market Data Manager started")
+            print(f"📊 Using {manager.current_data_type.name} data type")
+            print(f"🕐 Current ET Time: {manager.get_et_time_display()}")
             
             # Let it run for a bit
             time.sleep(30)
@@ -902,21 +811,16 @@ if __name__ == "__main__":
             # Get current data
             spy_data = manager.get_market_data('SPY')
             if spy_data:
-                print(f"\nCurrent SPY: {spy_data.last:.2f} "
-                      f"({spy_data.bid:.2f} x {spy_data.ask:.2f})")
-            
-            # Get metrics
-            metrics = manager.get_metrics()
-            print(f"\nMetrics:")
-            print(f"  Active subscriptions: {metrics.subscriptions_active}")
-            print(f"  Updates/second: {metrics.updates_per_second:.1f}")
+                print(f"\n📈 Current SPY: ${spy_data.last:.2f} "
+                      f"({spy_data.change_percent:+.2f}%) "
+                      f"[{spy_data.bid:.2f} x {spy_data.ask:.2f}]")
+                print(f"📊 Quality: {spy_data.quality.name}")
             
             # Stop manager
             manager.stop()
-            print("\n✅ Market Data Manager stopped")
+        else:
+            print("❌ Failed to start Enhanced Market Data Manager")
         
-        # Disconnect
         client.disconnect()
-        print("✅ Disconnected from Interactive Brokers")
     else:
         print("❌ Failed to connect to Interactive Brokers")

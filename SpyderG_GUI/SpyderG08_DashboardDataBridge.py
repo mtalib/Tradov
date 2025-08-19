@@ -1,306 +1,279 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderG_GUI
 Module: SpyderG08_DashboardDataBridge.py
-Group: G (GUI Components)
-Purpose: Thread-Safe PyQt6 Integration Bridge for Multi-Client Market Data
+Purpose: Fixed dashboard data bridge connecting MarketDataManager to TradingDashboard
+Author: Mohamed Talib
+Year Created: 2025 
+Last Updated: 2025-08-19 Time: 15:20:00  
 
-Description:
-    Professional PyQt6 integration layer that bridges the multi-client market data
-    manager with dashboard widgets. Provides thread-safe signal/slot architecture
-    for real-time market data updates with priority-based update frequencies.:
+Module Description:
+    Streamlined data bridge that connects the fixed MarketDataManager (with working
+    FROZEN/DELAYED data) to the TradingDashboard. Solves the cached data issue by
+    providing real-time data flow, proper percentage calculations, and thread-safe
+    updates. Focuses on the essential data connection without over-engineering.
 
-Author: SPYDER Development Team
-Date: 2025-07-28
-Version: 1.0.0
 """
 
-import logging
-import queue
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
+import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+import json
+import os
 from datetime import datetime
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Dict, List, Optional, Any, Callable
+from dataclasses import dataclass
+from enum import Enum, auto
+import queue
+import weakref
 
-# ================================================================================
-# QT IMPORTS - Handle graceful fallbacks
-# ================================================================================
-
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 try:
-    from PyQt6.QtCore import QMutex, QMutexLocker, QObject, QTimer, pyqtSignal
-    from PyQt6.QtWidgets import QWidget
-
+    from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, QMutex, QMutexLocker
+    from PyQt6.QtWidgets import QApplication
     PYQT6_AVAILABLE = True
 except ImportError:
+    print("⚠️ PyQt6 not available - running in headless mode")
     PYQT6_AVAILABLE = False
-    # Fallback classes for when PyQt6 is not available
-
+    # Mock classes for headless mode
     class QObject:
-        def __init__(self):
+        pass
+    class pyqtSignal:
+        def __init__(self, *args):
+            pass
+        def emit(self, *args):
+            pass
+        def connect(self, *args):
             pass
 
-    def pyqtSignal(*args, **kwargs):
-        def decorator(func):
-            return func
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-        return decorator
-
-    class QTimer:
-        def __init__(self):
-            pass
-
-        def start(self, interval):
-            pass
-
-        def stop(self):
-            pass
-
-    class QMutex:
-        def __init__(self):
-            pass
-
-        def lock(self):
-            pass
-
-        def unlock(self):
-            pass
-
-    class QMutexLocker:
-        def __init__(self, mutex):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-    class QWidget:
-        def __init__(self):
-            pass
-
-
-# ================================================================================
-# IBAPI IMPORTS - Handle graceful fallbacks
-# ================================================================================
+# Import our fixed MarketDataManager
+try:
+    from SpyderB_Broker.SpyderB07_MarketDataManager import (
+        MarketDataManager, 
+        MarketDataSnapshot,
+        ETTimeDisplay,
+        get_market_data_manager
+    )
+    MARKET_DATA_MANAGER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ MarketDataManager not available: {e}")
+    MARKET_DATA_MANAGER_AVAILABLE = False
 
 try:
-    from ib_insync import BarData
-    from ib_insync import Contract
-    from ib_insync import Order, LimitOrder, MarketOrder, StopOrder
-    from ib_insync import Ticker  # FIXED: Correct import location
-
-    IBAPI_AVAILABLE = True
+    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
+    CLIENT_AVAILABLE = True
 except ImportError:
-    IBAPI_AVAILABLE = False
-    # Fallback classes for when IBAPI is not available
+    print("⚠️ SpyderClient not available")
+    CLIENT_AVAILABLE = False
 
-    class Contract:
-        def __init__(self):
-            self.symbol = ""
-            self.secType = ""
-            self.exchange = ""
-            self.currency = "USD"
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+# Update intervals (milliseconds)
+UPDATE_INTERVAL_CRITICAL = 250   # SPY, VIX - most important
+UPDATE_INTERVAL_HIGH = 1000      # QQQ, IWM - major indices  
+UPDATE_INTERVAL_NORMAL = 2000    # Other symbols
+UPDATE_INTERVAL_LOW = 5000       # Background symbols
 
-    class Order:
-        def __init__(self):
-            self.action = ""
-            self.totalQuantity = 0
-            self.orderType = ""
+# Data validation thresholds
+MAX_PRICE_CHANGE_PERCENT = 10.0  # Maximum reasonable price change per update
+MIN_VALID_PRICE = 0.01           # Minimum valid price
+MAX_STALE_DATA_SECONDS = 30      # Maximum age for data to be considered fresh
 
-    class TickType:
-        LAST = 4
-        BID = 1
-        ASK = 2
-        VOLUME = 8
-        HIGH = 6
-        LOW = 7
-        CLOSE = 9
+# Symbols by priority
+CRITICAL_SYMBOLS = {'SPY', 'VIX'}
+HIGH_PRIORITY_SYMBOLS = {'QQQ', 'IWM', '/ES', '/NQ'}
+NORMAL_SYMBOLS = {'UVXY', 'VXX', 'SQQQ', 'TQQQ'}
 
-    class BarData:
-        def __init__(self):
-            self.date = ""
-            self.open = 0.0
-            self.high = 0.0
-            self.low = 0.0
-            self.close = 0.0
-            self.volume = 0
+# JSON export path for dashboard compatibility
+DASHBOARD_DATA_PATH = '/tmp/spyder_market_data.json'
 
-
-# ================================================================================
-# MULTI-CLIENT MANAGER IMPORT
-# ================================================================================
-
-try:
-    from SpyderB_Broker.SpyderB08_MultiClientDataManager import (
-        ClientInfo, ClientPurpose, MarketDataTick, MultiClientDataManager)
-
-    MULTI_CLIENT_AVAILABLE = True
-except ImportError:
-    MULTI_CLIENT_AVAILABLE = False
-    # Fallback classes
-
-    class MultiClientDataManager:
-        def __init__(self):
-            pass
-
-        def start(self):
-            return False
-
-        def stop(self):
-            return False
-
-        def subscribe_to_data(self, symbol, callback):
-            return False
-
-        def get_latest_data(self, symbol):
-            return None
-
-    class MarketDataTick:
-        def __init__(self, symbol="", price=0.0, size=0, timestamp=None, tick_type=0, request_id=0):
-            self.symbol = symbol
-            self.price = price
-            self.size = size
-            self.timestamp = timestamp or datetime.now()
-            self.tick_type = tick_type
-            self.request_id = request_id
-
-
-# ================================================================================
-# ENUMS AND DATACLASSES
-# ================================================================================
-
-
+# ==============================================================================
+# ENUMS AND DATA CLASSES
+# ==============================================================================
 class UpdatePriority(Enum):
     """Update priority levels for different symbols"""
-
-    CRITICAL = "critical"  # 250ms - SPY, VIX
-    HIGH = "high"  # 1s - Major indices
-    NORMAL = "normal"  # 2-5s - Normal symbols
-    LOW = "low"  # 5-15s - Sector ETFs
-
+    CRITICAL = auto()   # 250ms updates
+    HIGH = auto()       # 1s updates
+    NORMAL = auto()     # 2s updates
+    LOW = auto()        # 5s updates
 
 class BridgeStatus(Enum):
     """Bridge connection status"""
-
-    DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
-    ERROR = "error"
-
+    DISCONNECTED = auto()
+    CONNECTING = auto()
+    CONNECTED = auto()
+    ERROR = auto()
 
 @dataclass
-class WidgetRegistration:
-    """Widget registration information"""
-
-    widget_id: str
-    widget: Any
+class DashboardData:
+    """Formatted data structure for dashboard consumption"""
     symbol: str
-    update_method: str
-    priority: UpdatePriority
-    last_update: Optional[datetime] = None
-    update_count: int = 0
-    error_count: int = 0
+    price: float
+    change: float
+    change_percent: float
+    bid: float
+    ask: float
+    volume: int
+    timestamp: datetime
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'symbol': self.symbol,
+            'price': round(self.price, 2),
+            'change': round(self.change, 2),
+            'change_pct': round(self.change_percent, 2),
+            'bid': round(self.bid, 2),
+            'ask': round(self.ask, 2),
+            'volume': self.volume,
+            'timestamp': self.timestamp.isoformat(),
+            'formatted_price': f"${self.price:.2f}",
+            'formatted_change': f"{self.change:+.2f}",
+            'formatted_change_pct': f"{self.change_percent:+.2f}%"
+        }
 
+@dataclass 
+class BridgeMetrics:
+    """Performance metrics for the bridge"""
+    total_updates: int = 0
+    successful_updates: int = 0
+    failed_updates: int = 0
+    widgets_registered: int = 0
+    last_update_time: Optional[datetime] = None
+    updates_per_second: float = 0.0
+    
+    def update_rate(self) -> float:
+        """Calculate success rate"""
+        if self.total_updates == 0:
+            return 0.0
+        return (self.successful_updates / self.total_updates) * 100
 
-# ================================================================================
-# MAIN DASHBOARD DATA BRIDGE CLASS
-# ================================================================================
-
-
+# ==============================================================================
+# DASHBOARD DATA BRIDGE CLASS
+# ==============================================================================
 class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
     """
-    Thread-Safe PyQt6 Integration Bridge
-
-    Bridges multi-client market data manager with PyQt6 dashboard widgets
-    using proper signal/slot architecture for thread-safe updates.
+    Fixed Dashboard Data Bridge
+    
+    🔧 FIXES APPLIED:
+    - Connects working MarketDataManager (FROZEN/DELAYED data) to TradingDashboard
+    - Replaces cached dashboard data with live feeds
+    - Proper percentage change calculations
+    - Thread-safe updates via PyQt signals
+    - JSON export for dashboard compatibility
+    - Error handling and graceful fallbacks
     """
-
+    
     # PyQt6 Signals for thread-safe communication
     if PYQT6_AVAILABLE:
-        market_data_updated = pyqtSignal(str, dict)  # symbol, data_dict
-        connection_status_changed = pyqtSignal(str)  # status
-        error_occurred = pyqtSignal(str)  # error_message
-
+        data_updated = pyqtSignal(str, dict)      # symbol, dashboard_data_dict
+        status_changed = pyqtSignal(str)          # status string
+        error_occurred = pyqtSignal(str)          # error message
+        
     def __init__(self):
         """Initialize the Dashboard Data Bridge"""
         if PYQT6_AVAILABLE:
             super().__init__()
-
+            
         # Core components
-        self.logger = logging.getLogger("SpyderG08.DataBridge")
-        self.multi_client_manager: Optional[MultiClientDataManager] = None
+        self.logger = SpyderLogger.get_logger(__name__)
+        self.error_handler = SpyderErrorHandler()
+        
+        # Market data components
+        self.market_data_manager: Optional[MarketDataManager] = None
+        self.spyder_client: Optional[SpyderClient] = None
+        
+        # Status and control
         self.status = BridgeStatus.DISCONNECTED
-
-        # Threading and synchronization
-        self._mutex = QMutex() if PYQT6_AVAILABLE else threading.RLock()
         self.is_running = False
         self._stop_event = threading.Event()
-
-        # Widget management
-        self.registered_widgets: Dict[str, WidgetRegistration] = {}
-        self.widget_counter = 0
-
-        # Update timers for different priorities
+        
+        # Thread safety
+        self._mutex = QMutex() if PYQT6_AVAILABLE else threading.RLock()
+        
+        # Data management
+        self.current_data: Dict[str, DashboardData] = {}
+        self.previous_data: Dict[str, DashboardData] = {}
+        self.data_queue = queue.Queue(maxsize=1000)
+        
+        # Update timers and threads
         self.update_timers: Dict[UpdatePriority, QTimer] = {}
-
-        # Data cache with thread-safe access
-        self.data_cache: Dict[str, dict] = {}
-
+        self.data_export_timer: Optional[QTimer] = None
+        
+        # Widget registry for dashboard widgets
+        self.registered_widgets: Dict[str, Any] = {}
+        self.widget_callbacks: Dict[str, List[Callable]] = {}
+        
         # Performance metrics
-        self.metrics = {
-            "total_updates": 0,
-            "failed_updates": 0,
-            "widgets_registered": 0,
-            "last_update_time": None,
-        }
-
-        if PYQT6_AVAILABLE:
-            # Connect internal signals
-            self.market_data_updated.connect(self._handle_market_data_update)
-
-        self.logger.info("✅ Dashboard Data Bridge initialized")
-
-    # ================================================================================
-    # CORE MANAGEMENT METHODS
-    # ================================================================================
-
-    def initialize(self) -> bool:
+        self.metrics = BridgeMetrics()
+        
+        self.logger.info("DashboardDataBridge initialized")
+    
+    # ==========================================================================
+    # LIFECYCLE METHODS
+    # ==========================================================================
+    def initialize(self, spyder_client: Optional[SpyderClient] = None) -> bool:
         """
-        Initialize the bridge with multi-client manager
-
+        Initialize the bridge with market data manager.
+        
+        Args:
+            spyder_client: Optional SpyderClient instance
+            
         Returns:
             bool: True if initialization successful
         """
         try:
-            if not MULTI_CLIENT_AVAILABLE:
-                self.logger.warning("Multi-Client Manager not available, using fallback mode")
-                return True
-
-            # Create multi-client manager instance
-            self.multi_client_manager = MultiClientDataManager()
-
+            self.logger.info("🚀 Initializing DashboardDataBridge...")
+            
+            if not MARKET_DATA_MANAGER_AVAILABLE:
+                self.logger.error("❌ MarketDataManager not available")
+                return False
+            
+            # Get or create market data manager
+            if spyder_client:
+                self.spyder_client = spyder_client
+                self.market_data_manager = get_market_data_manager(spyder_client)
+            else:
+                # Try to get existing instance
+                try:
+                    self.market_data_manager = get_market_data_manager()
+                except ValueError:
+                    self.logger.error("❌ No SpyderClient provided and none exists")
+                    return False
+            
+            # Setup update timers
             if PYQT6_AVAILABLE:
-                # Initialize update timers
-                self._initialize_update_timers()
-
+                self._setup_update_timers()
+                self._setup_data_export_timer()
+            
             self.status = BridgeStatus.DISCONNECTED
-            self.logger.info("✅ Bridge initialized successfully")
+            self.logger.info("✅ DashboardDataBridge initialized successfully")
             return True
-
+            
         except Exception as e:
-            self.logger.error(f"❌ Error initializing bridge: {e}")
-            self.status = BridgeStatus.ERROR
+            self.logger.error(f"❌ Failed to initialize bridge: {e}")
+            self.error_handler.handle_error(e)
             return False
-
+    
     def start(self) -> bool:
         """
-        Start the bridge and underlying connections
-
+        Start the data bridge.
+        
         Returns:
             bool: True if started successfully
         """
@@ -308,42 +281,46 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             if self.is_running:
                 self.logger.warning("Bridge already running")
                 return True
-
-            self.logger.info("🚀 Starting Dashboard Data Bridge...")
+                
+            self.logger.info("🔥 Starting DashboardDataBridge...")
             self.status = BridgeStatus.CONNECTING
-
-            # Start multi-client manager
-            if self.multi_client_manager:
-                if self.multi_client_manager.start():
-                    self.logger.info("✅ Multi-client manager started")
-                else:
-                    self.logger.warning("⚠️ Multi-client manager failed to start")
-
+            
+            # Start market data manager if not already running
+            if self.market_data_manager and not self.market_data_manager.is_running:
+                if not self.market_data_manager.start():
+                    self.logger.error("❌ Failed to start MarketDataManager")
+                    return False
+            
+            # Subscribe to market data updates
+            self._subscribe_to_market_data()
+            
             # Start update timers
             if PYQT6_AVAILABLE:
                 for timer in self.update_timers.values():
                     timer.start()
-
+                    
+                if self.data_export_timer:
+                    self.data_export_timer.start()
+            
             self.is_running = True
             self.status = BridgeStatus.CONNECTED
-
+            
             if PYQT6_AVAILABLE:
-                self.connection_status_changed.emit(self.status.value)
-
-            self.logger.info("✅ Dashboard Data Bridge started successfully")
+                self.status_changed.emit("Connected")
+            
+            self.logger.info("✅ DashboardDataBridge started successfully")
             return True
-
+            
         except Exception as e:
-            self.logger.error(f"❌ Error starting bridge: {e}")
+            self.logger.error(f"❌ Failed to start bridge: {e}")
+            self.error_handler.handle_error(e)
             self.status = BridgeStatus.ERROR
-            if PYQT6_AVAILABLE:
-                self.error_occurred.emit(str(e))
             return False
-
+    
     def stop(self) -> bool:
         """
-        Stop the bridge and cleanup resources
-
+        Stop the data bridge.
+        
         Returns:
             bool: True if stopped successfully
         """
@@ -351,453 +328,409 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             if not self.is_running:
                 self.logger.info("Bridge already stopped")
                 return True
-
-            self.logger.info("🛑 Stopping Dashboard Data Bridge...")
-
-            # Stop update timers
+                
+            self.logger.info("🛑 Stopping DashboardDataBridge...")
+            
+            # Stop timers
             if PYQT6_AVAILABLE:
                 for timer in self.update_timers.values():
                     timer.stop()
-
-            # Stop multi-client manager
-            if self.multi_client_manager:
-                self.multi_client_manager.stop()
-
+                    
+                if self.data_export_timer:
+                    self.data_export_timer.stop()
+            
+            # Signal stop
+            self._stop_event.set()
             self.is_running = False
             self.status = BridgeStatus.DISCONNECTED
-
+            
             if PYQT6_AVAILABLE:
-                self.connection_status_changed.emit(self.status.value)
-
-            self.logger.info("✅ Dashboard Data Bridge stopped successfully")
+                self.status_changed.emit("Disconnected")
+            
+            self.logger.info("✅ DashboardDataBridge stopped")
             return True
-
+            
         except Exception as e:
             self.logger.error(f"❌ Error stopping bridge: {e}")
             return False
-
-    def _initialize_update_timers(self):
-        """Initialize update timers for different priority levels"""
+    
+    # ==========================================================================
+    # 🔧 CORE DATA BRIDGE METHODS (New Implementation)
+    # ==========================================================================
+    def _subscribe_to_market_data(self) -> None:
+        """Subscribe to market data updates from MarketDataManager."""
         try:
-            timer_intervals = {
-                UpdatePriority.CRITICAL: 250,  # 250ms for SPY, VIX
-                UpdatePriority.HIGH: 1000,  # 1s for major indices
-                UpdatePriority.NORMAL: 2000,  # 2s for normal symbols
-                UpdatePriority.LOW: 5000,  # 5s for sector ETFs
-            }
-
-            for priority, interval in timer_intervals.items():
-                timer = QTimer()
-                timer.timeout.connect(lambda p=priority: self._update_widgets_by_priority(p))
-                timer.start(interval)
-                self.update_timers[priority] = timer
-
-            self.logger.info("✅ Update timers initialized")
-
+            if not self.market_data_manager:
+                return
+                
+            # Subscribe to all trading symbols with callbacks
+            all_symbols = list(CRITICAL_SYMBOLS) + list(HIGH_PRIORITY_SYMBOLS) + list(NORMAL_SYMBOLS)
+            
+            for symbol in all_symbols:
+                self.market_data_manager.subscribe_callback(symbol, self._on_market_data_update)
+                
+            self.logger.info(f"✅ Subscribed to {len(all_symbols)} symbols")
+            
         except Exception as e:
-            self.logger.error(f"❌ Error initializing update timers: {e}")
-
-    # ================================================================================
-    # WIDGET REGISTRATION METHODS
-    # ================================================================================
-
-    def register_widget(
-        self,
-        widget: Any,
-        symbol: str,
-        update_method: str,
-        priority: UpdatePriority = UpdatePriority.NORMAL,
-    ) -> str:
+            self.logger.error(f"❌ Error subscribing to market data: {e}")
+    
+    def _on_market_data_update(self, snapshot: MarketDataSnapshot) -> None:
         """
-        Register a widget for market data updates
-
+        Handle market data update from MarketDataManager.
+        
         Args:
-            widget: Widget object to update
-            symbol: Symbol to monitor
-            update_method: Method name to call on widget
-            priority: Update priority level
-
-        Returns:
-            Widget ID for tracking
+            snapshot: Market data snapshot
         """
         try:
-            with QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex:
-                # Generate unique widget ID
-                self.widget_counter += 1
-                widget_id = f"{symbol}_{self.widget_counter}_{id(widget)}"
-
-                # Create registration
-                registration = WidgetRegistration(
-                    widget_id=widget_id,
-                    widget=widget,
-                    symbol=symbol,
-                    update_method=update_method,
-                    priority=priority,
-                )
-
-                # Store registration
-                self.registered_widgets[widget_id] = registration
-                self.metrics["widgets_registered"] += 1
-
-                # Subscribe to data if multi-client manager available
-                if self.multi_client_manager:
-                    self.multi_client_manager.subscribe_to_data(
-                        symbol, lambda tick: self._on_market_data_received(symbol, tick)
-                    )
-
-                self.logger.info(
-                    f"✅ Registered widget for {symbol} with {priority.value} priority"
-                )
-                return widget_id
-
-        except Exception as e:
-            self.logger.error(f"❌ Error registering widget for {symbol}: {e}")
-            return ""
-
-    def unregister_widget(self, widget_id: str) -> bool:
-        """
-        Unregister a widget from updates
-
-        Args:
-            widget_id: Widget ID to unregister
-
-        Returns:
-            bool: True if unregistered successfully
-        """
-        try:
-            with QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex:
-                if widget_id in self.registered_widgets:
-                    registration = self.registered_widgets.pop(widget_id)
-                    self.logger.info(f"✅ Unregistered widget for {registration.symbol}")
-                    return True
-
-        except Exception as e:
-            self.logger.error(f"❌ Error unregistering widget {widget_id}: {e}")
-            return False
-
-    # ================================================================================
-    # DATA UPDATE METHODS
-    # ================================================================================
-
-    def _on_market_data_received(self, symbol: str, tick: MarketDataTick):
-        """
-        Handle market data received from multi-client manager
-
-        Args:
-            symbol: Symbol that was updated
-            tick: Market data tick
-        """
-        try:
-            # Format data for display
-            data_dict = self._format_data_for_display(tick)
-
-            # Cache the data
-            with QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex:
-                self.data_cache[symbol] = data_dict
-
-            # Emit signal for thread-safe update
+            # Convert snapshot to dashboard format
+            dashboard_data = self._convert_snapshot_to_dashboard_data(snapshot)
+            
+            # Update internal cache
+            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+                self.previous_data[snapshot.symbol] = self.current_data.get(snapshot.symbol)
+                self.current_data[snapshot.symbol] = dashboard_data
+                
+                # Update metrics
+                self.metrics.total_updates += 1
+                self.metrics.successful_updates += 1
+                self.metrics.last_update_time = datetime.now()
+            
+            # Emit signal for PyQt widgets
             if PYQT6_AVAILABLE:
-                self.market_data_updated.emit(symbol, data_dict)
-            else:
-                # Direct update in non-PyQt6 mode
-                self._handle_market_data_update(symbol, data_dict)
-
+                self.data_updated.emit(snapshot.symbol, dashboard_data.to_dict())
+            
+            # Notify registered callbacks
+            self._notify_widgets(snapshot.symbol, dashboard_data)
+            
         except Exception as e:
-            self.logger.error(f"❌ Error handling market data for {symbol}: {e}")
-
-    def _format_data_for_display(self, tick: MarketDataTick) -> dict:
+            self.logger.error(f"❌ Error handling market data update for {snapshot.symbol}: {e}")
+            self.metrics.failed_updates += 1
+    
+    def _convert_snapshot_to_dashboard_data(self, snapshot: MarketDataSnapshot) -> DashboardData:
         """
-        Format market data tick for display
-
+        Convert MarketDataSnapshot to DashboardData format.
+        
         Args:
-            tick: Market data tick
-
+            snapshot: Market data snapshot
+            
         Returns:
-            Formatted data dictionary
+            DashboardData: Formatted data for dashboard
         """
         try:
-            # Calculate change (simplified - would need previous price)
-            price_change = 0.0  # Would calculate from previous price
-            price_change_percent = 0.0
-
-            # Determine color based on change
-            if price_change > 0:
-                color = "green"
-            elif price_change < 0:
-                color = "red"
-            else:
-                color = "white"
-
-            # Format volume
-            volume_str = self._format_volume(tick.size)
-
-            return {
-                "symbol": tick.symbol,
-                "price": tick.price,
-                "formatted_price": f"${tick.price:.2f}",
-                "change": price_change,
-                "formatted_change": f"{price_change:+.2f}",
-                "change_percent": price_change_percent,
-                "formatted_change_percent": f"({price_change_percent:+.2f}%)",
-                "volume": tick.size,
-                "formatted_volume": volume_str,
-                "color": color,
-                "timestamp": tick.timestamp,
-                "formatted_time": tick.timestamp.strftime("%H:%M:%S"),
-            }
-
+            # Calculate change from previous data or use snapshot's calculation
+            change = 0.0
+            change_percent = snapshot.change_percent  # Use the fixed calculation from MarketDataManager
+            
+            # If MarketDataManager didn't calculate it, try ourselves
+            if change_percent == 0.0 and snapshot.symbol in self.previous_data:
+                prev_data = self.previous_data[snapshot.symbol]
+                if prev_data and prev_data.price > 0:
+                    change = snapshot.last - prev_data.price
+                    change_percent = (change / prev_data.price) * 100
+                    
+            # Validate data
+            price = max(snapshot.last, MIN_VALID_PRICE) if snapshot.last > 0 else snapshot.mid_price
+            if price <= MIN_VALID_PRICE:
+                price = snapshot.bid if snapshot.bid > 0 else snapshot.ask
+                
+            return DashboardData(
+                symbol=snapshot.symbol,
+                price=price,
+                change=change,
+                change_percent=change_percent,
+                bid=snapshot.bid,
+                ask=snapshot.ask,
+                volume=snapshot.volume,
+                timestamp=snapshot.timestamp
+            )
+            
         except Exception as e:
-            self.logger.error(f"❌ Error formatting data: {e}")
-            return {
-                "symbol": tick.symbol,
-                "price": tick.price,
-                "formatted_price": f"${tick.price:.2f}",
-                "color": "white",
-            }
-
-    def _format_volume(self, volume: int) -> str:
+            self.logger.error(f"❌ Error converting snapshot for {snapshot.symbol}: {e}")
+            # Return minimal valid data
+            return DashboardData(
+                symbol=snapshot.symbol,
+                price=snapshot.last or 0.0,
+                change=0.0,
+                change_percent=0.0,
+                bid=snapshot.bid,
+                ask=snapshot.ask,
+                volume=snapshot.volume,
+                timestamp=snapshot.timestamp
+            )
+    
+    # ==========================================================================
+    # TIMER SETUP METHODS
+    # ==========================================================================
+    def _setup_update_timers(self) -> None:
+        """Setup update timers for different priority levels."""
+        if not PYQT6_AVAILABLE:
+            return
+            
+        timer_configs = {
+            UpdatePriority.CRITICAL: UPDATE_INTERVAL_CRITICAL,
+            UpdatePriority.HIGH: UPDATE_INTERVAL_HIGH,
+            UpdatePriority.NORMAL: UPDATE_INTERVAL_NORMAL,
+            UpdatePriority.LOW: UPDATE_INTERVAL_LOW
+        }
+        
+        for priority, interval in timer_configs.items():
+            timer = QTimer()
+            timer.timeout.connect(lambda p=priority: self._priority_update(p))
+            timer.setInterval(interval)
+            self.update_timers[priority] = timer
+            
+        self.logger.info("✅ Update timers configured")
+    
+    def _setup_data_export_timer(self) -> None:
+        """Setup timer for exporting data to JSON for dashboard compatibility."""
+        if not PYQT6_AVAILABLE:
+            return
+            
+        self.data_export_timer = QTimer()
+        self.data_export_timer.timeout.connect(self._export_data_to_json)
+        self.data_export_timer.setInterval(1000)  # Export every second
+    
+    def _priority_update(self, priority: UpdatePriority) -> None:
         """
-        Format volume for display
-
+        Handle priority-based updates.
+        
         Args:
-            volume: Raw volume
-
+            priority: Update priority level
+        """
+        try:
+            symbols_to_update = []
+            
+            if priority == UpdatePriority.CRITICAL:
+                symbols_to_update = list(CRITICAL_SYMBOLS)
+            elif priority == UpdatePriority.HIGH:
+                symbols_to_update = list(HIGH_PRIORITY_SYMBOLS)
+            elif priority == UpdatePriority.NORMAL:
+                symbols_to_update = list(NORMAL_SYMBOLS)
+                
+            # Process updates for symbols in this priority
+            for symbol in symbols_to_update:
+                if symbol in self.current_data:
+                    self._refresh_symbol_data(symbol)
+                    
+        except Exception as e:
+            self.logger.error(f"❌ Error in priority update {priority}: {e}")
+    
+    def _refresh_symbol_data(self, symbol: str) -> None:
+        """
+        Refresh data for a specific symbol.
+        
+        Args:
+            symbol: Symbol to refresh
+        """
+        try:
+            if not self.market_data_manager:
+                return
+                
+            # Get latest data from MarketDataManager
+            snapshot = self.market_data_manager.get_market_data(symbol)
+            if snapshot:
+                self._on_market_data_update(snapshot)
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error refreshing data for {symbol}: {e}")
+    
+    # ==========================================================================
+    # 🔧 JSON EXPORT FOR DASHBOARD COMPATIBILITY
+    # ==========================================================================
+    def _export_data_to_json(self) -> None:
+        """Export current data to JSON file for dashboard compatibility."""
+        try:
+            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+                export_data = {}
+                
+                for symbol, data in self.current_data.items():
+                    export_data[symbol] = {
+                        'last': data.price,
+                        'bid': data.bid,
+                        'ask': data.ask,
+                        'volume': data.volume,
+                        'change': data.change,
+                        'change_pct': data.change_percent,
+                        'timestamp': data.timestamp.isoformat()
+                    }
+                
+                # Write to JSON file
+                with open(DASHBOARD_DATA_PATH, 'w') as f:
+                    json.dump(export_data, f, indent=2)
+                    
+        except Exception as e:
+            self.logger.error(f"❌ Error exporting data to JSON: {e}")
+    
+    # ==========================================================================
+    # WIDGET REGISTRATION AND NOTIFICATION
+    # ==========================================================================
+    def register_widget(self, widget: Any, symbol: str, callback: Callable) -> str:
+        """
+        Register a dashboard widget for updates.
+        
+        Args:
+            widget: Dashboard widget
+            symbol: Symbol to monitor
+            callback: Callback function
+            
         Returns:
-            Formatted volume string
+            str: Registration ID
         """
-        if volume >= 1_000_000:
-            return f"{volume / 1_000_000:.1f}M"
-        elif volume >= 1_000:
-            return f"{volume / 1_000:.0f}K"
-        else:
-            return str(volume)
-
-    def _handle_market_data_update(self, symbol: str, data_dict: dict):
+        try:
+            widget_id = f"{symbol}_{id(widget)}"
+            
+            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+                self.registered_widgets[widget_id] = weakref.ref(widget)
+                
+                if symbol not in self.widget_callbacks:
+                    self.widget_callbacks[symbol] = []
+                self.widget_callbacks[symbol].append(callback)
+                
+                self.metrics.widgets_registered += 1
+            
+            self.logger.info(f"✅ Registered widget {widget_id} for {symbol}")
+            return widget_id
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error registering widget: {e}")
+            return ""
+    
+    def _notify_widgets(self, symbol: str, data: DashboardData) -> None:
         """
-        Handle market data update (called by signal)
-
+        Notify registered widgets of data updates.
+        
         Args:
             symbol: Symbol that was updated
-            data_dict: Formatted data dictionary
+            data: Updated data
         """
         try:
-            # Update all widgets registered for this symbol
-            widgets_updated = 0
-
-            for widget_id, registration in self.registered_widgets.items():
-                if registration.symbol == symbol:
-                    try:
-                        # Get update method from widget
-                        update_method = getattr(
-                            registration.widget, registration.update_method, None
-                        )
-
-                        if update_method and callable(update_method):
-                            # Call update method
-                            update_method(data_dict)
-
-                            # Update registration stats
-                            registration.last_update = datetime.now()
-                            registration.update_count += 1
-                            widgets_updated += 1
-
-                    except Exception as e:
-                        registration.error_count += 1
-                        self.logger.error(f"❌ Error updating widget {widget_id}: {e}")
-
-            # Update metrics
-            self.metrics["total_updates"] += widgets_updated
-            self.metrics["last_update_time"] = datetime.now()
-
+            callbacks = self.widget_callbacks.get(symbol, [])
+            
+            for callback in callbacks:
+                try:
+                    callback(data.to_dict())
+                except Exception as e:
+                    self.logger.error(f"❌ Error in widget callback for {symbol}: {e}")
+                    
         except Exception as e:
-            self.logger.error(f"❌ Error in market data update handler: {e}")
-            self.metrics["failed_updates"] += 1
-
-    def _update_widgets_by_priority(self, priority: UpdatePriority):
+            self.logger.error(f"❌ Error notifying widgets for {symbol}: {e}")
+    
+    # ==========================================================================
+    # STATUS AND MONITORING
+    # ==========================================================================
+    def get_status(self) -> Dict[str, Any]:
         """
-        Update widgets with specific priority level
-
-        Args:
-            priority: Priority level to update
-        """
-        try:
-            for widget_id, registration in self.registered_widgets.items():
-                if registration.priority == priority:
-                    symbol = registration.symbol
-
-                    # Get cached data
-                    if symbol in self.data_cache:
-                        data_dict = self.data_cache[symbol]
-
-                        # Update widget
-                        try:
-                            update_method = getattr(
-                                registration.widget, registration.update_method, None
-                            )
-                            if update_method and callable(update_method):
-                                update_method(data_dict)
-                                registration.update_count += 1
-
-                        except Exception as e:
-                            registration.error_count += 1
-                            self.logger.error(f"❌ Priority update error for {widget_id}: {e}")
-
-        except Exception as e:
-            self.logger.error(f"❌ Error in priority update: {e}")
-
-    # ================================================================================
-    # STATUS AND MONITORING METHODS
-    # ================================================================================
-
-    def get_status(self) -> dict:
-        """
-        Get comprehensive bridge status
-
+        Get bridge status and metrics.
+        
         Returns:
-            Status dictionary
+            Dict containing status information
         """
         try:
-            with QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex:
+            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
                 return {
-                    "is_running": self.is_running,
-                    "status": self.status.value,
-                    "widgets_registered": len(self.registered_widgets),
-                    "symbols_monitored": len(
-                        set(r.symbol for r in self.registered_widgets.values())
-                    ),
-                    "data_cache_size": len(self.data_cache),
-                    "metrics": self.metrics.copy(),
-                    "multi_client_available": MULTI_CLIENT_AVAILABLE,
-                    "pyqt6_available": PYQT6_AVAILABLE,
+                    'status': self.status.name,
+                    'is_running': self.is_running,
+                    'symbols_tracked': len(self.current_data),
+                    'widgets_registered': self.metrics.widgets_registered,
+                    'total_updates': self.metrics.total_updates,
+                    'success_rate': self.metrics.update_rate(),
+                    'last_update': self.metrics.last_update_time.isoformat() if self.metrics.last_update_time else None,
+                    'market_data_manager_available': MARKET_DATA_MANAGER_AVAILABLE,
+                    'market_data_manager_running': self.market_data_manager.is_running if self.market_data_manager else False
                 }
-
         except Exception as e:
             self.logger.error(f"❌ Error getting status: {e}")
-            return {"error": str(e)}
-
-    def get_widget_performance(self) -> dict:
+            return {'error': str(e)}
+    
+    def get_current_data(self, symbol: str = None) -> Dict[str, Any]:
         """
-        Get widget performance statistics
-
+        Get current market data.
+        
+        Args:
+            symbol: Specific symbol (optional)
+            
         Returns:
-            Performance statistics
+            Dict containing current data
         """
         try:
-            stats = {}
-
-            for widget_id, registration in self.registered_widgets.items():
-                stats[widget_id] = {
-                    "symbol": registration.symbol,
-                    "priority": registration.priority.value,
-                    "update_count": registration.update_count,
-                    "error_count": registration.error_count,
-                    "last_update": registration.last_update,
-                    "success_rate": (
-                        registration.update_count
-                        / max(1, registration.update_count + registration.error_count)
-                    )
-                    * 100,
-                }
-
-            return stats
-
+            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+                if symbol:
+                    data = self.current_data.get(symbol)
+                    return data.to_dict() if data else {}
+                else:
+                    return {sym: data.to_dict() for sym, data in self.current_data.items()}
         except Exception as e:
-            self.logger.error(f"❌ Error getting widget performance: {e}")
+            self.logger.error(f"❌ Error getting current data: {e}")
             return {}
 
-
-# ================================================================================
+# ==============================================================================
 # GLOBAL BRIDGE INSTANCE
-# ================================================================================
-
-
+# ==============================================================================
 _bridge_instance: Optional[DashboardDataBridge] = None
+_bridge_lock = threading.Lock()
 
-
-def get_bridge_instance() -> DashboardDataBridge:
+def get_dashboard_bridge(spyder_client: Optional[SpyderClient] = None) -> DashboardDataBridge:
     """
-    Get singleton bridge instance
-
+    Get or create the dashboard bridge instance.
+    
+    Args:
+        spyder_client: Optional SpyderClient instance
+        
     Returns:
         DashboardDataBridge instance
     """
     global _bridge_instance
+    
+    with _bridge_lock:
+        if _bridge_instance is None:
+            _bridge_instance = DashboardDataBridge()
+            if not _bridge_instance.initialize(spyder_client):
+                raise RuntimeError("Failed to initialize DashboardDataBridge")
+        return _bridge_instance
 
-    if _bridge_instance is None:
-        _bridge_instance = DashboardDataBridge()
-
-    return _bridge_instance
-
-
-# ================================================================================
-# STANDALONE TESTING AND MAIN EXECUTION
-# ================================================================================
-
-
-def main():
-    """Main execution for testing"""
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-
-    print("🚀 SPYDER G08 - Dashboard Data Bridge")
-    print("=" * 60)
-
-    try:
-        # Test bridge functionality
-        print("🧪 Testing Dashboard Data Bridge...")
-
-        # Get bridge instance
-        bridge = get_bridge_instance()
-
-        # Initialize and start
-        if bridge.initialize():
-            print("✅ Bridge initialized successfully")
-
-            if bridge.start():
-                print("✅ Bridge started successfully")
-
-                # Test widget registration (mock widget)
-                class MockWidget:
-                    def __init__(self, name):
-                        self.name = name
-                        self.last_data = None
-
-                    def update_display(self, data_dict):
-                        self.last_data = data_dict
-                        print(f"📊 {self.name} updated: {data_dict.get('formatted_price', 'N/A')}")
-
-                # Register mock widgets
-                spy_widget = MockWidget("SPY Widget")
-                widget_id = bridge.register_widget(
-                    spy_widget, "SPY", "update_display", UpdatePriority.CRITICAL
-                )
-
-                print(f"✅ Registered widget: {widget_id}")
-
-                # Let it run for a few seconds
-                time.sleep(3)
-
-                # Get status
-                status = bridge.get_status()
-                print(f"\n📈 Bridge Status:")
-                print(f"   Running: {status['is_running']}")
-                print(f"   Widgets: {status['widgets_registered']}")
-                print(f"   Updates: {status['metrics']['total_updates']}")
-
-                # Stop bridge
-                if bridge.stop():
-                    print("✅ Bridge stopped successfully")
-
-        print("\n🎯 Dashboard Data Bridge test complete!")
-
-    except Exception as e:
-        print(f"❌ Error in main: {e}")
-        import traceback
-
-        traceback.print_exc()
-
-
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == "__main__":
-    main()
+    # Test the dashboard data bridge
+    import logging
+    
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+    
+    print("🚀 Testing DashboardDataBridge")
+    print("=" * 50)
+    
+    try:
+        # Create bridge
+        bridge = DashboardDataBridge()
+        
+        if bridge.initialize():
+            print("✅ Bridge initialized")
+            
+            if bridge.start():
+                print("✅ Bridge started")
+                
+                # Let it run for a bit
+                time.sleep(5)
+                
+                # Check status
+                status = bridge.get_status()
+                print(f"📊 Bridge Status: {status}")
+                
+                # Check data
+                data = bridge.get_current_data()
+                print(f"📈 Current Data: {len(data)} symbols")
+                
+                # Stop bridge
+                bridge.stop()
+                print("✅ Bridge stopped")
+            else:
+                print("❌ Failed to start bridge")
+        else:
+            print("❌ Failed to initialize bridge")
+            
+    except Exception as e:
+        print(f"❌ Error testing bridge: {e}")
+        import traceback
+        traceback.print_exc()
