@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderV_QuantModels  
 Module: SpyderV102_CVaRCalculator.py
-Group: V_QuantModels
 Purpose: Conditional Value at Risk (CVaR) calculator
 
-Description:
-This module calculates CVaR for options portfolios, typically
-2-3x larger than VaR. It provides multiple calculation methods
-(Historical, Parametric, Monte Carlo), comprehensive stress testing,
-model backtesting with Kupiec test, and STAR ratio calculations.
-
 Author: Mohamed Talib
-Date: 2025-06-13
-Version: 1.4
+Year Created: 2025 
+Last Updated: 2025-08-20 Time: 12:15:00  
+
+Module Description:
+    This module calculates CVaR for options portfolios, typically
+    2-3x larger than VaR. It provides multiple calculation methods
+    (Historical, Parametric, Monte Carlo), comprehensive stress testing,
+    model backtesting with Kupiec test, and STAR ratio calculations.
 """
 
 # ==============================================================================

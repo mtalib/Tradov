@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
 
-Module: SpyderQ01_HestonModel.py
-Group: Q (Quantitative Models)
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderV_QuantModels
+Module: SpyderQ05_HestonModel.py
 Purpose: Heston stochastic volatility model for options pricing
+Author: Mohamed Talib
+Year Created: 2025 
+Last Updated: 2025-08-20 Time: 12:00:00  
 
-Description:
-This module implements the Heston stochastic volatility model
+Module Description:
+    This module implements the Heston stochastic volatility model
     with daily calibration achieving 10-15% RMSE targets. Features include
     FFT pricing for efficiency, Monte Carlo with variance reduction,
     volatility surface generation, and advanced Greeks calculations.
-
-Author: Mohamed Talib
-Date: 2025-06-13
-Version: 1.4
 """
 
 # ==============================================================================
