@@ -327,6 +327,9 @@ class ConnectionInfo:
     market_data_status: str = "NONE"
     trading_active: bool = False
     last_update: Optional[datetime] = None
+    last_successful_data: Optional[datetime] = None
+    data_was_live: bool = False
+    simulation_mode: bool = False
 
 # ==============================================================================
 # THREAD-SAFE MARKET DATA WORKER - SIMPLIFIED
@@ -480,7 +483,15 @@ class TrafficLightButton(QPushButton):
                 background-color: #2a2a2a;
                 border-radius: 3px;
             }
-        """)
+        
+            QToolTip {
+                color: white;
+                background-color: #2a2a2a;
+                border: 1px solid #555;
+                padding: 5px;
+                border-radius: 3px;
+                font-size: 12px;
+            }""")
         self.setText(label)
 
     def set_status(self, status: str):
@@ -766,6 +777,8 @@ class MarketSymbolWidget(QWidget):
 
         self.setLayout(layout)
 
+        # Tooltip styling removed temporarily
+
     def update_data(self, data):
         """Update display with new data"""
         if isinstance(data, dict):
@@ -911,7 +924,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Connection info
         self.connection_info = ConnectionInfo(
-            ib_connected=True, connection_mode="PAPER", market_data_status="LIVE", trading_active=False,
+            ib_connected=False, connection_mode="DISCONNECTED", market_data_status="NONE", 
+            trading_active=False, simulation_mode=False
         )
         self.market_worker = None
         self.market_thread = None
@@ -965,6 +979,9 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Start market worker 
         self.start_market_worker()
+        
+        # Apply working white tooltip styling
+        self.setup_white_tooltips()
 
         # =======================================================================
         # REAL DATA INTEGRATION - APPLY PROVEN PATTERN AFTER UI IS READY
@@ -1168,18 +1185,14 @@ class SpyderTradingDashboard(QMainWindow):
     def update_status_for_real_data(self):
         """Update status indicators for real data (proven pattern)"""
         try:
-            # Update market data status
-            if hasattr(self, 'market_data_status'):
-                self.market_data_status.setText("LIVE - REAL")
-                self.market_data_status.setStyleSheet("color: #00ff41;")
-            
+          
             # Update connection status
-            if hasattr(self, 'connection_label'):
-                self.connection_label.setText("IB CONNECTED - REAL DATA")
-                self.connection_label.setStyleSheet("color: #00ff41;")
+            if hasattr(self, 'ib_connection_label'):
+                self.ib_ib_connection_label.setText("📊 REAL DATA (FILE) - IB DISCONNECTED")
+                self.ib_ib_connection_label.setStyleSheet("color: #ff9800;")
             
-            if hasattr(self, 'connection_dot'):
-                self.connection_dot.setStyleSheet("color: #00ff41;")
+            if hasattr(self, 'ib_connection_dot'):
+                self.ib_ib_connection_dot.setStyleSheet("color: #00ff41;")
             
         except Exception as e:
             pass  # Not critical
@@ -1192,10 +1205,7 @@ class SpyderTradingDashboard(QMainWindow):
                 
                 # Force immediate update
                 self.update_with_real_data()
-                
-                self.refresh_icon.setEnabled(False)
-                QTimer.singleShot(1000, lambda: self.refresh_icon.setEnabled(True))
-                
+
                 self.add_system_log("✅ Real market data refreshed")
                 
             elif self.market_worker:
@@ -1203,10 +1213,7 @@ class SpyderTradingDashboard(QMainWindow):
                 
                 if not self.ib_connected:
                     self.add_system_log("⚠️ Not connected to IB Gateway - using simulation data")
-                
-                self.refresh_icon.setEnabled(False)
-                QTimer.singleShot(1000, lambda: self.refresh_icon.setEnabled(True))
-                
+
                 self.add_system_log("✅ Market data refresh requested")
             else:
                 self.add_system_log("❌ Market worker not available")
@@ -1390,73 +1397,89 @@ class SpyderTradingDashboard(QMainWindow):
         right_section = QHBoxLayout()
         right_section.setSpacing(10)
 
-        # Market data status with refresh icon
-        market_data_container = QHBoxLayout()
-        market_data_container.setSpacing(5)
-
-        self.market_data_label = QLabel("MARKET DATA:")
-        self.market_data_label.setStyleSheet(f"color: {COLORS['text']};")
-        market_data_container.addWidget(self.market_data_label)
-
-        self.market_data_status = QLabel("LIVE")
-        self.market_data_status.setStyleSheet(f"color: {COLORS['positive']};")
-        market_data_container.addWidget(self.market_data_status)
-
-        # Add refresh icon
-        self.refresh_icon = QPushButton()
-        self.refresh_icon.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
-        self.refresh_icon.setIconSize(QSize(16, 16))
-        self.refresh_icon.setFixedSize(20, 20)
-        self.refresh_icon.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.refresh_icon.setToolTip("Refresh market data")
-        self.refresh_icon.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                padding: 2px;
-            }
-            QPushButton:hover {
-                background-color: #2a2a2a;
-                border-radius: 3px;
-            }
-            QPushButton:pressed {
-                background-color: #3a3a3a;
-            }
-        """)
-        self.refresh_icon.clicked.connect(self.refresh_market_data)
-        market_data_container.addWidget(self.refresh_icon)
-
-        right_section.addLayout(market_data_container)
-        right_section.addSpacing(20)
+        # Market data section removed - status shown in IB connection\n        right_section.addSpacing(20)
         right_section.addWidget(QLabel(" | "))
 
-        # IB CONNECTION STATUS
-        self.ib_container = QWidget()
-        self.ib_container.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.ib_container.setToolTip("Click to connect/disconnect")
-        self.ib_container.setStyleSheet("""
+        # ENHANCED DUAL STATUS SYSTEM
+        # IB Connection Status (Left Box)
+        self.ib_status_container = QWidget()
+        self.ib_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ib_status_container.setToolTip("Click to connect/disconnect IB Gateway")
+        # Ensure tooltip is visible
+        self.ib_status_container.setStyleSheet("""
+            QWidget:hover { 
+                background-color: #2a2a2a; 
+                border-radius: 3px; 
+                padding: 2px; 
+            }
+            QWidget QToolTip {
+                color: white;
+                background-color: #1a1a1a;
+                border: 2px solid #555555;
+                padding: 8px;
+                border-radius: 4px;
+            }
+        """)
+        self.ib_status_container.setStyleSheet("""
+            QWidget:hover { 
+                background-color: #2a2a2a; 
+                border-radius: 3px; 
+                padding: 2px; 
+            }
+        """)
+        self.ib_status_container.setStyleSheet("""
             QWidget:hover {
                 background-color: #2a2a2a;
                 border-radius: 3px;
                 padding: 2px;
             }
         """)
-        ib_layout = QHBoxLayout()
-        ib_layout.setContentsMargins(5, 2, 5, 2)
-        ib_layout.setSpacing(3)
+        ib_status_layout = QHBoxLayout()
+        ib_status_layout.setContentsMargins(12, 3, 12, 3)
+        ib_status_layout.setSpacing(8)
 
-        self.connection_dot = QLabel("●")
-        self.connection_dot.setStyleSheet(f"color: {COLORS['positive']};")
-        ib_layout.addWidget(self.connection_dot)
+        self.ib_ib_connection_dot = QLabel("●")
+        self.ib_ib_connection_dot.setStyleSheet("color: " + COLORS['negative'] + f"; font-size: 14px;")
+        ib_status_layout.addWidget(self.ib_ib_connection_dot)
 
-        self.connection_label = QLabel("IB CONNECTED")
-        self.connection_label.setStyleSheet(f"color: {COLORS['positive']};")
-        ib_layout.addWidget(self.connection_label)
+        self.ib_ib_connection_label = QLabel("IB DISCONNECTED")
+        self.ib_ib_connection_label.setStyleSheet("color: " + COLORS['negative'] + f"; font-size: 14px;")
+        ib_status_layout.addWidget(self.ib_ib_connection_label)
 
-        self.ib_container.setLayout(ib_layout)
-        self.ib_container.mousePressEvent = self.toggle_ib_connection
+        self.ib_status_container.setLayout(ib_status_layout)
+        self.ib_status_container.mousePressEvent = self.toggle_ib_connection
 
-        right_section.addWidget(self.ib_container)
+        # Data Status (Right Box with Simulation Toggle)
+        self.data_status_container = QWidget()
+        self.data_status_container.setToolTip("Current data source and status")
+        data_status_layout = QHBoxLayout()
+        data_status_layout.setContentsMargins(12, 3, 12, 3)
+        data_status_layout.setSpacing(8)
+
+        self.data_status_dot = QLabel("●")
+        self.data_status_dot.setStyleSheet("color: " + COLORS['warning'] + f"; font-size: 14px;")
+        data_status_layout.addWidget(self.data_status_dot)
+
+        self.data_status_label = QLabel("END-OF-DAY DATA")
+        self.data_status_label.setStyleSheet("color: " + COLORS['warning'] + f"; font-size: 14px;")
+        data_status_layout.addWidget(self.data_status_label)
+
+        # Simulation Toggle Button (Blue)
+        self.simulation_toggle = QLabel("🔵")
+        self.simulation_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.simulation_toggle.setToolTip("CLICK TO DISPLAY SIMULATED DATA WHEN IB IS DISCONNECTED")
+        self.simulation_toggle.setStyleSheet(f"font-size: 14px; padding-left: 5px;")
+        self.simulation_toggle.mousePressEvent = self.toggle_simulation_mode
+        data_status_layout.addWidget(self.simulation_toggle)
+
+        self.data_status_container.setLayout(data_status_layout)
+
+        # Add extra stretch to push IB status further left
+        right_section.addStretch(1)
+        right_section.addWidget(self.ib_status_container)
+        # Remove left separator, add more spacing between IB and Data
+        right_section.addWidget(QLabel("    "))  # Extra spacing instead of separator
+        right_section.addWidget(self.data_status_container)
         right_section.addWidget(QLabel(" | "))
 
         # DATE/TIME
@@ -1526,7 +1549,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.symbol_widgets = {}
         for category, symbols in MARKET_SYMBOLS.items():
             cat_label = QLabel(category)
-            cat_label.setStyleSheet(f"color: {COLORS['cyan']}; font-size: 12px; padding: 5px 0px 2px 10px; font-weight: normal;")
+            cat_label.setStyleSheet(f"color: {COLORS['cyan']}; font-size: 14px; padding: 5px 0px 2px 10px; font-weight: normal;")
             scroll_layout.addWidget(cat_label)
 
             for symbol in symbols:
@@ -2162,11 +2185,11 @@ class SpyderTradingDashboard(QMainWindow):
             component_layout.setSpacing(3)
 
             indicator = QLabel(status)
-            indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+            indicator.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
             component_layout.addWidget(indicator)
 
             label = QLabel(name)
-            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+            label.setStyleSheet("color: " + COLORS['text'] + "; font-size: 14px;")
             component_layout.addWidget(label)
             component_layout.addStretch()
 
@@ -2183,11 +2206,11 @@ class SpyderTradingDashboard(QMainWindow):
             client_layout.setSpacing(3)
 
             indicator = QLabel("●")
-            indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+            indicator.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
             client_layout.addWidget(indicator)
 
             label = QLabel(f"CLIENT {row}: {client_1_5_types[row-1]}")
-            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+            label.setStyleSheet("color: " + COLORS['text'] + "; font-size: 14px;")
             client_layout.addWidget(label)
             client_layout.addStretch()
 
@@ -2205,11 +2228,11 @@ class SpyderTradingDashboard(QMainWindow):
             client_layout.setSpacing(3)
 
             indicator = QLabel("●")
-            indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+            indicator.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
             client_layout.addWidget(indicator)
 
             label = QLabel(f"CLIENT {client_num}: {client_6_10_types[row-1]}")
-            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+            label.setStyleSheet("color: " + COLORS['text'] + "; font-size: 14px;")
             client_layout.addWidget(label)
             client_layout.addStretch()
 
@@ -2229,13 +2252,13 @@ class SpyderTradingDashboard(QMainWindow):
 
             indicator = QLabel("●")
             if module_key == "custom_metrics":
-                indicator.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+                indicator.setStyleSheet("color: " + COLORS['warning'] + f"; font-size: 14px;")
             else:
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+                indicator.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
             module_layout.addWidget(indicator)
 
             label = QLabel(module_name)
-            label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+            label.setStyleSheet("color: " + COLORS['text'] + "; font-size: 14px;")
             module_layout.addWidget(label)
             module_layout.addStretch()
 
@@ -2269,14 +2292,14 @@ class SpyderTradingDashboard(QMainWindow):
         self.ib_connected = connected
 
         if connected:
-            self.connection_dot.setStyleSheet(f"color: {COLORS['positive']};")
-            self.connection_label.setText("IB CONNECTED")
-            self.connection_label.setStyleSheet(f"color: {COLORS['positive']};")
+            self.ib_ib_connection_dot.setStyleSheet(f"color: {COLORS['positive']};")
+            self.update_status_indicators()
+            self.ib_ib_connection_label.setStyleSheet(f"color: {COLORS['positive']};")
             self.add_system_log("✅ Connected to IB Gateway")
         else:
-            self.connection_dot.setStyleSheet(f"color: {COLORS['negative']};")
-            self.connection_label.setText("IB DISCONNECTED")
-            self.connection_label.setStyleSheet(f"color: {COLORS['negative']};")
+            self.ib_ib_connection_dot.setStyleSheet(f"color: {COLORS['negative']};")
+            self.update_status_indicators()
+            self.ib_ib_connection_label.setStyleSheet(f"color: {COLORS['negative']};")
 
             if self.trading_active:
                 self.trading_active = False
@@ -2295,18 +2318,11 @@ class SpyderTradingDashboard(QMainWindow):
     @pyqtSlot(str)
     def on_market_data_status_changed(self, status: str):
         """Handle market data status change"""
-        self.connection_info.market_data_status = status
 
         if status == "LIVE":
-            if not self.real_data_active:  # Only update if not using real data
-                self.market_data_status.setText("LIVE")
-                self.market_data_status.setStyleSheet(f"color: {COLORS['positive']};")
             self.add_system_log("📊 Market data: LIVE")
         else:
-            if not self.real_data_active:  # Only update if not using real data
-                self.market_data_status.setText("NONE")
-                self.market_data_status.setStyleSheet(f"color: {COLORS['negative']};")
-
+            
             if self.trading_active:
                 self.trading_active = False
                 self.connection_info.trading_active = False
@@ -2401,7 +2417,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log("Cannot start trading - IB not connected")
             return
 
-        data_status = self.market_data_status.text()
+        data_status = self.data_status_label.text()
         if data_status not in ["LIVE", "LIVE - REAL"]:
             QMessageBox.warning(
                 self, "No Live Data",
@@ -2600,30 +2616,30 @@ class SpyderTradingDashboard(QMainWindow):
         for name, indicator in self.system_components.items():
             status = random.choice(["●", "●", "●", "●", "○"])  # 80% green, 20% gray
             if status == "●":
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+                indicator.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
             else:
-                indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+                indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 14px;")
 
         # Update client indicators
         for name, indicator in self.client_indicators.items():
             status = random.choice(["●", "●", "●", "○"])  # 75% green, 25% gray
             if status == "●":
-                indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+                indicator.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
             else:
-                indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+                indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 14px;")
 
         # Update internal modules
         if hasattr(self, 'internal_module_indicators'):
             for name, indicator in self.internal_module_indicators.items():
                 if name == "custom_metrics":
                     # Custom metrics stays yellow/warning
-                    indicator.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+                    indicator.setStyleSheet("color: " + COLORS['warning'] + f"; font-size: 14px;")
                 else:
                     status = random.choice(["●", "●", "●", "○"])  # 75% green, 25% gray
                     if status == "●":
-                        indicator.setStyleSheet(f"color: {COLORS['positive']}; font-size: 12px;")
+                        indicator.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
                     else:
-                        indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+                        indicator.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 14px;")
 
     def load_test_data(self):
         """Load test positions data"""
@@ -2740,6 +2756,193 @@ class SpyderTradingDashboard(QMainWindow):
         cursor = self.auto_log.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self.auto_log.setTextCursor(cursor)
+
+    def update_ib_status(self, connected: bool, mode: str = ""):
+        """Update IB connection status display"""
+        if connected:
+            self.ib_ib_connection_dot.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
+            if mode:
+                self.ib_ib_connection_label.setText(f"IB CONNECTED ({mode})")
+            else:
+                self.ib_ib_connection_label.setText("IB CONNECTED")
+            self.ib_ib_connection_label.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
+            # Hide simulation button when connected
+            if hasattr(self, 'simulation_toggle'):
+                self.simulation_toggle.setVisible(False)
+        else:
+            self.ib_ib_connection_dot.setStyleSheet("color: " + COLORS['negative'] + f"; font-size: 14px;")
+            self.ib_ib_connection_label.setText("IB DISCONNECTED")
+            self.ib_ib_connection_label.setStyleSheet("color: " + COLORS['negative'] + f"; font-size: 14px;")
+            # Show simulation button when disconnected
+            if hasattr(self, 'simulation_toggle'):
+                self.simulation_toggle.setVisible(True)
+
+    def update_data_status(self, status_type: str):
+        """Update data status display with proper color coding"""
+        if status_type == "LIVE":
+            # Live data during market hours
+            self.data_status_dot.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
+            self.data_status_label.setText("LIVE DATA")
+            self.data_status_label.setStyleSheet("color: " + COLORS['positive'] + f"; font-size: 14px;")
+        elif status_type == "EOD":
+            # End of day data (after hours or file data)
+            self.data_status_dot.setStyleSheet("color: " + COLORS['warning'] + f"; font-size: 14px;")
+            self.data_status_label.setText("END-OF-DAY DATA")
+            self.data_status_label.setStyleSheet("color: " + COLORS['warning'] + f"; font-size: 14px;")
+        elif status_type == "FROZEN":
+            # Frozen data (disconnected during market hours)
+            self.data_status_dot.setStyleSheet("color: " + COLORS['negative'] + f"; font-size: 14px;")
+            self.data_status_label.setText("FROZEN DATA")
+            self.data_status_label.setStyleSheet("color: " + COLORS['negative'] + f"; font-size: 14px;")
+        elif status_type == "SIMULATION":
+            # Simulation mode
+            self.data_status_dot.setStyleSheet("color: " + COLORS['automation_active'] + "; font-size: 14px;")
+            self.data_status_label.setText("SIMULATED DATA")
+            self.data_status_label.setStyleSheet("color: " + COLORS['automation_active'] + "; font-size: 14px;")
+
+    def determine_data_status(self) -> str:
+        """Determine appropriate data status based on current conditions"""
+        market_hours = is_market_hours()
+        
+        # Check for simulation mode first
+        if hasattr(self.connection_info, 'simulation_mode') and self.connection_info.simulation_mode:
+            return "SIMULATION"
+        
+        if self.ib_connected:
+            # IB is connected
+            if market_hours:
+                self.connection_info.data_was_live = True
+                self.connection_info.last_successful_data = datetime.now()
+                return "LIVE"
+            else:
+                self.connection_info.last_successful_data = datetime.now()
+                return "EOD"
+        else:
+            # IB is disconnected
+            if self.real_data_active:
+                # Using file data - always treat as EOD
+                return "EOD"
+            elif market_hours and hasattr(self.connection_info, 'data_was_live') and self.connection_info.data_was_live:
+                # Market hours but no recent successful connection
+                if (hasattr(self.connection_info, 'last_successful_data') and 
+                    self.connection_info.last_successful_data and
+                    (datetime.now() - self.connection_info.last_successful_data).total_seconds() < 300):  # 5 minutes
+                    return "FROZEN"
+                else:
+                    return "EOD"
+            else:
+                return "EOD"
+
+    def update_status_indicators(self):
+        """Update both status indicators based on current state"""
+        # Update IB status
+        if self.ib_connected:
+            mode = getattr(self, 'account_mode', 'PAPER')
+            self.update_ib_status(True, mode)
+        else:
+            self.update_ib_status(False)
+        
+        # Update data status
+        data_status = self.determine_data_status()
+        self.update_data_status(data_status)
+
+    def toggle_simulation_mode(self, event):
+        """Toggle simulation mode (only when IB disconnected)"""
+        if self.ib_connected:
+            # Don't activate simulation when IB is connected
+            self.add_system_log("⚠️ Simulation mode only available when IB is disconnected")
+            return
+        
+        # Toggle simulation mode
+        if not hasattr(self.connection_info, 'simulation_mode'):
+            self.connection_info.simulation_mode = False
+            
+        self.connection_info.simulation_mode = not self.connection_info.simulation_mode
+        
+        if self.connection_info.simulation_mode:
+            self.add_system_log("🔵 Simulation mode activated")
+            self.add_automation_log("Switched to simulation data - starting from last real prices")
+            # Initialize simulation with last real prices
+            self._init_simulation_from_real_data()
+        else:
+            self.add_system_log("📊 Simulation mode deactivated")
+            self.add_automation_log("Switched back to available real data")
+        
+        # Update status indicators
+        self.update_status_indicators()
+
+    def _init_simulation_from_real_data(self):
+        """Initialize simulation starting from last real market prices"""
+        if hasattr(self, 'market_data') and self.market_data:
+            # Use current market data as baseline for simulation
+            self.add_system_log(f"🎯 Simulation baseline: SPY ${self.market_data.get('SPY', {}).get('last', 585):.2f}")
+        else:
+            # Use default simulation data
+            self.add_system_log("🎯 Using default simulation baseline")
+
+    def apply_global_tooltip_style(self):
+        """Apply global tooltip styling to ensure visibility"""
+        app = QApplication.instance()
+        if app:
+            # Get existing app stylesheet
+            existing_style = app.styleSheet()
+            
+            # Add tooltip styling
+            tooltip_style = """
+                QToolTip {
+                    color: white;
+                    background-color: #1a1a1a;
+                    border: 2px solid #555555;
+                    padding: 8px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: normal;
+                }
+            """
+            
+            # Apply the combined stylesheet
+            app.setStyleSheet(existing_style + tooltip_style)
+            self.add_system_log("🎨 Global tooltip styling applied")
+
+    
+    def setup_white_tooltips(self):
+        """Setup white tooltips that are actually visible"""
+        try:
+            # Method 1: Set application-wide stylesheet
+            app = QApplication.instance()
+            if app:
+                current_style = app.styleSheet()
+                tooltip_style = """
+                QToolTip {
+                    color: #ffffff !important;
+                    background-color: #1a1a1a !important;
+                    border: 2px solid #555555 !important;
+                    padding: 8px !important;
+                    border-radius: 4px !important;
+                    font-size: 12px !important;
+                    font-weight: normal !important;
+                    opacity: 1.0 !important;
+                }
+                """
+                app.setStyleSheet(current_style + tooltip_style)
+                self.add_system_log("🎨 White tooltip styling applied")
+            
+            # Method 2: Set widget-specific tooltip styling as backup
+            widget_style = """
+                QWidget {
+                    selection-background-color: #2a2a2a;
+                }
+                QWidget QToolTip {
+                    color: white !important;
+                    background-color: #1a1a1a !important;
+                    border: 2px solid #555555 !important;
+                    padding: 8px !important;
+                }
+            """
+            self.setStyleSheet(self.styleSheet() + widget_style)
+            
+        except Exception as e:
+            self.add_system_log(f"⚠️ Tooltip styling error: {e}")
 
     def closeEvent(self, event):
         """Enhanced close event handler with real data cleanup"""
@@ -2948,12 +3151,12 @@ def update_status_for_real_data_helper(dashboard):
             dashboard.market_data_status.setStyleSheet("color: #00ff41;")
         
         # Update connection status
-        if hasattr(dashboard, 'connection_label'):
-            dashboard.connection_label.setText("IB CONNECTED - REAL DATA")
-            dashboard.connection_label.setStyleSheet("color: #00ff41;")
+        if hasattr(dashboard, 'ib_connection_label'):
+            dashboard.ib_connection_label.setText("IB CONNECTED - REAL DATA")
+            dashboard.ib_connection_label.setStyleSheet("color: #00ff41;")
         
-        if hasattr(dashboard, 'connection_dot'):
-            dashboard.connection_dot.setStyleSheet("color: #00ff41;")
+        if hasattr(dashboard, 'ib_connection_dot'):
+            dashboard.ib_connection_dot.setStyleSheet("color: #00ff41;")
         
     except Exception as e:
         pass  # Not critical
