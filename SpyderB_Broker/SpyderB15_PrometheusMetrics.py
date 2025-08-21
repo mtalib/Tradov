@@ -1,21 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
-Module: SpyderB15_PrometheusMetrics.py
-Group: B (Broker/Connection)
-Purpose: Prometheus metrics collection and monitoring (Client ID 9)
+Series: SpyderB_Broker [Application Name] [Series Letter] [Series Name] 
+Module: SpyderB15_PrometheusMetrics.py [Application Name][Series Letter] [Module Number]_[Purpose].py
+Purpose: Prometheus metrics collection and monitoring with ib_async integration (Client ID 9)
 Author: Mohamed Talib
-Date Created: 2025-08-06
-Last Updated: 2025-08-06 Time: 13:30:00
+Year Created: 2025 
+Last Updated: 2025-08-21 Time: 20:58:00  
 
-Description:
-    Dedicated Prometheus metrics collection using Client ID 9. This module
-    collects comprehensive metrics from all system components and exposes
-    them for Prometheus scraping. It monitors connection health, trading
-    performance, system resources, and provides alerting capabilities.
+Module Description:
+    Dedicated Prometheus metrics collection using Client ID 9 with ib_async
+    compatibility for IB Gateway 10.37+. This module collects comprehensive 
+    metrics from all system components and exposes them for Prometheus scraping. 
+    It monitors connection health, trading performance, system resources, and 
+    provides alerting capabilities for the entire Spyder trading ecosystem.
+
+Key Features:
+    - ib_async integration for IB Gateway 10.37+ compatibility
+    - Comprehensive metrics collection for all 9 client connections
+    - System performance monitoring (CPU, memory, network)
+    - Trading metrics (orders, positions, P&L)
+    - Market data metrics (latency, throughput, errors)
+    - Prometheus HTTP endpoint on port 9090
+    - Real-time dashboard integration
+
+Dependencies:
+    - ib_async: Modern Interactive Brokers API client
+    - prometheus_client: Metrics collection and exposition
+    - psutil: System resource monitoring
+    - asyncio: Asynchronous operations support
+
 """
 
 import asyncio
@@ -38,14 +54,14 @@ from prometheus_client import (REGISTRY, CollectorRegistry, Counter, Gauge,
                             Histogram, Info, Summary, generate_latest,
                             start_http_server)
 
-# IB API
+# IB API - ib_async integration
 try:
-    from ib_insync import IB, util
+    from ib_async import IB, util
 
     IB_AVAILABLE = True
 except ImportError:
     IB_AVAILABLE = False
-    print("⚠️ ib_insync not available")
+    print("⚠️ ib_async not available")
 
 # Local imports
 try:
@@ -101,42 +117,41 @@ gateway_uptime = Gauge(
 )
 
 gateway_latency = Histogram(
-    "gateway_latency_milliseconds",
-    "Gateway latency in milliseconds",
+    "gateway_latency_seconds",
+    "Gateway API latency by operation",
     ["client_id", "operation"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_GATEWAY,
-    buckets=[1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
-)
-
-gateway_reconnections = Counter(
-    "gateway_reconnections_total",
-    "Total number of reconnections",
-    ["client_id"],
-    namespace=NAMESPACE,
-    subsystem=SUBSYSTEM_GATEWAY,
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
 )
 
 gateway_errors = Counter(
     "gateway_errors_total",
-    "Total gateway errors",
+    "Total gateway errors by client and type",
     ["client_id", "error_type"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_GATEWAY,
 )
 
-# Rate Limiting Metrics
-rate_limit_usage = Gauge(
-    "rate_limit_usage_percent",
-    "Rate limit usage percentage",
+gateway_reconnections = Counter(
+    "gateway_reconnections_total",
+    "Total gateway reconnections by client",
     ["client_id"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_GATEWAY,
 )
 
-rate_limit_violations = Counter(
-    "rate_limit_violations_total",
-    "Total rate limit violations",
+gateway_messages = Counter(
+    "gateway_messages_total",
+    "Total messages processed by client",
+    ["client_id", "message_type"],
+    namespace=NAMESPACE,
+    subsystem=SUBSYSTEM_GATEWAY,
+)
+
+gateway_rate_limit = Gauge(
+    "gateway_rate_limit_usage",
+    "Gateway rate limit usage percentage",
     ["client_id"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_GATEWAY,
@@ -150,7 +165,7 @@ rate_limit_violations = Counter(
 orders_submitted = Counter(
     "orders_submitted_total",
     "Total orders submitted",
-    ["symbol", "order_type", "side"],
+    ["symbol", "order_type", "action"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_TRADING,
 )
@@ -158,65 +173,57 @@ orders_submitted = Counter(
 orders_filled = Counter(
     "orders_filled_total",
     "Total orders filled",
-    ["symbol", "order_type", "side"],
+    ["symbol", "order_type", "action"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_TRADING,
 )
 
-orders_cancelled = Counter(
-    "orders_cancelled_total",
-    "Total orders cancelled",
+orders_rejected = Counter(
+    "orders_rejected_total",
+    "Total orders rejected",
     ["symbol", "reason"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_TRADING,
 )
 
 order_latency = Histogram(
-    "order_latency_milliseconds",
+    "order_latency_seconds",
     "Order execution latency",
     ["operation"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_TRADING,
-    buckets=[10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
 )
 
 # Position Metrics
-open_positions = Gauge(
-    "open_positions",
+position_count = Gauge(
+    "position_count",
     "Number of open positions",
-    ["symbol", "position_type"],
+    ["symbol"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_TRADING,
 )
 
-position_pnl = Gauge(
-    "position_pnl_dollars",
-    "Position P&L in dollars",
-    ["symbol", "position_type"],
+position_value = Gauge(
+    "position_value_usd",
+    "Position market value in USD",
+    ["symbol"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_TRADING,
 )
 
-total_pnl = Gauge(
-    "total_pnl_dollars", "Total P&L in dollars", namespace=NAMESPACE, subsystem=SUBSYSTEM_TRADING
-)
-
-# Risk Metrics
-portfolio_var = Gauge(
-    "portfolio_var",
-    "Portfolio Value at Risk",
-    ["confidence_level"],
+unrealized_pnl = Gauge(
+    "unrealized_pnl_usd",
+    "Unrealized P&L in USD",
+    ["symbol"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_TRADING,
 )
 
-sharpe_ratio = Gauge(
-    "sharpe_ratio", "Portfolio Sharpe ratio", namespace=NAMESPACE, subsystem=SUBSYSTEM_TRADING
-)
-
-max_drawdown = Gauge(
-    "max_drawdown_percent",
-    "Maximum drawdown percentage",
+realized_pnl = Counter(
+    "realized_pnl_usd",
+    "Realized P&L in USD",
+    ["symbol"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_TRADING,
 )
@@ -224,6 +231,15 @@ max_drawdown = Gauge(
 # ==============================================================================
 # MARKET DATA METRICS
 # ==============================================================================
+
+# Market Data Feed Metrics
+market_data_subscriptions = Gauge(
+    "market_data_subscriptions",
+    "Number of active market data subscriptions",
+    ["client_id", "data_type"],
+    namespace=NAMESPACE,
+    subsystem=SUBSYSTEM_MARKET,
+)
 
 market_data_updates = Counter(
     "market_data_updates_total",
@@ -233,19 +249,19 @@ market_data_updates = Counter(
     subsystem=SUBSYSTEM_MARKET,
 )
 
-market_data_lag = Histogram(
-    "market_data_lag_milliseconds",
-    "Market data lag in milliseconds",
-    ["symbol", "data_type"],
+market_data_latency = Histogram(
+    "market_data_latency_seconds",
+    "Market data latency",
+    ["data_type"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_MARKET,
-    buckets=[1, 5, 10, 25, 50, 100, 250, 500, 1000],
+    buckets=[0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5],
 )
 
-bid_ask_spread = Gauge(
-    "bid_ask_spread",
-    "Current bid-ask spread",
-    ["symbol"],
+market_data_gaps = Counter(
+    "market_data_gaps_total",
+    "Market data gaps detected",
+    ["symbol", "data_type"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_MARKET,
 )
@@ -254,15 +270,16 @@ bid_ask_spread = Gauge(
 # SYSTEM METRICS
 # ==============================================================================
 
+# System Resource Metrics
 system_cpu_usage = Gauge(
-    "system_cpu_percent",
+    "system_cpu_usage_percent",
     "System CPU usage percentage",
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_SYSTEM,
 )
 
 system_memory_usage = Gauge(
-    "system_memory_percent",
+    "system_memory_usage_percent",
     "System memory usage percentage",
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_SYSTEM,
@@ -276,33 +293,46 @@ system_disk_usage = Gauge(
     subsystem=SUBSYSTEM_SYSTEM,
 )
 
+system_network_bytes = Counter(
+    "system_network_bytes_total",
+    "System network bytes",
+    ["interface", "direction"],
+    namespace=NAMESPACE,
+    subsystem=SUBSYSTEM_SYSTEM,
+)
+
+# Process Metrics
 process_cpu_usage = Gauge(
-    "process_cpu_percent",
+    "process_cpu_usage_percent",
     "Process CPU usage percentage",
+    ["process"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_SYSTEM,
 )
 
 process_memory_usage = Gauge(
-    "process_memory_mb",
-    "Process memory usage in MB",
+    "process_memory_usage_bytes",
+    "Process memory usage in bytes",
+    ["process"],
     namespace=NAMESPACE,
     subsystem=SUBSYSTEM_SYSTEM,
 )
 
-process_threads = Gauge(
-    "process_threads", "Number of process threads", namespace=NAMESPACE, subsystem=SUBSYSTEM_SYSTEM
+process_file_descriptors = Gauge(
+    "process_file_descriptors",
+    "Number of open file descriptors",
+    ["process"],
+    namespace=NAMESPACE,
+    subsystem=SUBSYSTEM_SYSTEM,
 )
 
 # ==============================================================================
 # DATA CLASSES
 # ==============================================================================
 
-
 @dataclass
 class MetricsConfig:
     """Configuration for metrics collection"""
-
     client_id: int = PROMETHEUS_CLIENT_ID
     port: int = METRICS_PORT
     update_interval: int = UPDATE_INTERVAL
@@ -311,34 +341,36 @@ class MetricsConfig:
     enable_market_metrics: bool = True
     enable_gateway_metrics: bool = True
 
-
 @dataclass
 class ClientMetrics:
     """Metrics for a specific client"""
-
     client_id: int
     purpose: str
     connected: bool = False
     uptime_seconds: float = 0.0
     latency_ms: float = 0.0
-    error_countt: int = 0
+    error_count: int = 0
     reconnection_count: int = 0
     messages_processed: int = 0
     rate_limit_usage: float = 0.0
-
 
 # ==============================================================================
 # PROMETHEUS METRICS COLLECTOR
 # ==============================================================================
 
-
 class PrometheusMetricsCollector:
-    """Collects and exposes metrics for Prometheus monitoring"""
-
+    """
+    Collects and exposes metrics for Prometheus monitoring using ib_async.
+    
+    This class provides comprehensive monitoring of the Spyder trading system
+    including IB Gateway connections, trading performance, system resources,
+    and market data feed health.
+    """
+    
     def __init__(self, config: Optional[MetricsConfig] = None):
-        """Initialize metrics collector"""
+        """Initialize metrics collector with ib_async integration"""
         self.config = config or MetricsConfig()
-
+        
         # Logging
         if LOCAL_IMPORTS:
             self.logger = SpyderLogger.get_logger("PrometheusMetrics")
@@ -346,37 +378,34 @@ class PrometheusMetricsCollector:
         else:
             self.logger = logging.getLogger("PrometheusMetrics")
             self.error_handler = None
-
-        # IB Connection for metrics
+        
+        # IB Connection for metrics using ib_async
         self.ib_client: Optional[IB] = None
         self.connected = False
-
+        
         # Client metrics storage
         self.client_metrics: Dict[int, ClientMetrics] = {}
         self._initialize_client_metrics()
-
+        
         # Threading
         self.stop_event = threading.Event()
         self.update_thread: Optional[threading.Thread] = None
         self.server_started = False
-
+        
         # Statistics
         self.start_time = datetime.now()
         self.total_updates = 0
-
+        
         # Callbacks for external data
         self.metrics_callbacks: Dict[str, Callable] = {}
-
-        self.logger.info(
-            f"✅ PrometheusMetricsCollector initialized (Client {
-                self.config.client_id})"
-        )
-
+        
+        self.logger.info(f"✅ PrometheusMetricsCollector initialized with ib_async (Client {self.config.client_id})")
+    
     def _initialize_client_metrics(self):
         """Initialize metrics for all clients"""
         client_purposes = {
             0: "Administrative",
-            1: "Order Execution",
+            1: "Order Execution", 
             2: "Core Market Data",
             3: "SPY Options",
             4: "Volatility",
@@ -384,254 +413,283 @@ class PrometheusMetricsCollector:
             6: "Major Indices",
             7: "Extended Assets",
             8: "Sector ETFs",
-            9: "Prometheus Metrics",
+            9: "Prometheus Metrics"
         }
-
+        
         for client_id, purpose in client_purposes.items():
-            self.client_metrics[client_id] = ClientMetrics(client_id=client_id, purpose=purpose)
-
+            self.client_metrics[client_id] = ClientMetrics(
+                client_id=client_id,
+                purpose=purpose
+            )
+        
+        self.logger.info(f"Initialized metrics for {len(client_purposes)} clients")
+    
     # ==========================================================================
     # CONNECTION MANAGEMENT
     # ==========================================================================
-
-    async def connect(self) -> bool:
-        """Connect to IB Gateway using Client ID 9"""
+    
+    async def connect(self):
+        """Connect to IB Gateway for metrics collection using ib_async"""
+        if not IB_AVAILABLE:
+            self.logger.warning("ib_async not available - metrics collection limited")
+            return False
+        
         try:
-            if not IB_AVAILABLE:
-                self.logger.warning("IB API not available - running in simulation mode")
-                self.connected = True
-                return True
-
-            self.logger.info(f"Connecting Prometheus client (ID: {self.config.client_id})...")
-
             self.ib_client = IB()
-
-            # Connect with Client ID 9
+            
+            # Connect to gateway
             await self.ib_client.connectAsync(
-                host="127.0.0.1",
-                port=4002,  # Paper trading port
+                host='127.0.0.1',
+                port=4002,  # TWS/Gateway port
                 clientId=self.config.client_id,
-                timeout=30,
+                timeout=10
             )
-
-            if self.ib_client.isConnected():
-                self.connected = True
-                self.logger.info(f"✅ Prometheus client connected (ID: {self.config.client_id})")
-
-                # Update system info
-                system_info.info(
-                    {
-                        "version": "1.0",
-                        "client_id": str(self.config.client_id),
-                        "start_time": self.start_time.isoformat(),
-                        "mode": "production" if IB_AVAILABLE else "simulation",
-                    }
-                )
-
-                return True
-
-            return False
-
+            
+            self.connected = True
+            self.logger.info(f"✅ Connected to IB Gateway (Client {self.config.client_id})")
+            
+            # Set up event handlers
+            self.ib_client.errorEvent += self._on_error
+            self.ib_client.disconnectedEvent += self._on_disconnected
+            
+            return True
+            
         except Exception as e:
-            self.logger.error(f"Failed to connect Prometheus client: {e}")
+            self.logger.error(f"Failed to connect to IB Gateway: {e}")
+            self.connected = False
             return False
-
+    
     def disconnect(self):
         """Disconnect from IB Gateway"""
-        if self.ib_client and IB_AVAILABLE:
+        if self.ib_client and self.connected:
             try:
                 self.ib_client.disconnect()
-            except BaseException:
-                pass
+                self.connected = False
+                self.logger.info("Disconnected from IB Gateway")
+            except Exception as e:
+                self.logger.error(f"Error disconnecting: {e}")
+    
+    def _on_error(self, reqId, errorCode, errorString, contract):
+        """Handle IB errors for metrics"""
+        self.logger.debug(f"IB Error: {errorCode} - {errorString}")
+        
+        # Update error metrics
+        gateway_errors.labels(
+            client_id=str(self.config.client_id),
+            error_type=str(errorCode)
+        ).inc()
+    
+    def _on_disconnected(self):
+        """Handle disconnection events"""
         self.connected = False
-        self.logger.info("Prometheus client disconnected")
-
+        self.logger.warning("IB Gateway disconnected")
+        
+        # Update reconnection metrics
+        gateway_reconnections.labels(
+            client_id=str(self.config.client_id)
+        ).inc()
+    
     # ==========================================================================
     # METRICS COLLECTION
     # ==========================================================================
-
-    def update_gateway_metrics(self):
-        """Update gateway connection metrics"""
-        try:
-            for client_id, metrics in self.client_metrics.items():
-                # Update connection status
-                gateway_connected.labels(client_id=str(client_id), purpose=metrics.purpose).set(
-                    1 if metrics.connected else 0
-                )
-
-                # Update uptime
-                if metrics.connected:
-                    gateway_uptime.labels(client_id=str(client_id)).set(metrics.uptime_seconds)
-
-                # Update rate limit usage
-                rate_limit_usage.labels(client_id=str(client_id)).set(metrics.rate_limit_usage)
-
-        except Exception as e:
-            self.logger.error(f"Error updating gateway metrics: {e}")
-
-    def update_system_metrics(self):
+    
+    def _update_system_metrics(self):
         """Update system resource metrics"""
-        if not self.config.enable_system_metrics:
-            return
-
         try:
             # CPU usage
             cpu_percent = psutil.cpu_percent(interval=1)
             system_cpu_usage.set(cpu_percent)
-
+            
             # Memory usage
             memory = psutil.virtual_memory()
             system_memory_usage.set(memory.percent)
-
+            
             # Disk usage
             for partition in psutil.disk_partitions():
                 try:
-                    usage = psutil.disk_usage(partition.mountpoint)
-                    system_disk_usage.labels(mount_point=partition.mountpoint).set(usage.percent)
-                except BaseException:
-                    pass
-
+                    disk_usage = psutil.disk_usage(partition.mountpoint)
+                    usage_percent = (disk_usage.used / disk_usage.total) * 100
+                    system_disk_usage.labels(mount_point=partition.mountpoint).set(usage_percent)
+                except PermissionError:
+                    continue
+            
+            # Network statistics
+            network = psutil.net_io_counters(pernic=True)
+            for interface, stats in network.items():
+                system_network_bytes.labels(interface=interface, direction="sent").inc(stats.bytes_sent)
+                system_network_bytes.labels(interface=interface, direction="recv").inc(stats.bytes_recv)
+            
             # Process metrics
-            process = psutil.Process()
-            process_cpu_usage.set(process.cpu_percent(interval=0.1))
-            process_memory_usage.set(process.memory_info().rss / 1024 / 1024)  # MB
-            process_threads.set(process.num_threads())
-
+            current_process = psutil.Process()
+            process_cpu_usage.labels(process="spyder_metrics").set(current_process.cpu_percent())
+            process_memory_usage.labels(process="spyder_metrics").set(current_process.memory_info().rss)
+            process_file_descriptors.labels(process="spyder_metrics").set(current_process.num_fds())
+            
         except Exception as e:
             self.logger.error(f"Error updating system metrics: {e}")
-
-    def update_trading_metrics(self, trading_data: Optional[Dict] = None):
-        """Update trading-related metrics"""
-        if not self.config.enable_trading_metrics:
-            return
-
+    
+    def _update_gateway_metrics(self):
+        """Update IB Gateway connection metrics"""
         try:
-            if trading_data:
-                # Update from provided data
-                if "total_pnl" in trading_data:
-                    total_pnl.set(trading_data["total_pnl"])
-
-                if "positions" in trading_data:
-                    for position in trading_data["positions"]:
-                        open_positions.labels(
-                            symbol=position["symbol"], position_type=position["type"]
-                        ).set(position["quantity"])
-
-                        if "pnl" in position:
-                            position_pnl.labels(
-                                symbol=position["symbol"], position_type=position["type"]
-                            ).set(position["pnl"])
-
-                if "risk_metrics" in trading_data:
-                    risk = trading_data["risk_metrics"]
-                    if "var" in risk:
-                        portfolio_var.labels(confidence_level="95").set(risk["var"])
-                    if "sharpe" in risk:
-                        sharpe_ratio.set(risk["sharpe"])
-                    if "max_drawdown" in risk:
-                        max_drawdown.set(risk["max_drawdown"])
-
+            for client_id, metrics in self.client_metrics.items():
+                # Connection status
+                gateway_connected.labels(
+                    client_id=str(client_id),
+                    purpose=metrics.purpose
+                ).set(1 if metrics.connected else 0)
+                
+                # Uptime
+                if metrics.connected:
+                    gateway_uptime.labels(client_id=str(client_id)).set(metrics.uptime_seconds)
+                
+                # Rate limit usage
+                gateway_rate_limit.labels(client_id=str(client_id)).set(metrics.rate_limit_usage)
+                
+        except Exception as e:
+            self.logger.error(f"Error updating gateway metrics: {e}")
+    
+    def _update_trading_metrics(self):
+        """Update trading performance metrics"""
+        try:
+            # This would typically get data from position tracker, order manager, etc.
+            # For now, we'll use placeholder logic
+            
+            if self.ib_client and self.connected:
+                # Get positions (example)
+                positions = self.ib_client.positions()
+                for position in positions:
+                    symbol = position.contract.symbol
+                    position_count.labels(symbol=symbol).set(abs(position.position))
+                    position_value.labels(symbol=symbol).set(position.marketValue or 0)
+                    unrealized_pnl.labels(symbol=symbol).set(position.unrealizedPNL or 0)
+            
         except Exception as e:
             self.logger.error(f"Error updating trading metrics: {e}")
-
-    def update_market_metrics(self, market_data: Optional[Dict] = None):
-        """Update market data metrics"""
-        if not self.config.enable_market_metrics:
-            return
-
+    
+    def _update_market_data_metrics(self):
+        """Update market data feed metrics"""
         try:
-            if market_data:
-                for symbol, data in market_data.items():
-                    if "bid" in data and "ask" in data:
-                        spread = data["ask"] - data["bid"]
-                        bid_ask_spread.labels(symbol=symbol).set(spread)
-
-                    if "updates" in data:
-                        market_data_updates.labels(symbol=symbol, data_type="quote").inc(
-                            data["updates"]
-                        )
-
+            # Market data subscriptions and latency would be tracked here
+            # This would integrate with the market data managers
+            pass
+            
         except Exception as e:
-            self.logger.error(f"Error updating market metrics: {e}")
-
+            self.logger.error(f"Error updating market data metrics: {e}")
+    
+    def _update_custom_metrics(self):
+        """Update custom metrics from registered callbacks"""
+        try:
+            for name, callback in self.metrics_callbacks.items():
+                try:
+                    callback()
+                except Exception as e:
+                    self.logger.error(f"Error in callback {name}: {e}")
+                    
+        except Exception as e:
+            self.logger.error(f"Error updating custom metrics: {e}")
+    
+    def _update_all_metrics(self):
+        """Update all metrics categories"""
+        try:
+            if self.config.enable_system_metrics:
+                self._update_system_metrics()
+            
+            if self.config.enable_gateway_metrics:
+                self._update_gateway_metrics()
+            
+            if self.config.enable_trading_metrics:
+                self._update_trading_metrics()
+            
+            if self.config.enable_market_metrics:
+                self._update_market_data_metrics()
+            
+            self._update_custom_metrics()
+            
+            self.total_updates += 1
+            
+        except Exception as e:
+            self.logger.error(f"Error updating metrics: {e}")
+    
     # ==========================================================================
-    # METRICS UPDATE LOOP
+    # UPDATE LOOP
     # ==========================================================================
-
+    
     def _update_loop(self):
         """Main metrics update loop"""
-        self.logger.info("📊 Metrics update loop started")
-
+        self.logger.info("Starting metrics update loop")
+        
         while not self.stop_event.is_set():
             try:
+                start_time = time.time()
+                
                 # Update all metrics
-                self.update_gateway_metrics()
-                self.update_system_metrics()
-
-                # Call external callbacks for additional data
-                if "trading" in self.metrics_callbacks:
-                    trading_data = self.metrics_callbacks["trading"]()
-                    self.update_trading_metrics(trading_data)
-
-                if "market" in self.metrics_callbacks:
-                    market_data = self.metrics_callbacks["market"]()
-                    self.update_market_metrics(market_data)
-
-                self.total_updates += 1
-
-                # Sleep
+                self._update_all_metrics()
+                
+                # Calculate update duration
+                update_duration = time.time() - start_time
+                self.logger.debug(f"Metrics update took {update_duration:.3f}s")
+                
+                # Wait for next update
                 self.stop_event.wait(self.config.update_interval)
-
+                
             except Exception as e:
                 self.logger.error(f"Error in update loop: {e}")
                 time.sleep(5)
-
+        
         self.logger.info("Metrics update loop stopped")
-
+    
     # ==========================================================================
     # PUBLIC API
     # ==========================================================================
-
+    
     def start(self):
         """Start the metrics collector"""
-        self.logger.info("🚀 Starting Prometheus metrics collector")
-
+        self.logger.info("🚀 Starting Prometheus metrics collector with ib_async")
+        
         # Start HTTP server if not already started
         if not self.server_started:
             start_http_server(self.config.port)
             self.server_started = True
             self.logger.info(f"📊 Prometheus metrics server started on port {self.config.port}")
             self.logger.info(f"📈 Metrics available at http://localhost:{self.config.port}/metrics")
-
+        
+        # Initialize system info metric
+        system_info.info({
+            'version': '1.0',
+            'ib_api': 'ib_async',
+            'start_time': self.start_time.isoformat(),
+            'client_id': str(self.config.client_id)
+        })
+        
         # Start update thread
         self.update_thread = threading.Thread(
             target=self._update_loop, name="MetricsUpdater", daemon=True
         )
         self.update_thread.start()
-
-        self.logger.info("✅ Metrics collector started")
-
+        
+        self.logger.info("✅ Metrics collector started with ib_async integration")
+    
     def stop(self):
         """Stop the metrics collector"""
         self.logger.info("Stopping metrics collector...")
-
+        
         # Signal thread to stop
         self.stop_event.set()
-
+        
         # Wait for thread
         if self.update_thread:
             self.update_thread.join(timeout=5)
-
+        
         # Disconnect
         self.disconnect()
-
+        
         self.logger.info("✅ Metrics collector stopped")
-
+    
     def register_callback(self, name: str, callback: Callable):
         """Register a callback for external data"""
         self.metrics_callbacks[name] = callback
         self.logger.info(f"Registered metrics callback: {name}")
-
+    
     def update_client_metrics(self, client_id: int, **kwargs):
         """Update metrics for a specific client"""
         if client_id in self.client_metrics:
@@ -639,99 +697,64 @@ class PrometheusMetricsCollector:
             for key, value in kwargs.items():
                 if hasattr(metrics, key):
                     setattr(metrics, key, value)
-
+    
     def record_gateway_latency(self, client_id: int, operation: str, latency_ms: float):
         """Record gateway latency measurement"""
-        gateway_latency.labels(client_id=str(client_id), operation=operation).observe(latency_ms)
-
+        gateway_latency.labels(client_id=str(client_id), operation=operation).observe(latency_ms / 1000.0)
+    
     def record_order_latency(self, operation: str, latency_ms: float):
         """Record order execution latency"""
-        order_latency.labels(operation=operation).observe(latency_ms)
-
-    def increment_error(self, client_id: int, error_type: str):
-        """Increment error counter"""
-        gateway_errors.labels(client_id=str(client_id), error_type=error_type).inc()
-
+        order_latency.labels(operation=operation).observe(latency_ms / 1000.0)
+    
+    def record_market_data_update(self, symbol: str, data_type: str, latency_ms: float = None):
+        """Record market data update"""
+        market_data_updates.labels(symbol=symbol, data_type=data_type).inc()
+        
+        if latency_ms is not None:
+            market_data_latency.labels(data_type=data_type).observe(latency_ms / 1000.0)
+    
     def get_metrics_summary(self) -> Dict[str, Any]:
         """Get summary of current metrics"""
-        uptime = (datetime.now() - self.start_time).total_seconds()
-
         return {
-            "uptime_hours": uptime / 3600,
-            "total_updates": self.total_updates,
-            "connected": self.connected,
-            "client_id": self.config.client_id,
-            "metrics_port": self.config.port,
-            "metrics_url": f"http://localhost:{self.config.port}/metrics",
+            'connected': self.connected,
+            'uptime_seconds': (datetime.now() - self.start_time).total_seconds(),
+            'total_updates': self.total_updates,
+            'active_clients': sum(1 for m in self.client_metrics.values() if m.connected),
+            'server_port': self.config.port,
+            'ib_api': 'ib_async'
         }
 
-
 # ==============================================================================
-# MODULE FUNCTIONS
-# ==============================================================================
-
-
-def create_metrics_collector(config: Optional[MetricsConfig] = None) -> PrometheusMetricsCollector:
-    """Create and configure metrics collector"""
-    return PrometheusMetricsCollector(config)
-
-
-# ==============================================================================
-# MAIN EXECUTION
+# STANDALONE EXECUTION
 # ==============================================================================
 
+async def main():
+    """Main function for standalone execution"""
+    config = MetricsConfig()
+    collector = PrometheusMetricsCollector(config)
+    
+    try:
+        # Start metrics collection
+        collector.start()
+        
+        # Try to connect to IB Gateway
+        await collector.connect()
+        
+        print(f"✅ Prometheus metrics collector running on port {config.port}")
+        print(f"📈 Metrics endpoint: http://localhost:{config.port}/metrics")
+        print("Press Ctrl+C to stop...")
+        
+        # Keep running until interrupted
+        while True:
+            await asyncio.sleep(1)
+            
+    except KeyboardInterrupt:
+        print("\n🛑 Stopping metrics collector...")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+    finally:
+        collector.stop()
 
 if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-
-    print("=" * 80)
-    print("📊 PROMETHEUS METRICS COLLECTOR - CLIENT 9")
-    print("=" * 80)
-
-    # Create collector
-    collector = create_metrics_collector()
-
-    try:
-        # Connect
-        print(f"\n🔌 Connecting Client {PROMETHEUS_CLIENT_ID} for metrics...")
-        asyncio.run(collector.connect())
-
-        # Start collection
-        print("\n📊 Starting metrics collection...")
-        collector.start()
-
-        # Display info
-        summary = collector.get_metrics_summary()
-        print("\n📈 Metrics Summary:")
-        for key, value in summary.items():
-            print(f"  {key}: {value}")
-
-        print(f"\n✅ Metrics available at: {summary['metrics_url']}")
-        print("\n📊 Sample metrics queries:")
-        print("  - rate(spyder_gateway_errors_total[5m])")
-        print("  - histogram_quantile(0.95, spyder_gateway_latency_milliseconds)")
-        print("  - spyder_trading_total_pnl_dollars")
-        print("  - spyder_system_cpu_percent")
-
-        print("\n✨ Collector is running. Press Ctrl+C to stop...")
-
-        # Keep running
-        try:
-            while True:
-                time.sleep(30)
-                # Print periodic status
-                print(
-                    f"\n[{datetime.now().strftime('%H:%M:%S')}] "
-                    f"Updates: {collector.total_updates}, "
-                    f"Connected: {collector.connected}"
-                )
-        except KeyboardInterrupt:
-            print("\n\n🛑 Shutdown requested...")
-
-    finally:
-        # Clean shutdown
-        collector.stop()
-        print("\n👋 Metrics collector stopped. Goodbye!")
+    # Run standalone metrics collector
+    asyncio.run(main())

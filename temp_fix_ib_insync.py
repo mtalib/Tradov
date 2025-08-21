@@ -3,10 +3,10 @@
 """
 AUTO-GENERATED: IB_INSYNC to IB_ASYNC Conversion Script
 
-Generated: 2025-08-21 19:35:28
+Generated: 2025-08-21 21:41:33
 Root Path: /home/adam/Projects/Spyder
-Files Found: 18
-Total Occurrences: 83
+Files Found: 8
+Total Occurrences: 11
 
 USAGE:
     python temp_fix_ib_insync.py --preview    # Show what would be changed
@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT_PATH = Path("/home/adam/Projects/Spyder")
 
 # Files to process
-AFFECTED_FILES = ['SpyderQ_Scripts/SpyderQ45_Diagnostics.py', 'SpyderR_Runtime/SpyderR02_PaperEngine.py', 'SpyderR_Runtime/SpyderR05_IBDataBridge.py', 'SpyderR_Runtime/SpyderR05_WorkingBridge.py', 'SpyderT_TestModules/SpyderT02_BrokerTestSuite.py', 'SpyderB_Broker/SpyderB07_MarketDataManager.py', 'SpyderB_Broker/SpyderB06_ContractBuilder.py', 'SpyderB_Broker/SpyderB14_MultiClientWatchdog.py', 'SpyderB_Broker/SpyderB02_OrderManager.py', 'SpyderB_Broker/SpyderB01_SpyderClient.py', 'SpyderB_Broker/SpyderB15_PrometheusMetrics.py', 'SpyderB_Broker/SpyderB17_SPYOptionsChainManager.py', 'SpyderB_Broker/SpyderB10_IBDataTypes.py', 'SpyderC_MarketData/SpyderC14_UltraLowLatencyFeed.py', 'SpyderC_MarketData/SpyderC03_OptionChain.py', 'SpyderC_MarketData/SpyderC07_MarketDataHub.py', 'SpyderC_MarketData/SpyderC07_OPRAFeed.py', 'SpyderC_MarketData/SpyderC02_HistoricalData.py']
+AFFECTED_FILES = ['SpyderQ_Scripts/SpyderQ45_Diagnostics.py', 'SpyderB_Broker/SpyderB14_MultiClientWatchdog.py', 'SpyderB_Broker/SpyderB02_OrderManager.py', 'SpyderC_MarketData/SpyderC14_UltraLowLatencyFeed.py', 'SpyderC_MarketData/SpyderC03_OptionChain.py', 'SpyderC_MarketData/SpyderC07_MarketDataHub.py', 'SpyderC_MarketData/SpyderC07_OPRAFeed.py', 'SpyderC_MarketData/SpyderC02_HistoricalData.py']
 
 # Replacement patterns
 REPLACEMENTS = {'from ib_insync import': 'from ib_async import', 'import ib_insync': 'import ib_async', 'ib_insync.': 'ib_async.', 'HAS_IB_INSYNC': 'HAS_IB_ASYNC', 'ib_insync_AVAILABLE': 'ib_async_AVAILABLE', 'IB_INSYNC_AVAILABLE': 'IB_ASYNC_AVAILABLE', '"ib_insync': '"ib_async', "'ib_insync": "'ib_async", 'ib_insync not available': 'ib_async not available', 'install ib_insync': 'install ib_async', 'pip install ib_insync': 'pip install ib_async'}
