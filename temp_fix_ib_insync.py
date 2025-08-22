@@ -3,10 +3,10 @@
 """
 AUTO-GENERATED: IB_INSYNC to IB_ASYNC Conversion Script
 
-Generated: 2025-08-21 21:41:33
+Generated: 2025-08-22 00:26:39
 Root Path: /home/adam/Projects/Spyder
-Files Found: 8
-Total Occurrences: 11
+Files Found: 3
+Total Occurrences: 4
 
 USAGE:
     python temp_fix_ib_insync.py --preview    # Show what would be changed
@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT_PATH = Path("/home/adam/Projects/Spyder")
 
 # Files to process
-AFFECTED_FILES = ['SpyderQ_Scripts/SpyderQ45_Diagnostics.py', 'SpyderB_Broker/SpyderB14_MultiClientWatchdog.py', 'SpyderB_Broker/SpyderB02_OrderManager.py', 'SpyderC_MarketData/SpyderC14_UltraLowLatencyFeed.py', 'SpyderC_MarketData/SpyderC03_OptionChain.py', 'SpyderC_MarketData/SpyderC07_MarketDataHub.py', 'SpyderC_MarketData/SpyderC07_OPRAFeed.py', 'SpyderC_MarketData/SpyderC02_HistoricalData.py']
+AFFECTED_FILES = ['SpyderQ_Scripts/SpyderQ45_Diagnostics.py', 'SpyderC_MarketData/SpyderC03_OptionChain.py', 'SpyderC_MarketData/SpyderC02_HistoricalData.py']
 
 # Replacement patterns
 REPLACEMENTS = {'from ib_insync import': 'from ib_async import', 'import ib_insync': 'import ib_async', 'ib_insync.': 'ib_async.', 'HAS_IB_INSYNC': 'HAS_IB_ASYNC', 'ib_insync_AVAILABLE': 'ib_async_AVAILABLE', 'IB_INSYNC_AVAILABLE': 'IB_ASYNC_AVAILABLE', '"ib_insync': '"ib_async', "'ib_insync": "'ib_async", 'ib_insync not available': 'ib_async not available', 'install ib_insync': 'install ib_async', 'pip install ib_insync': 'pip install ib_async'}

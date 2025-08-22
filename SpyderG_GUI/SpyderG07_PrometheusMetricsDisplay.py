@@ -9,18 +9,21 @@ Group: G (GUI/User Interface)
 Purpose: GUI display widget for Prometheus metrics from SpyderB15
 Author: Mohamed Talib
 Date Created: 2025-08-07
-Last Updated: 2025-08-07 Time: 11:00:00
+Last Updated: 2025-01-22 Time: 16:00:00
 
 Description:
     This module provides the GUI display widget for Prometheus metrics collected
     by SpyderB15_PrometheusMetrics.py. It displays real-time client connections,
     system resource usage, and API metrics in the trading dashboard. This widget
     connects to the backend B15 module to receive live metrics data and provides
-    visual representation of all 9 client connections and system performance.
+    visual representation of all 10 client connections and system performance.
+
+    FIXED: Updated to use 1-10 client range matching SpyderB08_MultiClientDataManager.py.
+    Client 1 = Order Execution (HIGHEST PRIORITY), Client 2 = Administrative.
 
 Key Features:
     - Displays metrics from SpyderB15_PrometheusMetrics backend
-    - Real-time client status monitoring (Clients 0-8 + Prometheus Client 9)
+    - Real-time client status monitoring (Clients 1-10 + Prometheus metrics)
     - Active client count tracking from B15 data
     - Memory and CPU usage from actual system metrics
     - API calls per second tracking from B15
@@ -100,17 +103,18 @@ COLORS = {
     "cyan": "#00ffff",
 }
 
-# Client definitions matching SpyderB15
+# FIXED: Client definitions matching SpyderB08 (1-10 range with correct allocation)
 CLIENT_DEFINITIONS = {
-    "CLIENT 0": "Admin",
-    "CLIENT 1": "Orders",
-    "CLIENT 2": "Core",
-    "CLIENT 3": "Options",
-    "CLIENT 4": "Volatility",
-    "CLIENT 5": "Internals",
-    "CLIENT 6": "Major ETFs",
-    "CLIENT 7": "Extended Assets",
-    "CLIENT 8": "Sector ETFs",
+    "CLIENT 1": "Orders",        # FIXED: Order Execution (HIGHEST PRIORITY)
+    "CLIENT 2": "Admin",         # FIXED: Administrative  
+    "CLIENT 3": "Core",          # Core Data
+    "CLIENT 4": "Options",       # SPY Options
+    "CLIENT 5": "Volatility",    # Volatility Indicators
+    "CLIENT 6": "Internals",     # Market Internals
+    "CLIENT 7": "Major ETFs",    # Major Indices
+    "CLIENT 8": "Extended",      # Extended Assets
+    "CLIENT 9": "Sector ETFs",   # Sector ETFs
+    "CLIENT 10": "International" # FIXED: Added International Markets
 }
 
 # ==============================================================================
@@ -137,7 +141,7 @@ class MetricsDataWorker(QObject):
             if B15_AVAILABLE:
                 # Create connection to B15 metrics collector
                 config = MetricsConfig(
-                    client_id=9,  # Prometheus client
+                    client_id=11,  # FIXED: Use Client 11 for Prometheus metrics (outside main range)
                     port=9090,
                     update_interval=10
                 )
@@ -186,12 +190,13 @@ class MetricsDataWorker(QObject):
         }
         
         if self.collector:
-            # Get client metrics
+            # Get client metrics (1-10 range)
             for client_id, client_metrics in self.collector.client_metrics.items():
-                client_key = f"CLIENT {client_id}"
-                metrics["client_status"][client_key] = client_metrics.connected
-                if client_metrics.connected:
-                    metrics["active_clients"] += 1
+                if 1 <= client_id <= 10:  # FIXED: Only include valid client range
+                    client_key = f"CLIENT {client_id}"
+                    metrics["client_status"][client_key] = client_metrics.connected
+                    if client_metrics.connected:
+                        metrics["active_clients"] += 1
             
             # Get system metrics from B15's actual psutil readings
             summary = self.collector.get_metrics_summary()
@@ -208,11 +213,11 @@ class MetricsDataWorker(QObject):
         """Simulate metrics when B15 is not available"""
         import random
         
-        # Simulate all clients being active initially
+        # FIXED: Simulate all 10 clients (1-10 range)
         metrics = {
             "client_status": {
                 f"CLIENT {i}": random.random() > 0.1  # 90% chance active
-                for i in range(9)
+                for i in range(1, 11)  # FIXED: 1-10 range
             },
             "active_clients": 0,
             "memory_usage": random.randint(40, 50),
@@ -264,7 +269,7 @@ class ClientStatusWidget(QWidget):
         # Client label
         self.client_label = QLabel(f"{self.client_id}:")
         self.client_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 10px;")
-        self.client_label.setFixedWidth(55)
+        self.client_label.setFixedWidth(65)  # FIXED: Slightly wider for "CLIENT 10"
         layout.addWidget(self.client_label)
         
         # Client type
@@ -336,7 +341,7 @@ class PrometheusMetricsDisplay(QGroupBox):
         clients_layout.setContentsMargins(0, 0, 0, 0)
         clients_layout.setSpacing(1)
         
-        # Create client status widgets in two columns
+        # FIXED: Create client status widgets in two columns (1-10 range)
         row = 0
         col = 0
         for client_id, client_type in CLIENT_DEFINITIONS.items():
@@ -389,7 +394,7 @@ class PrometheusMetricsDisplay(QGroupBox):
         self.active_clients_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 9px;")
         bottom_layout.addWidget(self.active_clients_label)
         
-        self.active_clients_value = QLabel("0/9")
+        self.active_clients_value = QLabel("0/10")  # FIXED: 0/10 instead of 0/9
         self.active_clients_value.setStyleSheet(f"color: {COLORS['cyan']}; font-size: 9px;")
         bottom_layout.addWidget(self.active_clients_value)
         
@@ -488,7 +493,7 @@ class PrometheusMetricsDisplay(QGroupBox):
             
         # Update metrics values
         active = self.current_metrics["active_clients"]
-        self.active_clients_value.setText(f"{active}/9")
+        self.active_clients_value.setText(f"{active}/10")  # FIXED: /10 instead of /9
         
         memory = self.current_metrics["memory_usage"]
         self.memory_value.setText(f"{memory}%")
@@ -536,8 +541,8 @@ class PrometheusMetricsDisplay(QGroupBox):
         elif self.current_metrics["cpu_usage"] > 60:
             score -= 8
             
-        # Deduct points for inactive clients
-        inactive_clients = 9 - self.current_metrics["active_clients"]
+        # FIXED: Deduct points for inactive clients (out of 10 total)
+        inactive_clients = 10 - self.current_metrics["active_clients"]
         score -= (inactive_clients * 2)
         
         # Ensure score is between 0 and 100
@@ -552,29 +557,6 @@ class PrometheusMetricsDisplay(QGroupBox):
             self.worker_thread.wait()
 
 # ==============================================================================
-# MODULE RENAMING RECOMMENDATIONS
-# ==============================================================================
-"""
-RECOMMENDED MODULE RENUMBERING TO FIX DUPLICATES:
-
-Current Structure with Issues:
-- SpyderG06_ClientMonitorPanel.py (duplicate)
-- SpyderG06_RiskParametersDialog.py (duplicate)
-
-Suggested Renaming:
-1. SpyderG06_ClientMonitorPanel.py    → Keep as G06
-2. SpyderG06_RiskParametersDialog.py  → Rename to SpyderG09_RiskParametersDialog.py
-3. SpyderG07_PrometheusMetricsDisplay.py → New module (this file)
-
-This maintains logical grouping and sequential numbering.
-"""
-
-# ==============================================================================
-# STANDALONE TEST
-# ==============================================================================
-
-
-# ==============================================================================
 # MODULE-LEVEL FUNCTIONS FOR BACKWARDS COMPATIBILITY
 # ==============================================================================
 def get_client_status(client_id: int) -> dict:
@@ -583,7 +565,7 @@ def get_client_status(client_id: int) -> dict:
     This is a module-level function for compatibility with SpyderG05.
     
     Args:
-        client_id: Client ID (0-8)
+        client_id: Client ID (1-10)  # FIXED: Updated range
         
     Returns:
         Dictionary with client status information
@@ -608,22 +590,23 @@ def get_system_metrics() -> dict:
         'memory_percent': random.uniform(40, 60),
         'cpu_percent': random.uniform(20, 40),
         'api_calls_per_sec': random.randint(100, 150),
-        'active_clients': 8,
-        'total_clients': 9
+        'active_clients': 9,  # Most clients active
+        'total_clients': 10   # FIXED: Total of 10 clients
     }
 
 def _get_client_type(client_id: int) -> str:
-    """Helper to get client type from ID"""
+    """FIXED: Helper to get client type from ID (1-10 range with correct allocation)"""
     client_types = {
-        0: "Admin",
-        1: "Orders",
-        2: "Core",
-        3: "Options",
-        4: "Volatility",
-        5: "Internals",
-        6: "Major ETFs",
-        7: "Extended",
-        8: "Sectors"
+        1: "Orders",        # FIXED: Order Execution (HIGHEST PRIORITY) 
+        2: "Admin",         # FIXED: Administrative
+        3: "Core",          # Core Data
+        4: "Options",       # SPY Options
+        5: "Volatility",    # Volatility Indicators
+        6: "Internals",     # Market Internals
+        7: "Major ETFs",    # Major Indices
+        8: "Extended",      # Extended Assets
+        9: "Sector ETFs",   # Sector ETFs
+        10: "International" # FIXED: International Markets
     }
     return client_types.get(client_id, "Unknown")
 
@@ -638,8 +621,8 @@ if __name__ == "__main__":
     
     # Create main window
     window = QMainWindow()
-    window.setWindowTitle("Prometheus Metrics Display Test (G07)")
-    window.setGeometry(100, 100, 400, 350)
+    window.setWindowTitle("Prometheus Metrics Display Test (G07) - FIXED")
+    window.setGeometry(100, 100, 450, 400)  # Slightly larger for 10 clients
     
     # Set dark theme
     window.setStyleSheet(f"background-color: {COLORS['background']};")
@@ -650,16 +633,22 @@ if __name__ == "__main__":
     
     window.show()
     
-    print("\n" + "="*60)
-    print("PROMETHEUS METRICS DISPLAY (G07)")
-    print("="*60)
-    print("This widget connects to SpyderB15_PrometheusMetrics backend")
-    print("If B15 is not available, it runs in simulation mode")
-    print("\n✅ Module number: G07 (to avoid conflict with G05)")
-    print("📊 Displays metrics from B15 (Client ID 9)")
-    print("\n🔧 DUPLICATE FIX NEEDED:")
-    print("  - Keep G06_ClientMonitorPanel.py as is")
-    print("  - Rename G06_RiskParametersDialog.py to G09")
-    print("="*60 + "\n")
+    print("\n" + "="*70)
+    print("PROMETHEUS METRICS DISPLAY (G07) - FIXED")
+    print("="*70)
+    print("✅ FIXES APPLIED:")
+    print("   • Client range updated: 0-8 → 1-10")
+    print("   • Client allocation fixed: Client 1=Orders, Client 2=Admin")
+    print("   • Added Client 10 for International Markets")
+    print("   • Total clients updated: 9 → 10")
+    print("   • _get_client_type() function completely rebuilt")
+    print("   • CLIENT_DEFINITIONS dictionary updated")
+    print("\n📊 CLIENT ALLOCATION (FIXED):")
+    for i in range(1, 11):
+        print(f"   Client {i:2d}: {_get_client_type(i)}")
+    print("\n🔗 This widget connects to SpyderB15_PrometheusMetrics backend")
+    print("   If B15 is not available, it runs in simulation mode")
+    print("   Now fully consistent with SpyderB08 specification")
+    print("="*70 + "\n")
     
     sys.exit(app.exec())

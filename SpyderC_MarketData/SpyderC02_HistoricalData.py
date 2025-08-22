@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC02_HistoricalData.py
-Group: C (Market Data)
-Purpose: Historical data retrieval and storage
+Purpose: Historical data retrieval and storage (ib_async compatible)
 
-Description:
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2025-08-22 Time: 14:35:00
+
+Module Description:
     This module handles the retrieval, storage, and management of historical market data
     for the Spyder trading system. It interfaces with Interactive Brokers to fetch
     historical price data, option data, and market statistics. The module includes
     caching mechanisms to minimize API calls and provides data preprocessing utilities.
-
-Author: Mohamed Talib
-Date: 2025-05-29
-Version: 1.4
+    Updated to use ib_async for IB Gateway 10.37 compatibility.
 """
 
-# ==============================================================================
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
@@ -36,7 +36,7 @@ from enum import Enum
 # ==============================================================================
 import pandas as pd
 import numpy as np
-from ib_insync import Contract
+from ib_async import Contract
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -54,77 +54,117 @@ from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 MAX_HISTORICAL_REQUESTS_PER_SECOND = 6
 CACHE_DIR = Path.home() / '.spyder' / 'cache' / 'historical'
 CACHE_EXPIRY_HOURS = 24
+
+# Historical data durations available from IB
+IB_DURATIONS = [
+    "1 D", "2 D", "1 W", "2 W", "1 M", "2 M", "3 M", "6 M", "1 Y", "2 Y"
+]
+
+# Bar sizes available from IB
+IB_BAR_SIZES = [
+    "1 sec", "5 secs", "10 secs", "15 secs", "30 secs",
+    "1 min", "2 mins", "3 mins", "5 mins", "10 mins", "15 mins", "20 mins", "30 mins",
+    "1 hour", "2 hours", "3 hours", "4 hours", "8 hours",
+    "1 day", "1 week", "1 month"
+]
+
+# What to show options for historical data
+WHAT_TO_SHOW_OPTIONS = [
+    "TRADES", "MIDPOINT", "BID", "ASK", "BID_ASK", "HISTORICAL_VOLATILITY",
+    "OPTION_IMPLIED_VOLATILITY", "REBATE_RATE", "FEE_RATE", "YIELD_BID", "YIELD_ASK"
+]
+
 # ==============================================================================
 # ENUMS
 # ==============================================================================
 class DataType(Enum):
-    """Historical data types"""
+    """Types of market data that can be requested"""
     TRADES = "TRADES"
     MIDPOINT = "MIDPOINT"
     BID = "BID"
     ASK = "ASK"
     BID_ASK = "BID_ASK"
-    ADJUSTED_LAST = "ADJUSTED_LAST"
     HISTORICAL_VOLATILITY = "HISTORICAL_VOLATILITY"
     OPTION_IMPLIED_VOLATILITY = "OPTION_IMPLIED_VOLATILITY"
 
 class BarSize(Enum):
-    """Bar size options"""
-    ONE_SEC = "1 sec"
-    FIVE_SECS = "5 secs"
-    TEN_SECS = "10 secs"
-    FIFTEEN_SECS = "15 secs"
-    THIRTY_SECS = "30 secs"
-    ONE_MIN = "1 min"
-    TWO_MINS = "2 mins"
-    THREE_MINS = "3 mins"
-    FIVE_MINS = "5 mins"
-    TEN_MINS = "10 mins"
-    FIFTEEN_MINS = "15 mins"
-    TWENTY_MINS = "20 mins"
-    THIRTY_MINS = "30 mins"
-    ONE_HOUR = "1 hour"
-    TWO_HOURS = "2 hours"
-    THREE_HOURS = "3 hours"
-    FOUR_HOURS = "4 hours"
-    EIGHT_HOURS = "8 hours"
-    ONE_DAY = "1 day"
-    ONE_WEEK = "1 week"
-    ONE_MONTH = "1 month"
+    """Bar size enumeration for historical data"""
+    SEC_1 = "1 sec"
+    SEC_5 = "5 secs"
+    SEC_10 = "10 secs"
+    SEC_15 = "15 secs"
+    SEC_30 = "30 secs"
+    MIN_1 = "1 min"
+    MIN_2 = "2 mins"
+    MIN_3 = "3 mins"
+    MIN_5 = "5 mins"
+    MIN_10 = "10 mins"
+    MIN_15 = "15 mins"
+    MIN_20 = "20 mins"
+    MIN_30 = "30 mins"
+    HOUR_1 = "1 hour"
+    HOUR_2 = "2 hours"
+    HOUR_3 = "3 hours"
+    HOUR_4 = "4 hours"
+    HOUR_8 = "8 hours"
+    DAY_1 = "1 day"
+    WEEK_1 = "1 week"
+    MONTH_1 = "1 month"
 
 class Duration(Enum):
-    """Duration units"""
-    SECONDS = "S"
-    DAYS = "D"
-    WEEKS = "W"
-    MONTHS = "M"
-    YEARS = "Y"
+    """Duration enumeration for historical data requests"""
+    DAY_1 = "1 D"
+    DAY_2 = "2 D"
+    WEEK_1 = "1 W"
+    WEEK_2 = "2 W"
+    MONTH_1 = "1 M"
+    MONTH_2 = "2 M"
+    MONTH_3 = "3 M"
+    MONTH_6 = "6 M"
+    YEAR_1 = "1 Y"
+    YEAR_2 = "2 Y"
+
+class RequestStatus(Enum):
+    """Status of a historical data request"""
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CACHED = "cached"
 
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
+
+@dataclass
 class HistoricalDataRequest:
-    """Historical data request specification"""
-    request_id: int
+    """Represents a historical data request"""
     contract: Contract
-    end_datetime: datetime.datetime
-    duration: str  # e.g., "1 D", "1 W", "1 M"
-    bar_size: BarSize
-    data_type: DataType
-    use_rth: bool = True  # Regular Trading Hours only
-    format_date: int = 1  # 1=yyyyMMdd HH:mm:ss, 2=Unix timestamp
+    end_date: datetime
+    duration: str
+    bar_size: str
+    what_to_show: str
+    use_rth: bool = True
+    format_date: int = 1
     keep_up_to_date: bool = False
-    callback: Optional[Any] = None
+    chart_options: List[str] = field(default_factory=list)
     
-class HistoricalBar:
-    """Historical price bar"""
-    timestamp: datetime.datetime
+    # Request metadata
+    request_id: Optional[int] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    status: RequestStatus = RequestStatus.PENDING
+    priority: int = 5  # 1=highest, 10=lowest
+
+@dataclass
+class HistoricalBarData:
+    """Historical bar data structure"""
+    timestamp: datetime
     open: float
     high: float
     low: float
     close: float
     volume: int
-    wap: float  # Weighted Average Price
+    wap: float  # Weighted average price
     count: int  # Number of trades
     
     def to_dict(self) -> Dict[str, Any]:
@@ -140,753 +180,687 @@ class HistoricalBar:
             'count': self.count
         }
 
-class DataSeries:
-    """Time series data container"""
+@dataclass
+class HistoricalDataResponse:
+    """Response structure for historical data"""
+    request_id: int
     symbol: str
-    bar_size: BarSize
-    data_type: DataType
-    bars: List[HistoricalBar]
-    start_time: datetime.datetime
-    end_time: datetime.datetime
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dataframe(self) -> pd.DataFrame:
-        """Convert to pandas DataFrame"""
-        if not self.bars:
-            return pd.DataFrame()
-        
-        data = [bar.to_dict() for bar in self.bars]
-        df = pd.DataFrame(data)
-        df.set_index('timestamp', inplace=True)
-        df.sort_index(inplace=True)
-        return df
-    
-    def get_stats(self) -> Dict[str, float]:
-        """Calculate basic statistics"""
-        if not self.bars:
-            return {}
-        
-        closes = [bar.close for bar in self.bars]
-        volumes = [bar.volume for bar in self.bars]
-        
-        return {
-            'count': len(self.bars),
-            'mean_close': np.mean(closes),
-            'std_close': np.std(closes),
-            'min_close': np.min(closes),
-            'max_close': np.max(closes),
-            'total_volume': np.sum(volumes),
-            'mean_volume': np.mean(volumes)
-        }
+    bars: List[HistoricalBarData]
+    status: RequestStatus
+    error_message: Optional[str] = None
+    total_bars: int = 0
+    cache_hit: bool = False
+    execution_time_ms: float = 0.0
 
 # ==============================================================================
-# HISTORICAL DATA MANAGER CLASS
+# MAIN CLASS
 # ==============================================================================
+
 class HistoricalDataManager:
     """
-    Manages historical data retrieval and storage.
+    Historical data management with caching and rate limiting.
     
-    Features:
-    - Historical data fetching from IB
-    - Data caching and persistence
-    - Rate limiting for API calls
-    - Data preprocessing and validation
-    - Multiple timeframe support
-    - Continuous data updates
+    Handles retrieval, storage, and management of historical market data
+    from Interactive Brokers with intelligent caching and request optimization.
     """
     
-    def __init__(self, ib_client: IBClient, event_manager: EventManager):
+    def __init__(self, ib_client: SpyderClient, event_manager: EventManager):
         """
-        Initialize historical data manager.
+        Initialize Historical Data Manager.
         
         Args:
-            ib_client: IB client instance
-            event_manager: Event manager instance
+            ib_client: Connected SpyderClient instance
+            event_manager: Event manager for publishing updates
         """
         self.ib_client = ib_client
         self.event_manager = event_manager
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
-        # Data storage
-        self.data_series: Dict[str, DataSeries] = {}
-        self.pending_requests: Dict[int, HistoricalDataRequest] = {}
-        self.completed_requests: Dict[int, DataSeries] = {}
-        
         # Request management
-        self._next_request_id = 20000
-        self._request_queue = queue.Queue()
-        self._response_queue = queue.Queue()
-        self._request_lock = threading.RLock()
+        self.active_requests: Dict[int, HistoricalDataRequest] = {}
+        self.request_queue: queue.PriorityQueue = queue.PriorityQueue()
+        self.next_request_id = 1000
+        self.request_lock = threading.RLock()
         
         # Rate limiting
-        self._request_timestamps: List[float] = []
-        self._rate_limit_lock = threading.Lock()
+        self.last_request_time = 0.0
+        self.request_count = 0
+        self.rate_limit_window = 1.0  # 1 second
         
-        # Cache
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        self.cache = MarketDataCache(CACHE_DIR)
+        # Caching
+        self.cache_enabled = True
+        self.cache_dir = CACHE_DIR
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache = MarketDataCache(str(self.cache_dir))
         
-        # Trading calendar
-        self.calendar = TradingCalendar()
+        # Worker thread
+        self.running = False
+        self.worker_thread: Optional[threading.Thread] = None
         
-        # Processing thread
-        self._processor_thread: Optional[threading.Thread] = None
-        self._running = False
+        # Trading calendar for business day calculations
+        self.trading_calendar = TradingCalendar()
         
-        # IB callbacks
-        self._register_ib_callbacks()
+        # Response storage
+        self.responses: Dict[int, HistoricalDataResponse] = {}
         
-        self.logger.info("HistoricalDataManager initialized")
+        # Setup callbacks
+        self._setup_callbacks()
+        
+        self.logger.info("Historical Data Manager initialized")
     
     # ==========================================================================
-    # LIFECYCLE METHODS
+    # PUBLIC INTERFACE
     # ==========================================================================
-    def start(self) -> None:
-        """Start historical data manager"""
-        if self._running:
-            return
-        
-        self._running = True
-        
-        # Start processor thread
-        self._processor_thread = threading.Thread(
-            target=self._process_requests,
-            daemon=True,
-            name="HistoricalDataProcessor"
-        )
-        self._processor_thread.start()
-        
-        self.logger.info("Historical data manager started")
     
-    def stop(self) -> None:
-        """Stop historical data manager"""
-        self._running = False
+    def start(self) -> bool:
+        """
+        Start the historical data manager.
         
-        if self._processor_thread:
-            self._processor_thread.join(timeout=5.0)
-        
-        # Cancel pending requests
-        self._cancel_all_requests()
-        
-        self.logger.info("Historical data manager stopped")
+        Returns:
+            True if started successfully
+        """
+        try:
+            if self.running:
+                self.logger.warning("Historical Data Manager already running")
+                return True
+                
+            if not self.ib_client.is_connected():
+                self.logger.error("IB client not connected")
+                return False
+            
+            self.running = True
+            
+            # Start worker thread
+            self.worker_thread = threading.Thread(
+                target=self._worker_loop, 
+                name="HistoricalDataWorker", 
+                daemon=True
+            )
+            self.worker_thread.start()
+            
+            self.logger.info("Historical Data Manager started")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start Historical Data Manager: {e}")
+            return False
     
-    # ==========================================================================
-    # DATA REQUESTS
-    # ==========================================================================
+    def stop(self):
+        """Stop the historical data manager"""
+        try:
+            self.running = False
+            
+            # Cancel all active requests
+            with self.request_lock:
+                for req_id in list(self.active_requests.keys()):
+                    self.ib_client.ib.cancelHistoricalData(req_id)
+                
+                self.active_requests.clear()
+            
+            # Stop worker thread
+            if self.worker_thread and self.worker_thread.is_alive():
+                self.worker_thread.join(timeout=5.0)
+            
+            self.logger.info("Historical Data Manager stopped")
+            
+        except Exception as e:
+            self.logger.error(f"Error stopping Historical Data Manager: {e}")
+    
     def request_historical_data(
         self,
         contract: Contract,
-        end_datetime: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime] = None,
         duration: str = "1 D",
-        bar_size: BarSize = BarSize.FIVE_MINS,
-        data_type: DataType = DataType.TRADES,
+        bar_size: str = "1 min",
+        data_type: str = "TRADES",
         use_rth: bool = True,
-        callback: Optional[Any] = None
+        priority: int = 5
     ) -> int:
         """
-        Request historical data.
+        Request historical data for a contract.
         
         Args:
-            contract: Contract to fetch data for
-            end_datetime: End time for data (default: now)
-            duration: Duration string (e.g., "1 D", "1 W")
-            bar_size: Bar size
-            data_type: Type of data
+            contract: IB contract object
+            end_date: End date for data (defaults to now)
+            duration: Data duration (e.g., "1 D", "1 W", "1 M")
+            bar_size: Bar size (e.g., "1 min", "5 mins", "1 hour")
+            data_type: Type of data to retrieve
             use_rth: Use regular trading hours only
-            callback: Optional callback function
+            priority: Request priority (1=highest, 10=lowest)
             
         Returns:
-            Request ID
+            Request ID for tracking
         """
-        # Check cache first
-        cache_key = self._get_cache_key(contract, bar_size, data_type)
-        cached_data = self.cache.get(cache_key)
-        
-        if cached_data and self._is_cache_valid(cached_data, end_datetime):
-            self.logger.info(f"Using cached data for {contract.symbol}")
-            if callback:
-                callback(cached_data)
-            return -1  # Indicate cache hit
-        
-        # Create request
-        request_id = self._get_next_request_id()
-        
-        if end_datetime is None:
-            end_datetime = datetime.datetime.now()
-        
-        request = HistoricalDataRequest(
-            request_id=request_id,
-            contract=contract,
-            end_datetime=end_datetime,
-            duration=duration,
-            bar_size=bar_size,
-            data_type=data_type,
-            use_rth=use_rth,
-            callback=callback
-        )
-        
-        # Queue request
-        self._request_queue.put(request)
-        
-        self.logger.info(f"Queued historical data request {request_id} for {contract.symbol}")
-        
-        return request_id
-    
-    def request_intraday_bars(
-        self,
-        contract: Contract,
-        date: datetime.date,
-        bar_size: BarSize = BarSize.ONE_MIN,
-        data_type: DataType = DataType.TRADES,
-        callback: Optional[Any] = None
-    ) -> int:
-        """
-        Request intraday bars for a specific date.
-        
-        Args:
-            contract: Contract
-            date: Date to fetch
-            bar_size: Bar size
-            data_type: Data type
-            callback: Optional callback
+        try:
+            # Validate inputs
+            if duration not in IB_DURATIONS:
+                raise ValueError(f"Invalid duration: {duration}")
             
-        Returns:
-            Request ID
-        """
-        # Set end time to end of trading day
-        end_datetime = datetime.datetime.combine(
-            date,
-            datetime.time(16, 0)  # 4 PM ET
-        )
-        
-        return self.request_historical_data(
-            contract=contract,
-            end_datetime=end_datetime,
-            duration="1 D",
-            bar_size=bar_size,
-            data_type=data_type,
-            use_rth=True,
-            callback=callback
-        )
-    
-    def request_daily_bars(
-        self,
-        contract: Contract,
-        days: int = 30,
-        data_type: DataType = DataType.TRADES,
-        callback: Optional[Any] = None
-    ) -> int:
-        """
-        Request daily bars.
-        
-        Args:
-            contract: Contract
-            days: Number of days
-            data_type: Data type
-            callback: Optional callback
+            if bar_size not in IB_BAR_SIZES:
+                raise ValueError(f"Invalid bar size: {bar_size}")
             
-        Returns:
-            Request ID
-        """
-        duration = f"{days} D"
-        
-        return self.request_historical_data(
-            contract=contract,
-            duration=duration,
-            bar_size=BarSize.ONE_DAY,
-            data_type=data_type,
-            callback=callback
-        )
-    
-    def request_option_history(
-        self,
-        option_contract: Contract,
-        days: int = 5,
-        callback: Optional[Any] = None
-    ) -> int:
-        """
-        Request option price history.
-        
-        Args:
-            option_contract: Option contract
-            days: Number of days
-            callback: Optional callback
+            if data_type not in WHAT_TO_SHOW_OPTIONS:
+                raise ValueError(f"Invalid data type: {data_type}")
             
-        Returns:
-            Request ID
-        """
-        # Options typically have less liquidity, use larger bars
-        return self.request_historical_data(
-            contract=option_contract,
-            duration=f"{days} D",
-            bar_size=BarSize.THIRTY_MINS,
-            data_type=DataType.TRADES,
-            use_rth=True,
-            callback=callback
-        )
-    
-    # ==========================================================================
-    # DATA PROCESSING
-    # ==========================================================================
-    def _process_requests(self) -> None:
-        """Process queued requests with rate limiting"""
-        while self._running:
-            try:
-                # Get next request
-                request = self._request_queue.get(timeout=1.0)
+            # Default end date
+            if end_date is None:
+                end_date = datetime.now()
+            
+            # Check cache first
+            cache_key = self._generate_cache_key(contract, end_date, duration, bar_size, data_type)
+            if self.cache_enabled:
+                cached_data = self._get_cached_data(cache_key)
+                if cached_data is not None:
+                    return self._create_cached_response(cached_data, cache_key)
+            
+            # Create request
+            with self.request_lock:
+                request_id = self._get_next_request_id()
                 
-                # Apply rate limiting
-                self._wait_for_rate_limit()
-                
-                # Store pending request
-                with self._request_lock:
-                    self.pending_requests[request.request_id] = request
-                
-                # Format end time
-                end_time_str = request.end_datetime.strftime("%Y%m%d %H:%M:%S")
-                
-                # Make IB request
-                self.ib_client.reqHistoricalData(
-                    request.request_id,
-                    request.contract,
-                    end_time_str,
-                    request.duration,
-                    request.bar_size.value,
-                    request.data_type.value,
-                    1 if request.use_rth else 0,
-                    request.format_date,
-                    request.keep_up_to_date,
-                    []
+                request = HistoricalDataRequest(
+                    contract=contract,
+                    end_date=end_date,
+                    duration=duration,
+                    bar_size=bar_size,
+                    what_to_show=data_type,
+                    use_rth=use_rth,
+                    request_id=request_id,
+                    priority=priority
                 )
                 
-                # Record request time
-                with self._rate_limit_lock:
-                    self._request_timestamps.append(time.time())
+                # Add to queue
+                self.request_queue.put((priority, request_id, request))
+                self.active_requests[request_id] = request
                 
-            except queue.Empty:
-                continue
-            except Exception as e:
-                self.logger.error(f"Error processing request: {e}")
+            self.logger.info(f"Queued historical data request {request_id} for {contract.symbol}")
+            return request_id
+            
+        except Exception as e:
+            self.logger.error(f"Error requesting historical data: {e}")
+            return -1
     
-    def _wait_for_rate_limit(self) -> None:
-        """Wait if necessary to respect rate limits"""
-        with self._rate_limit_lock:
-            # Remove old timestamps
-            current_time = time.time()
-            self._request_timestamps = [
-                ts for ts in self._request_timestamps 
-                if current_time - ts < 1.0
-            ]
-            
-            # Check if at limit
-            if len(self._request_timestamps) >= MAX_HISTORICAL_REQUESTS_PER_SECOND:
-                # Calculate wait time
-                oldest_request = self._request_timestamps[0]
-                wait_time = 1.0 - (current_time - oldest_request) + 0.1
-                
-                if wait_time > 0:
-                    self.logger.debug(f"Rate limiting: waiting {wait_time:.2f}s")
-                    time.sleep(wait_time)
-    
-    def _process_bar_data(
-        self,
-        request_id: int,
-        bars: List[HistoricalBar]
-    ) -> Optional[DataSeries]:
-        """Process received bar data"""
-        request = self.pending_requests.get(request_id)
-        if not request:
-            self.logger.warning(f"No pending request for ID {request_id}")
-            return None
-        
-        if not bars:
-            self.logger.warning(f"No data received for request {request_id}")
-            return None
-        
-        # Create data series
-        data_series = DataSeries(
-            symbol=request.contract.symbol,
-            bar_size=request.bar_size,
-            data_type=request.data_type,
-            bars=bars,
-            start_time=bars[0].timestamp,
-            end_time=bars[-1].timestamp,
-            metadata={
-                'contract': request.contract,
-                'use_rth': request.use_rth,
-                'request_time': datetime.datetime.now()
-            }
-        )
-        
-        # Validate data
-        if self._validate_data(data_series):
-            # Store in cache
-            cache_key = self._get_cache_key(
-                request.contract,
-                request.bar_size,
-                request.data_type
-            )
-            self.cache.put(cache_key, data_series)
-            
-            # Store in memory
-            self.data_series[cache_key] = data_series
-            
-            # Execute callback
-            if request.callback:
-                request.callback(data_series)
-            
-            return data_series
-        else:
-            self.logger.error(f"Data validation failed for request {request_id}")
-            return None
-    
-    def _validate_data(self, data_series: DataSeries) -> bool:
-        """Validate historical data"""
-        if not data_series.bars:
-            return False
-        
-        # Check for gaps
-        prev_timestamp = None
-        for bar in data_series.bars:
-            # Validate bar data
-            if bar.high < bar.low:
-                self.logger.error("High < Low in bar data")
-                return False
-            
-            if bar.open < bar.low or bar.open > bar.high:
-                self.logger.error("Open outside of high/low range")
-                return False
-            
-            if bar.close < bar.low or bar.close > bar.high:
-                self.logger.error("Close outside of high/low range")
-                return False
-            
-            # Check timestamp ordering
-            if prev_timestamp and bar.timestamp <= prev_timestamp:
-                self.logger.error("Timestamps not in ascending order")
-                return False
-            
-            prev_timestamp = bar.timestamp
-        
-        return True
-    
-    # ==========================================================================
-    # IB CALLBACKS
-    # ==========================================================================
-    def _register_ib_callbacks(self) -> None:
-        """Register IB API callbacks"""
-        self.ib_client.register_callback('historicalData', self._on_historical_data)
-        self.ib_client.register_callback('historicalDataEnd', self._on_historical_data_end)
-        self.ib_client.register_callback('historicalDataUpdate', self._on_historical_data_update)
-        self.ib_client.register_callback('error', self._on_error)
-    
-    def _on_historical_data(self, reqId: int, bar) -> None:
-        """Handle historical data from IB"""
-        # Convert IB bar to our format
-        historical_bar = HistoricalBar(
-            timestamp=datetime.datetime.strptime(bar.date, "%Y%m%d %H:%M:%S"),
-            open=bar.open,
-            high=bar.high,
-            low=bar.low,
-            close=bar.close,
-            volume=bar.volume,
-            wap=bar.average,
-            count=bar.barCount
-        )
-        
-        # Add to temporary storage
-        if reqId not in self.completed_requests:
-            self.completed_requests[reqId] = []
-        
-        self.completed_requests[reqId].append(historical_bar)
-    
-    def _on_historical_data_end(self, reqId: int, start: str, end: str) -> None:
-        """Handle end of historical data from IB"""
-        self.logger.info(f"Historical data complete for request {reqId}")
-        
-        # Get bars
-        bars = self.completed_requests.get(reqId, [])
-        
-        # Process data
-        data_series = self._process_bar_data(reqId, bars)
-        
-        # Clean up
-        with self._request_lock:
-            self.pending_requests.pop(reqId, None)
-            self.completed_requests.pop(reqId, None)
-        
-        # Emit event
-        if data_series:
-            self.event_manager.emit(Event(
-                EventType.MARKET_DATA,
-                {
-                    'type': 'historical_data_received',
-                    'request_id': reqId,
-                    'symbol': data_series.symbol,
-                    'bar_count': len(data_series.bars),
-                    'start_time': data_series.start_time,
-                    'end_time': data_series.end_time
-                }
-            ))
-    
-    def _on_historical_data_update(self, reqId: int, bar) -> None:
-        """Handle historical data update (for keep_up_to_date requests)"""
-        # Convert and process update
-        historical_bar = HistoricalBar(
-            timestamp=datetime.datetime.strptime(bar.date, "%Y%m%d %H:%M:%S"),
-            open=bar.open,
-            high=bar.high,
-            low=bar.low,
-            close=bar.close,
-            volume=bar.volume,
-            wap=bar.average,
-            count=bar.barCount
-        )
-        
-        # Update data series
-        request = self.pending_requests.get(reqId)
-        if request:
-            cache_key = self._get_cache_key(
-                request.contract,
-                request.bar_size,
-                request.data_type
-            )
-            
-            data_series = self.data_series.get(cache_key)
-            if data_series:
-                # Add or update bar
-                data_series.bars.append(historical_bar)
-                data_series.end_time = historical_bar.timestamp
-                
-                # Trigger callback if specified
-                if request.callback:
-                    request.callback(data_series)
-    
-    def _on_error(self, reqId: int, errorCode: int, errorString: str) -> None:
-        """Handle errors from IB"""
-        if reqId in self.pending_requests:
-            self.logger.error(f"Historical data error for request {reqId}: {errorCode} - {errorString}")
-            
-            # Clean up
-            with self._request_lock:
-                request = self.pending_requests.pop(reqId, None)
-                self.completed_requests.pop(reqId, None)
-            
-            # Notify callback of error
-            if request and request.callback:
-                request.callback(None)
-    
-    # ==========================================================================
-    # DATA ACCESS
-    # ==========================================================================
-    def get_latest_data(
-        self,
-        symbol: str,
-        bar_size: BarSize = BarSize.FIVE_MINS,
-        data_type: DataType = DataType.TRADES
-    ) -> Optional[DataSeries]:
+    def get_response(self, request_id: int) -> Optional[HistoricalDataResponse]:
         """
-        Get latest cached data for a symbol.
+        Get response for a request ID.
         
         Args:
-            symbol: Symbol
-            bar_size: Bar size
-            data_type: Data type
+            request_id: Request ID to get response for
             
         Returns:
-            Data series or None
+            Historical data response or None if not available
         """
-        # Create dummy contract for cache key
-        contract = Contract()  # Note: Set attributes or use Stock/Option/etc.
-        contract.symbol = symbol
-        
-        cache_key = self._get_cache_key(contract, bar_size, data_type)
-        return self.data_series.get(cache_key)
+        return self.responses.get(request_id)
     
-    def get_dataframe(
+    def cancel_request(self, request_id: int) -> bool:
+        """
+        Cancel a historical data request.
+        
+        Args:
+            request_id: Request ID to cancel
+            
+        Returns:
+            True if cancelled successfully
+        """
+        try:
+            with self.request_lock:
+                if request_id in self.active_requests:
+                    # Cancel with IB
+                    self.ib_client.ib.cancelHistoricalData(request_id)
+                    
+                    # Update status
+                    request = self.active_requests[request_id]
+                    request.status = RequestStatus.FAILED
+                    
+                    # Create error response
+                    response = HistoricalDataResponse(
+                        request_id=request_id,
+                        symbol=request.contract.symbol,
+                        bars=[],
+                        status=RequestStatus.FAILED,
+                        error_message="Request cancelled by user"
+                    )
+                    self.responses[request_id] = response
+                    
+                    # Clean up
+                    del self.active_requests[request_id]
+                    
+                    self.logger.info(f"Cancelled historical data request {request_id}")
+                    return True
+                else:
+                    self.logger.warning(f"Request {request_id} not found or already completed")
+                    return False
+                    
+        except Exception as e:
+            self.logger.error(f"Error cancelling request {request_id}: {e}")
+            return False
+    
+    def get_cached_data(
         self,
         symbol: str,
-        bar_size: BarSize = BarSize.FIVE_MINS,
-        data_type: DataType = DataType.TRADES
+        start_date: datetime,
+        end_date: datetime,
+        bar_size: str = "1 min"
     ) -> Optional[pd.DataFrame]:
         """
-        Get data as pandas DataFrame.
+        Get cached historical data as DataFrame.
         
         Args:
-            symbol: Symbol
+            symbol: Symbol to get data for
+            start_date: Start date
+            end_date: End date
             bar_size: Bar size
-            data_type: Data type
             
         Returns:
-            DataFrame or None
+            DataFrame with historical data or None
         """
-        data_series = self.get_latest_data(symbol, bar_size, data_type)
-        if data_series:
-            return data_series.to_dataframe()
-        return None
+        try:
+            if not self.cache_enabled:
+                return None
+                
+            # Generate cache key pattern
+            cache_pattern = f"{symbol}_{bar_size}_*"
+            
+            # Search cache for matching data
+            cached_files = list(self.cache_dir.glob(f"{cache_pattern}.pkl"))
+            
+            if not cached_files:
+                return None
+            
+            # Load and filter data
+            all_data = []
+            for cache_file in cached_files:
+                try:
+                    with open(cache_file, 'rb') as f:
+                        data = pickle.load(f)
+                    
+                    # Filter by date range
+                    df = pd.DataFrame([bar.to_dict() for bar in data])
+                    if not df.empty:
+                        df['timestamp'] = pd.to_datetime(df['timestamp'])
+                        filtered_df = df[
+                            (df['timestamp'] >= start_date) & 
+                            (df['timestamp'] <= end_date)
+                        ]
+                        if not filtered_df.empty:
+                            all_data.append(filtered_df)
+                            
+                except Exception as e:
+                    self.logger.warning(f"Error loading cache file {cache_file}: {e}")
+                    continue
+            
+            if all_data:
+                # Combine and sort
+                combined_df = pd.concat(all_data, ignore_index=True)
+                combined_df = combined_df.drop_duplicates(subset=['timestamp'])
+                combined_df = combined_df.sort_values('timestamp')
+                return combined_df
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Error getting cached data: {e}")
+            return None
     
     # ==========================================================================
-    # UTILITIES
+    # PRIVATE METHODS - WORKER THREAD
     # ==========================================================================
-    def _get_next_request_id(self) -> int:
-        """Get next request ID"""
-        with self._request_lock:
-            self._next_request_id += 1
-            return self._next_request_id
     
-    def _get_cache_key(
+    def _worker_loop(self):
+        """Main worker thread loop"""
+        self.logger.info("Historical data worker started")
+        
+        while self.running:
+            try:
+                # Check rate limiting
+                if not self._check_rate_limit():
+                    time.sleep(0.1)
+                    continue
+                
+                # Get next request
+                try:
+                    priority, request_id, request = self.request_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                
+                # Process request
+                self._process_request(request)
+                
+            except Exception as e:
+                self.logger.error(f"Worker loop error: {e}")
+                time.sleep(1.0)
+        
+        self.logger.info("Historical data worker stopped")
+    
+    def _process_request(self, request: HistoricalDataRequest):
+        """Process a historical data request"""
+        try:
+            request.status = RequestStatus.IN_PROGRESS
+            
+            # Submit to IB
+            end_date_str = request.end_date.strftime("%Y%m%d %H:%M:%S")
+            
+            self.ib_client.ib.reqHistoricalData(
+                request.request_id,
+                request.contract,
+                end_date_str,
+                request.duration,
+                request.bar_size,
+                request.what_to_show,
+                request.use_rth,
+                request.format_date,
+                request.keep_up_to_date,
+                request.chart_options
+            )
+            
+            # Update rate limiting
+            self.last_request_time = time.time()
+            self.request_count += 1
+            
+            self.logger.debug(f"Submitted historical data request {request.request_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Error processing request {request.request_id}: {e}")
+            
+            # Create error response
+            response = HistoricalDataResponse(
+                request_id=request.request_id,
+                symbol=request.contract.symbol,
+                bars=[],
+                status=RequestStatus.FAILED,
+                error_message=str(e)
+            )
+            self.responses[request.request_id] = response
+            
+            # Clean up
+            with self.request_lock:
+                if request.request_id in self.active_requests:
+                    del self.active_requests[request.request_id]
+    
+    def _check_rate_limit(self) -> bool:
+        """Check if we can make another request based on rate limiting"""
+        current_time = time.time()
+        
+        # Reset counter if window has passed
+        if current_time - self.last_request_time > self.rate_limit_window:
+            self.request_count = 0
+        
+        # Check if we can make another request
+        return self.request_count < MAX_HISTORICAL_REQUESTS_PER_SECOND
+    
+    # ==========================================================================
+    # PRIVATE METHODS - CACHING
+    # ==========================================================================
+    
+    def _generate_cache_key(
         self,
         contract: Contract,
-        bar_size: BarSize,
-        data_type: DataType
+        end_date: datetime,
+        duration: str,
+        bar_size: str,
+        data_type: str
     ) -> str:
-        """Generate cache key for data"""
-        return f"{contract.symbol}_{bar_size.value}_{data_type.value}"
+        """Generate cache key for request"""
+        date_str = end_date.strftime("%Y%m%d")
+        return f"{contract.symbol}_{bar_size}_{data_type}_{duration}_{date_str}"
     
-    def _is_cache_valid(
-        self,
-        cached_data: DataSeries,
-        end_datetime: Optional[datetime.datetime]
-    ) -> bool:
-        """Check if cached data is still valid"""
-        if not cached_data or not cached_data.bars:
-            return False
-        
-        # Check age
-        request_time = cached_data.metadata.get('request_time')
-        if request_time:
-            age_hours = (datetime.datetime.now() - request_time).total_seconds() / 3600
-            if age_hours > CACHE_EXPIRY_HOURS:
-                return False
-        
-        # Check if covers requested period
-        if end_datetime:
-            if cached_data.end_time < end_datetime:
-                return False
-        
-        return True
-    
-    def _cancel_all_requests(self) -> None:
-        """Cancel all pending requests"""
-        with self._request_lock:
-            for request_id in list(self.pending_requests.keys()):
-                self.ib_client.cancelHistoricalData(request_id)
+    def _get_cached_data(self, cache_key: str) -> Optional[List[HistoricalBarData]]:
+        """Get cached data for a key"""
+        try:
+            cache_file = self.cache_dir / f"{cache_key}.pkl"
             
-            self.pending_requests.clear()
-            self.completed_requests.clear()
+            if not cache_file.exists():
+                return None
+            
+            # Check if cache is still valid
+            file_age = time.time() - cache_file.stat().st_mtime
+            if file_age > (CACHE_EXPIRY_HOURS * 3600):
+                cache_file.unlink()  # Delete expired cache
+                return None
+            
+            # Load cached data
+            with open(cache_file, 'rb') as f:
+                data = pickle.load(f)
+            
+            return data
+            
+        except Exception as e:
+            self.logger.warning(f"Error loading cached data for {cache_key}: {e}")
+            return None
     
-    def clear_cache(self) -> None:
-        """Clear all cached data"""
-        self.cache.clear()
-        self.data_series.clear()
-        self.logger.info("Historical data cache cleared")
+    def _cache_data(self, cache_key: str, data: List[HistoricalBarData]):
+        """Cache historical data"""
+        try:
+            if not self.cache_enabled:
+                return
+                
+            cache_file = self.cache_dir / f"{cache_key}.pkl"
+            
+            with open(cache_file, 'wb') as f:
+                pickle.dump(data, f)
+            
+            self.logger.debug(f"Cached data for {cache_key}")
+            
+        except Exception as e:
+            self.logger.warning(f"Error caching data for {cache_key}: {e}")
+    
+    def _create_cached_response(self, data: List[HistoricalBarData], cache_key: str) -> int:
+        """Create response from cached data"""
+        # Generate fake request ID
+        request_id = self._get_next_request_id()
+        
+        # Extract symbol from cache key
+        symbol = cache_key.split('_')[0]
+        
+        # Create response
+        response = HistoricalDataResponse(
+            request_id=request_id,
+            symbol=symbol,
+            bars=data,
+            status=RequestStatus.COMPLETED,
+            total_bars=len(data),
+            cache_hit=True
+        )
+        
+        self.responses[request_id] = response
+        
+        self.logger.info(f"Served {len(data)} bars from cache for {symbol}")
+        return request_id
+    
+    # ==========================================================================
+    # PRIVATE METHODS - CALLBACKS
+    # ==========================================================================
+    
+    def _setup_callbacks(self):
+        """Setup IB callbacks for historical data"""
+        self.ib_client.ib.historicalData = self._on_historical_data
+        self.ib_client.ib.historicalDataEnd = self._on_historical_data_end
+        self.ib_client.ib.error = self._on_error
+    
+    def _on_historical_data(self, req_id: int, bar):
+        """Handle incoming historical data"""
+        try:
+            with self.request_lock:
+                if req_id not in self.active_requests:
+                    return
+                
+                request = self.active_requests[req_id]
+                
+                # Create bar data
+                bar_data = HistoricalBarData(
+                    timestamp=datetime.strptime(bar.date, "%Y%m%d %H:%M:%S"),
+                    open=float(bar.open),
+                    high=float(bar.high),
+                    low=float(bar.low),
+                    close=float(bar.close),
+                    volume=int(bar.volume),
+                    wap=float(bar.wap),
+                    count=int(bar.count)
+                )
+                
+                # Add to response
+                if req_id not in self.responses:
+                    self.responses[req_id] = HistoricalDataResponse(
+                        request_id=req_id,
+                        symbol=request.contract.symbol,
+                        bars=[],
+                        status=RequestStatus.IN_PROGRESS
+                    )
+                
+                self.responses[req_id].bars.append(bar_data)
+                
+        except Exception as e:
+            self.logger.error(f"Error processing historical data for {req_id}: {e}")
+    
+    def _on_historical_data_end(self, req_id: int, start: str, end: str):
+        """Handle end of historical data"""
+        try:
+            with self.request_lock:
+                if req_id not in self.active_requests:
+                    return
+                
+                request = self.active_requests[req_id]
+                
+                if req_id in self.responses:
+                    response = self.responses[req_id]
+                    response.status = RequestStatus.COMPLETED
+                    response.total_bars = len(response.bars)
+                    
+                    # Cache the data
+                    cache_key = self._generate_cache_key(
+                        request.contract,
+                        request.end_date,
+                        request.duration,
+                        request.bar_size,
+                        request.what_to_show
+                    )
+                    self._cache_data(cache_key, response.bars)
+                    
+                    # Publish event
+                    self._publish_completion_event(response)
+                    
+                    self.logger.info(f"Historical data completed for {req_id}: {response.total_bars} bars")
+                
+                # Clean up
+                del self.active_requests[req_id]
+                
+        except Exception as e:
+            self.logger.error(f"Error completing historical data for {req_id}: {e}")
+    
+    def _on_error(self, req_id: int, error_code: int, error_string: str, contract=None):
+        """Handle IB errors"""
+        if req_id in self.active_requests:
+            self.logger.error(f"Historical data error [{req_id}]: {error_code} - {error_string}")
+            
+            # Create error response
+            request = self.active_requests[req_id]
+            response = HistoricalDataResponse(
+                request_id=req_id,
+                symbol=request.contract.symbol,
+                bars=[],
+                status=RequestStatus.FAILED,
+                error_message=f"{error_code}: {error_string}"
+            )
+            self.responses[req_id] = response
+            
+            # Clean up
+            with self.request_lock:
+                del self.active_requests[req_id]
+    
+    # ==========================================================================
+    # PRIVATE METHODS - UTILITIES
+    # ==========================================================================
+    
+    def _get_next_request_id(self) -> int:
+        """Get next available request ID"""
+        req_id = self.next_request_id
+        self.next_request_id += 1
+        return req_id
+    
+    def _publish_completion_event(self, response: HistoricalDataResponse):
+        """Publish completion event"""
+        try:
+            event = Event(
+                EventType.MARKET_DATA_HISTORICAL,
+                {
+                    "request_id": response.request_id,
+                    "symbol": response.symbol,
+                    "bars_count": response.total_bars,
+                    "status": response.status.value,
+                    "cache_hit": response.cache_hit
+                }
+            )
+            self.event_manager.publish(event)
+            
+        except Exception as e:
+            self.logger.error(f"Error publishing completion event: {e}")
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# UTILITY FUNCTIONS
+# ==============================================================================
+
+def create_spy_contract() -> Contract:
+    """Create SPY stock contract"""
+    from ib_async import Stock
+    return Stock('SPY', 'SMART', 'USD')
+
+def create_spy_option_contract(expiry: str, strike: float, option_type: str) -> Contract:
+    """Create SPY option contract"""
+    from ib_async import Option
+    return Option('SPY', expiry, strike, option_type, 'SMART')
+
+def bars_to_dataframe(bars: List[HistoricalBarData]) -> pd.DataFrame:
+    """Convert historical bars to pandas DataFrame"""
+    data = [bar.to_dict() for bar in bars]
+    df = pd.DataFrame(data)
+    if not df.empty:
+        df.set_index('timestamp', inplace=True)
+    return df
+
+# ==============================================================================
+# MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Test historical data manager
-    from SpyderA_Core.SpyderA05_EventManager import EventManager
-    from ib_insync import Contract
+    # Test the Historical Data Manager
+    from SpyderB_Broker.SpyderB01_SpyderClient import IBConfig, SpyderClient
     
-    # Mock IB client
-    class MockIBClient:
-        def __init__(self):
-            self.callbacks = {}
-        
-        def register_callback(self, event, callback):
-            self.callbacks[event] = callback
-        
-        def reqHistoricalData(self, reqId, contract, endDateTime, durationStr,
-                             barSizeSetting, whatToShow, useRTH, formatDate,
-                             keepUpToDate, chartOptions):
-            print(f"Requesting historical data: {contract.symbol} {barSizeSetting}")
-            
-            # Simulate response
-            import time
-            time.sleep(0.5)
-            
-            # Create mock bars
-            from collections import namedtuple
-            Bar = namedtuple('Bar', ['date', 'open', 'high', 'low', 'close', 
-                                    'volume', 'average', 'barCount'])
-            
-            # Send some bars
-            for i in range(5):
-                bar = Bar(
-                    date="20250529 09:30:00",
-                    open=450.0 + i,
-                    high=451.0 + i,
-                    low=449.0 + i,
-                    close=450.5 + i,
-                    volume=1000000,
-                    average=450.25 + i,
-                    barCount=1000
-                )
-                self.callbacks['historicalData'](reqId, bar)
-            
-            # Send end signal
-            self.callbacks['historicalDataEnd'](reqId, "", "")
-    
-    # Initialize
+    # Initialize components
     event_manager = EventManager()
-    ib_client = MockIBClient()
-    historical_manager = HistoricalDataManager(ib_client, event_manager)
+    ib_config = IBConfig(host="127.0.0.1", port=7497, client_id=1)
+    ib_client = SpyderClient(ib_config, event_manager)
     
-    # Start manager
-    historical_manager.start()
-    
-    # Create SPY contract
-    spy_contract = Contract()  # Note: Set attributes or use Stock/Option/etc.
-    spy_contract.symbol = "SPY"
-    spy_contract.secType = "STK"  # Consider using Stock() class instead
-    spy_contract.exchange = "SMART"
-    spy_contract.currency = "USD"
-    
-    # Define callback
-    def on_data_received(data_series):
-        if data_series:
-            print(f"\nReceived {len(data_series.bars)} bars for {data_series.symbol}")
-            print(f"Time range: {data_series.start_time} to {data_series.end_time}")
+    # Connect to IBKR
+    if ib_client.connect():
+        # Create manager
+        hist_manager = HistoricalDataManager(ib_client, event_manager)
+        
+        # Start manager
+        if hist_manager.start():
+            # Request SPY daily data
+            spy_contract = create_spy_contract()
+            request_id = hist_manager.request_historical_data(
+                contract=spy_contract,
+                duration="5 D",
+                bar_size="1 hour",
+                data_type="TRADES"
+            )
             
-            # Get DataFrame
-            df = data_series.to_dataframe()
-            print(f"\nDataFrame shape: {df.shape}")
-            print(df.head())
+            print(f"Submitted request {request_id} for SPY historical data")
             
-            # Get stats
-            stats = data_series.get_stats()
-            print(f"\nStatistics:")
-            for key, value in stats.items():
-                print(f"  {key}: {value:.2f}")
-        else:
-            print("No data received")
-    
-    # Request data
-    request_id = historical_manager.request_historical_data(
-        contract=spy_contract,
-        duration="1 D",
-        bar_size=BarSize.FIVE_MINS,
-        data_type=DataType.TRADES,
-        callback=on_data_received
-    )
-    
-    print(f"Request ID: {request_id}")
-    
-    # Wait for data
-    time.sleep(2)
-    
-    # Request daily bars
-    print("\nRequesting daily bars...")
-    request_id2 = historical_manager.request_daily_bars(
-        contract=spy_contract,
-        days=30,
-        callback=on_data_received
-    )
-    
-    # Wait
-    time.sleep(2)
-    
-    # Stop manager
-    historical_manager.stop()
+            # Wait for completion
+            time.sleep(10)
+            
+            # Get response
+            response = hist_manager.get_response(request_id)
+            if response:
+                print(f"Received {response.total_bars} bars for SPY")
+                if response.bars:
+                    df = bars_to_dataframe(response.bars)
+                    print(df.head())
+            
+            # Stop manager
+            hist_manager.stop()
+        
+        ib_client.disconnect()
+    else:
+        print("Failed to connect to IBKR")

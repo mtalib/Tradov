@@ -10,14 +10,17 @@ Group: G (GUI/Dashboard)
 Purpose: Bottom panel widget showing System Health and Prometheus Metrics
 Author: Mohamed Talib
 Date Created: 2025-01-11
-Last Updated: 2025-01-11 Time: 17:30:00
+Last Updated: 2025-01-22 Time: 16:30:00
 
 Description:
     This module provides the bottom panel widget for the Spyder Trading Dashboard
-    displaying System Health indicators and Prometheus Metrics for all 9 IB Gateway
+    displaying System Health indicators and Prometheus Metrics for all 10 IB Gateway
     clients. It creates a properly formatted panel with System Health on the left
     and correctly numbered Prometheus client metrics on the right, with proper
     title display without clipping.
+
+    FIXED: Updated to use 1-10 client range matching SpyderB08_MultiClientDataManager.py.
+    Client 1 = Order Execution (HIGHEST PRIORITY), Client 2 = Administrative.
 ===============================================================================
 """
 
@@ -88,17 +91,18 @@ FONT_SIZE_SMALL = 10
 # Update Intervals
 UPDATE_INTERVAL = 5000  # 5 seconds
 
-# Client Definitions (matching SpyderB15)
+# FIXED: Client Definitions matching SpyderB08 (1-10 range with correct allocation)
 CLIENT_DEFINITIONS = [
-    (0, "Admin"),
-    (1, "Orders"),
-    (2, "Core"),
-    (3, "Options"),
-    (4, "Volatility"),
-    (5, "Internals"),
-    (6, "Major ETFs"),
-    (7, "Extended Assets"),
-    (8, "Sector ETFs"),
+    (1, "Orders"),        # FIXED: Order Execution (HIGHEST PRIORITY)
+    (2, "Admin"),         # FIXED: Administrative
+    (3, "Core"),          # Core Data
+    (4, "Options"),       # SPY Options
+    (5, "Volatility"),    # Volatility Indicators
+    (6, "Internals"),     # Market Internals
+    (7, "Major ETFs"),    # Major Indices
+    (8, "Extended Assets"), # Extended Assets
+    (9, "Sector ETFs"),   # Sector ETFs
+    (10, "International") # FIXED: Added International Markets
 ]
 
 
@@ -111,8 +115,10 @@ class ClientMonitorPanel(QWidget):
 
     This widget creates a properly formatted bottom panel with:
     - Left column: System Health indicators
-    - Right section: Prometheus Metrics with correct CLIENT 0-8 numbering
+    - Right section: Prometheus Metrics with correct CLIENT 1-10 numbering
     - Fixed title display without clipping
+
+    FIXED: Updated for 1-10 client range with correct allocation.
     """
 
     # Signals
@@ -137,12 +143,15 @@ class ClientMonitorPanel(QWidget):
             "DATABASE": True,
         }
 
+        # FIXED: Initialize client status for 1-10 range
         self.client_status = {
-            i: True for i in range(9)
+            i: True for i in range(1, 11)  # FIXED: 1-10 range instead of 0-8
         }  # All clients active by default
+        
+        # FIXED: Updated metrics data for 10 clients
         self.metrics_data = {
-            "active_clients": 9,
-            "total_clients": 9,
+            "active_clients": 10,  # FIXED: 10 instead of 9
+            "total_clients": 10,   # FIXED: 10 instead of 9
             "memory_usage": 45,
             "cpu_usage": 22,
             "api_calls_per_sec": 127,
@@ -156,7 +165,7 @@ class ClientMonitorPanel(QWidget):
         self.update_timer.timeout.connect(self.update_metrics)
         self.update_timer.start(UPDATE_INTERVAL)
 
-        logger.info("ClientMonitorPanel initialized successfully")
+        logger.info("ClientMonitorPanel initialized successfully (FIXED: 1-10 clients)")
 
     # ==========================================================================
     # UI SETUP METHODS
@@ -199,7 +208,7 @@ class ClientMonitorPanel(QWidget):
         title_layout.setContentsMargins(5, 5, 5, 5)
 
         # Title label
-        title_label = QLabel("AUTONOMOUS AI ACTIVITY")
+        title_label = QLabel("PROMETHEUS METRICS MONITOR (CLIENTS 1-10)")  # FIXED: Updated title
         title_label.setStyleSheet(
             f"""
             QLabel {{
@@ -244,7 +253,7 @@ class ClientMonitorPanel(QWidget):
         grid_layout.addWidget(health_header, 0, 0, 1, 1)
 
         # Prometheus Metrics Header (Columns 1-2)
-        prometheus_header = self.create_header_cell("PROMETHEUS METRICS")
+        prometheus_header = self.create_header_cell("PROMETHEUS METRICS (1-10)")  # FIXED: Updated header
         grid_layout.addWidget(prometheus_header, 0, 1, 1, 2)
 
         # ==== DATA ROWS ====
@@ -263,37 +272,35 @@ class ClientMonitorPanel(QWidget):
             self.health_cells[item] = cell
             grid_layout.addWidget(cell, i + 1, 0)
 
-        # Prometheus Client Items (Columns 1-2, Rows 1-5)
+        # FIXED: Prometheus Client Items (Columns 1-2, Rows 1-5) for 1-10 range
         self.client_cells = {}
+        
+        # FIXED: Updated client arrangement for 1-10 range
         clients_left = [
-            (0, "Admin"),
-            (1, "Orders"),
-            (2, "Core"),
-            (3, "Options"),
-            (4, "Volatility"),
+            (1, "Orders"),        # Client 1: Order Execution (HIGHEST PRIORITY)
+            (2, "Admin"),         # Client 2: Administrative
+            (3, "Core"),          # Client 3: Core Data
+            (4, "Options"),       # Client 4: SPY Options
+            (5, "Volatility"),    # Client 5: Volatility Indicators
         ]
         clients_right = [
-            (5, "Internals"),
-            (6, "Major ETFs"),
-            (7, "Extended Assets"),
-            (8, "Sector ETFs"),
-            (None, ""),
+            (6, "Internals"),     # Client 6: Market Internals
+            (7, "Major ETFs"),    # Client 7: Major Indices
+            (8, "Extended Assets"), # Client 8: Extended Assets
+            (9, "Sector ETFs"),   # Client 9: Sector ETFs
+            (10, "International") # Client 10: International Markets
         ]
 
         # Left column of clients
         for i, (client_num, client_name) in enumerate(clients_left):
             cell = self.create_client_cell(client_num, client_name)
-            if client_num is not None:
-                self.client_cells[client_num] = cell
+            self.client_cells[client_num] = cell
             grid_layout.addWidget(cell, i + 1, 1)
 
         # Right column of clients
         for i, (client_num, client_name) in enumerate(clients_right):
-            if client_num is not None:
-                cell = self.create_client_cell(client_num, client_name)
-                self.client_cells[client_num] = cell
-            else:
-                cell = self.create_empty_cell()
+            cell = self.create_client_cell(client_num, client_name)
+            self.client_cells[client_num] = cell
             grid_layout.addWidget(cell, i + 1, 2)
 
         # ==== BOTTOM ROW - METRICS SUMMARY ====
@@ -407,7 +414,7 @@ class ClientMonitorPanel(QWidget):
         Create a client status cell.
 
         Args:
-            client_num: Client number
+            client_num: Client number (1-10)  # FIXED: Updated range
             client_name: Client name
 
         Returns:
@@ -434,8 +441,13 @@ class ClientMonitorPanel(QWidget):
         indicator.setStyleSheet(f"color: {color}; font-size: 10px;")
         layout.addWidget(indicator)
 
-        # Client label
-        label = QLabel(f"  CLIENT {client_num}: {client_name}")
+        # Client label - FIXED: Show priority for Client 1
+        if client_num == 1:
+            display_text = f"  CLIENT {client_num}: {client_name} (PRIORITY)"
+        else:
+            display_text = f"  CLIENT {client_num}: {client_name}"
+            
+        label = QLabel(display_text)
         label.setObjectName(f"client_label_{client_num}")
         label.setStyleSheet(
             f"""
@@ -544,14 +556,14 @@ class ClientMonitorPanel(QWidget):
         # Store references to value labels for updates
         self.metrics_value_labels = {}
 
-        # Active Clients
+        # Active Clients - FIXED: Updated for 10 clients
         active_label = QLabel("Active Clients: ")
         active_label.setStyleSheet(
             f"color: {COLOR_TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;"
         )
         layout.addWidget(active_label)
 
-        active_value = QLabel("9/9")
+        active_value = QLabel("10/10")  # FIXED: 10/10 instead of 9/9
         active_value.setStyleSheet(
             f"color: {COLOR_GREEN}; font-size: {FONT_SIZE_SMALL}px; font-weight: bold;"
         )
@@ -689,7 +701,7 @@ class ClientMonitorPanel(QWidget):
         Update client connection status.
 
         Args:
-            client_id: Client ID (0-8)
+            client_id: Client ID (1-10)  # FIXED: Updated range
             is_connected: Connection status
         """
         if client_id in self.client_cells:
@@ -799,6 +811,43 @@ class ClientMonitorPanel(QWidget):
                 label = self.metrics_value_labels["api"]
                 label.setText(str(api_calls))
 
+    # FIXED: Add method to handle all 10 clients validation
+    def validate_client_range(self, client_id: int) -> bool:
+        """
+        Validate that client ID is in valid range (1-10).
+        
+        Args:
+            client_id: Client ID to validate
+            
+        Returns:
+            bool: True if valid, False otherwise
+        """
+        return 1 <= client_id <= 10
+
+    def get_client_purpose(self, client_id: int) -> str:
+        """
+        Get the purpose/name for a client ID.
+        
+        Args:
+            client_id: Client ID (1-10)
+            
+        Returns:
+            str: Client purpose/name
+        """
+        client_purposes = {
+            1: "Orders",
+            2: "Admin", 
+            3: "Core",
+            4: "Options",
+            5: "Volatility",
+            6: "Internals",
+            7: "Major ETFs",
+            8: "Extended Assets",
+            9: "Sector ETFs",
+            10: "International"
+        }
+        return client_purposes.get(client_id, "Unknown")
+
 
 # ==============================================================================
 # HELPER FUNCTIONS FOR INTEGRATION
@@ -842,7 +891,7 @@ def main():
 
     # Create test window
     window = QMainWindow()
-    window.setWindowTitle("SPYDER - Client Monitor Panel Test")
+    window.setWindowTitle("SPYDER - Client Monitor Panel Test (FIXED: 1-10)")
     window.setGeometry(100, 100, 1200, 300)
 
     # Set dark theme
@@ -858,14 +907,32 @@ def main():
     panel = ClientMonitorPanel()
     window.setCentralWidget(panel)
 
-    # Test updates
-    QTimer.singleShot(2000, lambda: panel.update_client_status(3, False))
-    QTimer.singleShot(4000, lambda: panel.update_system_health("ML MODELS", False))
-    QTimer.singleShot(6000, lambda: panel.update_resource_metrics(75, 45, 250))
+    # Test updates for new range
+    QTimer.singleShot(2000, lambda: panel.update_client_status(1, False))  # Orders
+    QTimer.singleShot(4000, lambda: panel.update_client_status(10, False)) # International 
+    QTimer.singleShot(6000, lambda: panel.update_system_health("ML MODELS", False))
+    QTimer.singleShot(8000, lambda: panel.update_resource_metrics(75, 45, 250))
 
     window.show()
 
-    logger.info("Client Monitor Panel test window launched")
+    print("\n" + "="*70)
+    print("CLIENT MONITOR PANEL (G06) - FIXED")
+    print("="*70)
+    print("✅ FIXES APPLIED:")
+    print("   • Client range updated: 0-8 → 1-10")
+    print("   • Client allocation fixed: Client 1=Orders, Client 2=Admin")
+    print("   • Added Client 10 for International Markets")
+    print("   • Total clients updated: 9 → 10")
+    print("   • CLIENT_DEFINITIONS list completely updated")
+    print("   • All update methods handle 1-10 range")
+    print("\n📊 CLIENT ALLOCATION (FIXED):")
+    for client_id, client_name in CLIENT_DEFINITIONS:
+        priority = " (PRIORITY)" if client_id == 1 else ""
+        print(f"   Client {client_id:2d}: {client_name}{priority}")
+    print("\n🔗 Now fully consistent with SpyderB08 specification")
+    print("="*70 + "\n")
+
+    logger.info("Client Monitor Panel test window launched (FIXED version)")
 
     sys.exit(app.exec())
 

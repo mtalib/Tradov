@@ -1,23 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC07_OPRAFeed.py
-Group: C (Market Data)
-Purpose: OPRA (Options Price Reporting Authority) real-time options data feed
+Purpose: OPRA real-time options data feed with ib_async integration
+Author: Mohamed Talib
+Year Created: 2025 
+Last Updated: 2025-08-21 Time: 22:00:00  
 
-Description:
+Module Description:
     This module provides high-quality real-time options data feed from OPRA for SPY
-    options trading. It handles options quotes, trades, volume, open interest, and
-    Greeks calculations from live market data. The module supports Level 2 options
-    market data, real-time options chain updates, and integrates with the broader
+    options trading using modern ib_async library for enhanced IB Gateway 10.37 
+    compatibility. It handles options quotes, trades, volume, open interest, and
+    Greeks calculations from live market data with Level 2 options market data
+    support, real-time options chain updates, and integration with the broader
     Spyder market data infrastructure for comprehensive options analytics.
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-06
-Last Updated: 2025-07-06 Time: 16:30:00
+Key Features:
+    • Modern ib_async integration for optimal IB Gateway compatibility
+    • Real-time OPRA options data feed with Level 2 market data
+    • Comprehensive options quotes, trades, and Greeks calculations
+    • Institutional flow analysis and options chain management
+    • Enhanced error handling and connection stability
+    • Advanced options analytics and implied volatility calculations
+
+Dependencies:
+    • ib_async (modern IB API wrapper)
+    • py_vollib (options pricing and Greeks)
+    • Standard market data libraries
+
+Installation Note:
+    pip install ib_async py_vollib
 """
 
 # ==============================================================================
@@ -42,7 +57,7 @@ import math
 # ==============================================================================
 import numpy as np
 import pandas as pd
-from ib_insync import *
+from ib_async import *
 import pytz
 from scipy import stats
 from py_vollib.black_scholes import black_scholes
@@ -170,7 +185,7 @@ class OptionContract:
 
 @dataclass
 class OptionQuote:
-    """Option quote data."""
+    """Option quote data with ib_async integration."""
     contract: OptionContract
     bid: float
     ask: float
@@ -188,6 +203,7 @@ class OptionQuote:
     theta: Optional[float] = None
     vega: Optional[float] = None
     rho: Optional[float] = None
+    ib_library: str = "ib_async"  # Track which library is used
     
     @property
     def mid(self) -> float:
@@ -215,13 +231,14 @@ class OptionQuote:
 
 @dataclass
 class OptionTrade:
-    """Option trade data."""
+    """Option trade data with ib_async integration."""
     contract: OptionContract
     price: float
     size: int
     timestamp: datetime
     exchange: str
     conditions: List[str] = field(default_factory=list)
+    ib_library: str = "ib_async"  # Track which library is used
     
     @property
     def notional_value(self) -> float:
@@ -230,13 +247,14 @@ class OptionTrade:
 
 @dataclass
 class OptionsChainSnapshot:
-    """Complete options chain snapshot."""
+    """Complete options chain snapshot with ib_async integration."""
     underlying_symbol: str
     underlying_price: float
     expiration: date
     calls: Dict[float, OptionQuote]
     puts: Dict[float, OptionQuote]
     timestamp: datetime
+    ib_library: str = "ib_async"  # Track which library is used
     
     @property
     def all_strikes(self) -> List[float]:
@@ -254,7 +272,7 @@ class OptionsChainSnapshot:
 
 @dataclass
 class OptionsFlow:
-    """Options flow analysis."""
+    """Options flow analysis with ib_async integration."""
     symbol: str
     direction: FlowDirection
     volume: int
@@ -266,6 +284,7 @@ class OptionsFlow:
     call_premium: float
     put_premium: float
     timestamp: datetime
+    ib_library: str = "ib_async"  # Track which library is used
     
     @property
     def call_put_ratio(self) -> float:
@@ -279,10 +298,11 @@ class OptionsFlow:
 # ==============================================================================
 class OPRADataFeed:
     """
-    OPRA real-time options data feed manager.
+    OPRA real-time options data feed manager with ib_async integration.
     
     This class provides comprehensive real-time options data from OPRA including
-    quotes, trades, volume, open interest, and calculated Greeks. It manages
+    quotes, trades, volume, open interest, and calculated Greeks using modern
+    ib_async library for enhanced IB Gateway 10.37 compatibility. It manages
     multiple option chains, performs real-time Greeks calculations, and provides
     institutional flow analysis for options trading strategies.
     
@@ -290,7 +310,7 @@ class OPRADataFeed:
         logger: Module logger instance
         error_handler: Error handling instance
         data_validator: Data validation instance
-        ib_client: Interactive Brokers client
+        ib_client: Interactive Brokers client with ib_async
         option_chains: Current option chain data
         active_contracts: Currently tracked option contracts
         quotes_cache: Real-time quotes cache
@@ -305,7 +325,7 @@ class OPRADataFeed:
     """
     
     def __init__(self, config: Optional[Dict] = None):
-        """Initialize OPRA data feed."""
+        """Initialize OPRA data feed with ib_async."""
         self.logger = SpyderLogger.get_logger("OPRADataFeed")
         self.error_handler = SpyderErrorHandler()
         self.data_validator = DataValidator()
@@ -316,7 +336,7 @@ class OPRADataFeed:
         self.max_contracts = self.config.get('max_contracts', MAX_OPTION_CONTRACTS)
         self.risk_free_rate = self.config.get('risk_free_rate', RISK_FREE_RATE)
         
-        # Interactive Brokers client
+        # Interactive Brokers client with ib_async
         self.ib_client: Optional[IBClient] = None
         
         # Data storage
@@ -355,25 +375,26 @@ class OPRADataFeed:
             'trades_received': 0,
             'greeks_calculated': 0,
             'errors': 0,
-            'last_performance_check': time.time()
+            'last_performance_check': time.time(),
+            'ib_library': 'ib_async'
         }
         
-        self.logger.info("OPRA data feed initialized")
+        self.logger.info("OPRA data feed initialized with ib_async")
 
     # ==========================================================================
     # INITIALIZATION METHODS
     # ==========================================================================
     def initialize(self) -> bool:
         """
-        Initialize the OPRA data feed.
+        Initialize the OPRA data feed with ib_async.
         
         Returns:
             True if initialization successful, False otherwise
         """
         try:
-            # Initialize IB client connection
+            # Initialize IB client connection with ib_async
             if not self._initialize_ib_client():
-                self.logger.error("Failed to initialize IB client")
+                self.logger.error("Failed to initialize IB client with ib_async")
                 return False
             
             # Register event callbacks
@@ -385,7 +406,7 @@ class OPRADataFeed:
             # Setup Greeks calculation
             self._initialize_greeks_calculator()
             
-            self.logger.info("OPRA data feed initialized successfully")
+            self.logger.info("OPRA data feed initialized successfully with ib_async")
             return True
             
         except Exception as e:
@@ -396,14 +417,14 @@ class OPRADataFeed:
             return False
     
     def _initialize_ib_client(self) -> bool:
-        """Initialize Interactive Brokers client for options data."""
+        """Initialize Interactive Brokers client for options data with ib_async."""
         try:
             # Get IB client from broker module
             from SpyderB_Broker.SpyderB01_SpyderClient import get_ib_client
             self.ib_client = get_ib_client()
             
             if not self.ib_client or not self.ib_client.is_connected():
-                self.logger.warning("IB client not connected, using simulation mode")
+                self.logger.warning("IB client not connected, using simulation mode with ib_async")
                 return True  # Allow running in simulation mode
             
             # Register callbacks for options data
@@ -453,7 +474,7 @@ class OPRADataFeed:
     # LIFECYCLE METHODS
     # ==========================================================================
     def start_feed(self) -> None:
-        """Start OPRA data feed."""
+        """Start OPRA data feed with ib_async."""
         if self.is_running:
             self.logger.warning("OPRA feed already running")
             return
@@ -481,7 +502,7 @@ class OPRADataFeed:
             # Request market data for key options
             self._request_options_data()
             
-            self.logger.info("OPRA data feed started")
+            self.logger.info("OPRA data feed started with ib_async")
             
         except Exception as e:
             self.error_handler.handle_error(e, {
@@ -516,10 +537,10 @@ class OPRADataFeed:
             })
 
     # ==========================================================================
-    # DATA REQUEST METHODS
+    # DATA REQUEST METHODS WITH ib_async
     # ==========================================================================
     def _request_options_data(self) -> None:
-        """Request market data for option contracts."""
+        """Request market data for option contracts via ib_async."""
         if not self.ib_client:
             return
         
@@ -537,7 +558,7 @@ class OPRADataFeed:
             })
     
     def _request_option_chain(self, symbol: str, expiration: date) -> None:
-        """Request option chain for specific expiration."""
+        """Request option chain for specific expiration via ib_async."""
         try:
             # Get underlying price first
             underlying_price = self._get_underlying_price(symbol)
@@ -567,12 +588,12 @@ class OPRADataFeed:
             })
     
     def _request_option_quote(self, contract: OptionContract) -> None:
-        """Request real-time quote for option contract."""
+        """Request real-time quote for option contract via ib_async."""
         if not self.ib_client:
             return
         
         try:
-            # Create IB contract
+            # Create IB contract using ib_async
             ib_contract = Option(
                 symbol=contract.symbol,
                 lastTradeDateOrContractMonth=contract.expiration.strftime("%Y%m%d"),
@@ -585,7 +606,7 @@ class OPRADataFeed:
             request_id = self._get_next_request_id()
             self.active_contracts[str(request_id)] = contract
             
-            # Request real-time data
+            # Request real-time data via ib_async
             self.ib_client.reqMktData(
                 tickerId=request_id,
                 contract=ib_contract,
@@ -602,10 +623,10 @@ class OPRADataFeed:
             })
 
     # ==========================================================================
-    # DATA CALLBACK METHODS
+    # DATA CALLBACK METHODS WITH ib_async
     # ==========================================================================
     def _on_tick_price(self, req_id: int, tick_type: int, price: float, attrib) -> None:
-        """Handle tick price updates."""
+        """Handle tick price updates from ib_async."""
         try:
             contract = self.active_contracts.get(str(req_id))
             if not contract:
@@ -655,7 +676,7 @@ class OPRADataFeed:
             })
     
     def _on_tick_size(self, req_id: int, tick_type: int, size: int) -> None:
-        """Handle tick size updates."""
+        """Handle tick size updates from ib_async."""
         try:
             contract = self.active_contracts.get(str(req_id))
             if not contract:
@@ -688,7 +709,7 @@ class OPRADataFeed:
     def _on_option_computation(self, req_id: int, tick_type: int, implied_vol: float,
                               delta: float, opt_price: float, pv_dividend: float,
                               gamma: float, vega: float, theta: float, under_price: float) -> None:
-        """Handle option Greeks and implied volatility updates."""
+        """Handle option Greeks and implied volatility updates from ib_async."""
         try:
             contract = self.active_contracts.get(str(req_id))
             if not contract:
@@ -1050,7 +1071,8 @@ class OPRADataFeed:
                     'gamma': quote.gamma,
                     'theta': quote.theta,
                     'vega': quote.vega,
-                    'timestamp': quote.timestamp.isoformat()
+                    'timestamp': quote.timestamp.isoformat(),
+                    'ib_library': 'ib_async'
                 },
                 timestamp=quote.timestamp
             )
@@ -1079,7 +1101,7 @@ class OPRADataFeed:
         """Monitor feed performance."""
         current_time = time.time()
         if current_time - self.stats['last_performance_check'] >= 60:  # Every minute
-            self.logger.debug(f"OPRA Feed Stats: "
+            self.logger.debug(f"OPRA Feed Stats (ib_async): "
                             f"Quotes: {self.stats['quotes_received']}, "
                             f"Trades: {self.stats['trades_received']}, "
                             f"Greeks: {self.stats['greeks_calculated']}, "
@@ -1240,7 +1262,8 @@ class OPRADataFeed:
             'total_delta': total_delta,
             'total_gamma': total_gamma,
             'total_theta': total_theta,
-            'total_vega': total_vega
+            'total_vega': total_vega,
+            'ib_library': 'ib_async'
         }
     
     def get_implied_volatility_smile(self, symbol: str, expiration: date) -> pd.DataFrame:
@@ -1315,7 +1338,7 @@ def get_opra_feed(config: Optional[Dict] = None) -> OPRADataFeed:
         config: Optional configuration dictionary
         
     Returns:
-        OPRADataFeed instance
+        OPRADataFeed instance with ib_async integration
     """
     global _opra_feed_instance
     if _opra_feed_instance is None:
@@ -1354,12 +1377,12 @@ _opra_feed_instance: Optional[OPRADataFeed] = None
 # ==============================================================================
 if __name__ == "__main__":
     # Module testing code
-    print("📡 Testing OPRA Data Feed...")
+    print("📡 Testing OPRA Data Feed with ib_async...")
     
     feed = OPRADataFeed()
     
     if feed.initialize():
-        print("✅ OPRA Feed initialized successfully")
+        print("✅ OPRA Feed initialized successfully with ib_async")
         
         # Start feed
         feed.start_feed()
@@ -1390,13 +1413,14 @@ if __name__ == "__main__":
             vega=0.12
         )
         
-        print(f"📊 Test Quote:")
+        print(f"📊 Test Quote (ib_async):")
         print(f"   Bid/Ask: ${quote.bid:.2f} / ${quote.ask:.2f}")
         print(f"   Mid: ${quote.mid:.2f}")
         print(f"   IV: {quote.implied_vol:.1%}")
         print(f"   Delta: {quote.delta:.3f}")
         print(f"   Gamma: {quote.gamma:.3f}")
         print(f"   Volume: {quote.volume:,}")
+        print(f"   Library: {quote.ib_library}")
         
         # Test flow analysis
         flow = OptionsFlow(
@@ -1413,11 +1437,12 @@ if __name__ == "__main__":
             timestamp=datetime.now()
         )
         
-        print(f"🌊 Test Flow:")
+        print(f"🌊 Test Flow (ib_async):")
         print(f"   Direction: {flow.direction.value}")
         print(f"   C/P Ratio: {flow.call_put_ratio:.2f}")
         print(f"   Volume: {flow.volume:,}")
         print(f"   Premium: ${flow.premium:,.0f}")
+        print(f"   Library: {flow.ib_library}")
         
         time.sleep(3)
         
@@ -1427,4 +1452,3 @@ if __name__ == "__main__":
         
     else:
         print("❌ OPRA Feed initialization failed")
-                

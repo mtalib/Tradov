@@ -4,15 +4,16 @@
 #
 # Module: SpyderQ45_Diagnostics.py
 # Group: Q (Scripts/Maintenance)
-# Purpose: Advanced diagnostics and troubleshooting tool
+# Purpose: Advanced diagnostics and troubleshooting tool (ib_async compatible)
 # Author: Mohamed Talib
 # Date Created: 2025-01-11
-# Last Updated: 2025-01-11 Time: 12:30:00
+# Last Updated: 2025-08-22 Time: 14:45:00
 #
 # Description:
 #     Comprehensive diagnostic tool that identifies and helps resolve common
 #     issues with the Spyder trading system. Includes automated fixes, detailed
-#     error analysis, and system health recommendations.
+#     error analysis, and system health recommendations. Updated to use ib_async
+#     for IB Gateway 10.37 compatibility.
 # ===============================================================================
 
 import argparse
@@ -152,89 +153,78 @@ class SpyderDiagnostics:
             health_score=health_score,
         )
 
+        # Print summary
+        self._print_summary(result)
+
         return result
 
     # ==========================================================================
-    # SYSTEM INFORMATION
+    # INDIVIDUAL DIAGNOSTIC METHODS
     # ==========================================================================
 
     def _collect_system_info(self):
-        """Collect system information"""
-        print(f"{Colors.CYAN}Collecting system information...{Colors.RESET}")
-
+        """Collect basic system information"""
         self.system_info = {
-            "os": os.uname().sysname,
-            "os_version": os.uname().version,
-            "hostname": socket.gethostname(),
             "python_version": sys.version,
+            "platform": sys.platform,
             "cpu_count": psutil.cpu_count(),
-            "memory_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
-            "disk_usage_percent": psutil.disk_usage(str(SPYDER_HOME)).percent,
+            "memory_gb": round(psutil.virtual_memory().total / (1024**3), 1),
+            "disk_space_gb": round(
+                psutil.disk_usage(str(SPYDER_HOME)).total / (1024**3), 1
+            ),
             "spyder_home": str(SPYDER_HOME),
-            "user": os.environ.get("USER", "unknown"),
+            "timestamp": datetime.now().isoformat(),
         }
 
-        if self.verbose:
-            print(f"  OS: {self.system_info['os']}")
-            print(f"  Python: {sys.version.split()[0]}")
-            print(f"  Memory: {self.system_info['memory_total_gb']}GB")
-            print(f"  CPUs: {self.system_info['cpu_count']}")
-
-    # ==========================================================================
-    # DIAGNOSTIC CATEGORIES
-    # ==========================================================================
-
     def _diagnose_environment(self):
-        """Diagnose environment setup"""
-        print(f"\n{Colors.CYAN}1. Environment Diagnostics{Colors.RESET}")
+        """Diagnose Python environment"""
+        print(f"{Colors.CYAN}1. Environment Diagnostics{Colors.RESET}")
+
+        # Check Python version
+        python_version = sys.version_info
+        if python_version < (3, 8):
+            self._add_issue(
+                "Environment",
+                IssueLevel.CRITICAL,
+                f"Python version too old: {python_version.major}.{python_version.minor}",
+                "Spyder requires Python 3.8+",
+                "Upgrade Python to 3.8 or higher",
+            )
+        else:
+            self._print_ok(f"Python {python_version.major}.{python_version.minor}.{python_version.micro}")
+
+        # Check virtual environment
+        if hasattr(sys, "real_prefix") or (
+            hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
+        ):
+            self._print_ok("Virtual environment detected")
+        else:
+            self._add_issue(
+                "Environment",
+                IssueLevel.WARNING,
+                "Not running in virtual environment",
+                "May cause package conflicts",
+                "Create and activate virtual environment",
+            )
 
         # Check Spyder home
         if not SPYDER_HOME.exists():
             self._add_issue(
                 "Environment",
                 IssueLevel.CRITICAL,
-                "Spyder home directory not found",
-                f"Expected at: {SPYDER_HOME}",
-                "Run SpyderQ01_Setup.sh to create directory structure",
+                f"Spyder home not found: {SPYDER_HOME}",
+                "Cannot locate Spyder installation",
+                f"Ensure Spyder is installed at {SPYDER_HOME}",
             )
         else:
-            self._print_ok("Spyder home exists")
-
-        # Check virtual environment
-        if not VENV_PATH.exists():
-            self._add_issue(
-                "Environment",
-                IssueLevel.CRITICAL,
-                "Virtual environment not found",
-                f"Expected at: {VENV_PATH}",
-                "Run: python3.10 -m venv {VENV_PATH}",
-                auto_fix=True,
-            )
-        else:
-            self._print_ok("Virtual environment exists")
-
-        # Check critical directories
-        for dir_name in ["logs", "data", "scripts", "config"]:
-            dir_path = SPYDER_HOME / dir_name
-            if not dir_path.exists():
-                self._add_issue(
-                    "Environment",
-                    IssueLevel.WARNING,
-                    f"Directory missing: {dir_name}",
-                    f"Expected at: {dir_path}",
-                    f"Create with: mkdir -p {dir_path}",
-                    auto_fix=True,
-                )
-                if self.auto_fix:
-                    dir_path.mkdir(parents=True, exist_ok=True)
-                    self._print_fixed(f"Created {dir_name} directory")
+            self._print_ok(f"Spyder home found: {SPYDER_HOME}")
 
     def _diagnose_dependencies(self):
         """Diagnose Python dependencies"""
         print(f"\n{Colors.CYAN}2. Dependency Diagnostics{Colors.RESET}")
 
         critical_packages = {
-            "ib_insync": "IB API wrapper",
+            "ib_async": "IB API wrapper",
             "pandas": "Data analysis",
             "numpy": "Numerical computing",
             "PyQt6": "GUI framework",
@@ -310,79 +300,90 @@ class SpyderDiagnostics:
         """Diagnose IB Gateway status"""
         print(f"\n{Colors.CYAN}4. IB Gateway Diagnostics{Colors.RESET}")
 
-        # Check if IB Gateway process is running
-        gateway_running = False
-        for proc in psutil.process_iter(["name", "cmdline"]):
+        # Check if IB Gateway is running
+        ib_processes = []
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
             try:
-                if "ibgateway" in proc.info["name"].lower():
-                    gateway_running = True
-                    self._print_ok(f"IB Gateway process found (PID: {proc.pid})")
-                    break
+                cmdline = " ".join(proc.info.get("cmdline", []))
+                if "ibgateway" in cmdline.lower() or "clientportal" in cmdline.lower():
+                    ib_processes.append(proc)
             except BaseException:
                 pass
 
-        if not gateway_running:
-            self._add_issue(
-                "IB Gateway",
-                IssueLevel.WARNING,
-                "IB Gateway not running",
-                "No ibgateway process found",
-                "Start IB Gateway manually or use SpyderQ13_StartRealGateway.py",
-            )
-
-        # Check IB Gateway installation
-        ib_paths = [Path.home() / "Jts", Path("/opt/ibgateway"), Path("/usr/local/ibgateway")]
-
-        gateway_found = False
-        for path in ib_paths:
-            if path.exists():
-                gateway_found = True
-                self._print_ok(f"IB Gateway installation found at {path}")
-                break
-
-        if not gateway_found:
+        if ib_processes:
+            self._print_ok(f"IB Gateway running (PID: {ib_processes[0].pid})")
+        else:
             self._add_issue(
                 "IB Gateway",
                 IssueLevel.ERROR,
-                "IB Gateway not installed",
-                "Could not find IB Gateway installation",
-                "Download and install from Interactive Brokers website",
+                "IB Gateway not running",
+                "Cannot connect to Interactive Brokers",
+                "Start IB Gateway or TWS",
+            )
+
+        # Test connection to IB
+        try:
+            # Import ib_async for connection test
+            from ib_async import IB
+            
+            ib = IB()
+            connected = False
+            
+            # Try paper trading port first
+            try:
+                ib.connect("127.0.0.1", 4002, clientId=999)
+                connected = True
+                self._print_ok("Connected to IB Gateway (Paper)")
+                ib.disconnect()
+            except Exception:
+                # Try live port
+                try:
+                    ib.connect("127.0.0.1", 4001, clientId=999)
+                    connected = True
+                    self._print_ok("Connected to IB Gateway (Live)")
+                    ib.disconnect()
+                except Exception as e:
+                    self._add_issue(
+                        "IB Gateway",
+                        IssueLevel.ERROR,
+                        "Cannot connect to IB Gateway",
+                        str(e),
+                        "Check IB Gateway is running and accessible",
+                    )
+
+        except ImportError:
+            self._add_issue(
+                "IB Gateway",
+                IssueLevel.ERROR,
+                "Cannot test IB connection",
+                "ib_async not available",
+                "Install ib_async: pip install ib_async",
             )
 
     def _diagnose_modules(self):
-        """Diagnose Spyder module imports"""
-        print(f"\n{Colors.CYAN}5. Module Import Diagnostics{Colors.RESET}")
+        """Diagnose Spyder modules"""
+        print(f"\n{Colors.CYAN}5. Module Diagnostics{Colors.RESET}")
 
-        critical_modules = [
-            "SpyderA_Core.SpyderA06_MasterController",
-            "SpyderB_Broker.SpyderB14_MultiClientWatchdog",
-            "SpyderE_Risk.SpyderE11_MaxLossProtection",
-            "SpyderX_Agents.SpyderX16_MetaCoordinator",
+        # Key modules to check
+        modules_to_check = [
+            "SpyderA_Core.SpyderA01_Main",
+            "SpyderB_Broker.SpyderB01_SpyderClient",
+            "SpyderC_MarketData.SpyderC01_DataFeed",
+            "SpyderD_Strategies.SpyderD01_BaseStrategy",
+            "SpyderU_Utilities.SpyderU01_Logger",
         ]
 
-        sys.path.insert(0, str(SPYDER_HOME))
-
-        for module in critical_modules:
+        for module_name in modules_to_check:
             try:
-                # Try to import
-                parts = module.split(".")
-                exec(f"from {'.'.join(parts[:-1])} import {parts[-1]}")
-                self._print_ok(f"{module.split('.')[-1]} imports OK")
-            except ImportError as e:
-                self._add_issue(
-                    "Modules",
-                    IssueLevel.ERROR,
-                    f"Cannot import {module}",
-                    str(e),
-                    "Check if module file exists and has no syntax errors",
-                )
+                importlib.import_module(module_name)
+                self._print_ok(f"{module_name} imports successfully")
             except Exception as e:
                 self._add_issue(
                     "Modules",
-                    IssueLevel.WARNING,
-                    f"Error in {module}",
+                    IssueLevel.ERROR,
+                    f"Cannot import {module_name}",
                     str(e),
-                    "Review module code for errors",
+                    "Check module exists and has no syntax errors",
                 )
 
     def _diagnose_processes(self):
@@ -477,153 +478,53 @@ class SpyderDiagnostics:
         """Diagnose system performance"""
         print(f"\n{Colors.CYAN}8. Performance Diagnostics{Colors.RESET}")
 
-        # Check disk space
-        disk_usage = psutil.disk_usage(str(SPYDER_HOME))
-        if disk_usage.percent > 90:
-            self._add_issue(
-                "Performance",
-                IssueLevel.ERROR,
-                f"Low disk space: {disk_usage.percent}%",
-                f"Only {disk_usage.free // (1024**3)}GB free",
-                "Free up disk space or add storage",
-            )
-        else:
-            self._print_ok(f"Disk usage: {disk_usage.percent}%")
+        # CPU usage
+        cpu_percent = psutil.cpu_percent(interval=1)
+        self._print_info(f"CPU usage: {cpu_percent}%")
 
-        # Check available memory
-        mem = psutil.virtual_memory()
-        if mem.available < 1024**3:  # Less than 1GB
-            self._add_issue(
-                "Performance",
-                IssueLevel.WARNING,
-                f"Low available memory: {mem.available // (1024**2)}MB",
-                "System may experience slowdowns",
-                "Close unnecessary applications",
-            )
-        else:
-            self._print_ok(f"Available memory: {mem.available // (1024**3)}GB")
+        # Memory usage
+        memory = psutil.virtual_memory()
+        self._print_info(f"Memory usage: {memory.percent}% ({memory.used // (1024**3)}GB used)")
 
-        # Check swap usage
-        swap = psutil.swap_memory()
-        if swap.percent > 50:
-            self._add_issue(
-                "Performance",
-                IssueLevel.WARNING,
-                f"High swap usage: {swap.percent}%",
-                "System is using swap heavily",
-                "Consider adding more RAM",
-            )
+        # Disk usage
+        disk = psutil.disk_usage(str(SPYDER_HOME))
+        disk_percent = (disk.used / disk.total) * 100
+        self._print_info(f"Disk usage: {disk_percent:.1f}%")
+
+        # Load average (Unix only)
+        try:
+            load = os.getloadavg()
+            self._print_info(f"Load average: {load[0]:.2f}, {load[1]:.2f}, {load[2]:.2f}")
+        except OSError:
+            pass  # Windows doesn't support load average
 
     def _diagnose_configuration(self):
         """Diagnose configuration files"""
         print(f"\n{Colors.CYAN}9. Configuration Diagnostics{Colors.RESET}")
 
-        config_file = SPYDER_HOME / ".env"
+        # Check for config files
+        config_files = [
+            SPYDER_HOME / "config" / "trading.json",
+            SPYDER_HOME / "config" / "strategies.json",
+            SPYDER_HOME / "config" / "ib_config.json",
+        ]
 
-        if not config_file.exists():
-            self._add_issue(
-                "Configuration",
-                IssueLevel.ERROR,
-                "Configuration file not found",
-                f"Expected at: {config_file}",
-                "Copy .env.example to .env and configure",
-            )
-        else:
-            self._print_ok("Configuration file exists")
-
-            # Check file permissions
-            import stat
-
-            mode = config_file.stat().st_mode
-            if mode & stat.S_IROTH:
-                self._add_issue(
-                    "Configuration",
-                    IssueLevel.WARNING,
-                    "Configuration file is world-readable",
-                    "Contains sensitive information",
-                    f"Fix with: chmod 600 {config_file}",
-                    auto_fix=True,
-                )
-                if self.auto_fix:
-                    config_file.chmod(0o600)
-                    self._print_fixed("Fixed configuration file permissions")
-
-            # Check for required variables
-            try:
-                with open(config_file) as f:
-                    content = f.read()
-                    required_vars = ["IB_USERNAME", "TRADING_MODE", "LOG_LEVEL"]
-
-                    for var in required_vars:
-                        if var not in content:
-                            self._add_issue(
-                                "Configuration",
-                                IssueLevel.WARNING,
-                                f"Missing configuration: {var}",
-                                "Required for proper operation",
-                                f"Add {var} to .env file",
-                            )
-            except Exception as e:
-                self._add_issue(
-                    "Configuration",
-                    IssueLevel.ERROR,
-                    "Cannot read configuration file",
-                    str(e),
-                    "Check file permissions and format",
-                )
-
-    # ==========================================================================
-    # RECOMMENDATIONS
-    # ==========================================================================
-
-    def _generate_recommendations(self):
-        """Generate system recommendations"""
-
-        # Based on issues found
-        critical_count = sum(1 for i in self.issues if i.level == IssueLevel.CRITICAL)
-        error_count = sum(1 for i in self.issues if i.level == IssueLevel.ERROR)
-        warning_count = sum(1 for i in self.issues if i.level == IssueLevel.WARNING)
-
-        if critical_count > 0:
-            self.recommendations.append(
-                "🔴 Fix critical issues immediately before running the system"
-            )
-
-        if error_count > 0:
-            self.recommendations.append("🟠 Address error-level issues for stable operation")
-
-        if warning_count > 5:
-            self.recommendations.append("🟡 Review and fix warnings to improve system reliability")
-
-        # Performance recommendations
-        if self.system_info.get("memory_total_gb", 0) < 4:
-            self.recommendations.append("💾 Consider upgrading RAM (4GB+ recommended)")
-
-        if self.system_info.get("disk_usage_percent", 0) > 70:
-            self.recommendations.append("💿 Free up disk space or add storage")
-
-        # General recommendations
-        if not (SPYDER_HOME / "backup").exists():
-            self.recommendations.append(
-                "💼 Set up regular backups with SpyderQ16_SpyderControl.sh backup"
-            )
-
-        if not self.issues:
-            self.recommendations.append("✅ System is healthy - ready for trading!")
-
-    def _calculate_health_score(self) -> int:
-        """Calculate overall health score"""
-        score = 100
-
-        for issue in self.issues:
-            if issue.level == IssueLevel.CRITICAL:
-                score -= 25
-            elif issue.level == IssueLevel.ERROR:
-                score -= 15
-            elif issue.level == IssueLevel.WARNING:
-                score -= 5
-
-        return max(0, score)
+        for config_file in config_files:
+            if config_file.exists():
+                try:
+                    with open(config_file) as f:
+                        json.load(f)
+                    self._print_ok(f"Valid config: {config_file.name}")
+                except json.JSONDecodeError as e:
+                    self._add_issue(
+                        "Configuration",
+                        IssueLevel.ERROR,
+                        f"Invalid JSON in {config_file.name}",
+                        str(e),
+                        "Fix JSON syntax errors",
+                    )
+            else:
+                self._print_warning(f"Config not found: {config_file.name}")
 
     # ==========================================================================
     # HELPER METHODS
@@ -636,7 +537,6 @@ class SpyderDiagnostics:
         description: str,
         details: str,
         solution: Optional[str] = None,
-        auto_fix: bool = False,
     ):
         """Add an issue to the list"""
         issue = Issue(
@@ -645,20 +545,18 @@ class SpyderDiagnostics:
             description=description,
             details=details,
             solution=solution,
-            auto_fix_available=auto_fix,
         )
         self.issues.append(issue)
 
-        # Print based on level
-        if level == IssueLevel.CRITICAL:
-            print(f"  {Colors.RED}✗ {description}{Colors.RESET}")
-        elif level == IssueLevel.ERROR:
-            print(f"  {Colors.RED}✗ {description}{Colors.RESET}")
-        elif level == IssueLevel.WARNING:
-            print(f"  {Colors.YELLOW}⚠ {description}{Colors.RESET}")
-        else:
-            print(f"  {Colors.CYAN}ℹ {description}{Colors.RESET}")
+        # Print issue
+        color = {
+            IssueLevel.CRITICAL: Colors.RED,
+            IssueLevel.ERROR: Colors.RED,
+            IssueLevel.WARNING: Colors.YELLOW,
+            IssueLevel.INFO: Colors.CYAN,
+        }[level]
 
+        print(f"  {color}✗ {description}{Colors.RESET}")
         if self.verbose:
             print(f"    Details: {details}")
             if solution:
@@ -674,84 +572,150 @@ class SpyderDiagnostics:
 
     def _print_info(self, message: str):
         """Print info message"""
-        print(f"  {Colors.CYAN}ℹ {message}{Colors.RESET}")
+        print(f"  {Colors.CYAN}ⓘ {message}{Colors.RESET}")
 
-    def _print_fixed(self, message: str):
-        """Print auto-fix message"""
-        print(f"  {Colors.GREEN}🔧 {message}{Colors.RESET}")
+    def _generate_recommendations(self):
+        """Generate recommendations based on issues"""
+        self.recommendations = []
 
+        # Count issues by level
+        critical_count = sum(1 for i in self.issues if i.level == IssueLevel.CRITICAL)
+        error_count = sum(1 for i in self.issues if i.level == IssueLevel.ERROR)
+        warning_count = sum(1 for i in self.issues if i.level == IssueLevel.WARNING)
 
-# ===============================================================================
-# REPORT GENERATION
-# ===============================================================================
-
-
-def generate_report(result: DiagnosticResult, format: str = "text") -> str:
-    """Generate diagnostic report"""
-
-    if format == "json":
-        return json.dumps(asdict(result), indent=2, default=str)
-
-    # Text format
-    lines = []
-    lines.append("=" * 60)
-    lines.append("SPYDER DIAGNOSTIC REPORT")
-    lines.append(f"Generated: {result.timestamp}")
-    lines.append("=" * 60)
-    lines.append("")
-
-    # Health score
-    score_color = (
-        Colors.GREEN
-        if result.health_score >= 80
-        else Colors.YELLOW if result.health_score >= 60 else Colors.RED
-    )
-    lines.append(f"Health Score: {score_color}{result.health_score}/100{Colors.RESET}")
-    lines.append("")
-
-    # Issues summary
-    critical = sum(1 for i in result.issues if i.level == IssueLevel.CRITICAL)
-    errors = sum(1 for i in result.issues if i.level == IssueLevel.ERROR)
-    warnings = sum(1 for i in result.issues if i.level == IssueLevel.WARNING)
-
-    lines.append("ISSUES FOUND:")
-    lines.append(f"  Critical: {critical}")
-    lines.append(f"  Errors: {errors}")
-    lines.append(f"  Warnings: {warnings}")
-    lines.append("")
-
-    # Detailed issues
-    if result.issues:
-        lines.append("DETAILED ISSUES:")
-        lines.append("-" * 40)
-
-        for issue in sorted(result.issues, key=lambda x: x.level.value):
-            icon = (
-                "🔴"
-                if issue.level == IssueLevel.CRITICAL
-                else "🟠" if issue.level == IssueLevel.ERROR else "🟡"
+        if critical_count > 0:
+            self.recommendations.append(
+                f"URGENT: Fix {critical_count} critical issue(s) before running Spyder"
             )
-            lines.append(f"{icon} [{issue.category}] {issue.description}")
-            lines.append(f"   {issue.details}")
-            if issue.solution:
-                lines.append(f"   → Solution: {issue.solution}")
-            lines.append("")
 
-    # Recommendations
-    if result.recommendations:
-        lines.append("RECOMMENDATIONS:")
-        lines.append("-" * 40)
-        for rec in result.recommendations:
-            lines.append(f"  {rec}")
-        lines.append("")
+        if error_count > 0:
+            self.recommendations.append(
+                f"Fix {error_count} error(s) for proper functionality"
+            )
 
-    # System info
-    lines.append("SYSTEM INFORMATION:")
-    lines.append("-" * 40)
-    for key, value in result.system_info.items():
-        lines.append(f"  {key}: {value}")
+        if warning_count > 0:
+            self.recommendations.append(
+                f"Address {warning_count} warning(s) for optimal performance"
+            )
 
-    return "\n".join(lines)
+        # Specific recommendations
+        categories = {i.category for i in self.issues}
+
+        if "Dependencies" in categories:
+            self.recommendations.append("Install missing dependencies with pip")
+
+        if "IB Gateway" in categories:
+            self.recommendations.append("Ensure IB Gateway/TWS is running and accessible")
+
+        if "Modules" in categories:
+            self.recommendations.append("Check Spyder module imports and syntax")
+
+        if len(self.issues) == 0:
+            self.recommendations.append("System appears healthy - ready for trading!")
+
+    def _calculate_health_score(self) -> int:
+        """Calculate overall system health score (0-100)"""
+        if not self.issues:
+            return 100
+
+        # Deduct points based on issue severity
+        deductions = {
+            IssueLevel.CRITICAL: 25,
+            IssueLevel.ERROR: 15,
+            IssueLevel.WARNING: 5,
+            IssueLevel.INFO: 1,
+        }
+
+        total_deduction = sum(deductions[issue.level] for issue in self.issues)
+        health_score = max(0, 100 - total_deduction)
+
+        return health_score
+
+    def _print_summary(self, result: DiagnosticResult):
+        """Print diagnostic summary"""
+        print(f"\n{Colors.BLUE}{'='*60}{Colors.RESET}")
+        print(f"{Colors.BLUE}  DIAGNOSTIC SUMMARY{Colors.RESET}")
+        print(f"{Colors.BLUE}{'='*60}{Colors.RESET}")
+
+        # Health score
+        if result.health_score >= 90:
+            score_color = Colors.GREEN
+        elif result.health_score >= 70:
+            score_color = Colors.YELLOW
+        else:
+            score_color = Colors.RED
+
+        print(f"\n{Colors.BOLD}Health Score: {score_color}{result.health_score}/100{Colors.RESET}")
+
+        # Issue counts
+        if result.issues:
+            print(f"\n{Colors.BOLD}Issues Found:{Colors.RESET}")
+            issue_counts = {}
+            for issue in result.issues:
+                issue_counts[issue.level] = issue_counts.get(issue.level, 0) + 1
+
+            for level, count in issue_counts.items():
+                color = {
+                    IssueLevel.CRITICAL: Colors.RED,
+                    IssueLevel.ERROR: Colors.RED,
+                    IssueLevel.WARNING: Colors.YELLOW,
+                    IssueLevel.INFO: Colors.CYAN,
+                }[level]
+                print(f"  {color}{level.value}: {count}{Colors.RESET}")
+        else:
+            print(f"\n{Colors.GREEN}No issues found!{Colors.RESET}")
+
+        # Recommendations
+        if result.recommendations:
+            print(f"\n{Colors.BOLD}Recommendations:{Colors.RESET}")
+            for i, rec in enumerate(result.recommendations, 1):
+                print(f"  {i}. {rec}")
+
+        print(f"\n{Colors.BLUE}{'='*60}{Colors.RESET}")
+
+
+# ===============================================================================
+# AUTO-FIX FUNCTIONALITY
+# ===============================================================================
+
+
+class AutoFix:
+    """Automated fix implementations"""
+
+    @staticmethod
+    def fix_missing_directories():
+        """Create missing directories"""
+        directories = [LOG_DIR, DATA_DIR, SCRIPTS_DIR]
+        for directory in directories:
+            if not directory.exists():
+                directory.mkdir(parents=True, exist_ok=True)
+                print(f"Created directory: {directory}")
+
+    @staticmethod
+    def fix_permissions():
+        """Fix file permissions"""
+        try:
+            # Make scripts executable
+            script_files = SCRIPTS_DIR.glob("*.sh")
+            for script in script_files:
+                os.chmod(script, 0o755)
+            print("Fixed script permissions")
+        except Exception as e:
+            print(f"Error fixing permissions: {e}")
+
+    @staticmethod
+    def install_missing_packages(packages: List[str]):
+        """Install missing Python packages"""
+        for package in packages:
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", package],
+                    check=True,
+                    capture_output=True,
+                )
+                print(f"Installed {package}")
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to install {package}: {e}")
 
 
 # ===============================================================================
@@ -762,35 +726,51 @@ def generate_report(result: DiagnosticResult, format: str = "text") -> str:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="Spyder System Diagnostics")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument(
-        "--auto-fix", "-f", action="store_true", help="Automatically fix issues where possible"
+        "--verbose", "-v", action="store_true", help="Verbose output"
     )
-    parser.add_argument("--json", action="store_true", help="Output in JSON format")
-    parser.add_argument("--export", type=str, help="Export report to file")
+    parser.add_argument(
+        "--auto-fix", "-f", action="store_true", help="Attempt automatic fixes"
+    )
+    parser.add_argument(
+        "--output", "-o", help="Save results to JSON file"
+    )
+    parser.add_argument(
+        "--health-check", action="store_true", help="Quick health check only"
+    )
 
     args = parser.parse_args()
 
-    # Run diagnostics
+    # Initialize diagnostics
     diagnostics = SpyderDiagnostics(verbose=args.verbose, auto_fix=args.auto_fix)
-    result = diagnostics.run_full_diagnostics()
 
-    # Generate report
-    print("\n" + "=" * 60)
-    report = generate_report(result, "json" if args.json else "text")
-
-    if args.export:
-        with open(args.export, "w") as f:
-            f.write(report)
-        print(f"Report exported to: {args.export}")
+    # Run diagnostics
+    if args.health_check:
+        # Quick health check
+        print("Running quick health check...")
+        diagnostics._diagnose_dependencies()
+        diagnostics._diagnose_network()
+        diagnostics._diagnose_ib_gateway()
     else:
-        print(report)
+        # Full diagnostics
+        result = diagnostics.run_full_diagnostics()
 
-    # Exit with appropriate code
-    if result.health_score < 60:
-        sys.exit(1)
-    else:
-        sys.exit(0)
+        # Auto-fix if requested
+        if args.auto_fix:
+            print(f"\n{Colors.CYAN}Running auto-fixes...{Colors.RESET}")
+            AutoFix.fix_missing_directories()
+            AutoFix.fix_permissions()
+
+        # Save results if requested
+        if args.output:
+            try:
+                with open(args.output, "w") as f:
+                    json.dump(asdict(result), f, indent=2, default=str)
+                print(f"\nResults saved to: {args.output}")
+            except Exception as e:
+                print(f"Error saving results: {e}")
+
+    print(f"\n{Colors.GREEN}Diagnostics complete!{Colors.RESET}")
 
 
 if __name__ == "__main__":

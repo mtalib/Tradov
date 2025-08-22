@@ -1,24 +1,39 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
-Module: SpyderB14_MultiClientWatchdog.py
-Group: B (Broker/Connection)
-Purpose: Multi-client health monitoring and recovery system
+Series: SpyderB_Broker 
+Module: SpyderB14_MultiClientWatchdog.py 
+Purpose: Multi-client health monitoring and recovery system with ib_async integration
 Author: Mohamed Talib
-Date Created: 2025-08-03
-Last Updated: 2025-08-12 Time: 17:15:00
+Year Created: 2025 
+Last Updated: 2025-08-21 Time: 21:45:00  
 
-Description:
+Module Description:
     Implements the advanced watchdog system from the stability plan with
     health monitoring, automatic recovery, and performance metrics for all
-    9 client connections. Includes Eastern time scheduling and maintenance
-    window awareness.
-    
-    UPDATED: Client IDs now range from 1-9 instead of 0-8 to match dashboard display.
-    Order execution moved to Client 2 for highest priority trading operations.
+    9 client connections. Uses modern ib_async library for enhanced IB Gateway
+    10.37 compatibility. Includes Eastern time scheduling and maintenance
+    window awareness with clients 1-9 range and optimized order execution.
+
+Key Features:
+    • Modern ib_async integration for optimal IB Gateway compatibility
+    • Health monitoring for clients 1-9 with priority-based connections
+    • Automatic recovery and reconnection capabilities
+    • Performance metrics and system health assessment
+    • Eastern timezone scheduling and maintenance window awareness
+    • Enhanced error handling and connection stability
+
+Dependencies:
+    • ib_async (modern IB API wrapper)
+    • Standard Python asyncio, threading, and monitoring libraries
+
+Installation Note:
+    pip install ib_async
+
+UPDATED: Client IDs now range from 1-9 instead of 0-8 to match dashboard display.
+Order execution moved to Client 2 for highest priority trading operations.
 """
 
 # ==============================================================================
@@ -42,7 +57,7 @@ from pathlib import Path
 # ==============================================================================
 import pytz
 import psutil
-from ib_insync import IB, util, Contract
+from ib_async import IB, util, Contract
 
 # ==============================================================================
 # MONITORING IMPORTS (OPTIONAL)
@@ -182,7 +197,7 @@ class RateLimiter:
         return False
 
 # ==============================================================================
-# MAIN WATCHDOG CLASS - UPDATED FOR 1-9 RANGE
+# MAIN WATCHDOG CLASS - UPDATED FOR 1-9 RANGE WITH ib_async
 # ==============================================================================
 class MultiClientWatchdog:
     """
@@ -190,6 +205,7 @@ class MultiClientWatchdog:
     
     UPDATED: Monitors clients 1-9 instead of 0-8, with Order Execution
     priority moved to Client 2 for optimal trading performance.
+    Uses modern ib_async library for enhanced IB Gateway 10.37 compatibility.
     """
     
     def __init__(self, config: Optional[GatewayConfig] = None):
@@ -215,7 +231,7 @@ class MultiClientWatchdog:
         # Initialize data manager if available
         self.data_manager = MultiClientDataManager() if MultiClientDataManager else None
         
-        # Client connections - UPDATED for 1-9 range
+        # Client connections - UPDATED for 1-9 range with ib_async
         self.clients: Dict[int, IB] = {}
         self.client_configs = get_client_allocation()
         
@@ -251,7 +267,7 @@ class MultiClientWatchdog:
         # Eastern timezone
         self.eastern_tz = pytz.timezone('US/Eastern')
         
-        self.logger.info("MultiClientWatchdog initialized with %d clients (1-9)", 
+        self.logger.info("MultiClientWatchdog initialized with %d clients (1-9) using ib_async", 
                         len(self.client_configs))
 
     def get_critical_client_ids(self) -> List[int]:
@@ -268,11 +284,11 @@ class MultiClientWatchdog:
         return 1  # UPDATED: Administrative is now Client 1 (was Client 0)
 
     # ==========================================================================
-    # CONNECTION MANAGEMENT - UPDATED FOR 1-9 RANGE
+    # CONNECTION MANAGEMENT - UPDATED FOR 1-9 RANGE WITH ib_async
     # ==========================================================================
     async def initialize_all_clients(self) -> bool:
         """
-        Initialize all 9 client connections in priority order (1-9).
+        Initialize all 9 client connections in priority order (1-9) using ib_async.
         
         Returns:
             True if all critical clients connected successfully
@@ -284,19 +300,19 @@ class MultiClientWatchdog:
         success_count = 0
         critical_success = True
         
-        self.logger.info("🚀 Initializing clients in priority order: %s", priority_order)
+        self.logger.info("🚀 Initializing clients in priority order with ib_async: %s", priority_order)
         
         for client_id in priority_order:
             try:
                 success = await self.connect_client(client_id)
                 if success:
                     success_count += 1
-                    self.logger.info("✓ Client %d connected successfully", client_id)
+                    self.logger.info("✅ Client %d connected successfully via ib_async", client_id)
                 elif client_id in critical_clients:
                     critical_success = False
-                    self.logger.error("✗ Critical client %d failed to connect", client_id)
+                    self.logger.error("❌ Critical client %d failed to connect", client_id)
                 else:
-                    self.logger.warning("⚠ Non-critical client %d failed to connect", client_id)
+                    self.logger.warning("⚠️ Non-critical client %d failed to connect", client_id)
                 
                 # Prevent overwhelming Gateway
                 await asyncio.sleep(2)
@@ -322,7 +338,7 @@ class MultiClientWatchdog:
     
     async def connect_client(self, client_id: int) -> bool:
         """
-        Connect a specific client with health verification.
+        Connect a specific client with health verification using ib_async.
         
         Args:
             client_id: Client ID to connect (1-9 range)
@@ -342,16 +358,16 @@ class MultiClientWatchdog:
                 self.logger.error("No configuration for client %d", client_id)
                 return False
             
-            self.logger.info("Connecting client %d: %s", 
+            self.logger.info("Connecting client %d via ib_async: %s", 
                            client_id, client_config.description)
             
             # Update client state
             self.client_health[client_id].state = ClientState.CONNECTING
             
-            # Create IB client
+            # Create ib_async client
             ib = IB()
             
-            # Connect with timeout
+            # Connect with timeout using ib_async
             await asyncio.wait_for(
                 ib.connectAsync(
                     host='127.0.0.1',
@@ -381,7 +397,7 @@ class MultiClientWatchdog:
                     health.reconnect_attempts = 0
                     health.last_heartbeat = datetime.now()
                     
-                    self.logger.info("✅ Client %d connected and verified", client_id)
+                    self.logger.info("✅ Client %d connected and verified via ib_async", client_id)
                     return True
                 else:
                     self.logger.error("❌ Client %d connected but verification failed", client_id)
@@ -454,15 +470,15 @@ class MultiClientWatchdog:
             del self.clients[client_id]
 
     # ==========================================================================
-    # HEALTH MONITORING - UPDATED FOR 1-9 RANGE
+    # HEALTH MONITORING - UPDATED FOR 1-9 RANGE WITH ib_async
     # ==========================================================================
     async def start_monitoring(self):
-        """Start the health monitoring system"""
+        """Start the health monitoring system with ib_async"""
         try:
             self.running = True
             self.system_health.state = SystemState.STARTING
             
-            self.logger.info("🔍 Starting health monitoring for clients 1-9...")
+            self.logger.info("🔍 Starting health monitoring for clients 1-9 with ib_async...")
             
             # Initialize all clients
             critical_success = await self.initialize_all_clients()
@@ -483,8 +499,8 @@ class MultiClientWatchdog:
             self.system_health.state = SystemState.CRITICAL
 
     async def _monitoring_loop(self):
-        """Main monitoring loop"""
-        self.logger.info("🔄 Starting monitoring loop")
+        """Main monitoring loop with ib_async health checks"""
+        self.logger.info("🔄 Starting monitoring loop with ib_async")
         
         while self.running:
             try:
@@ -503,7 +519,7 @@ class MultiClientWatchdog:
                         self.logger.info("✅ Exiting maintenance window")
                         await self._assess_system_health()
                 
-                # Perform health checks
+                # Perform health checks with ib_async
                 await self._perform_health_checks()
                 
                 # Update system metrics
@@ -525,7 +541,7 @@ class MultiClientWatchdog:
         self.logger.info("🛑 Monitoring loop stopped")
 
     async def _perform_health_checks(self):
-        """Perform health checks on all clients (1-9)"""
+        """Perform health checks on all clients (1-9) using ib_async"""
         current_time = datetime.now()
         
         for client_id in range(MIN_CLIENT_ID, MAX_CLIENT_ID + 1):
@@ -535,7 +551,7 @@ class MultiClientWatchdog:
                 self.logger.error("❌ Error checking client %d health: %s", client_id, e)
 
     async def _check_client_health(self, client_id: int, current_time: datetime):
-        """Check health of a specific client"""
+        """Check health of a specific client using ib_async"""
         health = self.client_health[client_id]
         
         if client_id not in self.clients:
@@ -555,7 +571,7 @@ class MultiClientWatchdog:
                 self.logger.warning("⚠️ Client %d lost connection", client_id)
                 return
             
-            # Test connection with heartbeat
+            # Test connection with heartbeat using ib_async
             server_time = await asyncio.wait_for(
                 ib.reqCurrentTimeAsync(),
                 timeout=5.0
@@ -641,7 +657,7 @@ class MultiClientWatchdog:
             self.logger.error("❌ Error assessing system health: %s", e)
 
     async def _perform_recovery_actions(self):
-        """Perform automatic recovery actions"""
+        """Perform automatic recovery actions using ib_async"""
         try:
             critical_clients = self.get_critical_client_ids()
             
@@ -653,7 +669,7 @@ class MultiClientWatchdog:
                     health.consecutive_failures >= MAX_CONSECUTIVE_FAILURES):
                     
                     if health.reconnect_attempts < MAX_RECONNECT_ATTEMPTS:
-                        self.logger.info("🔄 Attempting to recover client %d (attempt %d/%d)", 
+                        self.logger.info("🔄 Attempting to recover client %d via ib_async (attempt %d/%d)", 
                                        client_id, health.reconnect_attempts + 1, MAX_RECONNECT_ATTEMPTS)
                         
                         health.reconnect_attempts += 1
@@ -705,7 +721,8 @@ class MultiClientWatchdog:
                     'state': self.system_health.state.name,
                     'status': self.system_health.status.value,
                     'uptime_seconds': self.system_health.uptime.total_seconds(),
-                    'last_health_check': self.system_health.last_health_check.isoformat() if self.system_health.last_health_check else None
+                    'last_health_check': self.system_health.last_health_check.isoformat() if self.system_health.last_health_check else None,
+                    'ib_library': 'ib_async'
                 },
                 'clients': {
                     'total': self.system_health.total_clients,
@@ -755,7 +772,8 @@ class MultiClientWatchdog:
                 'data_messages_received': health.data_messages_received,
                 'last_heartbeat': health.last_heartbeat.isoformat() if health.last_heartbeat else None,
                 'connection_time': health.connection_time.isoformat() if health.connection_time else None,
-                'last_error': health.last_error
+                'last_error': health.last_error,
+                'ib_library': 'ib_async'
             }
             
         except Exception as e:
@@ -781,7 +799,8 @@ class MultiClientWatchdog:
                 ],
                 'uptime_minutes': int(self.system_health.uptime.total_seconds() / 60),
                 'cpu_usage': self.system_health.cpu_usage,
-                'memory_usage': self.system_health.memory_usage
+                'memory_usage': self.system_health.memory_usage,
+                'ib_library': 'ib_async'
             }
             
         except Exception as e:
@@ -856,7 +875,7 @@ async def start_monitoring_system(config: Optional[GatewayConfig] = None) -> Mul
 # ==============================================================================
 async def main():
     """Main execution for testing and demonstration"""
-    print("🚀 SPYDER B14 - Multi-Client Watchdog (UPDATED: CLIENTS 1-9)")
+    print("🚀 SPYDER B14 - Multi-Client Watchdog (UPDATED: CLIENTS 1-9 WITH ib_async)")
     print("=" * 70)
     
     try:
@@ -870,10 +889,11 @@ async def main():
         
         # Create watchdog
         watchdog = create_watchdog(config)
-        print(f"✅ Watchdog created")
+        print(f"✅ Watchdog created with ib_async")
         
         # Print configuration summary
         print(f"\n📊 Client Configuration:")
+        print(f"   IB Library: ib_async")
         print(f"   Client ID Range: {MIN_CLIENT_ID}-{MAX_CLIENT_ID}")
         print(f"   Total Clients: {TOTAL_CLIENTS}")
         print(f"   Critical Clients: {watchdog.get_critical_client_ids()}")
@@ -883,6 +903,7 @@ async def main():
         # Test status methods
         print(f"\n🔍 Testing status methods:")
         health_summary = watchdog.get_health_summary()
+        print(f"   IB Library: {health_summary.get('ib_library', 'unknown')}")
         print(f"   Overall Status: {health_summary.get('overall_status', 'unknown')}")
         print(f"   System State: {health_summary.get('system_state', 'unknown')}")
         print(f"   Clients Connected: {health_summary.get('clients_connected', 0)}/{health_summary.get('clients_total', 0)}")
@@ -892,12 +913,13 @@ async def main():
         for client_id in [1, 2, 3, 9]:  # Test a few clients
             status = watchdog.get_client_status(client_id)
             if status:
-                print(f"   Client {client_id}: {status['status']} - {status['purpose']}")
+                print(f"   Client {client_id}: {status['status']} - {status['purpose']} (ib_async)")
             else:
                 print(f"   Client {client_id}: Configuration not found")
         
         print(f"\n🎯 Watchdog test completed successfully!")
-        print(f"✅ Ready for production monitoring of clients 1-9")
+        print(f"✅ Ready for production monitoring of clients 1-9 with ib_async")
+        print(f"🔧 Enhanced IB Gateway 10.37 compatibility")
         
         # Note: In production, you would call:
         # await watchdog.start_monitoring()

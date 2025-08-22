@@ -2198,7 +2198,7 @@ class SpyderTradingDashboard(QMainWindow):
             grid.addWidget(component_widget, row, 0)
 
         # IB Clients 1-5 (Column 2)
-        client_1_5_types = ["Admin", "Orders", "Core", "Options", "Volatility"]
+        client_1_5_types = ["Orders", "Admin", "Core", "Options", "Volatility"]
         for row in range(1, 6):
             client_widget = QWidget()
             client_layout = QHBoxLayout()
