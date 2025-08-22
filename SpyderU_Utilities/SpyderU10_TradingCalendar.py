@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU10_TradingCalendar.py
-Group: U (Utilities)
-Purpose: Trading calendar and market hours management
-
-Description:
-    This module manages trading calendars, market hours, and holiday schedules
-    for the Spyder trading system. It provides functionality to determine:
-    trading days, market hours, early closures, and special trading sessions.
-    The module supports multiple exchanges and handles time zone conversions
-    for global markets.:
+Purpose: Trading calendar and market hours management with holiday support
 
 Author: Mohamed Talib
-Date: 2025-06-14
-Version: 1.4
+Year Created: 2025
+Last Updated: 2025-01-24 Time: 10:30:00
+
+Module Description:
+    This module manages trading calendars, market hours, and holiday schedules
+    for the Spyder trading system. It provides functionality to determine
+    trading days, market hours, early closures, and special trading sessions.
+    The module supports multiple exchanges and handles time zone conversions
+    for global markets.
 """
 
 import json
@@ -172,10 +172,56 @@ class TradingCalendar:
         self.premarket_open = DEFAULT_PREMARKET_OPEN
         self.afterhours_close = DEFAULT_AFTERHOURS_CLOSE
 
-        # Initialize holidays
+        # Initialize holidays automatically
         self._load_holidays()
 
         self.logger.info(f"{self.__class__.__name__} initialized for {exchange.value}")
+
+    # ==========================================================================
+    # PUBLIC METHODS - HOLIDAY MANAGEMENT
+    # ==========================================================================
+    
+    def load_holidays(self) -> None:
+        """
+        Public method to load/reload holidays.
+        This is a wrapper for the private _load_holidays method.
+        Required by SpyderA01_Main for initialization.
+        """
+        try:
+            self._load_holidays()
+            self.logger.info(f"Holidays loaded: {len(self.holidays)} holidays")
+        except Exception as e:
+            self.logger.error(f"Error loading holidays: {e}")
+            self.error_handler.handle_error(e, "load_holidays")
+
+    def reload_holidays(self) -> None:
+        """
+        Reload holidays (alias for load_holidays).
+        Clears existing holidays and reloads from scratch.
+        """
+        self.holidays.clear()
+        self.early_closes.clear()
+        self.holiday_names.clear()
+        self.load_holidays()
+
+    def add_custom_holiday(self, holiday_date: date, name: str, 
+                          is_early_close: bool = False, 
+                          close_time: Optional[time] = None) -> None:
+        """
+        Add a custom holiday or early close day.
+        
+        Args:
+            holiday_date: Date of the holiday
+            name: Name of the holiday
+            is_early_close: Whether it's an early close day
+            close_time: Early close time if applicable
+        """
+        if is_early_close and close_time:
+            self._add_early_close(holiday_date, close_time, name)
+        else:
+            self._add_holiday(holiday_date, name)
+        
+        self.logger.info(f"Added custom holiday: {name} on {holiday_date}")
 
     # ==========================================================================
     # PUBLIC METHODS - TRADING DAY CHECKS
@@ -554,6 +600,30 @@ class TradingCalendar:
 
         return close_time - timestamp
 
+    def get_holidays_for_year(self, year: int) -> List[Holiday]:
+        """
+        Get all holidays for a specific year.
+        
+        Args:
+            year: Year to get holidays for
+            
+        Returns:
+            List of Holiday objects
+        """
+        holidays_list = []
+        for holiday_date in self.holidays:
+            if holiday_date.year == year:
+                holiday_name = self.holiday_names.get(holiday_date, "Unknown Holiday")
+                holidays_list.append(
+                    Holiday(
+                        date=holiday_date,
+                        name=holiday_name,
+                        exchange=self.exchange
+                    )
+                )
+        
+        return sorted(holidays_list, key=lambda h: h.date)
+
     # ==========================================================================
     # PRIVATE METHODS
     # ==========================================================================
@@ -714,15 +784,42 @@ class TradingCalendar:
         except Exception as e:
             self.logger.debug(f"No custom holidays loaded: {e}")
 
+    def save_custom_holidays(self, filepath: Optional[str] = None) -> bool:
+        """
+        Save current holidays to a JSON file.
+        
+        Args:
+            filepath: Path to save file (default: HOLIDAY_FILE)
+            
+        Returns:
+            bool: True if saved successfully
+        """
+        try:
+            save_path = filepath or HOLIDAY_FILE
+            holidays_dict = {
+                date_obj.strftime("%Y-%m-%d"): name
+                for date_obj, name in self.holiday_names.items()
+            }
+            
+            with open(save_path, "w") as f:
+                json.dump(holidays_dict, f, indent=2)
+            
+            self.logger.info(f"Saved {len(holidays_dict)} holidays to {save_path}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error saving holidays: {e}")
+            return False
+
     # ==========================================================================
     # LIFECYCLE METHODS
     # ==========================================================================
     def start(self) -> None:
-        """Start the trading calendar."""
+        """Start the trading calendar (compatibility method)."""
         self.logger.info("Trading calendar started")
 
     def stop(self) -> None:
-        """Stop the trading calendar."""
+        """Stop the trading calendar (compatibility method)."""
         self.logger.info("Trading calendar stopped")
 
     def cleanup(self) -> None:
@@ -785,6 +882,10 @@ if __name__ == "__main__":
     print(f"Market status: {calendar.get_market_status().value}")
     print(f"Market session: {calendar.get_market_session().value}")
 
+    # Test the public load_holidays method
+    calendar.load_holidays()
+    print(f"Holidays loaded successfully")
+
     # Test next/previous trading days
     print(f"Next trading day: {calendar.get_next_trading_day()}")
     print(f"Previous trading day: {calendar.get_previous_trading_day()}")
@@ -801,6 +902,12 @@ if __name__ == "__main__":
     time_to_close = calendar.time_until_close()
     if time_to_close:
         print(f"Time until close: {time_to_close}")
+
+    # Test holiday retrieval
+    holidays_2025 = calendar.get_holidays_for_year(2025)
+    print(f"\n2025 Holidays ({len(holidays_2025)} total):")
+    for holiday in holidays_2025[:5]:  # Show first 5
+        print(f"  - {holiday.date}: {holiday.name}")
 
     # Cleanup
     calendar.cleanup()

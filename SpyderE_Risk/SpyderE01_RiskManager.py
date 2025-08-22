@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderE_Risk
 Module: SpyderE01_RiskManager.py
-Group: E (Risk Management)
 Purpose: Comprehensive risk management with real-time monitoring
 
-Description:
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2025-01-24 Time: 10:45:00
+
+Module Description:
     This module provides institutional-grade risk management capabilities including
     pre-trade risk checks, real-time position monitoring, portfolio risk assessment,
     and automated risk mitigation. It implements sophisticated risk models, stress
     testing, and provides comprehensive risk reporting for professional trading
     operations.
-
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-03
-Last Updated: 2025-07-06 Time: 14:00:00
 """
 
 # ==============================================================================
@@ -48,8 +47,6 @@ import pandas as pd
 from threading import Lock, Event as ThreadEvent, RLock
 
 # ==============================================================================
-
-from SpyderE_Risk.SpyderE02_PositionSizer import PositionSizer, PositionSizeRequest
 # LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
 try:
@@ -68,6 +65,13 @@ except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
         'handle_error': lambda self, e, context: print(f"Error in {context}: {e}")
     })
+
+try:
+    from SpyderE_Risk.SpyderE02_PositionSizer import PositionSizer, PositionSizeRequest
+except ImportError:
+    # Fallback if PositionSizer not available
+    PositionSizer = None
+    PositionSizeRequest = None
 
 # ==============================================================================
 # CONSTANTS
@@ -214,10 +218,17 @@ class RiskManager:
         error_handler: Error handling instance
         risk_limits: Current risk limits
         portfolio_risk: Current portfolio risk metrics
+        portfolio_value: Current portfolio value
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """Initialize risk manager with configuration."""
+    def __init__(self, portfolio_value: float = 100000.0, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize risk manager with portfolio value and configuration.
+        
+        Args:
+            portfolio_value: Initial portfolio value (for backward compatibility)
+            config: Configuration dictionary
+        """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
@@ -225,19 +236,61 @@ class RiskManager:
         self.config = config or {}
         self.risk_limits = self._load_risk_limits()
         
+        # Set portfolio value
+        self.portfolio_value = portfolio_value
+        
         # State management with thread safety
         self._state_lock = RLock()
         self._position_risks: Dict[str, PositionRisk] = {}
         self._portfolio_risk = self._create_empty_portfolio_risk()
         
-        # Initialize position sizer
-        self.position_sizer = PositionSizer(
-            portfolio_value=self.portfolio_value,
-            config=self.config
-        )
-    def _initialize(self) -> None:
-        """Initialize risk management components."""
+        # Update portfolio value in the risk object
+        self._portfolio_risk.portfolio_value = portfolio_value
+        
+        # Initialize position sizer if available
+        self.position_sizer = None
+        if PositionSizer:
+            try:
+                self.position_sizer = PositionSizer(
+                    portfolio_value=self.portfolio_value,
+                    config=self.config
+                )
+            except Exception as e:
+                self.logger.warning(f"Could not initialize PositionSizer: {e}")
+        
+        # Risk tracking buffers
+        self._price_history = defaultdict(lambda: deque(maxlen=VAR_LOOKBACK_DAYS))
+        self._returns_buffer = deque(maxlen=VAR_LOOKBACK_DAYS)
+        self._risk_history = deque(maxlen=1000)
+        self._risk_alerts = deque(maxlen=100)
+        
+        # Monitoring
+        self._monitoring_active = False
+        self._monitor_thread = None
+        
+        # Callbacks
+        self._alert_callbacks = []
+        self._mitigation_callbacks = []
+        
+        # Thread pool for async operations
+        self._executor = ThreadPoolExecutor(max_workers=4)
+        
+        # Initialize
+        self._initialized = False
+        
+        self.logger.info(f"RiskManager created with portfolio value: ${portfolio_value:,.2f}")
+
+    def initialize(self) -> bool:
+        """
+        Initialize risk manager (public method for compatibility).
+        
+        Returns:
+            bool: True if initialization successful
+        """
         try:
+            if self._initialized:
+                return True
+            
             # Load historical data if available
             self._load_historical_data()
             
@@ -247,9 +300,12 @@ class RiskManager:
             self._initialized = True
             self.logger.info("RiskManager initialized successfully")
             
+            return True
+            
         except Exception as e:
             self.logger.error(f"RiskManager initialization failed: {e}")
-            self.error_handler.handle_error(e, {"method": "_initialize"})
+            self.error_handler.handle_error(e, {"method": "initialize"})
+            return False
     
     def _load_risk_limits(self) -> RiskLimits:
         """Load risk limits from configuration."""
@@ -271,7 +327,7 @@ class RiskManager:
         """Create empty portfolio risk object."""
         return PortfolioRisk(
             timestamp=datetime.now(),
-            portfolio_value=0.0,
+            portfolio_value=self.portfolio_value,
             at_risk_capital=0.0,
             total_var_95=0.0,
             total_cvar_95=0.0,
@@ -286,8 +342,41 @@ class RiskManager:
         )
     
     # ==========================================================================
+    # PUBLIC METHODS - CONFIGURATION
+    # ==========================================================================
+    
+    def update_portfolio_value(self, new_value: float) -> None:
+        """
+        Update the portfolio value.
+        
+        Args:
+            new_value: New portfolio value
+        """
+        with self._state_lock:
+            self.portfolio_value = new_value
+            self._portfolio_risk.portfolio_value = new_value
+            
+            # Update position sizer if available
+            if self.position_sizer:
+                self.position_sizer.portfolio_value = new_value
+            
+            self.logger.info(f"Portfolio value updated to: ${new_value:,.2f}")
+    
+    def set_config(self, config: Dict[str, Any]) -> None:
+        """
+        Update configuration.
+        
+        Args:
+            config: New configuration dictionary
+        """
+        self.config = config
+        self.risk_limits = self._load_risk_limits()
+        self.logger.info("Configuration updated")
+    
+    # ==========================================================================
     # PUBLIC METHODS - RISK CHECKS
     # ==========================================================================
+    
     def check_pre_trade_risk(self, trade_params: Dict[str, Any]) -> Tuple[RiskCheckResult, Optional[str]]:
         """
         Perform pre-trade risk checks.
@@ -311,9 +400,8 @@ class RiskManager:
                     return RiskCheckResult.REJECTED, "Maximum position count exceeded"
                 
                 # Check position size
-                portfolio_value = self._portfolio_risk.portfolio_value
-                if portfolio_value > 0:
-                    position_size_pct = trade_value / portfolio_value
+                if self.portfolio_value > 0:
+                    position_size_pct = trade_value / self.portfolio_value
                     if position_size_pct > self.risk_limits.max_position_size:
                         return RiskCheckResult.REJECTED, f"Position size {position_size_pct:.1%} exceeds limit"
                 
@@ -337,6 +425,24 @@ class RiskManager:
         except Exception as e:
             self.logger.error(f"Pre-trade risk check failed: {e}")
             return RiskCheckResult.REJECTED, "Risk check error"
+    
+    def check_trade(self, trade_params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Check trade against risk limits (compatibility method).
+        
+        Args:
+            trade_params: Trade parameters
+            
+        Returns:
+            Dictionary with 'approved' boolean and optional 'reason'
+        """
+        result, reason = self.check_pre_trade_risk(trade_params)
+        
+        return {
+            'approved': result == RiskCheckResult.APPROVED,
+            'result': result.value,
+            'reason': reason
+        }
     
     def calculate_position_risk(self, position: Dict[str, Any]) -> PositionRisk:
         """
@@ -382,8 +488,7 @@ class RiskManager:
             theta = position.get('theta', 0) * quantity
             
             # Calculate concentration risk
-            portfolio_value = self._portfolio_risk.portfolio_value
-            concentration = abs(market_value) / portfolio_value if portfolio_value > 0 else 0
+            concentration = abs(market_value) / self.portfolio_value if self.portfolio_value > 0 else 0
             
             # Determine risk level
             risk_level = self._assess_position_risk_level(
@@ -438,18 +543,21 @@ class RiskManager:
             )
     
     def calculate_portfolio_risk(self, positions: List[Dict[str, Any]], 
-                               portfolio_value: float) -> PortfolioRisk:
+                               portfolio_value: Optional[float] = None) -> PortfolioRisk:
         """
         Calculate portfolio-wide risk metrics.
         
         Args:
             positions: List of position dictionaries
-            portfolio_value: Total portfolio value
+            portfolio_value: Total portfolio value (uses internal value if None)
             
         Returns:
             PortfolioRisk object with calculated metrics
         """
         try:
+            # Use provided portfolio value or internal value
+            pf_value = portfolio_value if portfolio_value is not None else self.portfolio_value
+            
             with self._state_lock:
                 # Calculate position risks
                 position_risks = []
@@ -473,7 +581,7 @@ class RiskManager:
                 portfolio_cvar = self._calculate_portfolio_cvar(position_risks, portfolio_var)
                 
                 # Drawdown calculations
-                max_dd, current_dd = self._calculate_drawdowns(portfolio_value)
+                max_dd, current_dd = self._calculate_drawdowns(pf_value)
                 
                 # Daily P&L
                 daily_pnl = self._calculate_daily_pnl(total_unrealized_pnl, total_realized_pnl)
@@ -482,12 +590,12 @@ class RiskManager:
                 correlation_matrix = self._calculate_correlation_matrix(positions)
                 
                 # Concentration score
-                concentration_score = self._calculate_concentration_score(position_risks, portfolio_value)
+                concentration_score = self._calculate_concentration_score(position_risks, pf_value)
                 
                 # Risk utilization
                 risk_utilization = self._calculate_risk_utilization(
                     total_delta, total_gamma, total_vega, total_theta,
-                    at_risk_capital, portfolio_value, len(positions)
+                    at_risk_capital, pf_value, len(positions)
                 )
                 
                 # Overall risk level
@@ -498,7 +606,7 @@ class RiskManager:
                 # Create portfolio risk object
                 portfolio_risk = PortfolioRisk(
                     timestamp=datetime.now(),
-                    portfolio_value=portfolio_value,
+                    portfolio_value=pf_value,
                     at_risk_capital=at_risk_capital,
                     total_var_95=portfolio_var,
                     total_cvar_95=portfolio_cvar,
@@ -554,9 +662,88 @@ class RiskManager:
                 recommendations=recommendations
             )
     
+    def calculate_position_size(self, symbol: str, strategy: str = None, 
+                               stop_loss: float = None, confidence: float = 0.5,
+                               market_conditions: dict = None) -> dict:
+        """
+        Calculate optimal position size for a trade.
+        
+        Args:
+            symbol: Trading symbol
+            strategy: Strategy name (optional)
+            stop_loss: Stop loss price or percentage (optional)
+            confidence: Confidence level (0-1)
+            market_conditions: Current market conditions (optional)
+            
+        Returns:
+            Dictionary containing:
+                - size: Recommended position size (number of shares/contracts)
+                - size_pct: Size as percentage of portfolio
+                - risk_amount: Dollar risk for the position
+                - confidence: Confidence in the recommendation
+                - method: Sizing method used
+                - warnings: Any risk warnings
+        """
+        try:
+            # Use PositionSizer if available
+            if self.position_sizer and PositionSizeRequest:
+                request = PositionSizeRequest(
+                    symbol=symbol,
+                    strategy_name=strategy or 'default',
+                    entry_price=0,  # Will be determined by PositionSizer
+                    stop_loss=stop_loss or 0,
+                    confidence=confidence,
+                    volatility=0.20,  # Default volatility
+                    market_conditions=market_conditions or {}
+                )
+                
+                recommendation = self.position_sizer.calculate_position_size(request)
+                
+                return {
+                    'size': recommendation.contracts if hasattr(recommendation, 'contracts') else 1,
+                    'size_pct': recommendation.size_pct,
+                    'risk_amount': recommendation.risk_amount,
+                    'confidence': recommendation.confidence,
+                    'method': recommendation.method.value if hasattr(recommendation.method, 'value') else str(recommendation.method),
+                    'warnings': recommendation.warnings
+                }
+            else:
+                # Fallback calculation if PositionSizer not available
+                self.logger.debug("Using fallback position size calculation")
+                
+                # Simple Kelly Criterion calculation
+                risk_per_trade = self.config.get('risk_per_trade', 0.02)
+                
+                # Calculate position size as percentage of portfolio
+                size_pct = min(risk_per_trade * confidence, 0.10)  # Max 10% per position
+                risk_amount = self.portfolio_value * size_pct
+                
+                return {
+                    'size': 1,  # Default to 1 contract
+                    'size_pct': size_pct,
+                    'risk_amount': risk_amount,
+                    'confidence': confidence,
+                    'method': 'fallback',
+                    'warnings': ['Using fallback calculation - PositionSizer not available']
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error calculating position size: {e}")
+            
+            # Return minimal safe position
+            return {
+                'size': 1,
+                'size_pct': 0.01,  # 1% of portfolio
+                'risk_amount': self.portfolio_value * 0.01,
+                'confidence': 0.0,
+                'method': 'error_fallback',
+                'warnings': [f'Error in calculation: {str(e)}']
+            }
+    
     # ==========================================================================
     # PRIVATE METHODS - CALCULATIONS
     # ==========================================================================
+    
     def _calculate_position_var(self, symbol: str, market_value: float) -> float:
         """Calculate Value at Risk for a position."""
         try:
@@ -735,6 +922,7 @@ class RiskManager:
     # ==========================================================================
     # PRIVATE METHODS - RISK ASSESSMENT
     # ==========================================================================
+    
     def _assess_position_risk_level(self, var: float, max_loss: float, 
                                   concentration: float, market_value: float) -> RiskLevel:
         """Assess risk level for a position."""
@@ -847,6 +1035,7 @@ class RiskManager:
     # ==========================================================================
     # PRIVATE METHODS - MONITORING
     # ==========================================================================
+    
     def _monitoring_loop(self) -> None:
         """Main monitoring loop."""
         self.logger.info("Risk monitoring started")
@@ -967,6 +1156,7 @@ class RiskManager:
     # ==========================================================================
     # PRIVATE METHODS - COMPLIANCE
     # ==========================================================================
+    
     def _check_compliance(self) -> Dict[str, bool]:
         """Check compliance with all risk limits."""
         compliance = {}
@@ -1022,6 +1212,7 @@ class RiskManager:
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
     # ==========================================================================
+    
     def _get_symbol_returns(self, symbol: str) -> List[float]:
         """Get historical returns for a symbol."""
         if symbol not in self._price_history:
@@ -1046,6 +1237,7 @@ class RiskManager:
     # ==========================================================================
     # PUBLIC METHODS - LIFECYCLE
     # ==========================================================================
+    
     def start_monitoring(self) -> None:
         """Start risk monitoring."""
         if not self._monitoring_active:
@@ -1075,6 +1267,7 @@ class RiskManager:
     # ==========================================================================
     # PUBLIC METHODS - CALLBACKS
     # ==========================================================================
+    
     def register_alert_callback(self, callback: Callable) -> None:
         """Register callback for risk alerts."""
         self._alert_callbacks.append(callback)
@@ -1099,6 +1292,7 @@ class RiskManager:
         """Add daily return observation."""
         self._returns_buffer.append(daily_return)
 
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
@@ -1106,11 +1300,14 @@ class RiskManager:
 _risk_manager_instance: Optional[RiskManager] = None
 _instance_lock = Lock()
 
-def get_risk_manager(config: Optional[Dict[str, Any]] = None) -> RiskManager:
+
+def get_risk_manager(portfolio_value: float = 100000.0, 
+                    config: Optional[Dict[str, Any]] = None) -> RiskManager:
     """
     Get or create risk manager instance (singleton).
     
     Args:
+        portfolio_value: Initial portfolio value
         config: Configuration dictionary
         
     Returns:
@@ -1121,9 +1318,10 @@ def get_risk_manager(config: Optional[Dict[str, Any]] = None) -> RiskManager:
     if _risk_manager_instance is None:
         with _instance_lock:
             if _risk_manager_instance is None:
-                _risk_manager_instance = RiskManager(config)
+                _risk_manager_instance = RiskManager(portfolio_value, config)
     
     return _risk_manager_instance
+
 
 # ==============================================================================
 # MAIN EXECUTION
@@ -1133,8 +1331,8 @@ if __name__ == "__main__":
     print("SPYDER E01 - Risk Manager Test")
     print("="*80)
     
-    # Initialize risk manager
-    risk_mgr = get_risk_manager({
+    # Initialize risk manager with portfolio value
+    risk_mgr = get_risk_manager(100000.0, {
         'risk_limits': {
             'max_position_size': 0.05,
             'max_portfolio_risk': 0.02,
@@ -1142,6 +1340,10 @@ if __name__ == "__main__":
             'max_positions': 10
         }
     })
+    
+    # Initialize the manager
+    if risk_mgr.initialize():
+        print("✅ Risk Manager initialized successfully")
     
     # Test position risk calculation
     test_position = {
@@ -1163,9 +1365,8 @@ if __name__ == "__main__":
     
     # Test portfolio risk calculation
     positions = [test_position]
-    portfolio_value = 100000
     
-    portfolio_risk = risk_mgr.calculate_portfolio_risk(positions, portfolio_value)
+    portfolio_risk = risk_mgr.calculate_portfolio_risk(positions)
     print(f"\nPortfolio Risk Analysis:")
     print(f"  Portfolio Value: ${portfolio_risk.portfolio_value:,.2f}")
     print(f"  At Risk Capital: ${portfolio_risk.at_risk_capital:,.2f}")
@@ -1185,6 +1386,18 @@ if __name__ == "__main__":
     print(f"  Result: {result.value}")
     print(f"  Reason: {reason or 'Approved'}")
     
+    # Test position sizing
+    size_recommendation = risk_mgr.calculate_position_size(
+        symbol='SPY',
+        strategy='test_strategy',
+        confidence=0.6
+    )
+    print(f"\nPosition Size Recommendation:")
+    print(f"  Size: {size_recommendation['size']} contracts")
+    print(f"  Size %: {size_recommendation['size_pct']:.2%}")
+    print(f"  Risk Amount: ${size_recommendation['risk_amount']:.2f}")
+    print(f"  Method: {size_recommendation['method']}")
+    
     # Get risk profile
     profile = risk_mgr.get_risk_profile()
     print(f"\nRisk Profile Summary:")
@@ -1201,86 +1414,3 @@ if __name__ == "__main__":
     
     # Cleanup
     risk_mgr.shutdown()
-
-    def calculate_position_size(self, symbol: str, strategy: str = None, 
-                               stop_loss: float = None, confidence: float = 0.5,
-                               market_conditions: dict = None) -> dict:
-        """
-        Calculate optimal position size for a trade.
-        
-        Args:
-            symbol: Trading symbol
-            strategy: Strategy name (optional)
-            stop_loss: Stop loss price or percentage (optional)
-            confidence: Confidence level (0-1)
-            market_conditions: Current market conditions (optional)
-            
-        Returns:
-            Dictionary containing:
-                - size: Recommended position size (number of shares/contracts)
-                - size_pct: Size as percentage of portfolio
-                - risk_amount: Dollar risk for the position
-                - confidence: Confidence in the recommendation
-                - method: Sizing method used
-                - warnings: Any risk warnings
-        """
-        try:
-            # Create position size request
-            from SpyderE_Risk.SpyderE02_PositionSizer import PositionSizeRequest
-            
-            request = PositionSizeRequest(
-                symbol=symbol,
-                strategy_name=strategy or 'default',
-                entry_price=0,  # Will be determined by PositionSizer
-                stop_loss=stop_loss or 0,
-                confidence=confidence,
-                volatility=0.20,  # Default volatility
-                market_conditions=market_conditions or {}
-            )
-            
-            # Use PositionSizer to calculate
-            if hasattr(self, 'position_sizer'):
-                recommendation = self.position_sizer.calculate_position_size(request)
-                
-                return {
-                    'size': recommendation.contracts if hasattr(recommendation, 'contracts') else 1,
-                    'size_pct': recommendation.size_pct,
-                    'risk_amount': recommendation.risk_amount,
-                    'confidence': recommendation.confidence,
-                    'method': recommendation.method.value if hasattr(recommendation.method, 'value') else str(recommendation.method),
-                    'warnings': recommendation.warnings
-                }
-            else:
-                # Fallback calculation if PositionSizer not available
-                self.logger.warning("PositionSizer not initialized, using fallback calculation")
-                
-                # Simple Kelly Criterion calculation
-                portfolio_value = self.portfolio_value
-                risk_per_trade = self.config.get('risk_per_trade', 0.02)
-                
-                # Calculate position size as percentage of portfolio
-                size_pct = min(risk_per_trade * confidence, 0.10)  # Max 10% per position
-                risk_amount = portfolio_value * size_pct
-                
-                return {
-                    'size': 1,  # Default to 1 contract
-                    'size_pct': size_pct,
-                    'risk_amount': risk_amount,
-                    'confidence': confidence,
-                    'method': 'fallback',
-                    'warnings': ['Using fallback calculation - PositionSizer not available']
-                }
-                
-        except Exception as e:
-            self.logger.error(f"Error calculating position size: {e}")
-            
-            # Return minimal safe position
-            return {
-                'size': 1,
-                'size_pct': 0.01,  # 1% of portfolio
-                'risk_amount': self.portfolio_value * 0.01,
-                'confidence': 0.0,
-                'method': 'error_fallback',
-                'warnings': [f'Error in calculation: {str(e)}']
-            }
-

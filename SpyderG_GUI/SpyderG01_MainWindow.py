@@ -1,94 +1,114 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Main Window (Minimal Implementation)
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderG_GUI
 Module: SpyderG01_MainWindow.py
+Purpose: Bridge module that redirects to the comprehensive SpyderG05 Dashboard
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2025-01-24 Time: 11:00:00
+
+Module Description:
+    This is a bridge module that imports and exports the comprehensive
+    SpyderG05_TradingDashboard as SpyderMainWindow for backward compatibility
+    with modules expecting SpyderG01_MainWindow. This allows us to use the
+    full-featured SpyderG05 dashboard without modifying other modules that
+    expect SpyderG01_MainWindow to exist.
 """
 
+# ==============================================================================
+# IMPORTS
+# ==============================================================================
 import logging
-from typing import Any, Dict, Optional
 
+# Import the comprehensive dashboard from SpyderG05
 try:
-    from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel
-    from PyQt6.QtCore import QTimer
-    HAS_PYQT6 = True
-except ImportError:
-    print("WARNING: PyQt6 not available - GUI will be disabled")
-    HAS_PYQT6 = False
-    
-    # Fallback classes
-    class QMainWindow:
-        def __init__(self, *args, **kwargs):
-            pass
-        def setWindowTitle(self, title):
-            pass
-        def show(self):
-            pass
+    from .SpyderG05_TradingDashboard import SpyderTradingDashboard as SpyderMainWindow
+    print("✅ SpyderG01_MainWindow: Successfully bridged to SpyderG05_TradingDashboard")
+    BRIDGE_SUCCESSFUL = True
+except ImportError as e:
+    print(f"⚠️ SpyderG01_MainWindow: Could not import SpyderG05_TradingDashboard: {e}")
+    # Try alternative import path
+    try:
+        from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard as SpyderMainWindow
+        print("✅ SpyderG01_MainWindow: Successfully bridged via alternative path")
+        BRIDGE_SUCCESSFUL = True
+    except ImportError as e2:
+        print(f"❌ SpyderG01_MainWindow: Failed to bridge to SpyderG05: {e2}")
+        BRIDGE_SUCCESSFUL = False
+        
+        # Create a minimal fallback class
+        from PyQt6.QtWidgets import QMainWindow, QLabel
+        from PyQt6.QtCore import Qt
+        
+        class SpyderMainWindow(QMainWindow):
+            """Minimal fallback if SpyderG05 is not available"""
+            def __init__(self, *args, **kwargs):
+                super().__init__()
+                self.setWindowTitle("SPYDER - Bridge Error")
+                self.setGeometry(100, 100, 600, 400)
+                
+                error_label = QLabel(
+                    "Error: Could not load SpyderG05_TradingDashboard\n\n"
+                    "Please ensure SpyderG05_TradingDashboard.py is in the SpyderG_GUI folder."
+                )
+                error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                error_label.setStyleSheet("color: red; font-size: 14px;")
+                self.setCentralWidget(error_label)
+                
+                print("❌ Using minimal fallback window - SpyderG05 not available")
 
-class SpyderMainWindow(QMainWindow):
+# ==============================================================================
+# COMPATIBILITY WRAPPER (Optional)
+# ==============================================================================
+class MainWindow(SpyderMainWindow):
     """
-    Main GUI window for Spyder (minimal implementation).
+    Compatibility wrapper that ensures the MainWindow name is available.
+    This inherits from SpyderMainWindow (which is actually SpyderG05_TradingDashboard).
     """
-    
-    def __init__(self, trading_engine=None, spyder_client=None, 
-                 event_manager=None, config=None):
-        if HAS_PYQT6:
-            super().__init__()
+    def __init__(self, *args, **kwargs):
+        # SpyderG05_TradingDashboard doesn't need the extra parameters
+        # that SpyderA01_Main might try to pass, so we filter them out
+        super().__init__()
         
-        self.logger = logging.getLogger(__name__)
-        self.trading_engine = trading_engine
-        self.spyder_client = spyder_client
-        self.event_manager = event_manager
-        self.config = config
+        # Log that we're using the bridge
+        logger = logging.getLogger(__name__)
+        logger.info("SpyderG01_MainWindow bridge activated - using SpyderG05_TradingDashboard")
         
-        if HAS_PYQT6:
-            self._setup_ui()
-        else:
-            self.logger.warning("PyQt6 not available - GUI disabled")
-        
-        self.logger.info("SpyderMainWindow initialized")
-    
-    def _setup_ui(self):
-        """Setup the user interface."""
-        if not HAS_PYQT6:
-            return
-            
-        # Create central widget
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        
-        # Create layout
-        layout = QVBoxLayout()
-        central_widget.setLayout(layout)
-        
-        # Add status label
-        self.status_label = QLabel("Spyder Trading System - Demo Mode")
-        layout.addWidget(self.status_label)
-        
-        # Add connection status
-        self.connection_label = QLabel("Status: Initializing...")
-        layout.addWidget(self.connection_label)
-        
-        # Setup timer for updates
-        self.update_timer = QTimer()
-        self.update_timer.timeout.connect(self._update_display)
-        self.update_timer.start(1000)  # Update every second
-    
-    def _update_display(self):
-        """Update the display with current status."""
-        if not HAS_PYQT6:
-            return
-            
-        try:
-            if self.spyder_client and hasattr(self.spyder_client, 'is_connected'):
-                connected = self.spyder_client.is_connected()
-                status = "Connected" if connected else "Disconnected"
-                mode = "DEMO" if getattr(self.spyder_client, 'demo_mode', False) else "LIVE"
-                self.connection_label.setText(f"Status: {status} ({mode})")
-            else:
-                self.connection_label.setText("Status: No client available")
-        except Exception as e:
-            self.logger.error(f"Display update error: {e}")
+        # Add startup message if the dashboard supports it
+        if hasattr(self, 'add_system_log'):
+            self.add_system_log("✅ GUI initialized via SpyderG01 bridge to SpyderG05")
 
-# Export
-__all__ = ['SpyderMainWindow']
+# ==============================================================================
+# MODULE EXPORTS
+# ==============================================================================
+__all__ = ['SpyderMainWindow', 'MainWindow']
+
+# ==============================================================================
+# MODULE INFO
+# ==============================================================================
+if __name__ == "__main__":
+    print("=" * 60)
+    print("SpyderG01_MainWindow - Bridge Module")
+    print("=" * 60)
+    print("This module bridges to SpyderG05_TradingDashboard")
+    print(f"Bridge Status: {'✅ ACTIVE' if BRIDGE_SUCCESSFUL else '❌ FAILED'}")
+    print("=" * 60)
+    
+    if BRIDGE_SUCCESSFUL:
+        print("\nThe following features are available via SpyderG05:")
+        print("  • Full market data display (30+ symbols)")
+        print("  • Signal monitoring panel (12 indicators)")
+        print("  • Position and order tracking")
+        print("  • Risk management displays")
+        print("  • Prometheus metrics monitoring")
+        print("  • Real-time data integration")
+        print("  • Professional dark theme")
+        print("  • IB Gateway connectivity")
+        print("  • Automated trading controls")
+        print("\nNo functionality has been lost!")
+    else:
+        print("\n⚠️ Please ensure SpyderG05_TradingDashboard.py is available")
+        print("   in the SpyderG_GUI folder for full functionality.")

@@ -352,15 +352,16 @@ class SpyderApplication:
         """Initialize configuration manager"""
         try:
             # Reload configuration
-            if not self.config.load():
+            if not (hasattr(self.config, 'load') and self.config.load()):
                 self.logger.warning("Using default configuration")
-
+                  
             # Validate configuration
             validation_errors = self.config.validate()
             if validation_errors:
                 self.logger.error(f"Configuration validation errors: {validation_errors}")
                 return False
-
+                
+           
             return True
         except Exception as e:
             self.logger.error(f"Config initialization error: {e}")

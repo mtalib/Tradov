@@ -528,8 +528,8 @@ class TrafficLightButton(QPushButton):
 class SignalMonitorPanel(QWidget):
     """Enhanced Signal Monitor Panel with integrated popup dialogs"""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None, *args, **kwargs):
+        super().__init__(parent)
         self.setFixedHeight(165)
         self.setMinimumWidth(280)
         self.setStyleSheet(f"""
