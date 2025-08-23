@@ -8,7 +8,7 @@ Module: SpyderA05_EventManager.py
 Purpose: Centralized event management and message passing system
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-22 Time: 18:45:00
+Last Updated: 2025-08-22 Time: 20:30:00
 
 Module Description:
     This module provides a comprehensive event management system for the Spyder
@@ -64,6 +64,7 @@ PERSIST_INTERVAL = 5  # seconds
 
 # Threading settings
 MAX_WORKER_THREADS = 10
+WORKER_THREAD_COUNT = 3
 HANDLER_TIMEOUT = 30  # seconds
 
 # ==============================================================================
@@ -73,6 +74,8 @@ class EventType(Enum):
     """Event types for the trading system"""
     # System events
     SYSTEM = "system"
+    SYSTEM_START = "system_start"
+    SYSTEM_ERROR = "system_error"
     STARTUP = "startup"
     SHUTDOWN = "shutdown"
     HEARTBEAT = "heartbeat"
@@ -86,6 +89,7 @@ class EventType(Enum):
     VOLUME_UPDATE = "volume_update"
     
     # Trading events
+    TRADING = "trading"
     TRADE = "trade"
     ORDER_PLACED = "order_placed"
     ORDER_FILLED = "order_filled"
@@ -267,6 +271,11 @@ class EventFilter:
     def add_filter(self, filter_func: Callable[[Event], bool]) -> None:
         """Add custom filter function"""
         self.filters.append(filter_func)
+    
+    def remove_filter(self, filter_func: Callable[[Event], bool]) -> None:
+        """Remove custom filter function"""
+        if filter_func in self.filters:
+            self.filters.remove(filter_func)
         
     def exclude_type(self, event_type: EventType) -> None:
         """Exclude specific event type"""
@@ -327,26 +336,42 @@ class EventManager:
         event_queue: Main event queue
         priority_queue: High-priority event queue
         handlers: Registry of event handlers
+        global_handlers: Handlers that receive all events
         executor: Thread pool for async handlers
+        is_running: System running state
+        persist_events: Whether to persist events to database
         
     Example:
         >>> manager = EventManager()
+        >>> manager.start()
         >>> manager.subscribe(EventType.TRADE, my_handler)
         >>> manager.emit(EventType.TRADE, {"symbol": "SPY", "action": "BUY"})
+        >>> manager.stop()
     """
     
-    def __init__(self, queue_size: int = DEFAULT_QUEUE_SIZE,
-                 db_path: Optional[str] = None):
-        """Initialize event manager"""
+    def __init__(self, persist_events: bool = True,
+                 db_path: Optional[Path] = None):
+        """
+        Initialize event manager.
+        
+        Args:
+            persist_events: Enable event persistence
+            db_path: Optional database path
+        """
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         
+        # State management
+        self.is_running = False
+        self.persist_events = persist_events
+        
         # Queues
-        self.event_queue = queue.Queue(maxsize=queue_size)
+        self.event_queue = queue.Queue(maxsize=DEFAULT_QUEUE_SIZE)
         self.priority_queue = queue.PriorityQueue(maxsize=PRIORITY_QUEUE_SIZE)
         
         # Handler registry
         self.handlers: Dict[EventType, List[HandlerInfo]] = defaultdict(list)
+        self.global_handlers: List[HandlerInfo] = []
         self.handler_lock = threading.RLock()
         
         # Filtering
@@ -355,14 +380,16 @@ class EventManager:
         # Threading
         self.executor = ThreadPoolExecutor(max_workers=MAX_WORKER_THREADS)
         self._shutdown_event = threading.Event()
-        self._worker_thread = None
-        self._priority_worker_thread = None
+        self.worker_threads: List[threading.Thread] = []
+        self._persistence_thread: Optional[threading.Thread] = None
+        self._metrics_thread: Optional[threading.Thread] = None
         
         # Persistence
-        self.db_path = db_path or "events.db"
-        self._init_database()
+        self.db_path = db_path or Path.home() / ".spyder" / "events.db"
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.persist_events:
+            self._init_database()
         self._persist_queue = queue.Queue()
-        self._persist_thread = None
         
         # Metrics
         self.metrics = EventMetrics()
@@ -372,8 +399,8 @@ class EventManager:
         self.event_history = deque(maxlen=1000)
         self._history_lock = threading.Lock()
         
-        # Start workers
-        self._start_workers()
+        # Dead letter queue
+        self.dead_letter_queue = deque(maxlen=100)
         
         self.logger.info("EventManager initialized")
         
@@ -383,7 +410,7 @@ class EventManager:
     def _init_database(self):
         """Initialize event persistence database"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(str(self.db_path)) as conn:
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS event_log (
                         event_id TEXT PRIMARY KEY,
@@ -410,73 +437,247 @@ class EventManager:
                 
         except Exception as e:
             self.logger.error(f"Database initialization error: {e}")
+    
+    # ==========================================================================
+    # LIFECYCLE MANAGEMENT
+    # ==========================================================================
+    def start(self) -> bool:
+        """
+        Start the event manager.
+        
+        Returns:
+            bool: True if started successfully
+        """
+        try:
+            if self.is_running:
+                self.logger.warning("EventManager already running")
+                return True
+            
+            self.logger.info("Starting EventManager...")
+            
+            # Clear shutdown event
+            self._shutdown_event.clear()
+            
+            # Start worker threads
+            for i in range(WORKER_THREAD_COUNT):
+                thread = threading.Thread(
+                    target=self._process_events,
+                    name=f"EventWorker-{i}",
+                    daemon=True
+                )
+                thread.start()
+                self.worker_threads.append(thread)
+            
+            # Start persistence thread
+            if self.persist_events:
+                self._persistence_thread = threading.Thread(
+                    target=self._persistence_loop,
+                    name="EventPersistence",
+                    daemon=True
+                )
+                self._persistence_thread.start()
+            
+            # Start metrics thread
+            self._metrics_thread = threading.Thread(
+                target=self._metrics_loop,
+                name="EventMetrics",
+                daemon=True
+            )
+            self._metrics_thread.start()
+            
+            self.is_running = True
+            self.logger.info("EventManager started successfully")
+            
+            # Emit startup event
+            self.emit(
+                EventType.SYSTEM_START,
+                {
+                    'component': 'EventManager',
+                    'timestamp': datetime.now()
+                }
+            )
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start EventManager: {e}")
+            self.error_handler.handle_error(e, "event_manager_start")
+            return False
+    
+    def stop(self, timeout: float = 5.0) -> bool:
+        """
+        Stop the event manager.
+        
+        Args:
+            timeout: Maximum time to wait for shutdown
+            
+        Returns:
+            bool: True if stopped successfully
+        """
+        try:
+            if not self.is_running:
+                self.logger.warning("EventManager not running")
+                return True
+            
+            self.logger.info("Stopping EventManager...")
+            
+            # Emit shutdown event
+            self.emit(
+                EventType.SHUTDOWN,
+                {
+                    'component': 'EventManager',
+                    'timestamp': datetime.now()
+                }
+            )
+            
+            # Signal shutdown
+            self._shutdown_event.set()
+            
+            # Wait for queues to empty
+            try:
+                self.event_queue.join()
+                self.priority_queue.join()
+                if self.persist_events:
+                    self._persist_queue.join()
+            except:
+                pass
+            
+            # Stop worker threads
+            for thread in self.worker_threads:
+                thread.join(timeout=timeout/len(self.worker_threads))
+            
+            # Stop persistence thread
+            if self._persistence_thread:
+                self._persistence_thread.join(timeout=1.0)
+            
+            # Stop metrics thread
+            if self._metrics_thread:
+                self._metrics_thread.join(timeout=1.0)
+            
+            # Shutdown executor
+            self.executor.shutdown(wait=True, timeout=timeout)
+            
+            self.is_running = False
+            self.logger.info("EventManager stopped successfully")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error stopping EventManager: {e}")
+            self.error_handler.handle_error(e, "event_manager_stop")
+            return False
+    
+    def shutdown(self):
+        """Shutdown event manager (alias for stop)"""
+        return self.stop()
             
     # ==========================================================================
-    # WORKER THREADS
+    # EVENT PROCESSING
     # ==========================================================================
-    def _start_workers(self):
-        """Start background worker threads"""
-        # Start event processing workers
-        self._worker_thread = threading.Thread(
-            target=self._event_worker,
-            name="EventWorker",
-            daemon=True
-        )
-        self._worker_thread.start()
+    def _process_events(self):
+        """Main event processing loop"""
+        self.logger.info("Event processor started")
         
-        self._priority_worker_thread = threading.Thread(
-            target=self._priority_worker,
-            name="PriorityEventWorker",
-            daemon=True
-        )
-        self._priority_worker_thread.start()
-        
-        # Start persistence worker
-        self._persist_thread = threading.Thread(
-            target=self._persist_worker,
-            name="EventPersistWorker",
-            daemon=True
-        )
-        self._persist_thread.start()
-        
-        self.logger.info("Worker threads started")
-        
-    def _event_worker(self):
-        """Process events from main queue"""
         while not self._shutdown_event.is_set():
             try:
-                event = self.event_queue.get(timeout=1)
-                self._process_event(event)
-                self.event_queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception as e:
-                self.logger.error(f"Event worker error: {e}")
+                # Check priority queue first
+                try:
+                    _, _, event = self.priority_queue.get_nowait()
+                    self._process_single_event(event)
+                    continue
+                except queue.Empty:
+                    pass
                 
-    def _priority_worker(self):
-        """Process high-priority events"""
-        while not self._shutdown_event.is_set():
-            try:
-                _, _, event = self.priority_queue.get(timeout=1)
-                self._process_event(event)
-                self.priority_queue.task_done()
-            except queue.Empty:
-                continue
+                # Check regular queue
+                try:
+                    event = self.event_queue.get(timeout=0.1)
+                    self._process_single_event(event)
+                except queue.Empty:
+                    continue
+                    
             except Exception as e:
-                self.logger.error(f"Priority worker error: {e}")
+                self.logger.error(f"Event processing error: {e}")
+                self.error_handler.handle_error(e, "event_processing")
+    
+    def _process_single_event(self, event: Event):
+        """Process a single event"""
+        try:
+            # Update metrics
+            with self._metrics_lock:
+                self.metrics.events_processed += 1
+            
+            # Add to history
+            with self._history_lock:
+                self.event_history.append(event)
+            
+            # Get handlers
+            with self.handler_lock:
+                type_handlers = self.handlers.get(event.event_type, []).copy()
+                global_handlers = self.global_handlers.copy()
+            
+            # Execute type-specific handlers
+            for handler in sorted(type_handlers, key=lambda h: -h.priority):
+                self._execute_handler(handler, event)
+            
+            # Execute global handlers
+            for handler in sorted(global_handlers, key=lambda h: -h.priority):
+                self._execute_handler(handler, event)
+            
+            # Persist if needed
+            if self.persist_events and event.priority.value >= EventPriority.HIGH.value:
+                self._persist_queue.put(event)
                 
-    def _persist_worker(self):
-        """Persist events to database"""
+        except Exception as e:
+            with self._metrics_lock:
+                self.metrics.events_failed += 1
+            self.logger.error(f"Event processing failed: {e}")
+            self.dead_letter_queue.append(event)
+    
+    def _execute_handler(self, handler: HandlerInfo, event: Event):
+        """Execute a single handler"""
+        try:
+            # Apply filter
+            if handler.filter_func and not handler.filter_func(event):
+                return
+            
+            # Record start time
+            start_time = time.time()
+            
+            # Execute based on type
+            if handler.handler_type == HandlerType.SYNC:
+                handler.func(event)
+            elif handler.handler_type == HandlerType.ASYNC:
+                asyncio.run(handler.func(event))
+            elif handler.handler_type == HandlerType.THREADED:
+                self.executor.submit(handler.func, event)
+            
+            # Update metrics
+            handler.execution_count += 1
+            handler.total_execution_time += time.time() - start_time
+            handler.last_execution = datetime.now()
+            
+            with self._metrics_lock:
+                self.metrics.handlers_executed += 1
+                
+        except Exception as e:
+            handler.error_count += 1
+            handler.last_error = str(e)
+            self.logger.error(f"Handler {handler.name} error: {e}")
+    
+    # ==========================================================================
+    # BACKGROUND LOOPS
+    # ==========================================================================
+    def _persistence_loop(self):
+        """Persistence background loop"""
         batch = []
         last_persist = time.time()
         
         while not self._shutdown_event.is_set():
             try:
-                # Get event from persist queue
+                # Get events from queue
                 try:
                     event = self._persist_queue.get(timeout=1)
                     batch.append(event)
-                    self._persist_queue.task_done()
                 except queue.Empty:
                     pass
                 
@@ -490,14 +691,13 @@ class EventManager:
                     last_persist = current_time
                     
             except Exception as e:
-                self.logger.error(f"Persist worker error: {e}")
-                
+                self.logger.error(f"Persistence loop error: {e}")
+    
     def _persist_batch(self, events: List[Event]):
         """Persist batch of events to database"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with sqlite3.connect(str(self.db_path)) as conn:
                 for event in events:
-                    # Use custom encoder for proper datetime serialization
                     data_json = json.dumps(event.data, cls=DateTimeEncoder)
                     metadata_json = json.dumps(event.metadata, cls=DateTimeEncoder)
                     
@@ -514,68 +714,35 @@ class EventManager:
                         data_json,
                         metadata_json
                     ))
-                    
+                
                 conn.commit()
                 self.logger.debug(f"Persisted {len(events)} events")
                 
         except Exception as e:
-            self.logger.error(f"Event batch persistence error: {e}")
-            
-    # ==========================================================================
-    # EVENT PROCESSING
-    # ==========================================================================
-    def _process_event(self, event: Event):
-        """Process single event"""
-        try:
-            # Update metrics
-            with self._metrics_lock:
-                self.metrics.events_processed += 1
+            self.logger.error(f"Batch persistence error: {e}")
+    
+    def _metrics_loop(self):
+        """Metrics calculation loop"""
+        while not self._shutdown_event.is_set():
+            try:
+                time.sleep(10)  # Update metrics every 10 seconds
                 
-            # Get handlers for this event type
-            with self.handler_lock:
-                handlers = self.handlers.get(event.event_type, [])
-                
-            # Sort handlers by priority
-            handlers = sorted(handlers, key=lambda h: h.priority, reverse=True)
-            
-            # Execute handlers
-            for handler in handlers:
-                try:
-                    # Apply handler filter
-                    if handler.filter_func and not handler.filter_func(event):
-                        continue
-                        
-                    # Execute based on handler type
-                    start_time = time.time()
+                with self._metrics_lock:
+                    self.metrics.queue_size = self.event_queue.qsize()
+                    self.metrics.priority_queue_size = self.priority_queue.qsize()
                     
-                    if handler.handler_type == HandlerType.SYNC:
-                        handler.func(event)
-                    elif handler.handler_type == HandlerType.ASYNC:
-                        asyncio.run(handler.func(event))
-                    elif handler.handler_type == HandlerType.THREADED:
-                        self.executor.submit(handler.func, event)
+                    if self.metrics.events_processed > 0:
+                        total_time = sum(
+                            h.total_execution_time 
+                            for handlers in self.handlers.values() 
+                            for h in handlers
+                        )
+                        self.metrics.avg_processing_time = (
+                            total_time / self.metrics.events_processed
+                        )
                         
-                    # Update handler metrics
-                    handler.execution_count += 1
-                    handler.total_execution_time += time.time() - start_time
-                    handler.last_execution = datetime.now()
-                    
-                    with self._metrics_lock:
-                        self.metrics.handlers_executed += 1
-                        
-                except Exception as e:
-                    handler.error_count += 1
-                    handler.last_error = str(e)
-                    self.logger.error(f"Handler {handler.name} error: {e}")
-                    
-            # Persist event if needed
-            if event.priority.value >= EventPriority.HIGH.value:
-                self.persist_event(event)
-                
-        except Exception as e:
-            with self._metrics_lock:
-                self.metrics.events_failed += 1
-            self.logger.error(f"Event processing error: {e}")
+            except Exception as e:
+                self.logger.error(f"Metrics loop error: {e}")
             
     # ==========================================================================
     # PUBLIC METHODS - SUBSCRIPTION
@@ -620,6 +787,29 @@ class EventManager:
             
         self.logger.info(f"Handler {handler_name} subscribed to {event_type.value}")
         return handler_id
+    
+    def subscribe_all(self, handler: Callable, name: Optional[str] = None,
+                      **kwargs) -> str:
+        """Subscribe to all events"""
+        handler_id = str(uuid.uuid4())
+        handler_name = name or f"{handler.__name__}_{handler_id[:8]}"
+        
+        handler_info = HandlerInfo(
+            handler_id=handler_id,
+            name=handler_name,
+            func=handler,
+            event_types=set(EventType),
+            **kwargs
+        )
+        
+        with self.handler_lock:
+            self.global_handlers.append(handler_info)
+            
+        with self._metrics_lock:
+            self.metrics.handlers_registered += 1
+            
+        self.logger.info(f"Handler {handler_name} subscribed to all events")
+        return handler_id
         
     def unsubscribe(self, handler_id: str) -> bool:
         """
@@ -632,6 +822,7 @@ class EventManager:
             True if handler was found and removed
         """
         with self.handler_lock:
+            # Check type-specific handlers
             for event_type, handlers in self.handlers.items():
                 for i, handler in enumerate(handlers):
                     if handler.handler_id == handler_id:
@@ -642,6 +833,17 @@ class EventManager:
                             self.metrics.handlers_registered -= 1
                             
                         return True
+            
+            # Check global handlers
+            for i, handler in enumerate(self.global_handlers):
+                if handler.handler_id == handler_id:
+                    removed = self.global_handlers.pop(i)
+                    self.logger.info(f"Global handler {removed.name} unsubscribed")
+                    
+                    with self._metrics_lock:
+                        self.metrics.handlers_registered -= 1
+                        
+                    return True
                         
         return False
         
@@ -685,10 +887,6 @@ class EventManager:
             else:
                 self.event_queue.put(event)
                 
-            # Add to history
-            with self._history_lock:
-                self.event_history.append(event)
-                
             return True
             
         except queue.Full:
@@ -718,35 +916,73 @@ class EventManager:
             event_type=event_type,
             data=data,
             priority=priority,
-            source=source,
-            **kwargs
+            source=source or self.__class__.__name__,
+            correlation_id=kwargs.get('correlation_id'),
+            metadata=kwargs.get('metadata', {}),
+            ttl=kwargs.get('ttl')
         )
         
         return self.publish(event)
-        
-    # ==========================================================================
-    # PERSISTENCE METHODS
-    # ==========================================================================
-    def persist_event(self, event: Event):
-        """Queue event for persistence"""
-        try:
-            self._persist_queue.put(event)
-        except Exception as e:
-            self.logger.error(f"Event persistence error: {e}")
+    
+    def create_event(self, event_type: EventType, data: Dict[str, Any], 
+                    **kwargs) -> Event:
+        """Create event without publishing"""
+        return Event(
+            event_type=event_type,
+            data=data,
+            priority=kwargs.get('priority', EventPriority.NORMAL),
+            source=kwargs.get('source', self.__class__.__name__),
+            correlation_id=kwargs.get('correlation_id'),
+            metadata=kwargs.get('metadata', {}),
+            ttl=kwargs.get('ttl')
+        )
             
     # ==========================================================================
     # QUERY METHODS
     # ==========================================================================
-    def get_event_history(self, event_type: Optional[EventType] = None,
-                          limit: int = 100) -> List[Event]:
+    def get_event_history(self, limit: Optional[int] = None,
+                         event_type: Optional[EventType] = None) -> List[Event]:
         """Get recent event history"""
         with self._history_lock:
-            history = list(self.event_history)
+            events = list(self.event_history)
             
-        if event_type:
-            history = [e for e in history if e.event_type == event_type]
+            if event_type:
+                events = [e for e in events if e.event_type == event_type]
             
-        return history[-limit:]
+            if limit:
+                events = events[-limit:]
+            
+            return events
+    
+    def get_handler_stats(self) -> List[Dict[str, Any]]:
+        """Get handler statistics"""
+        stats = []
+        
+        with self.handler_lock:
+            all_handlers = []
+            
+            for handlers in self.handlers.values():
+                all_handlers.extend(handlers)
+            all_handlers.extend(self.global_handlers)
+            
+            # Generate stats
+            for handler in all_handlers:
+                avg_time = (
+                    handler.total_execution_time / handler.execution_count
+                    if handler.execution_count > 0 else 0
+                )
+                
+                stats.append({
+                    'name': handler.name,
+                    'event_types': [et.value for et in handler.event_types],
+                    'execution_count': handler.execution_count,
+                    'error_count': handler.error_count,
+                    'avg_execution_time_ms': avg_time * 1000,
+                    'last_execution': handler.last_execution,
+                    'last_error': handler.last_error
+                })
+        
+        return stats
         
     def get_metrics(self) -> Dict[str, Any]:
         """Get event system metrics"""
@@ -759,76 +995,154 @@ class EventManager:
                 'events_expired': self.metrics.events_expired,
                 'handlers_registered': self.metrics.handlers_registered,
                 'handlers_executed': self.metrics.handlers_executed,
-                'queue_size': self.event_queue.qsize(),
-                'priority_queue_size': self.priority_queue.qsize()
+                'avg_processing_time': self.metrics.avg_processing_time,
+                'queue_size': self.metrics.queue_size,
+                'priority_queue_size': self.metrics.priority_queue_size,
+                'dead_letter_queue_size': len(self.dead_letter_queue)
             }
-            
-    # ==========================================================================
-    # LIFECYCLE METHODS
-    # ==========================================================================
-    def shutdown(self):
-        """Shutdown event manager"""
-        self.logger.info("Shutting down EventManager")
-        
-        # Signal shutdown
-        self._shutdown_event.set()
-        
-        # Wait for queues to empty
-        self.event_queue.join()
-        self.priority_queue.join()
-        self._persist_queue.join()
-        
-        # Shutdown executor
-        self.executor.shutdown(wait=True)
-        
-        # Wait for threads
-        if self._worker_thread:
-            self._worker_thread.join(timeout=5)
-        if self._priority_worker_thread:
-            self._priority_worker_thread.join(timeout=5)
-        if self._persist_thread:
-            self._persist_thread.join(timeout=5)
-            
-        self.logger.info("EventManager shutdown complete")
+    
+    def clear_handlers(self, event_type: Optional[EventType] = None):
+        """Clear event handlers"""
+        with self.handler_lock:
+            if event_type:
+                self.handlers[event_type].clear()
+                self.logger.debug(f"Cleared handlers for {event_type.value}")
+            else:
+                self.handlers.clear()
+                self.global_handlers.clear()
+                self.metrics.handlers_registered = 0
+                self.logger.debug("Cleared all event handlers")
+    
+    def add_global_filter(self, filter_func: Callable[[Event], bool]):
+        """Add global event filter"""
+        self.global_filter.add_filter(filter_func)
+    
+    def remove_global_filter(self, filter_func: Callable[[Event], bool]):
+        """Remove global event filter"""
+        self.global_filter.remove_filter(filter_func)
 
 # ==============================================================================
-# MODULE INITIALIZATION
+# MODULE FUNCTIONS
 # ==============================================================================
 _event_manager_instance: Optional[EventManager] = None
+_event_manager_lock = threading.Lock()
 
-def get_event_manager() -> EventManager:
-    """Get singleton instance of EventManager"""
+def get_event_manager(persist_events: bool = True) -> EventManager:
+    """
+    Get singleton EventManager instance.
+    
+    Args:
+        persist_events: Enable event persistence
+        
+    Returns:
+        EventManager instance
+    """
     global _event_manager_instance
-    if _event_manager_instance is None:
-        _event_manager_instance = EventManager()
-    return _event_manager_instance
+    
+    with _event_manager_lock:
+        if _event_manager_instance is None:
+            _event_manager_instance = EventManager(persist_events=persist_events)
+        
+        return _event_manager_instance
+
+def reset_event_manager():
+    """Reset the singleton instance (for testing)"""
+    global _event_manager_instance
+    with _event_manager_lock:
+        if _event_manager_instance and _event_manager_instance.is_running:
+            _event_manager_instance.stop()
+        _event_manager_instance = None
 
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================
 if __name__ == "__main__":
-    # Test the event manager
-    manager = EventManager()
+    # Module testing
+    import json
     
-    # Test handler
+    print("Testing EventManager...")
+    
+    # Create event manager
+    em = EventManager(persist_events=False)
+    
+    # Test handler registration
+    print("\n1. Testing handler registration:")
+    
     def test_handler(event: Event):
-        print(f"Received event: {event.event_type.value} - {event.data}")
+        print(f"Handler received: {event.event_type.value} - {event.data}")
+    
+    handler_id = em.subscribe(EventType.SYSTEM, test_handler, name="TestHandler")
+    print(f"Handler registered with ID: {handler_id}")
+    
+    # Test global handler
+    def global_handler(event: Event):
+        print(f"Global handler: {event.event_type.value}")
+    
+    global_id = em.subscribe_all(global_handler, name="GlobalHandler")
+    
+    # Start event manager
+    print("\n2. Starting EventManager:")
+    if em.start():
+        print("✅ EventManager started successfully")
         
-    # Subscribe to events
-    handler_id = manager.subscribe(EventType.TRADE, test_handler)
-    
-    # Emit test events
-    manager.emit(EventType.TRADE, {"symbol": "SPY", "action": "BUY", "quantity": 100})
-    manager.emit(EventType.SYSTEM, {"message": "System test"})
-    
-    # Wait for processing
-    time.sleep(2)
-    
-    # Print metrics
-    print("\nEvent Metrics:")
-    for key, value in manager.get_metrics().items():
-        print(f"  {key}: {value}")
+        # Test event publishing
+        print("\n3. Testing event publishing:")
         
-    # Cleanup
-    manager.shutdown()
+        # Publish test events
+        em.emit(EventType.SYSTEM, {'message': 'Test system event'})
+        em.emit(EventType.TRADING, {'action': 'Test trade'})
+        em.emit(EventType.RISK, {'warning': 'Test risk event'}, priority=EventPriority.HIGH)
+        
+        # Wait for processing
+        import time
+        time.sleep(1)
+        
+        # Get metrics
+        print("\n4. Event metrics:")
+        metrics = em.get_metrics()
+        print(json.dumps(metrics, indent=2))
+        
+        # Test filtering
+        print("\n5. Testing event filtering:")
+        
+        def priority_filter(event: Event) -> bool:
+            return event.priority.value >= EventPriority.HIGH.value
+        
+        filtered_handler_id = em.subscribe(
+            EventType.RISK,
+            lambda e: print(f"High priority: {e.data}"),
+            filter_func=priority_filter,
+            name="FilteredHandler"
+        )
+        
+        # Emit events with different priorities
+        em.emit(EventType.RISK, {'level': 'low'}, priority=EventPriority.LOW)
+        em.emit(EventType.RISK, {'level': 'high'}, priority=EventPriority.HIGH)
+        
+        time.sleep(1)
+        
+        # Test handler statistics
+        print("\n6. Handler statistics:")
+        stats = em.get_handler_stats()
+        for stat in stats:
+            print(f"  {stat['name']}: {stat['execution_count']} executions")
+        
+        # Test event history
+        print("\n7. Event history:")
+        history = em.get_event_history(limit=5)
+        for event in history:
+            print(f"  {event.timestamp}: {event.event_type.value} - {event.data}")
+        
+        # Test unsubscribe
+        print("\n8. Testing unsubscribe:")
+        if em.unsubscribe(handler_id):
+            print("✅ Handler unsubscribed successfully")
+        
+        # Stop event manager
+        print("\n9. Stopping EventManager:")
+        if em.stop():
+            print("✅ EventManager stopped successfully")
+    else:
+        print("❌ Failed to start EventManager")
+    
     print("\n✅ EventManager test completed")
