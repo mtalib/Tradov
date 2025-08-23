@@ -473,7 +473,7 @@ class SpyderApplication:
 
         try:
             self.gui_app = QApplication.instance() or QApplication(sys.argv)
-            self.main_window = MainWindow(self)
+            self.main_window = MainWindow()
             self.main_window.show()
             return True
         except Exception as e:

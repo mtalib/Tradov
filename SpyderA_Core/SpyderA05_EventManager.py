@@ -404,6 +404,17 @@ class EventManager:
         
         self.logger.info("EventManager initialized")
         
+    def get(self, key: str, default: Any = None) -> Any:
+            """Get method for compatibility."""
+            config_defaults = {
+                'max_queue_size': DEFAULT_QUEUE_SIZE,
+                'priority_queue_size': PRIORITY_QUEUE_SIZE,  
+                'worker_threads': WORKER_THREAD_COUNT,
+                'persist_events': self.persist_events,
+                'database_path': str(self.db_path) if hasattr(self, 'db_path') else None
+            }
+            return config_defaults.get(key, default)
+        
     # ==========================================================================
     # DATABASE INITIALIZATION
     # ==========================================================================

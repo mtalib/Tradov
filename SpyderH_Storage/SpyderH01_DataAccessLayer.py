@@ -118,25 +118,28 @@ class DataAccessLayer:
     migration support.
     """
     
-    def __init__(self, config: Optional[Dict] = None):
-        """
-        Initialize Data Access Layer.
-        
-        Args:
-            config: Optional configuration dictionary
-        """
+    
+    def __init__(self, config_or_path=None):
+        """Initialize Data Access Layer."""
         self.logger = logging.getLogger(__name__)
-        self.config = config or {}
+        
+        # Handle both string paths and config dictionaries
+        if isinstance(config_or_path, str):
+            # Direct path provided - set all required attributes
+            self.config = {}
+            self.db_path = Path(config_or_path)
+            self.timeout = DEFAULT_TIMEOUT
+        else:
+            # Config dict provided (or None)
+            self.config = config_or_path or {}
+            self.db_path = Path(self.config.get('database_path', DEFAULT_DB_PATH))
+            self.timeout = self.config.get('timeout', DEFAULT_TIMEOUT)
         
         # Connection management
-        self.connection: Optional[sqlite3.Connection] = None
+        self.connection = None
         self.connection_state = ConnectionState.DISCONNECTED
-        self.connection_info: Optional[ConnectionInfo] = None
+        self.connection_info = None
         self.connection_lock = threading.Lock()
-        
-        # Database configuration
-        self.db_path = Path(self.config.get('database_path', DEFAULT_DB_PATH))
-        self.timeout = self.config.get('timeout', DEFAULT_TIMEOUT)
         
         # Statistics
         self.query_count = 0
@@ -148,11 +151,6 @@ class DataAccessLayer:
         self._initialize_database()
         
         self.logger.info("DataAccessLayer initialized successfully")
-    
-    # ==========================================================================
-    # CONNECTION MANAGEMENT
-    # ==========================================================================
-    
     def connect(self) -> bool:
         """
         Establish database connection.
