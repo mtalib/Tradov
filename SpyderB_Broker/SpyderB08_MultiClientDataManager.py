@@ -341,14 +341,14 @@ class MultiClientDataManager:
             },
             5: {  # Volatility indicators
                 "purpose": ClientPurpose.VOLATILITY_DATA,
-                "symbols": ["VIX9D", "VXV", "VXMT", "VVIX", "UVXY"],
+                "symbols": ["VXV", "VXMT", "VVIX", "UVXY", "VIX9D"],
                 "frequency": 5.0,
                 "description": "Volatility indicators - 5s updates",
                 "priority": "NORMAL",
             },
             6: {  # Market internals including VUD
                 "purpose": ClientPurpose.MARKET_INTERNALS,
-                "symbols": ["TRIN", "ADD", "CPC", "PCALL", "SKEW", "VUD"],
+                "symbols": ["VUD", "TRIN", "ADD", "CPC", "PCALL", "SKEW"],
                 "frequency": 5.0,
                 "description": "Market internals + VUD - 5s updates",
                 "priority": "NORMAL",

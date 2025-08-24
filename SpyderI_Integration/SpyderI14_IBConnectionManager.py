@@ -35,15 +35,14 @@ try:
     IBAUTOMATER_AVAILABLE = True
 except ImportError:
     IBAUTOMATER_AVAILABLE = False
-
-# Import IB API (optional)
+    
+    # Import modern ib_async API (optional)
 try:
-    from ibapi.client import EClient
-    from ibapi.wrapper import EWrapper
-    from ibapi.contract import Contract
-    IB_API_AVAILABLE = True
+    from ib_async import IB, Contract, Stock, Index, Future
+    IB_ASYNC_AVAILABLE = True
 except ImportError:
-    IB_API_AVAILABLE = False
+    IB_ASYNC_AVAILABLE = False
+    
 
 # ================================================================================================
 # CONNECTION STATE MANAGEMENT
@@ -491,7 +490,7 @@ class IBConnectionManager:
             },
             "runtime_info": {
                 "ibautomater_available": IBAUTOMATER_AVAILABLE,
-                "ib_api_available": IB_API_AVAILABLE,
+                "ib_async_available": IB_ASYNC_AVAILABLE,
                 "health_monitoring": self.config.enable_health_monitoring
             }
         }

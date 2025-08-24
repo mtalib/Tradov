@@ -6,7 +6,7 @@ SpyderB_Broker Package
 
 This package handles all broker interactions with Interactive Brokers Gateway.
 Version 2.0: Multi-client architecture with watchdog monitoring and Prometheus metrics.
-Uses ib-insync library (NO IBAPI dependencies).
+Uses ib-async library 
 """
 
 # Version - Updated to 2.0 for multi-client architecture

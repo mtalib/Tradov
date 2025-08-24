@@ -202,8 +202,8 @@ MARKET_CLOSE_TIME = dt_time(16, 30)  # 4:30 PM ET
 # COMPLETE MARKET SYMBOLS FROM T09
 MARKET_SYMBOLS = {
     "S&P CORE": ["SPY", "SPX", "/ES"],
-    "VOLATILITY": ["VIX", "VXV", "VXMT", "VVIX", "UVXY"],
-    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "PCALL", "SKEW", "VUD"],
+    "VOLATILITY": ["VIX", "VIX9D", "VXV", "VXMT", "VVIX", "UVXY"],
+    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "PCALL", "SKEW"],
     "MAJOR INDICES": ["DIA", "QQQ", "IWM"],
     "BONDS & CREDIT": ["TLT", "LQD"],
     "CORRELATIONS": ["DXY", "GLD"],
@@ -230,7 +230,6 @@ SYMBOL_DESCRIPTIONS = {
     "CPC": "CBOE Put/Call Ratio - Equity options only",
     "PCALL": "Total Put/Call Ratio - All options",
     "SKEW": "CBOE Skew Index - Tail risk measure",
-    "VUD": "Put/Call Volume Ratio - Options sentiment indicator",
     # Major Indices
     "DIA": "SPDR Dow Jones Industrial Average ETF",
     "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
