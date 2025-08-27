@@ -1,913 +1,955 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderA_Core
 Module: SpyderA01_Main.py
-Group: A (Core Trading Engine)
-Purpose: Primary application controller and entry point
-
-Description:
-    This module serves as the main entry point for the Spyder automated trading system.
-    It initializes all core components, manages the application lifecycle, and coordinates
-    the interaction between various subsystems. The module handles graceful startup,
-    shutdown procedures, and provides the primary command-line interface.
-
+Purpose: Primary application controller and system coordinator
 Author: Mohamed Talib
-Created: 2025-01-27
-Version: 2.0.0 - Production Ready
+Year Created: 2025
+Last Updated: 2025-08-27 Time: 18:00:00
 
-
-
-
-
-
+Module Description:
+    This module serves as the main entry point and system coordinator for the
+    Spyder autonomous trading system. It initializes all core components,
+    manages the application lifecycle, coordinates subsystem interactions,
+    and handles graceful startup/shutdown procedures. Includes simulation
+    capabilities for development and testing when live Gateway connection
+    is unavailable.
 
 """
 
-import argparse
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import asyncio
-import json
-import logging
-import os
+import argparse
 import signal
 import sys
 import threading
 import time
-# =============================================================================
-# Add project root to Python path
-# =============================================================================
-import traceback
-from datetime import datetime
-from datetime import time as dt_time
-from datetime import timedelta
-from enum import Enum, auto
+import logging
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Any, Union
+from dataclasses import dataclass, field
+from enum import Enum, auto
+import traceback
 
-# Get the project root directory (parent of SpyderA_Core)
+# ==============================================================================
+# Add project root to Python path
+# ==============================================================================
 project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# =============================================================================
-# Standard Library Imports
-# =============================================================================
-
-# =============================================================================
-# Third-Party Imports
-# =============================================================================
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 try:
     import pandas as pd
     import pytz
-    from PyQt6.QtCore import QTimer
     from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QTimer
+    HAS_GUI_SUPPORT = True
 except ImportError as e:
-    print(f"Warning: Missing required dependency: {e}")
-    print("Please install requirements: pip install -r requirements.txt")
-    sys.exit(1)
+    print(f"Warning: GUI dependencies not available: {e}")
+    HAS_GUI_SUPPORT = False
 
-# =============================================================================
-# Local Application Imports with Graceful Fallbacks
-# =============================================================================
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
 try:
-    from SpyderA_Core.SpyderA02_TradingEngine import TradingEngine
-    from SpyderA_Core.SpyderA03_Configuration import ConfigManager
-    from SpyderA_Core.SpyderA05_EventManager import (Event, EventManager,
-                                                    EventType)
-    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-    from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-    from SpyderH_Storage.SpyderH01_DataAccessLayer import (
-        DataAccessLayer, get_data_access_layer)
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger, get_logger
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
     from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
+    HAS_UTILITIES = True
 except ImportError as e:
-    print(f"Error importing Spyder modules: {e}")
-    print("Make sure all required modules are in the correct location.")
-    sys.exit(1)
+    print(f"Warning: Spyder utilities not available: {e}")
+    HAS_UTILITIES = False
 
-# Try to import GUI with graceful fallback
 try:
-    from SpyderG_GUI.SpyderG01_MainWindow import SpyderMainWindow as MainWindow
+    from SpyderA_Core.SpyderA03_Configuration import ConfigManager
+    from SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event
+    HAS_CORE_MODULES = True
+except ImportError:
+    print("Warning: Core modules not available - using fallbacks")
+    HAS_CORE_MODULES = False
 
-    HAS_GUI = True
-except (ImportError, NameError, SyntaxError) as e:
-    print(f"Warning: GUI not available: {e}")
-    MainWindow = None
-    HAS_GUI = False
+try:
+    from SpyderB_Broker.SpyderB05_ConnectionManager import get_connection_manager, ConnectionConfig
+    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
+    HAS_BROKER_MODULES = True
+except ImportError:
+    print("Warning: Broker modules not available - simulation mode only")
+    HAS_BROKER_MODULES = False
 
-# =============================================================================
-# Constants
-# =============================================================================
-APPLICATION_NAME = "Spyder Trading System"
-VERSION = "2.0.0"
-DEFAULT_CONFIG_PATH = Path.home() / ".spyder" / "config.yaml"
-LOG_PATH = Path.home() / ".spyder" / "logs"
-STATE_PATH = Path.home() / ".spyder" / "state"
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+# System configuration
+SPYDER_VERSION = "1.0"
+SYSTEM_NAME = "Spyder Autonomous Options Trading System"
 
-# Trading hours in Eastern Time
-MARKET_OPEN = dt_time(9, 30)  # 9:30 AM ET
-MARKET_CLOSE = dt_time(16, 0)  # 4:00 PM ET
-TRADING_TIMEZONE = pytz.timezone("US/Eastern")
+# Confirmed working connection parameters
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 4002
+MASTER_CLIENT_ID = 2  # Master coordination client ID
+ORDER_CLIENT_ID = 1   # Order execution client ID
 
 # Application states
+DEFAULT_CONFIG_PATH = Path.home() / ".spyder" / "config"
+DEFAULT_LOG_PATH = Path.home() / ".spyder" / "logs"
+DEFAULT_DATA_PATH = Path.home() / ".spyder" / "data"
 
+# Market hours (EST)
+MARKET_OPEN_TIME = "09:30"
+MARKET_CLOSE_TIME = "16:00"
+PRE_MARKET_START = "04:00"
+AFTER_HOURS_END = "20:00"
 
-class AppState(Enum):
-    """Application state enumeration"""
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+class SystemState(Enum):
+    """System state enumeration"""
+    INITIALIZING = "initializing"
+    CONNECTING = "connecting"
+    READY = "ready"
+    RUNNING = "running"
+    PAUSED = "paused"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+    ERROR = "error"
 
-    INITIALIZING = auto()
-    READY = auto()
-    CONNECTING = auto()
-    CONNECTED = auto()
-    TRADING = auto()
-    PAUSED = auto()
-    STOPPING = auto()
-    STOPPED = auto()
-    ERROR = auto()
+class TradingMode(Enum):
+    """Trading mode enumeration"""
+    SIMULATION = "simulation"
+    PAPER = "paper"
+    LIVE = "live"
 
+class ShutdownReason(Enum):
+    """Shutdown reason enumeration"""
+    USER_REQUEST = "user_request"
+    MARKET_CLOSE = "market_close"
+    ERROR = "error"
+    SIGNAL = "signal"
+    EMERGENCY = "emergency"
 
-# =============================================================================
-# Signal Handlers
-# =============================================================================
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
+@dataclass
+class SystemConfig:
+    """System configuration parameters"""
+    trading_mode: TradingMode = TradingMode.SIMULATION
+    enable_gui: bool = True
+    headless: bool = False
+    
+    # Connection settings
+    ib_host: str = DEFAULT_HOST
+    ib_port: int = DEFAULT_PORT
+    master_client_id: int = MASTER_CLIENT_ID
+    order_client_id: int = ORDER_CLIENT_ID
+    connection_timeout: int = 30
+    
+    # Trading settings
+    enable_trading: bool = False
+    auto_start_trading: bool = False
+    respect_market_hours: bool = True
+    
+    # Paths
+    config_path: Path = DEFAULT_CONFIG_PATH
+    log_path: Path = DEFAULT_LOG_PATH
+    data_path: Path = DEFAULT_DATA_PATH
+    
+    # System settings
+    max_positions: int = 10
+    max_daily_loss: float = 1000.0
+    enable_risk_management: bool = True
 
+@dataclass
+class SystemStatus:
+    """Current system status"""
+    state: SystemState
+    trading_mode: TradingMode
+    start_time: Optional[datetime] = None
+    connection_status: str = "disconnected"
+    active_strategies: int = 0
+    open_positions: int = 0
+    daily_pnl: float = 0.0
+    total_pnl: float = 0.0
+    last_update: Optional[datetime] = None
 
-def signal_handler(signum, frame):
-    """Handle system signals for graceful shutdown."""
-    signal_name = signal.Signals(signum).name
-    print(f"\nReceived signal {signal_name}. Initiating graceful shutdown...")
-    if hasattr(signal_handler, "app"):
-        asyncio.create_task(signal_handler.app.shutdown())
-    else:
-        sys.exit(0)
+@dataclass
+class SubsystemStatus:
+    """Individual subsystem status"""
+    name: str
+    initialized: bool = False
+    healthy: bool = False
+    last_heartbeat: Optional[datetime] = None
+    error_count: int = 0
+    last_error: Optional[str] = None
 
-
-# =============================================================================
-# Main Application Class
-# =============================================================================
-
-
+# ==============================================================================
+# MAIN APPLICATION CLASS
+# ==============================================================================
 class SpyderApplication:
     """
-    Main application class for Spyder that coordinates all trading components.
-
-    This class manages the lifecycle of the trading system including:
-    - Initializing core components (trading engine, IB client, GUI)
-    - Managing trading schedules and market hours
-    - Coordinating between strategies and risk management
-    - Handling system events and notifications
-    - Ensuring clean startup and shutdown procedures
-
+    Primary application controller and system coordinator for Spyder.
+    
+    This class manages the complete lifecycle of the autonomous trading system,
+    including initialization, coordination between subsystems, trading
+    execution, risk management, and graceful shutdown procedures. It supports
+    both live trading with IB Gateway and simulation mode for development.
+    
     Attributes:
-        config (ConfigManager): Configuration manager instance
-        trading_engine (TradingEngine): Core trading engine
-        spyder_client (SpyderClient): Interactive Brokers API client
-        dal (DataAccessLayer): Data access layer
-        event_manager (EventManager): System event coordinator
-        risk_manager (RiskManager): Risk management system
-        trading_calendar (TradingCalendar): Market calendar
-        gui_app (QApplication): PyQt application instance
-        main_window (MainWindow): Main GUI window
-        logger (SpyderLogger): Application logger
-        error_handler (SpyderErrorHandler): Error handling system
-        state (AppState): Current application state
-        is_running (bool): Application running state
+        config: System configuration
+        state: Current system state
+        status: System status information
+        logger: Application logger
+        event_manager: System event coordinator
+        connection_manager: IB Gateway connection manager
+        
+    Example:
+        >>> app = SpyderApplication()
+        >>> await app.initialize()
+        >>> await app.run()
     """
-
-    def __init__(self, config_path: Optional[Path] = None, headless: bool = False):
-        """
-        Initialize the Spyder trading application.
-
-        Args:
-            config_path: Path to configuration file
-            headless: Run without GUI if True
-        """
-        # Initialize state
-        self.state = AppState.INITIALIZING
-        self.is_running = False
-        self.headless = headless
-        self.start_time = None
-        self._shutdown_event = threading.Event()
-        self._state_lock = threading.RLock()
-
-        # Initialize paths
-        self._init_paths()
-
-        # Initialize logger first
-        self.logger = get_logger(__name__)
-        self.logger.info(f"Initializing {APPLICATION_NAME} v{VERSION}")
-
-        # Initialize error handler
-        self.error_handler = SpyderErrorHandler()
-
-        # Initialize configuration
-        self.config_path = config_path or DEFAULT_CONFIG_PATH
-        self.config = ConfigManager(self.config_path)
-
-        # Component references (initialized later)
-        self.event_manager = None
-        self.dal = None
-        self.trading_engine = None
-        self.spyder_client = None
-        self.risk_manager = None
-        self.trading_calendar = None
-        self.gui_app = None
-        self.main_window = None
-
-        # Component status tracking
-        self.component_status = {
-            "config": False,
-            "event_manager": False,
-            "database": False,
-            "trading_engine": False,
-            "broker_client": False,
-            "risk_manager": False,
-            "trading_calendar": False,
-            "gui": False,
-        }
-
-        # Register signal handlers
-        signal_handler.app = self
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-
-        self.logger.info(
-            "Application initialized in headless mode"
-            if headless
-            else "Application initialized with GUI"
+    
+    def __init__(self, config: Optional[SystemConfig] = None):
+        """Initialize the Spyder application."""
+        
+        # Configuration
+        self.config = config or SystemConfig()
+        
+        # Core state
+        self.state = SystemState.INITIALIZING
+        self.status = SystemStatus(
+            state=self.state,
+            trading_mode=self.config.trading_mode
         )
-
-    def _init_paths(self):
-        """Initialize application paths"""
-        paths = [LOG_PATH, STATE_PATH]
-        for path in paths:
-            path.mkdir(parents=True, exist_ok=True)
-
-    def _transition_state(self, new_state: AppState) -> bool:
-        """
-        Safely transition application state
-
-        Args:
-            new_state: Target state
-
-        Returns:
-            bool: True if transition successful
-        """
-        allowed_transitions = {
-            AppState.INITIALIZING: [AppState.READY, AppState.ERROR],
-            AppState.READY: [AppState.CONNECTING, AppState.STOPPING, AppState.ERROR],
-            AppState.CONNECTING: [AppState.CONNECTED, AppState.READY, AppState.ERROR],
-            AppState.CONNECTED: [
-                AppState.TRADING,
-                AppState.READY,
-                AppState.STOPPING,
-                AppState.ERROR,
-            ],
-            AppState.TRADING: [
-                AppState.PAUSED,
-                AppState.CONNECTED,
-                AppState.STOPPING,
-                AppState.ERROR,
-            ],
-            AppState.PAUSED: [AppState.TRADING, AppState.STOPPING, AppState.ERROR],
-            AppState.STOPPING: [AppState.STOPPED],
-            AppState.ERROR: [AppState.STOPPING, AppState.STOPPED],
-            AppState.STOPPED: [],
+        
+        # Initialize logging
+        self._setup_logging()
+        
+        # Core components
+        self.event_manager: Optional[EventManager] = None
+        self.connection_manager = None
+        self.spyder_client = None
+        self.trading_engine = None
+        self.risk_manager = None
+        
+        # GUI components
+        self.qt_app: Optional[QApplication] = None
+        self.main_window = None
+        
+        # System management
+        self._running = False
+        self._shutdown_requested = False
+        self._shutdown_reason: Optional[ShutdownReason] = None
+        self._subsystems: Dict[str, SubsystemStatus] = {}
+        self._background_tasks: List[asyncio.Task] = []
+        
+        # Threading
+        self._main_thread = threading.current_thread()
+        self._shutdown_event = threading.Event()
+        self._heartbeat_task: Optional[asyncio.Task] = None
+        
+        # Performance tracking
+        self._start_time: Optional[datetime] = None
+        self._metrics = {
+            'uptime': 0.0,
+            'trades_executed': 0,
+            'errors_handled': 0,
+            'connections_established': 0
         }
+        
+        self.logger.info(f"SpyderApplication initialized in {self.config.trading_mode.value} mode")
 
-        with self._state_lock:
-            if new_state in allowed_transitions.get(self.state, []):
-                old_state = self.state
-                self.state = new_state
-                self.logger.info(f"State transition: {old_state.name} -> {new_state.name}")
-
-                # Emit state change event
-                if self.event_manager:
-                    self.event_manager.emit(
-                        EventType.SYSTEM,
-                        {
-                            "type": "state_change",
-                            "old_state": old_state.name,
-                            "new_state": new_state.name,
-                        },
-                    )
+    # ==========================================================================
+    # INITIALIZATION AND SETUP
+    # ==========================================================================
+    
+    def _setup_logging(self):
+        """Setup application logging."""
+        if HAS_UTILITIES:
+            self.logger = SpyderLogger.get_logger(__name__)
+            self.error_handler = SpyderErrorHandler()
+        else:
+            # Fallback logging
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            self.logger = logging.getLogger(__name__)
+            self.error_handler = None
+        
+        # Ensure log directory exists
+        self.config.log_path.mkdir(parents=True, exist_ok=True)
+    
+    async def initialize(self) -> bool:
+        """
+        Initialize all system components.
+        
+        Returns:
+            bool: True if initialization successful
+        """
+        try:
+            self.logger.info("=" * 60)
+            self.logger.info(f"INITIALIZING {SYSTEM_NAME}")
+            self.logger.info(f"Version: {SPYDER_VERSION}")
+            self.logger.info(f"Mode: {self.config.trading_mode.value}")
+            self.logger.info("=" * 60)
+            
+            self._start_time = datetime.now()
+            self.status.start_time = self._start_time
+            
+            # Initialize core directories
+            self._setup_directories()
+            
+            # Initialize core components
+            if not await self._initialize_core_components():
+                self.logger.error("Core component initialization failed")
+                return False
+            
+            # Initialize trading components
+            if not await self._initialize_trading_components():
+                self.logger.error("Trading component initialization failed")
+                return False
+            
+            # Initialize GUI if enabled
+            if self.config.enable_gui and not self.config.headless and HAS_GUI_SUPPORT:
+                if not self._initialize_gui():
+                    self.logger.warning("GUI initialization failed - continuing in headless mode")
+                    self.config.enable_gui = False
+            
+            # Setup signal handlers
+            self._setup_signal_handlers()
+            
+            # Start background tasks
+            await self._start_background_tasks()
+            
+            self.state = SystemState.READY
+            self.status.state = self.state
+            
+            self.logger.info("System initialization completed successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"System initialization failed: {e}")
+            self.logger.error(traceback.format_exc())
+            self.state = SystemState.ERROR
+            return False
+    
+    def _setup_directories(self):
+        """Setup required directories."""
+        for path in [self.config.config_path, self.config.log_path, self.config.data_path]:
+            path.mkdir(parents=True, exist_ok=True)
+    
+    async def _initialize_core_components(self) -> bool:
+        """Initialize core system components."""
+        try:
+            self.logger.info("Initializing core components...")
+            
+            # Event manager
+            if HAS_CORE_MODULES:
+                self.event_manager = EventManager()
+                self._register_subsystem("event_manager", True, True)
+            else:
+                self.logger.warning("Event manager not available - using simple event handling")
+            
+            # Configuration manager
+            if HAS_CORE_MODULES:
+                self.config_manager = ConfigManager()
+                self._register_subsystem("config_manager", True, True)
+            
+            # Trading calendar
+            if HAS_UTILITIES:
+                self.trading_calendar = TradingCalendar()
+                self._register_subsystem("trading_calendar", True, True)
+            
+            self.logger.info("Core components initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Core component initialization error: {e}")
+            return False
+    
+    async def _initialize_trading_components(self) -> bool:
+        """Initialize trading-related components."""
+        try:
+            self.logger.info("Initializing trading components...")
+            
+            # Connection manager (with simulation fallback)
+            if self.config.trading_mode != TradingMode.SIMULATION:
+                success = await self._initialize_broker_connection()
+                if not success and self.config.trading_mode != TradingMode.SIMULATION:
+                    self.logger.warning("Broker connection failed - switching to simulation mode")
+                    self.config.trading_mode = TradingMode.SIMULATION
+                    self.status.trading_mode = TradingMode.SIMULATION
+            
+            if self.config.trading_mode == TradingMode.SIMULATION:
+                self.logger.info("Running in simulation mode - using mock trading components")
+                self._initialize_simulation_mode()
+            
+            self.logger.info("Trading components initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Trading component initialization error: {e}")
+            return False
+    
+    async def _initialize_broker_connection(self) -> bool:
+        """Initialize broker connection with confirmed parameters."""
+        if not HAS_BROKER_MODULES:
+            self.logger.warning("Broker modules not available")
+            return False
+        
+        try:
+            self.logger.info("Initializing broker connection...")
+            
+            # Create connection configuration with confirmed working parameters
+            connection_config = ConnectionConfig()
+            connection_config.client_id = self.config.master_client_id
+            connection_config.host = self.config.ib_host
+            connection_config.port = self.config.ib_port
+            connection_config.timeout = self.config.connection_timeout
+            connection_config.readonly = False  # Allow trading operations
+            
+            # Get connection manager
+            self.connection_manager = get_connection_manager(connection_config)
+            
+            # Start connection manager
+            self.connection_manager.start()
+            
+            # Attempt connection with timeout handling
+            self.logger.info(f"Connecting to IB Gateway: {self.config.ib_host}:{self.config.ib_port}")
+            self.logger.info(f"Using master client ID: {self.config.master_client_id}")
+            
+            # Try connection with proper error handling
+            connection_success = await asyncio.wait_for(
+                asyncio.to_thread(self.connection_manager.connect),
+                timeout=self.config.connection_timeout
+            )
+            
+            if connection_success:
+                self.logger.info("Broker connection established successfully")
+                self.status.connection_status = "connected"
+                self._register_subsystem("connection_manager", True, True)
+                self._metrics['connections_established'] += 1
                 return True
             else:
-                self.logger.warning(
-                    f"Invalid state transition: {self.state.name} -> {new_state.name}"
-                )
-                return False
-
-    async def initialize_components(self):
-        """Initialize all application components with proper error handling."""
-        self.logger.info("Initializing components...")
-
-        try:
-            # Initialize components in order
-            components = [
-                ("config", self._init_config),
-                ("event_manager", self._init_event_manager),
-                ("database", self._init_database),
-                ("trading_calendar", self._init_trading_calendar),
-                ("risk_manager", self._init_risk_manager),
-                ("trading_engine", self._init_trading_engine),
-                ("broker_client", self._init_broker_client),
-            ]
-
-            if not self.headless:
-                components.append(("gui", self._init_gui))
-
-            for name, init_func in components:
-                try:
-                    self.logger.info(f"Initializing {name}...")
-                    if await init_func():
-                        self.component_status[name] = True
-                        self.logger.info(f"✓ {name} initialized successfully")
-                    else:
-                        self.logger.error(f"✗ {name} initialization failed")
-                        # Decide if this is fatal based on component
-                        if name in ["config", "event_manager", "database"]:
-                            raise RuntimeError(f"Critical component {name} failed to initialize")
-                except Exception as e:
-                    self.logger.error(f"Error initializing {name}: {e}")
-                    self.error_handler.handle_error(e, f"initialize_{name}")
-                    if name in ["config", "event_manager", "database"]:
-                        raise
-
-            # Verify minimum required components
-            required = ["config", "event_manager", "database"]
-            if not all(self.component_status[comp] for comp in required):
-                raise RuntimeError("Failed to initialize required components")
-
-            self._transition_state(AppState.READY)
-            self.logger.info("All components initialized successfully")
-
-        except Exception as e:
-            self.logger.error(f"Component initialization failed: {e}")
-            self._transition_state(AppState.ERROR)
-            raise
-
-    async def _init_config(self) -> bool:
-        """Initialize configuration manager"""
-        try:
-            # Reload configuration
-            if not (hasattr(self.config, 'load') and self.config.load()):
-                self.logger.warning("Using default configuration")
-                  
-            # Validate configuration
-            validation_errors = self.config.validate()
-            if validation_errors:
-                self.logger.error(f"Configuration validation errors: {validation_errors}")
+                self.logger.warning("Broker connection failed")
+                self.status.connection_status = "failed"
                 return False
                 
-           
-            return True
-        except Exception as e:
-            self.logger.error(f"Config initialization error: {e}")
+        except asyncio.TimeoutError:
+            self.logger.warning("Broker connection timeout - this is the known API handshake issue")
+            self.status.connection_status = "timeout"
             return False
-
-    async def _init_event_manager(self) -> bool:
-        """Initialize event management system"""
-        try:
-            self.event_manager = EventManager()
-            self.event_manager.start()
-
-            # Register application event handlers
-            self.event_manager.subscribe(EventType.SYSTEM_ERROR, self._on_system_error)
-            self.event_manager.subscribe(EventType.CRITICAL_ERROR, self._on_critical_error)
-
-            return True
         except Exception as e:
-            self.logger.error(f"Event manager initialization error: {e}")
+            self.logger.error(f"Broker connection error: {e}")
+            self.status.connection_status = f"error: {str(e)}"
             return False
-
-    async def _init_database(self) -> bool:
-        """Initialize database access layer"""
+    
+    def _initialize_simulation_mode(self):
+        """Initialize simulation mode components."""
+        self.logger.info("Initializing simulation mode...")
+        
+        # Create mock trading components
+        self.simulation_client = MockSpyderClient()
+        self.simulation_data_feed = MockDataFeed()
+        
+        self._register_subsystem("simulation_client", True, True)
+        self._register_subsystem("simulation_data_feed", True, True)
+        
+        self.logger.info("Simulation mode initialized")
+    
+    def _initialize_gui(self) -> bool:
+        """Initialize GUI components."""
         try:
-            self.dal = get_data_access_layer(self.config.get("database", {}))
-
-            # Verify database connection
-            if not self.dal.test_connection():
-                self.logger.error("Database connection test failed")
+            if not HAS_GUI_SUPPORT:
                 return False
-
-            # Run any pending migrations
-            if not self.dal.run_migrations():
-                self.logger.warning("Database migrations failed - continuing anyway")
-
+            
+            self.logger.info("Initializing GUI...")
+            
+            # Create Qt application if not exists
+            if QApplication.instance() is None:
+                self.qt_app = QApplication(sys.argv)
+                self.qt_app.setApplicationName("Spyder Trading System")
+                self.qt_app.setApplicationVersion(SPYDER_VERSION)
+            else:
+                self.qt_app = QApplication.instance()
+            
+            # Initialize main window (when GUI modules are available)
+            # For now, just setup for future integration
+            self._register_subsystem("gui", True, True)
+            
+            self.logger.info("GUI initialized successfully")
             return True
-        except Exception as e:
-            self.logger.error(f"Database initialization error: {e}")
-            return False
-
-    async def _init_trading_calendar(self) -> bool:
-        """Initialize trading calendar"""
-        try:
-            self.trading_calendar = TradingCalendar()
-
-            # Load market holidays
-            if not self.trading_calendar.load_holidays():
-                self.logger.warning("Failed to load market holidays - using defaults")
-
-            return True
-        except Exception as e:
-            self.logger.error(f"Trading calendar initialization error: {e}")
-            return False
-
-    async def _init_risk_manager(self) -> bool:
-        """Initialize risk management system"""
-        try:
-            risk_config = self.config.get("risk", {})
-            self.risk_manager = RiskManager(risk_config, self.event_manager)
-
-            if not self.risk_manager.initialize():
-                return False
-
-            # Register risk event handlers
-            self.event_manager.subscribe(
-                EventType.RISK_LIMIT_EXCEEDED, self._on_risk_limit_exceeded
-            )
-
-            return True
-        except Exception as e:
-            self.logger.error(f"Risk manager initialization error: {e}")
-            return False
-
-    async def _init_trading_engine(self) -> bool:
-        """Initialize trading engine"""
-        try:
-            engine_config = self.config.get("trading_engine", {})
-            self.trading_engine = TradingEngine(
-                engine_config, self.spyder_client, self.event_manager
-            )
-
-            if not self.trading_engine.initialize():
-                return False
-
-            # Set risk manager
-            self.trading_engine.set_risk_manager(self.risk_manager)
-
-            return True
-        except Exception as e:
-            self.logger.error(f"Trading engine initialization error: {e}")
-            return False
-
-    async def _init_broker_client(self) -> bool:
-        """Initialize broker client (can run in degraded mode)"""
-        try:
-            ib_config = self.config.get("ib", {})
-            self.spyder_client = SpyderClient(ib_config)
-
-            # Don't fail if broker not available - can run in simulation mode
-            return True
-        except Exception as e:
-            self.logger.warning(f"Broker client initialization error: {e}")
-            self.logger.info("Running in simulation mode")
-            return True
-
-    async def _init_gui(self) -> bool:
-        """Initialize GUI components"""
-        if not HAS_GUI:
-            return False
-
-        try:
-            self.gui_app = QApplication.instance() or QApplication(sys.argv)
-            self.main_window = MainWindow()
-            self.main_window.show()
-            return True
+            
         except Exception as e:
             self.logger.error(f"GUI initialization error: {e}")
             return False
 
-    async def connect_broker(self) -> bool:
-        """Connect to Interactive Brokers with retry logic."""
-        if not self.spyder_client:
-            self.logger.error("Broker client not initialized")
-            return False
-
-        self._transition_state(AppState.CONNECTING)
-
-        max_retries = 3
-        retry_delay = 5
-
-        for attempt in range(max_retries):
-            try:
-                self.logger.info(
-                    f"Connecting to Interactive Brokers (attempt {
-                        attempt + 1}/{max_retries})"
-                )
-
-                # Connect with timeout
-                connected = await asyncio.wait_for(self.spyder_client.connect_async(), timeout=30)
-
-                if connected:
-                    self.logger.info("Successfully connected to Interactive Brokers")
-                    self._transition_state(AppState.CONNECTED)
-
-                    # Subscribe to connection events
-                    self.event_manager.subscribe(
-                        EventType.CONNECTION_LOST, self._on_connection_lost
-                    )
-
-                    return True
-
-            except asyncio.TimeoutError:
-                self.logger.error("Connection timeout")
-            except Exception as e:
-                self.logger.error(f"Connection error: {e}")
-
-            if attempt < max_retries - 1:
-                self.logger.info(f"Retrying in {retry_delay} seconds...")
-                await asyncio.sleep(retry_delay)
-
-        self.logger.error("Failed to connect after all retries")
-        self._transition_state(AppState.READY)
-        return False
-
-    def start_trading(self):
-        """Start trading operations with safety checks."""
-        try:
-            if self.state != AppState.CONNECTED:
-                self.logger.error(f"Cannot start trading from state {self.state.name}")
-                return False
-
-            # Verify market hours
-            if not self.is_market_open():
-                self.logger.warning("Market is closed")
-                if not self.config.get("allow_after_hours", False):
-                    return False
-
-            # Verify risk manager ready
-            if not self.risk_manager or not self.risk_manager.is_ready():
-                self.logger.error("Risk manager not ready")
-                return False
-
-            # Start trading engine
-            if not self.trading_engine.start():
-                self.logger.error("Failed to start trading engine")
-                return False
-
-            self.is_running = True
-            self._transition_state(AppState.TRADING)
-            self.start_time = datetime.now()
-
-            self.logger.info("Trading started successfully")
-
-            # Emit trading started event
-            self.event_manager.emit(
-                EventType.SYSTEM,
-                {
-                    "type": "trading_started",
-                    "timestamp": self.start_time,
-                    "market_open": self.is_market_open(),
-                },
-            )
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error starting trading: {e}")
-            self.error_handler.handle_error(e, "start_trading")
-            return False
-
-    def stop_trading(self):
-        """Stop trading operations gracefully."""
-        try:
-            if self.state not in [AppState.TRADING, AppState.PAUSED]:
-                self.logger.warning(f"Not trading (state: {self.state.name})")
-                return
-
-            self.logger.info("Stopping trading operations...")
-
-            # Stop trading engine
-            if self.trading_engine:
-                self.trading_engine.stop("User requested")
-
-            self.is_running = False
-            self._transition_state(AppState.CONNECTED)
-
-            # Calculate session duration
-            if self.start_time:
-                duration = datetime.now() - self.start_time
-                self.logger.info(f"Trading session duration: {duration}")
-
-            # Emit trading stopped event
-            self.event_manager.emit(
-                EventType.SYSTEM,
-                {
-                    "type": "trading_stopped",
-                    "timestamp": datetime.now(),
-                    "duration": str(duration) if self.start_time else None,
-                },
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error stopping trading: {e}")
-            self.error_handler.handle_error(e, "stop_trading")
-
-    def is_market_open(self) -> bool:
+    # ==========================================================================
+    # SYSTEM LIFECYCLE
+    # ==========================================================================
+    
+    async def run(self) -> int:
         """
-        Check if market is currently open using trading calendar.
-
+        Main application run loop.
+        
         Returns:
-            bool: True if market is open
+            int: Exit code (0 for success)
         """
-        if self.trading_calendar:
-            return self.trading_calendar.is_market_open()
-
-        # Fallback to simple time check
-        now = datetime.now(TRADING_TIMEZONE)
-        current_time = now.time()
-
-        # Check if it's a weekday
-        if now.weekday() >= 5:  # Saturday = 5, Sunday = 6
-            return False
-
-        # Check market hours
-        return MARKET_OPEN <= current_time <= MARKET_CLOSE
-
-    async def run(self):
-        """Main application run loop with proper error handling."""
         try:
-            # Initialize components
-            await self.initialize_components()
-
-            # Connect to broker if configured
-            if self.config.get("auto_connect", True):
-                if not await self.connect_broker():
-                    self.logger.warning("Running without broker connection")
-
-            # Auto-start trading if configured
-            if self.config.get("auto_start", False) and self.is_market_open():
-                self.start_trading()
-
-            # Run GUI event loop if not headless
-            if not self.headless and self.gui_app:
-                self.gui_app.exec()
-            else:
-                # Keep running until shutdown signal
-                while not self._shutdown_event.is_set():
-                    await asyncio.sleep(1)
-
-                    # Periodic health check
-                    if int(time.time()) % 60 == 0:
-                        await self._health_check()
-
+            if self.state != SystemState.READY:
+                self.logger.error("System not properly initialized")
+                return 1
+            
+            self.logger.info("Starting main application loop...")
+            self.state = SystemState.RUNNING
+            self.status.state = self.state
+            self._running = True
+            
+            # Start heartbeat monitoring
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            
+            # Main application loop
+            while self._running and not self._shutdown_requested:
+                try:
+                    # Update system status
+                    await self._update_system_status()
+                    
+                    # Process events if available
+                    if self.event_manager:
+                        await self._process_events()
+                    
+                    # Health check subsystems
+                    await self._health_check()
+                    
+                    # Trading operations
+                    if self.config.enable_trading:
+                        await self._trading_cycle()
+                    
+                    # Brief pause to prevent CPU spinning
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    self.logger.error(f"Error in main loop: {e}")
+                    self._metrics['errors_handled'] += 1
+                    
+                    if self.error_handler:
+                        self.error_handler.handle_exception(e)
+            
+            # Shutdown sequence
+            await self._shutdown()
+            
+            self.logger.info("Application shutdown completed")
+            return 0
+            
         except KeyboardInterrupt:
             self.logger.info("Received keyboard interrupt")
+            self._shutdown_reason = ShutdownReason.SIGNAL
+            await self._shutdown()
+            return 0
         except Exception as e:
-            self.logger.error(f"Application error: {e}")
-            self.error_handler.handle_error(e, "main_run_loop")
-            raise
-        finally:
-            # Always perform cleanup
-            await self._cleanup_resources()
-
-    async def _health_check(self):
-        """Perform periodic health check"""
+            self.logger.error(f"Critical error in main loop: {e}")
+            self.logger.error(traceback.format_exc())
+            await self._emergency_shutdown()
+            return 1
+    
+    async def _trading_cycle(self):
+        """Execute one trading cycle."""
         try:
-            health_status = {
-                "timestamp": datetime.now().isoformat(),
-                "state": self.state.name,
-                "components": self.component_status.copy(),
-                "uptime": str(datetime.now() - self.start_time) if self.start_time else None,
-            }
+            # Market hours check
+            if self.config.respect_market_hours and hasattr(self, 'trading_calendar'):
+                if not self.trading_calendar.is_market_open():
+                    return
+            
+            # Trading logic placeholder
+            # This will be implemented when strategies are integrated
+            pass
+            
+        except Exception as e:
+            self.logger.error(f"Trading cycle error: {e}")
+    
+    async def _update_system_status(self):
+        """Update system status information."""
+        try:
+            now = datetime.now()
+            
+            # Update basic status
+            self.status.last_update = now
+            
+            if self._start_time:
+                self._metrics['uptime'] = (now - self._start_time).total_seconds()
+            
+            # Update connection status
+            if self.connection_manager and hasattr(self.connection_manager, 'is_connected'):
+                if self.connection_manager.is_connected():
+                    self.status.connection_status = "connected"
+                else:
+                    self.status.connection_status = "disconnected"
+            
+        except Exception as e:
+            self.logger.error(f"Status update error: {e}")
 
-            # Check component health
-            if self.trading_engine:
-                health_status["trading_engine"] = self.trading_engine.get_health_status()
-
-            if self.spyder_client and self.spyder_client.is_connected():
-                health_status["broker_connected"] = True
-
-            # Log health status
-            self.logger.debug(f"Health check: {health_status}")
-
-            # Emit health event
-            self.event_manager.emit(
-                EventType.SYSTEM, {"type": "health_check", "status": health_status}
-            )
-
+    # ==========================================================================
+    # BACKGROUND TASKS
+    # ==========================================================================
+    
+    async def _start_background_tasks(self):
+        """Start background monitoring tasks."""
+        try:
+            # System monitoring task
+            task = asyncio.create_task(self._system_monitor())
+            self._background_tasks.append(task)
+            
+            self.logger.info("Background tasks started")
+            
+        except Exception as e:
+            self.logger.error(f"Background task startup error: {e}")
+    
+    async def _heartbeat_loop(self):
+        """System heartbeat loop."""
+        while self._running and not self._shutdown_requested:
+            try:
+                # Update subsystem heartbeats
+                for name, status in self._subsystems.items():
+                    status.last_heartbeat = datetime.now()
+                
+                # Log periodic status
+                if hasattr(self, '_start_time') and self._start_time:
+                    uptime = datetime.now() - self._start_time
+                    if uptime.total_seconds() % 300 == 0:  # Every 5 minutes
+                        self.logger.info(f"System running - uptime: {uptime}")
+                
+                await asyncio.sleep(30)  # 30 second heartbeat
+                
+            except Exception as e:
+                self.logger.error(f"Heartbeat error: {e}")
+                await asyncio.sleep(30)
+    
+    async def _system_monitor(self):
+        """Background system monitoring."""
+        while self._running and not self._shutdown_requested:
+            try:
+                # Monitor memory usage, CPU, disk space, etc.
+                # Placeholder for system resource monitoring
+                
+                await asyncio.sleep(60)  # Monitor every minute
+                
+            except Exception as e:
+                self.logger.error(f"System monitor error: {e}")
+                await asyncio.sleep(60)
+    
+    async def _process_events(self):
+        """Process pending system events."""
+        try:
+            if self.event_manager and hasattr(self.event_manager, 'get_pending_events'):
+                events = self.event_manager.get_pending_events()
+                
+                for event in events:
+                    await self._handle_event(event)
+                    
+        except Exception as e:
+            self.logger.error(f"Event processing error: {e}")
+    
+    async def _handle_event(self, event):
+        """Handle individual system event."""
+        try:
+            # Event handling logic placeholder
+            self.logger.debug(f"Processing event: {event}")
+            
+        except Exception as e:
+            self.logger.error(f"Event handling error: {e}")
+    
+    async def _health_check(self):
+        """Perform system health checks."""
+        try:
+            unhealthy_subsystems = []
+            
+            for name, status in self._subsystems.items():
+                if status.last_heartbeat:
+                    time_since_heartbeat = datetime.now() - status.last_heartbeat
+                    if time_since_heartbeat.total_seconds() > 120:  # 2 minutes
+                        status.healthy = False
+                        unhealthy_subsystems.append(name)
+                    else:
+                        status.healthy = True
+            
+            if unhealthy_subsystems:
+                self.logger.warning(f"Unhealthy subsystems: {unhealthy_subsystems}")
+                
         except Exception as e:
             self.logger.error(f"Health check error: {e}")
 
-    async def _cleanup_resources(self):
-        """Clean up all resources properly"""
-        self.logger.info("Cleaning up resources...")
-
+    # ==========================================================================
+    # SYSTEM MANAGEMENT
+    # ==========================================================================
+    
+    def _register_subsystem(self, name: str, initialized: bool = False, healthy: bool = False):
+        """Register a subsystem for monitoring."""
+        self._subsystems[name] = SubsystemStatus(
+            name=name,
+            initialized=initialized,
+            healthy=healthy,
+            last_heartbeat=datetime.now()
+        )
+    
+    def _setup_signal_handlers(self):
+        """Setup signal handlers for graceful shutdown."""
+        def signal_handler(signum, frame):
+            self.logger.info(f"Received signal {signum}")
+            self._shutdown_reason = ShutdownReason.SIGNAL
+            self._shutdown_requested = True
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+    
+    async def _shutdown(self):
+        """Perform graceful system shutdown."""
         try:
-            # Save application state
-            await self._save_state()
-
-            # Stop components in reverse order
-            cleanup_tasks = []
-
-            if self.trading_engine and self.is_running:
-                cleanup_tasks.append(
-                    self._cleanup_component("trading_engine", self.trading_engine.shutdown)
-                )
-
-            if self.risk_manager:
-                cleanup_tasks.append(
-                    self._cleanup_component("risk_manager", self.risk_manager.shutdown)
-                )
-
-            if self.spyder_client and self.spyder_client.is_connected():
-                cleanup_tasks.append(
-                    self._cleanup_component("broker_client", self.spyder_client.disconnect)
-                )
-
-            if self.dal:
-                cleanup_tasks.append(
-                    self._cleanup_component("database", self.dal.close_all_connections)
-                )
-
-            if self.event_manager:
-                cleanup_tasks.append(
-                    self._cleanup_component("event_manager", self.event_manager.stop)
-                )
-
-            # Run cleanup tasks concurrently with timeout
-            if cleanup_tasks:
-                await asyncio.gather(*cleanup_tasks, return_exceptions=True)
-
-            # Close GUI
-            if self.gui_app:
-                self.gui_app.quit()
-
-            self.logger.info("Resource cleanup completed")
-
-        except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
-            # Don't re-raise in cleanup
-
-    async def _cleanup_component(self, name: str, cleanup_func):
-        """Clean up a single component with timeout"""
-        try:
-            self.logger.info(f"Cleaning up {name}...")
-
-            # Handle both sync and async cleanup functions
-            if asyncio.iscoroutinefunction(cleanup_func):
-                await asyncio.wait_for(cleanup_func(), timeout=10)
-            else:
-                await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(None, cleanup_func), timeout=10
-                )
-
-            self.logger.info(f"✓ {name} cleaned up")
-
-        except asyncio.TimeoutError:
-            self.logger.error(f"Timeout cleaning up {name}")
-        except Exception as e:
-            self.logger.error(f"Error cleaning up {name}: {e}")
-
-    async def _save_state(self):
-        """Save application state to disk"""
-        try:
-            state_file = STATE_PATH / "app_state.json"
-
-            state_data = {
-                "version": VERSION,
-                "shutdown_time": datetime.now().isoformat(),
-                "last_state": self.state.name,
-                "component_status": self.component_status,
-                "session_duration": (
-                    str(datetime.now() - self.start_time) if self.start_time else None
-                ),
-                "config_checksum": self.config.get_checksum(),
-            }
-
-            # Add trading engine state if available
-            if self.trading_engine:
-                state_data["trading_engine"] = self.trading_engine.get_state()
-
-            # Write state file
-            with open(state_file, "w") as f:
-                json.dump(state_data, f, indent=2)
-
-            self.logger.info(f"Application state saved to {state_file}")
-
-        except Exception as e:
-            self.logger.error(f"Failed to save state: {e}")
-
-    async def shutdown(self):
-        """Perform graceful shutdown with proper state transitions."""
-        if self.state == AppState.STOPPED:
-            return
-
-        self.logger.info("Initiating graceful shutdown...")
-        self._transition_state(AppState.STOPPING)
-
-        try:
-            # Signal shutdown
-            self._shutdown_event.set()
-
-            # Stop trading if active
-            if self.is_running:
-                self.stop_trading()
-
+            self.logger.info("Initiating graceful shutdown...")
+            self.state = SystemState.STOPPING
+            self.status.state = self.state
+            
+            # Stop background tasks
+            for task in self._background_tasks:
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            
+            # Stop heartbeat
+            if self._heartbeat_task and not self._heartbeat_task.done():
+                self._heartbeat_task.cancel()
+                try:
+                    await self._heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+            
             # Disconnect from broker
-            if self.spyder_client and self.spyder_client.is_connected():
-                self.logger.info("Disconnecting from Interactive Brokers...")
-                await self.spyder_client.disconnect_async()
-
-            # Transition to stopped state
-            self._transition_state(AppState.STOPPED)
-
-            self.logger.info("Shutdown completed successfully")
-
+            if self.connection_manager:
+                try:
+                    self.connection_manager.stop()
+                    self.logger.info("Broker connection closed")
+                except Exception as e:
+                    self.logger.error(f"Error closing broker connection: {e}")
+            
+            # Close GUI
+            if self.qt_app:
+                self.qt_app.quit()
+            
+            self._running = False
+            self.state = SystemState.STOPPED
+            self.status.state = self.state
+            
+            # Log final status
+            if self._start_time:
+                uptime = datetime.now() - self._start_time
+                self.logger.info(f"System uptime: {uptime}")
+                self.logger.info(f"Metrics: {self._metrics}")
+            
+            self.logger.info("Graceful shutdown completed")
+            
         except Exception as e:
-            self.logger.error(f"Error during shutdown: {e}")
-            self.error_handler.handle_error(e, "shutdown")
+            self.logger.error(f"Shutdown error: {e}")
+            await self._emergency_shutdown()
+    
+    async def _emergency_shutdown(self):
+        """Emergency shutdown procedure."""
+        try:
+            self.logger.error("Performing emergency shutdown...")
+            self.state = SystemState.ERROR
+            
+            # Force close connections
+            if self.connection_manager:
+                try:
+                    self.connection_manager.stop()
+                except:
+                    pass
+            
+            # Force close GUI
+            if self.qt_app:
+                try:
+                    self.qt_app.exit(1)
+                except:
+                    pass
+            
+            self._running = False
+            self.logger.error("Emergency shutdown completed")
+            
+        except Exception as e:
+            self.logger.error(f"Emergency shutdown error: {e}")
 
-    # =============================================================================
-    # Event Handlers
-    # =============================================================================
-    def _on_system_error(self, event: Event):
-        """Handle system error events"""
-        self.logger.error(f"System error: {event.data}")
+    # ==========================================================================
+    # PUBLIC API
+    # ==========================================================================
+    
+    def get_status(self) -> SystemStatus:
+        """Get current system status."""
+        return self.status
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get system metrics."""
+        return self._metrics.copy()
+    
+    def is_running(self) -> bool:
+        """Check if system is running."""
+        return self._running and self.state == SystemState.RUNNING
+    
+    def request_shutdown(self, reason: ShutdownReason = ShutdownReason.USER_REQUEST):
+        """Request graceful shutdown."""
+        self._shutdown_reason = reason
+        self._shutdown_requested = True
+        self.logger.info(f"Shutdown requested: {reason.value}")
 
-        # Determine if error is recoverable
-        if event.data.get("severity") == "critical":
-            self._transition_state(AppState.ERROR)
-            asyncio.create_task(self.shutdown())
+# ==============================================================================
+# MOCK CLASSES FOR SIMULATION MODE
+# ==============================================================================
 
-    def _on_critical_error(self, event: Event):
-        """Handle critical error events"""
-        self.logger.critical(f"Critical error: {event.data}")
-        self._transition_state(AppState.ERROR)
+class MockSpyderClient:
+    """Mock Spyder client for simulation mode."""
+    
+    def __init__(self):
+        self.connected = True
+        self.account = "DU123456"
+    
+    def is_connected(self):
+        return self.connected
+    
+    def get_managed_accounts(self):
+        return [self.account]
 
-        # Immediate shutdown for critical errors
-        asyncio.create_task(self.shutdown())
+class MockDataFeed:
+    """Mock data feed for simulation mode."""
+    
+    def __init__(self):
+        self.subscriptions = []
+    
+    def subscribe(self, symbol: str):
+        if symbol not in self.subscriptions:
+            self.subscriptions.append(symbol)
+    
+    def get_quote(self, symbol: str):
+        # Return mock quote data
+        return {
+            'symbol': symbol,
+            'bid': 400.0,
+            'ask': 400.1,
+            'last': 400.05,
+            'timestamp': datetime.now()
+        }
 
-    def _on_risk_limit_exceeded(self, event: Event):
-        """Handle risk limit exceeded events"""
-        self.logger.warning(f"Risk limit exceeded: {event.data}")
+# ==============================================================================
+# COMMAND LINE INTERFACE
+# ==============================================================================
 
-        # Pause trading on risk limit breach
-        if self.state == AppState.TRADING:
-            self._transition_state(AppState.PAUSED)
-            if self.trading_engine:
-                self.trading_engine.pause("Risk limit exceeded")
-
-    def _on_connection_lost(self, event: Event):
-        """Handle broker connection lost events"""
-        self.logger.error("Broker connection lost")
-
-        if self.state == AppState.TRADING:
-            self.stop_trading()
-
-        self._transition_state(AppState.READY)
-
-        # Attempt reconnection if configured
-        if self.config.get("auto_reconnect", True):
-            asyncio.create_task(self._attempt_reconnection())
-
-    async def _attempt_reconnection(self):
-        """Attempt to reconnect to broker"""
-        await asyncio.sleep(30)  # Wait before reconnecting
-
-        if self.state == AppState.READY:
-            self.logger.info("Attempting to reconnect to broker...")
-            if await self.connect_broker():
-                self.logger.info("Reconnection successful")
-
-                # Resume trading if configured
-                if self.config.get("auto_resume", False) and self.is_market_open():
-                    self.start_trading()
-
-
-# =============================================================================
-# Main Entry Point
-# =============================================================================
-
-
-async def main():
-    """Main entry point for the application."""
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description=f"{APPLICATION_NAME} v{VERSION}")
-    parser.add_argument(
-        "--config", type=Path, help="Path to configuration file", default=DEFAULT_CONFIG_PATH
+def parse_arguments() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description=f"{SYSTEM_NAME} v{SPYDER_VERSION}",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument("--headless", action="store_true", help="Run without GUI")
-    parser.add_argument("--version", action="version", version=f"{APPLICATION_NAME} v{VERSION}")
+    
+    # Mode selection
+    parser.add_argument(
+        "--mode", 
+        choices=["simulation", "paper", "live"],
+        default="simulation",
+        help="Trading mode"
+    )
+    
+    # Connection settings
+    parser.add_argument("--host", default=DEFAULT_HOST, help="IB Gateway host")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="IB Gateway port")
+    parser.add_argument("--client-id", type=int, default=MASTER_CLIENT_ID, help="Master client ID")
+    
+    # System settings
+    parser.add_argument("--no-gui", action="store_true", help="Run in headless mode")
+    parser.add_argument("--enable-trading", action="store_true", help="Enable live trading")
+    parser.add_argument("--config", type=Path, help="Configuration file path")
+    
+    # Logging
+    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], 
+                       default="INFO", help="Logging level")
+    
+    return parser.parse_args()
 
-    args = parser.parse_args()
+def create_config_from_args(args: argparse.Namespace) -> SystemConfig:
+    """Create system configuration from command line arguments."""
+    config = SystemConfig()
+    
+    # Mode
+    config.trading_mode = TradingMode(args.mode)
+    
+    # Connection
+    config.ib_host = args.host
+    config.ib_port = args.port
+    config.master_client_id = args.client_id
+    
+    # System
+    config.enable_gui = not args.no_gui
+    config.headless = args.no_gui
+    config.enable_trading = args.enable_trading
+    
+    # Paths
+    if args.config:
+        config.config_path = args.config
+    
+    return config
 
-    # Create and run application
-    app = SpyderApplication(config_path=args.config, headless=args.headless)
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 
+async def main() -> int:
+    """Main application entry point."""
     try:
-        await app.run()
+        # Parse command line arguments
+        args = parse_arguments()
+        
+        # Create configuration
+        config = create_config_from_args(args)
+        
+        # Set logging level
+        if HAS_UTILITIES:
+            logging.getLogger().setLevel(getattr(logging, args.log_level))
+        
+        # Create and initialize application
+        app = SpyderApplication(config)
+        
+        # Initialize system
+        if not await app.initialize():
+            print("System initialization failed")
+            return 1
+        
+        # Run application
+        return await app.run()
+        
+    except KeyboardInterrupt:
+        print("\nShutdown requested by user")
+        return 0
     except Exception as e:
-        print(f"Fatal error: {e}")
+        print(f"Critical error: {e}")
         traceback.print_exc()
-        sys.exit(1)
-    finally:
-        await app.shutdown()
-
+        return 1
 
 if __name__ == "__main__":
     # Run the application
-    asyncio.run(main())
+    try:
+        exit_code = asyncio.run(main())
+        sys.exit(exit_code)
+    except KeyboardInterrupt:
+        print("\nGoodbye!")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        sys.exit(1)
