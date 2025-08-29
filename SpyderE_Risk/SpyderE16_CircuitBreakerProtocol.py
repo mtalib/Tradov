@@ -1,0 +1,471 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+SPYDER - Automated SPY Options Trading System
+
+Module: SpyderE04_CircuitBreakerProtocol.py
+Group: E (Risk Management)
+Purpose: Market circuit breaker and crisis management protocols
+
+Description:
+This module implements automated circuit breaker protocols for
+    market crashes. It monitors S&P 500 declines (7%, 13%, 20% levels),
+    automatically flattens positions during halts, enforces limit-only
+    orders during extreme volatility, and manages post-halt recovery.
+
+Author: Mohamed Talib
+Date: 2025-06-13
+Version: 1.4
+"""
+
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
+from datetime import datetime, time
+from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass
+from enum import Enum
+from collections import defaultdict
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import asyncio
+import logging
+import pandas as pd
+import numpy as np
+
+# ==============================================================================
+# MODULE IMPLEMENTATION
+# ==============================================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+class CircuitBreakerLevel(Enum):
+    """Circuit breaker levels based on S&P 500 decline."""
+    NORMAL = "NORMAL"
+    LEVEL_1 = "LEVEL_1"  # 7% decline
+    LEVEL_2 = "LEVEL_2"  # 13% decline
+    LEVEL_3 = "LEVEL_3"  # 20% decline
+    PRE_HALT = "PRE_HALT"  # 5% decline (warning)
+@dataclass
+class CircuitBreakerStatus:
+    """Current circuit breaker status."""
+    level: CircuitBreakerLevel
+    market_decline: float
+    halt_active: bool
+    halt_end_time: Optional[datetime]
+    positions_at_risk: int
+    required_actions: List[str]
+    order_restrictions: List[str]
+@dataclass
+class PositionAction:
+    """Required action for a position during circuit breaker."""
+    symbol: str
+    position_id: str
+    action: str  # CLOSE, REDUCE, HEDGE, HOLD
+    urgency: str  # IMMEDIATE, HIGH, MEDIUM, LOW
+    size_adjustment: float  # Percentage to reduce
+    reason: str
+    estimated_loss: float
+class SpyderCircuitBreakerProtocol:
+    """
+    Implements institutional-grade circuit breaker protocols.
+    Features:
+    - Real-time market decline monitoring
+    - Automatic halt detection and response
+    - Position-specific de-risking actions
+    - Order type restrictions during volatility
+    - Recovery protocols post-halt
+    """
+    def __init__(self, risk_manager=None, order_manager=None):
+        """Initialize circuit breaker protocol system."""
+        self.risk_manager = risk_manager
+        self.order_manager = order_manager
+        # Circuit breaker thresholds
+        self.THRESHOLDS = {
+            'pre_halt': -0.05,      # -5% warning level
+            'level_1': -0.07,       # -7% first halt
+            'level_2': -0.13,       # -13% second halt
+            'level_3': -0.20        # -20% market close
+        }
+        # Halt durations (minutes)
+        self.HALT_DURATIONS = {
+            CircuitBreakerLevel.LEVEL_1: 15,
+            CircuitBreakerLevel.LEVEL_2: 15,
+            CircuitBreakerLevel.LEVEL_3: float('inf')  # Rest of day
+        }
+        # Time-based restrictions
+        self.TIME_RESTRICTIONS = {
+            'level_1_cutoff': time(15, 25),  # No Level 1 halt after 3:25 PM
+            'level_2_cutoff': time(15, 25),  # No Level 2 halt after 3:25 PM
+        }
+        # Position management rules by level
+        self.POSITION_RULES = {
+            CircuitBreakerLevel.PRE_HALT: {
+                'max_position_size': 0.75,  # Reduce to 75% max
+                'new_positions_allowed': False,
+                'close_losing_positions': True,
+                'hedge_requirement': 1.25  # 125% hedge ratio
+            },
+            CircuitBreakerLevel.LEVEL_1: {
+                'max_position_size': 0.50,  # Reduce to 50% max
+                'new_positions_allowed': False,
+                'close_losing_positions': True,
+                'hedge_requirement': 1.50  # 150% hedge ratio
+            },
+            CircuitBreakerLevel.LEVEL_2: {
+                'max_position_size': 0.25,  # Reduce to 25% max
+                'new_positions_allowed': False,
+                'close_all_speculative': True,
+                'hedge_requirement': 2.00  # 200% hedge ratio
+            },
+            CircuitBreakerLevel.LEVEL_3: {
+                'flatten_all_positions': True,
+                'cancel_all_orders': True
+            }
+        }
+        # Order type restrictions by level
+        self.ORDER_RESTRICTIONS = {
+            CircuitBreakerLevel.PRE_HALT: ['MARKET'],  # No market orders
+            CircuitBreakerLevel.LEVEL_1: ['MARKET', 'STOP_MARKET'],
+            CircuitBreakerLevel.LEVEL_2: ['MARKET', 'STOP_MARKET', 'STOP_LIMIT'],
+            CircuitBreakerLevel.LEVEL_3: ['ALL']  # Only manual override
+        }
+        # State tracking
+        self.current_level = CircuitBreakerLevel.NORMAL
+        self.halt_active = False
+        self.halt_start_time = None
+        self.market_open_price = None
+        self.monitoring_active = True
+        self.action_history = []
+    async def monitor_market_conditions(self, current_price: float, 
+                                      market_open: float) -> CircuitBreakerStatus:
+        """
+        Monitor market conditions for circuit breaker triggers.
+        Args:
+            current_price: Current S&P 500 or SPY price
+            market_open: Market open price
+        Returns:
+            Current circuit breaker status
+        """
+        if not self.monitoring_active:
+            return self._get_current_status()
+        # Calculate market decline
+        market_decline = (current_price - market_open) / market_open
+        # Check time-based restrictions
+        current_time = datetime.now().time()
+        # Determine circuit breaker level
+        new_level = self._determine_level(market_decline, current_time)
+        # Handle level changes
+        if new_level != self.current_level:
+            await self._handle_level_change(new_level, market_decline)
+        # Check if halt should end
+        if self.halt_active:
+            await self._check_halt_status()
+        return self._get_current_status()
+    def _determine_level(self, market_decline: float, 
+                        current_time: time) -> CircuitBreakerLevel:
+        """Determine appropriate circuit breaker level."""
+        # Level 3 check (always active)
+        if market_decline <= self.THRESHOLDS['level_3']:
+            return CircuitBreakerLevel.LEVEL_3
+        # Level 2 check (time restricted)
+        if (market_decline <= self.THRESHOLDS['level_2'] and 
+            current_time < self.TIME_RESTRICTIONS['level_2_cutoff']):
+            return CircuitBreakerLevel.LEVEL_2
+        # Level 1 check (time restricted)
+        if (market_decline <= self.THRESHOLDS['level_1'] and 
+            current_time < self.TIME_RESTRICTIONS['level_1_cutoff']):
+            return CircuitBreakerLevel.LEVEL_1
+        # Pre-halt warning
+        if market_decline <= self.THRESHOLDS['pre_halt']:
+            return CircuitBreakerLevel.PRE_HALT
+        return CircuitBreakerLevel.NORMAL
+    async def _handle_level_change(self, new_level: CircuitBreakerLevel, 
+                                  market_decline: float):
+        """Handle circuit breaker level changes."""
+        old_level = self.current_level
+        self.current_level = new_level
+        logger.warning(f"Circuit breaker level change: {old_level.value} -> "
+                      f"{new_level.value} (decline: {market_decline:.2%})")
+        # Trigger halt if applicable
+        if new_level in [CircuitBreakerLevel.LEVEL_1, 
+                        CircuitBreakerLevel.LEVEL_2,
+                        CircuitBreakerLevel.LEVEL_3]:
+            await self._trigger_halt(new_level)
+        # Execute position management
+        await self._execute_level_protocols(new_level)
+        # Record action
+        self.action_history.append({
+            'timestamp': datetime.now(),
+            'old_level': old_level,
+            'new_level': new_level,
+            'market_decline': market_decline
+        })
+    async def _trigger_halt(self, level: CircuitBreakerLevel):
+        """Trigger market halt procedures."""
+        self.halt_active = True
+        self.halt_start_time = datetime.now()
+        # Calculate halt end time
+        halt_duration = self.HALT_DURATIONS.get(level)
+        if halt_duration != float('inf'):
+            halt_end = self.halt_start_time.timestamp() + (halt_duration * 60)
+            self.halt_end_time = datetime.fromtimestamp(halt_end)
+        else:
+            self.halt_end_time = None  # Market closed
+        logger.critical(f"MARKET HALT TRIGGERED - Level: {level.value}")
+        # Cancel all pending orders
+        if self.order_manager:
+            await self.order_manager.cancel_all_orders(
+                reason=f"Circuit breaker {level.value}"
+            )
+    async def _execute_level_protocols(self, level: CircuitBreakerLevel):
+        """Execute position management protocols for circuit breaker level."""
+        rules = self.POSITION_RULES.get(level, {})
+        if not rules:
+            return
+        # Get current positions
+        positions = await self._get_current_positions()
+        # Level 3: Flatten everything
+        if rules.get('flatten_all_positions'):
+            await self._flatten_all_positions(positions)
+            return
+        # Other levels: Selective management
+        for position in positions:
+            action = self._determine_position_action(position, rules)
+            if action.action != 'HOLD':
+                await self._execute_position_action(action)
+    def _determine_position_action(self, position: Dict, 
+                                  rules: Dict) -> PositionAction:
+        """Determine required action for a specific position."""
+        # Priority 1: Close losing positions
+        if rules.get('close_losing_positions') and position['pnl'] < 0:
+            return PositionAction(
+                symbol=position['symbol'],
+                position_id=position['id'],
+                action='CLOSE',
+                urgency='IMMEDIATE',
+                size_adjustment=1.0,
+                reason='Losing position in circuit breaker',
+                estimated_loss=position['pnl']
+            )
+        # Priority 2: Close speculative positions
+        if (rules.get('close_all_speculative') and 
+            position.get('strategy_type') == 'speculative'):
+            return PositionAction(
+                symbol=position['symbol'],
+                position_id=position['id'],
+                action='CLOSE',
+                urgency='HIGH',
+                size_adjustment=1.0,
+                reason='Speculative position in Level 2',
+                estimated_loss=position['pnl']
+            )
+        # Priority 3: Reduce oversized positions
+        max_size = rules.get('max_position_size', 1.0)
+        if position['size_ratio'] > max_size:
+            reduction = 1.0 - (max_size / position['size_ratio'])
+            return PositionAction(
+                symbol=position['symbol'],
+                position_id=position['id'],
+                action='REDUCE',
+                urgency='HIGH',
+                size_adjustment=reduction,
+                reason=f'Position exceeds {max_size:.0%} limit',
+                estimated_loss=position['pnl'] * reduction
+            )
+        # Priority 4: Increase hedges
+        hedge_req = rules.get('hedge_requirement', 1.0)
+        if position.get('hedge_ratio', 0) < hedge_req:
+            return PositionAction(
+                symbol=position['symbol'],
+                position_id=position['id'],
+                action='HEDGE',
+                urgency='MEDIUM',
+                size_adjustment=hedge_req - position.get('hedge_ratio', 0),
+                reason=f'Increase hedge to {hedge_req:.0%}',
+                estimated_loss=0
+            )
+        # Default: Hold
+        return PositionAction(
+            symbol=position['symbol'],
+            position_id=position['id'],
+            action='HOLD',
+            urgency='LOW',
+            size_adjustment=0,
+            reason='Position within circuit breaker limits',
+            estimated_loss=0
+        )
+    async def _execute_position_action(self, action: PositionAction):
+        """Execute a specific position action."""
+        logger.info(f"Executing circuit breaker action: {action.action} for "
+                   f"{action.symbol} - {action.reason}")
+        if not self.order_manager:
+            logger.error("No order manager available for position actions")
+            return
+        try:
+            if action.action == 'CLOSE':
+                await self.order_manager.close_position(
+                    action.position_id,
+                    urgency=action.urgency,
+                    reason=action.reason
+                )
+            elif action.action == 'REDUCE':
+                await self.order_manager.reduce_position(
+                    action.position_id,
+                    reduction_pct=action.size_adjustment,
+                    urgency=action.urgency,
+                    reason=action.reason
+                )
+            elif action.action == 'HEDGE':
+                await self.order_manager.increase_hedge(
+                    action.position_id,
+                    target_ratio=action.size_adjustment,
+                    urgency=action.urgency
+                )
+        except Exception as e:
+            logger.error(f"Failed to execute action {action.action}: {str(e)}")
+    async def check_order_restrictions(self, order_type: str) -> Tuple[bool, str]:
+        """
+        Check if an order type is allowed under current conditions.
+        Args:
+            order_type: Type of order (MARKET, LIMIT, etc.)
+        Returns:
+            Tuple of (allowed, reason)
+        """
+        restrictions = self.ORDER_RESTRICTIONS.get(self.current_level, [])
+        # Check if all orders restricted
+        if 'ALL' in restrictions:
+            return False, f"All orders restricted at {self.current_level.value}"
+        # Check specific order type
+        if order_type in restrictions:
+            return False, f"{order_type} orders not allowed at {self.current_level.value}"
+        # Check if market is halted
+        if self.halt_active:
+            return False, "Market currently halted"
+        return True, "Order type allowed"
+    def get_position_limits(self) -> Dict[str, float]:
+        """Get current position limits based on circuit breaker level."""
+        rules = self.POSITION_RULES.get(self.current_level, {})
+        return {
+            'max_position_size': rules.get('max_position_size', 1.0),
+            'new_positions_allowed': rules.get('new_positions_allowed', True),
+            'hedge_requirement': rules.get('hedge_requirement', 1.0)
+        }
+    async def _check_halt_status(self):
+        """Check if halt period has ended."""
+        if not self.halt_active or not self.halt_end_time:
+            return
+        if datetime.now() >= self.halt_end_time:
+            self.halt_active = False
+            logger.info(f"Market halt ended for {self.current_level.value}")
+            # Execute post-halt protocols
+            await self._execute_post_halt_protocols()
+    async def _execute_post_halt_protocols(self):
+        """Execute protocols after halt ends."""
+        # Re-evaluate all positions
+        positions = await self._get_current_positions()
+        # Check if positions need adjustment post-halt
+        for position in positions:
+            # Re-assess risk with updated market conditions
+            if self.risk_manager:
+                risk_score = await self.risk_manager.assess_position_risk(
+                    position,
+                    market_condition='post_halt'
+                )
+                if risk_score > 0.8:  # High risk threshold
+                    logger.warning(f"High risk position post-halt: "
+                                 f"{position['symbol']} (score: {risk_score:.2f})")
+    async def _flatten_all_positions(self, positions: List[Dict]):
+        """Emergency flatten all positions (Level 3)."""
+        logger.critical("EMERGENCY: Flattening all positions due to Level 3 circuit breaker")
+        if not self.order_manager:
+            logger.error("No order manager available for emergency flatten")
+            return
+        for position in positions:
+            try:
+                await self.order_manager.close_position(
+                    position['id'],
+                    urgency='IMMEDIATE',
+                    reason='Level 3 circuit breaker - market close',
+                    force=True  # Override normal restrictions
+                )
+            except Exception as e:
+                logger.error(f"Failed to flatten position {position['id']}: {str(e)}")
+    async def _get_current_positions(self) -> List[Dict]:
+        """Get current positions from risk manager."""
+        if self.risk_manager:
+            return await self.risk_manager.get_all_positions()
+        return []
+    def _get_current_status(self) -> CircuitBreakerStatus:
+        """Get current circuit breaker status."""
+        positions = []  # Would get from risk manager
+        # Determine required actions based on level
+        required_actions = []
+        if self.current_level != CircuitBreakerLevel.NORMAL:
+            rules = self.POSITION_RULES.get(self.current_level, {})
+            if rules.get('close_losing_positions'):
+                required_actions.append("Close all losing positions")
+            if rules.get('close_all_speculative'):
+                required_actions.append("Close all speculative positions")
+            if rules.get('flatten_all_positions'):
+                required_actions.append("EMERGENCY: Flatten all positions")
+        return CircuitBreakerStatus(
+            level=self.current_level,
+            market_decline=0,  # Would calculate from market data
+            halt_active=self.halt_active,
+            halt_end_time=self.halt_end_time if self.halt_active else None,
+            positions_at_risk=len([p for p in positions if p.get('at_risk', False)]),
+            required_actions=required_actions,
+            order_restrictions=self.ORDER_RESTRICTIONS.get(self.current_level, [])
+        )
+    def get_historical_halts(self, days: int = 30) -> pd.DataFrame:
+        """Get historical circuit breaker events."""
+        if not self.action_history:
+            return pd.DataFrame()
+        # Convert to DataFrame
+        df = pd.DataFrame(self.action_history)
+        # Filter by date range
+        cutoff_date = datetime.now() - pd.Timedelta(days=days)
+        df = df[df['timestamp'] >= cutoff_date]
+        return df
+    def get_recovery_analysis(self) -> Dict[str, Any]:
+        """Analyze recovery patterns after circuit breaker events."""
+        halts = self.get_historical_halts(days=365)
+        if halts.empty:
+            return {'no_historical_data': True}
+        # Analyze recovery times and patterns
+        recovery_stats = {
+            'avg_recovery_days': 0,  # Would calculate from market data
+            'typical_rebound_pct': 0,
+            'false_bottom_probability': 0,
+            'recommended_reentry_delay': '2-3 days'
+        }
+        return recovery_stats
+async def main():
+    """Example usage of circuit breaker protocol."""
+    # Initialize protocol
+    protocol = SpyderCircuitBreakerProtocol()
+    # Simulate market conditions
+    market_open = 4500.0
+    current_prices = [4500, 4450, 4350, 4250, 4150, 3950, 3600]
+    for price in current_prices:
+        status = await protocol.monitor_market_conditions(price, market_open)
+        decline_pct = ((price - market_open) / market_open) * 100
+        print(f"\nPrice: ${price:.2f} (Decline: {decline_pct:.1f}%)")
+        print(f"Level: {status.level.value}")
+        print(f"Halt Active: {status.halt_active}")
+        if status.required_actions:
+            print("Required Actions:")
+            for action in status.required_actions:
+                print(f"  - {action}")
+        # Check order restrictions
+        for order_type in ['MARKET', 'LIMIT']:
+            allowed, reason = await protocol.check_order_restrictions(order_type)
+            if not allowed:
+                print(f"  {order_type} orders: BLOCKED - {reason}")
+        await asyncio.sleep(1)  # Simulate time passing
+if __name__ == "__main__":
+    asyncio.run(main())
+# Alias for compatibility
+CircuitBreaker = CircuitBreakerLevel

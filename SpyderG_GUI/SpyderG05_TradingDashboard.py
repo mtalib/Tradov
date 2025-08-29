@@ -1479,7 +1479,7 @@ class SpyderTradingDashboard(QMainWindow):
     # ==========================================================================
     def setup_ui(self):
         """Setup the complete UI"""
-        self.setWindowTitle("SPYDER - Autonomous Options Trading System v1.0")
+        self.setWindowTitle("SPYDER - Autonomous Options Trading System")
         self.setGeometry(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
 
         self.setStyleSheet(
