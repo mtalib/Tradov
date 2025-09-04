@@ -1400,4 +1400,4 @@ class EventRouter:
         
         # Event queues
         self.event_queue: queue.PriorityQueue = queue.PriorityQueue(maxsize=EVENT_QUEUE_SIZE)
-        self.priority_queue: queue.PriorityQueue = queue.PriorityQueue(maxsize=PRIORITY_QUEUE_SIZE)
+        self.priority_queue:

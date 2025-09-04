@@ -7,8 +7,8 @@ Series: SpyderB_Broker
 Module: SpyderB17_SPYOptionsChainManager.py
 Purpose: Comprehensive SPY options chain management with modern ib_async integration
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-21 Time: 21:00:00  
+Year Created: 2025
+Last Updated: 2025-08-21 Time: 21:00:00
 
 Module Description:
     This module provides comprehensive SPY options chain management implementing
@@ -19,7 +19,7 @@ Module Description:
     using Client ID 2 for 0DTE and distributed across other clients for longer-dated options.
 
 Key Features:
-    • Modern ib_async integration for enhanced stability  
+    • Modern ib_async integration for enhanced stability
     • Dynamic strike selection based on current SPY price
     • Multiple options chain types (0DTE, 1DTE, WEEKLY, MONTHLY)
     • Optimized update frequencies for each chain type
@@ -36,6 +36,7 @@ Installation Note:
 
 import calendar
 import logging
+
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
@@ -50,6 +51,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
+
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -62,6 +64,7 @@ try:
     # IB functionality is in IB class
     # TickerId not needed in ib_async, TickType
     from ib_async import Contract, ContractDetails
+
     # IB functionality is in IB class
 
     ib_async_AVAILABLE = True
@@ -69,6 +72,14 @@ except ImportError as e:
     ib_async_AVAILABLE = False
     print(f"⚠️ ib_async not available: {e}")
     print("Install with: pip install ib_async")
+
+    # Create placeholder classes when ib_async is not available
+    class Contract:
+        pass
+
+    class ContractDetails:
+        pass
+
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -89,11 +100,17 @@ except ImportError:
         def __init__(self):
             pass
 
+
 # Import multi-client manager
 try:
     from SpyderB_Broker.SpyderB08_MultiClientDataManager import (
-        DataPriority, DataRequestType, MarketDataRequest, MarketDataTick,
-        MultiClientDataManager, get_manager_instance)
+        DataPriority,
+        DataRequestType,
+        MarketDataRequest,
+        MarketDataTick,
+        MultiClientDataManager,
+        get_manager_instance,
+    )
 
     MANAGER_AVAILABLE = True
 except ImportError as e:
@@ -108,7 +125,12 @@ OPTIONS_SPECIFICATIONS = {
     "0DTE": {"days": 0, "strikes": 10, "frequency": 1, "client_id": 2},  # 1 second
     "1DTE": {"days": 1, "strikes": 10, "frequency": 5, "client_id": 5},  # 5 seconds
     "WEEKLY": {"days": 7, "strikes": 20, "frequency": 15, "client_id": 6},  # 15 seconds
-    "MONTHLY": {"days": 30, "strikes": 30, "frequency": 60, "client_id": 7},  # 60 seconds
+    "MONTHLY": {
+        "days": 30,
+        "strikes": 30,
+        "frequency": 60,
+        "client_id": 7,
+    },  # 60 seconds
 }
 
 # Strike selection parameters
@@ -129,6 +151,7 @@ UPDATE_BATCH_SIZE = 10  # Batch size for options updates
 # ENUMS
 # ==============================================================================
 
+
 class OptionsChainType(Enum):
     """Options chain types based on requirements"""
 
@@ -137,11 +160,13 @@ class OptionsChainType(Enum):
     WEEKLY = "WEEKLY"
     MONTHLY = "MONTHLY"
 
+
 class OptionType(Enum):
     """Option type enumeration"""
 
     CALL = "C"
     PUT = "P"
+
 
 class ChainStatus(Enum):
     """Options chain status"""
@@ -151,9 +176,11 @@ class ChainStatus(Enum):
     PENDING = "pending"
     ERROR = "error"
 
+
 # ==============================================================================
 # DATA STRUCTURES
 # ==============================================================================
+
 
 @dataclass
 class OptionsContract:
@@ -179,6 +206,7 @@ class OptionsContract:
     request_id: Optional[int] = None
     active: bool = False
 
+
 @dataclass
 class OptionsChain:
     """Complete options chain for a specific expiration"""
@@ -194,6 +222,7 @@ class OptionsChain:
     last_update: Optional[datetime] = None
     total_contracts: int = 0
 
+
 @dataclass
 class ChainSelectionCriteria:
     """Criteria for selecting options contracts in chain"""
@@ -205,9 +234,11 @@ class ChainSelectionCriteria:
     min_volume: int = 10
     min_open_interest: int = 100
 
+
 # ==============================================================================
 # MAIN CLASS - SPY OPTIONS CHAIN MANAGER
 # ==============================================================================
+
 
 class SPYOptionsChainManager:
     """
@@ -247,7 +278,9 @@ class SPYOptionsChainManager:
         # Options chain management
         self.active_chains: Dict[OptionsChainType, OptionsChain] = {}
         self.contract_registry: Dict[str, OptionsContract] = {}
-        self.subscription_callbacks: Dict[OptionsChainType, List[Callable]] = defaultdict(list)
+        self.subscription_callbacks: Dict[OptionsChainType, List[Callable]] = (
+            defaultdict(list)
+        )
 
         # Current market state
         self.current_spy_price = 585.0  # Default SPY price
@@ -269,7 +302,7 @@ class SPYOptionsChainManager:
     # ==========================================================================
     # INITIALIZATION AND LIFECYCLE
     # ==========================================================================
-    
+
     def initialize(self) -> bool:
         """
         Initialize the options chain manager.
@@ -279,7 +312,9 @@ class SPYOptionsChainManager:
         """
         try:
             if not ib_async_AVAILABLE:
-                self.logger.error("ib_async not available - install with: pip install ib_async")
+                self.logger.error(
+                    "ib_async not available - install with: pip install ib_async"
+                )
                 return False
 
             if not MANAGER_AVAILABLE:
@@ -292,7 +327,9 @@ class SPYOptionsChainManager:
             # Initialize options chains
             self._initialize_options_chains()
 
-            self.logger.info("SPY Options Chain Manager initialized successfully with ib_async")
+            self.logger.info(
+                "SPY Options Chain Manager initialized successfully with ib_async"
+            )
             return True
 
         except Exception as e:
@@ -314,7 +351,9 @@ class SPYOptionsChainManager:
             self._running = True
 
             # Start monitoring thread
-            self._monitor_thread = threading.Thread(target=self._options_monitor_loop, daemon=True)
+            self._monitor_thread = threading.Thread(
+                target=self._options_monitor_loop, daemon=True
+            )
             self._monitor_thread.start()
 
             # Start initial options subscriptions
@@ -347,7 +386,7 @@ class SPYOptionsChainManager:
     # ==========================================================================
     # OPTIONS CHAIN MANAGEMENT
     # ==========================================================================
-    
+
     def subscribe_to_chain(
         self, chain_type: OptionsChainType, callback: Callable[[OptionsChain], None]
     ) -> bool:
@@ -392,7 +431,9 @@ class SPYOptionsChainManager:
                     self.subscription_callbacks[chain_type].remove(callback)
                     self.total_subscriptions -= 1
 
-            self.logger.info(f"Unsubscribed from {chain_type.value} options chain updates")
+            self.logger.info(
+                f"Unsubscribed from {chain_type.value} options chain updates"
+            )
             return True
 
         except Exception as e:
@@ -469,16 +510,16 @@ class SPYOptionsChainManager:
                         "last_update": chain.last_update,
                         "calls": len(chain.calls),
                         "puts": len(chain.puts),
-                        "atm_strike": chain.atm_strike
+                        "atm_strike": chain.atm_strike,
                     }
                     for chain_type, chain in self.active_chains.items()
-                }
+                },
             }
 
     # ==========================================================================
     # PRIVATE METHODS - INITIALIZATION
     # ==========================================================================
-    
+
     def _subscribe_to_spy_price(self) -> None:
         """Subscribe to SPY price updates for dynamic strike selection."""
         try:
@@ -495,14 +536,16 @@ class SPYOptionsChainManager:
 
             for chain_type in OptionsChainType:
                 spec = OPTIONS_SPECIFICATIONS[chain_type.value]
-                expiration_date = self._calculate_expiration_date(current_date, spec["days"])
+                expiration_date = self._calculate_expiration_date(
+                    current_date, spec["days"]
+                )
 
                 # Create options chain
                 chain = OptionsChain(
                     symbol="SPY",
                     expiration=expiration_date,
                     chain_type=chain_type,
-                    underlying_price=self.current_spy_price
+                    underlying_price=self.current_spy_price,
                 )
 
                 # Generate strikes around current price
@@ -527,7 +570,9 @@ class SPYOptionsChainManager:
                         chain.puts[strike] = put_contract
 
                 # Set ATM strike
-                chain.atm_strike = self._find_closest_strike(self.current_spy_price, strikes)
+                chain.atm_strike = self._find_closest_strike(
+                    self.current_spy_price, strikes
+                )
                 chain.total_contracts = len(chain.calls) + len(chain.puts)
                 chain.status = ChainStatus.ACTIVE
 
@@ -542,7 +587,9 @@ class SPYOptionsChainManager:
         except Exception as e:
             self.logger.error(f"Error initializing options chains: {e}")
 
-    def _calculate_expiration_date(self, current_date: date, days_to_expiry: int) -> date:
+    def _calculate_expiration_date(
+        self, current_date: date, days_to_expiry: int
+    ) -> date:
         """Calculate expiration date based on chain type."""
         if days_to_expiry == 0:
             # 0DTE - today if before 4 PM, otherwise next trading day
@@ -566,14 +613,16 @@ class SPYOptionsChainManager:
             # Monthly - third Friday of next month
             next_month = current_date.replace(day=1) + timedelta(days=32)
             next_month = next_month.replace(day=1)
-            
+
             # Find third Friday
             first_friday = next_month + timedelta(days=(4 - next_month.weekday()) % 7)
             third_friday = first_friday + timedelta(days=14)
-            
+
             return third_friday
 
-    def _generate_strikes_around_price(self, current_price: float, max_strikes: int) -> List[float]:
+    def _generate_strikes_around_price(
+        self, current_price: float, max_strikes: int
+    ) -> List[float]:
         """Generate strikes around current SPY price."""
         strikes = []
         strikes_per_side = max_strikes // 2
@@ -599,21 +648,27 @@ class SPYOptionsChainManager:
         return min(strikes, key=lambda x: abs(x - price))
 
     def _create_options_contract(
-        self, expiration: date, strike: float, option_type: OptionType, chain_type: OptionsChainType
+        self,
+        expiration: date,
+        strike: float,
+        option_type: OptionType,
+        chain_type: OptionsChainType,
     ) -> Optional[OptionsContract]:
         """Create an options contract using ib_async."""
         try:
             if not ib_async_AVAILABLE:
                 # Create mock contract for testing
-                mock_contract = type('MockContract', (), {})()
+                mock_contract = type("MockContract", (), {})()
                 mock_contract.symbol = "SPY"
                 mock_contract.secType = "OPT"
                 mock_contract.exchange = "SMART"
                 mock_contract.currency = "USD"
-                mock_contract.lastTradeDateOrContractMonth = expiration.strftime("%Y%m%d")
+                mock_contract.lastTradeDateOrContractMonth = expiration.strftime(
+                    "%Y%m%d"
+                )
                 mock_contract.strike = strike
                 mock_contract.right = option_type.value
-                
+
                 options_contract = OptionsContract(
                     symbol="SPY",
                     expiration=expiration,
@@ -694,16 +749,20 @@ class SPYOptionsChainManager:
     def _reselect_strikes_for_all_chains(self) -> None:
         """Reselect strikes for all chains based on new SPY price."""
         try:
-            self.logger.info(f"Reselecting strikes based on new SPY price: {self.current_spy_price}")
-            
+            self.logger.info(
+                f"Reselecting strikes based on new SPY price: {self.current_spy_price}"
+            )
+
             for chain_type, chain in self.active_chains.items():
                 spec = OPTIONS_SPECIFICATIONS[chain_type.value]
                 new_strikes = self._generate_strikes_around_price(
                     self.current_spy_price, spec["strikes"]
                 )
-                
+
                 # Update ATM strike
-                chain.atm_strike = self._find_closest_strike(self.current_spy_price, new_strikes)
+                chain.atm_strike = self._find_closest_strike(
+                    self.current_spy_price, new_strikes
+                )
                 chain.underlying_price = self.current_spy_price
 
         except Exception as e:
@@ -712,18 +771,18 @@ class SPYOptionsChainManager:
     def _options_monitor_loop(self) -> None:
         """Main monitoring loop for options chains."""
         self.logger.info("Started options monitoring loop")
-        
+
         while self._running:
             try:
                 # Update chain statistics
                 self._update_chain_statistics()
-                
+
                 # Check for expired chains
                 self._check_expired_chains()
-                
+
                 # Sleep before next iteration
                 time.sleep(1)
-                
+
             except Exception as e:
                 self.logger.error(f"Error in options monitor loop: {e}")
                 time.sleep(5)  # Wait longer on error
@@ -734,11 +793,11 @@ class SPYOptionsChainManager:
         """Update statistics for all chains."""
         try:
             current_time = datetime.now()
-            
+
             for chain_type, chain in self.active_chains.items():
                 # Update chain timestamp
                 chain.last_update = current_time
-                
+
                 # Update performance counters
                 self.update_counts[chain_type] += 1
 
@@ -750,28 +809,33 @@ class SPYOptionsChainManager:
         try:
             current_date = datetime.now().date()
             current_time = datetime.now().time()
-            
+
             for chain_type, chain in self.active_chains.items():
                 # Check if chain has expired
-                if (chain.expiration < current_date or 
-                    (chain.expiration == current_date and 
-                     current_time.hour >= OPTIONS_EXPIRY_HOUR)):
-                    
+                if chain.expiration < current_date or (
+                    chain.expiration == current_date
+                    and current_time.hour >= OPTIONS_EXPIRY_HOUR
+                ):
+
                     if chain.status != ChainStatus.EXPIRED:
                         self.logger.info(f"{chain_type.value} chain expired")
                         chain.status = ChainStatus.EXPIRED
-                        
+
                         # TODO: Reinitialize with new expiration
                         # self._reinitialize_expired_chain(chain_type)
 
         except Exception as e:
             self.logger.error(f"Error checking expired chains: {e}")
 
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
 
-def create_spy_options_manager(data_manager: Optional[MultiClientDataManager] = None) -> SPYOptionsChainManager:
+
+def create_spy_options_manager(
+    data_manager: Optional[MultiClientDataManager] = None,
+) -> SPYOptionsChainManager:
     """
     Create SPY options chain manager.
 
@@ -783,12 +847,14 @@ def create_spy_options_manager(data_manager: Optional[MultiClientDataManager] = 
     """
     return SPYOptionsChainManager(data_manager)
 
+
 # ==============================================================================
 # MODULE INITIALIZATION
 # ==============================================================================
 
 # Global manager instance
 _options_manager_instance: Optional[SPYOptionsChainManager] = None
+
 
 def get_spy_options_manager() -> SPYOptionsChainManager:
     """
@@ -801,6 +867,7 @@ def get_spy_options_manager() -> SPYOptionsChainManager:
     if _options_manager_instance is None:
         _options_manager_instance = SPYOptionsChainManager()
     return _options_manager_instance
+
 
 # ==============================================================================
 # MAIN EXECUTION
