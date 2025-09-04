@@ -1157,3 +1157,38 @@ if __name__ == "__main__":
         print("❌ Failed to start EventManager")
     
     print("\n✅ EventManager test completed")
+
+
+class EventBus:
+    """Event bus for managing event distribution"""
+    
+    def __init__(self):
+        self.subscribers = {}
+    
+    def subscribe(self, event_type, callback):
+        """Subscribe to an event type"""
+        if event_type not in self.subscribers:
+            self.subscribers[event_type] = []
+        self.subscribers[event_type].append(callback)
+    
+    def publish(self, event_type, data=None):
+        """Publish an event"""
+        if event_type in self.subscribers:
+            for callback in self.subscribers[event_type]:
+                try:
+                    callback(data)
+                except Exception as e:
+                    print(f'EventBus callback error: {e}')
+    
+    def unsubscribe(self, event_type, callback=None):
+        """Unsubscribe from an event type"""
+        if event_type in self.subscribers:
+            if callback:
+                self.subscribers[event_type].remove(callback)
+            else:
+                self.subscribers[event_type].clear()
+
+def get_event_bus():
+    """Factory function to get EventBus instance"""
+    return EventBus()
+

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import pandas as pd
 from datetime import datetime, timedelta
 from enum import Enum, auto
 from pathlib import Path
@@ -27,9 +28,21 @@ Author: Mohamed Talib
 Created: 2025-01-27
 Version: 1.4
 """
-
 # =============================================================================
 # Standard Library Imports
+# =============================================================================
+from pathlib import Path
+
+# =============================================================================
+# Third-Party Imports
+# =============================================================================
+import numpy as np
+import pandas as pd
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+
+# =============================================================================
+# Configuration Constants
 # =============================================================================
 FEATURE_DIR = Path.home() / ".spyder" / "models" / "features"
 CHECKPOINT_DIR = Path.home() / ".spyder" / "models" / "checkpoints"
@@ -40,6 +53,7 @@ DEFAULT_PREDICTION_HORIZON = 5
 MIN_TRAINING_SAMPLES = 1000
 VALIDATION_SPLIT = 0.2
 TEST_SPLIT = 0.1
+
 
 # Feature engineering
 TECHNICAL_INDICATORS = [

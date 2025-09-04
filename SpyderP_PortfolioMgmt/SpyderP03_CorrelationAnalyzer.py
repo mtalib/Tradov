@@ -65,7 +65,7 @@ from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
 from SpyderA_Core.SpyderA05_EventManager import get_event_manager
-from SpyderL_ML.SpyderL09_RegimeClassifier import MarketRegime
+from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketRegime
 
 # ==============================================================================
 # CONSTANTS

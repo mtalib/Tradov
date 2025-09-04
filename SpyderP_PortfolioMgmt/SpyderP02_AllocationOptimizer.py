@@ -80,7 +80,7 @@ from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Ev
 # Market data and analysis
 from SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer, VIXRegime
 from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-from SpyderL_ML.SpyderL09_RegimeClassifier import RegimeClassifier
+from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
 from SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
 
 # Portfolio components
@@ -2075,7 +2075,7 @@ from SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Ev
 # Market data and analysis
 from SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer, VIXRegime
 from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-from SpyderL_ML.SpyderL09_RegimeClassifier import RegimeClassifier
+from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
 from SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
 
 # Portfolio components

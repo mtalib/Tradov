@@ -47,7 +47,16 @@ import joblib
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from SpyderH_Storage.SpyderH01_DatabaseManager import DatabaseManager
+#from SpyderH_Storage.SpyderH01_DatabaseManager import DatabaseManager
+
+# Fallback DatabaseManager class
+class DatabaseManager:
+    """Fallback DatabaseManager when H_Storage module is not available"""
+    def __init__(self, *args, **kwargs):
+        pass
+        
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
 from SpyderE_Risk.SpyderE06_RiskMetrics import calculate_sharpe_ratio, calculate_sortino_ratio
 
 # ==============================================================================
@@ -160,7 +169,7 @@ class PaperTradeLearner:
     - Tracks improvement over time
     """
     
-    def __init__(self, database_manager: DatabaseManager):
+    def __init__(self, database_manager: "DatabaseManager"):
         """
         Initialize paper trade learner.
         

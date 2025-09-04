@@ -22,8 +22,8 @@ from .SpyderL08_EntryOptimizer import EntryOptimizer
 from .SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
 from .SpyderL10_FeatureEngineering import FeatureEngineer
 from .SpyderL11_MLModelManager import MLModelManager
-from .SpyderL12_RandomForestEnsemble import RandomForestEnsemble
-from .SpyderL13_LSTMPricer import LSTMPricer
+from .SpyderL12_RandomForestEnsemble import SpyderRandomForestEnsemble
+from .SpyderL13_LSTMPricer import SpyderLSTMPricer
 from .SpyderL14_RealTimePredictor import RealTimePredictor
 
 # ==============================================================================
@@ -32,11 +32,11 @@ from .SpyderL14_RealTimePredictor import RealTimePredictor
 __all__ = [
     "EntryOptimizer",
     "FeatureEngineer",
-    "LSTMPricer",
+    "SpyderLSTMPricer",
     "MLModelManager",
     "MLPredictor",
     "PaperTradeLearner",
-    "RandomForestEnsemble",
+    "SpyderRandomForestEnsemble",
     "RealTimePredictor",
     "RegimeClassifier",
 ]

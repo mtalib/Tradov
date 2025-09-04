@@ -32,7 +32,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Optional
 
 import numpy as np
 # ==============================================================================
@@ -840,3 +840,45 @@ if __name__ == "__main__":
         # Stop analyzer
         analyzer.stop()
         print("\nMarket Internals Analyzer stopped")
+
+class MarketInternals:
+    """Main market internals coordinator class"""
+    
+    def __init__(self):
+        self.current_data: Optional[InternalData] = None
+        self.current_snapshot: Optional[MarketInternalsSnapshot] = None
+        self.current_analysis: Optional[InternalsAnalysis] = None
+    
+    def update_data(self, data: InternalData) -> None:
+        """Update internal data"""
+        self.current_data = data
+    
+    def update_snapshot(self, snapshot: MarketInternalsSnapshot) -> None:
+        """Update market internals snapshot"""
+        self.current_snapshot = snapshot
+    
+    def update_analysis(self, analysis: InternalsAnalysis) -> None:
+        """Update internals analysis"""
+        self.current_analysis = analysis
+    
+    def get_current_condition(self) -> MarketCondition:
+        """Get current market condition"""
+        if self.current_analysis:
+            return getattr(self.current_analysis, 'condition', MarketCondition.UNKNOWN)
+        return MarketCondition.UNKNOWN
+    
+    def get_breadth_condition(self) -> BreadthCondition:
+        """Get current breadth condition"""
+        if self.current_analysis:
+            return getattr(self.current_analysis, 'breadth', BreadthCondition.NEUTRAL)
+        return BreadthCondition.NEUTRAL
+    
+    def get_market_phase(self) -> MarketPhase:
+        """Get current market phase"""
+        if self.current_analysis:
+            return getattr(self.current_analysis, 'phase', MarketPhase.UNKNOWN)
+        return MarketPhase.UNKNOWN
+
+def get_market_internals() -> MarketInternals:
+    """Factory function to get MarketInternals instance"""
+    return MarketInternals()

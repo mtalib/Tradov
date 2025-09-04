@@ -21,7 +21,7 @@ Version: 1.4
 import asyncio
 import logging
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -57,7 +57,7 @@ class EnsembleConfig:
     max_depth_range: Tuple[int, int] = (10, 50)
     min_samples_split_range: Tuple[int, int] = (5, 20)
     min_samples_leaf_range: Tuple[int, int] = (2, 10)
-    max_features_options: List[str] = ["sqrt", "log2", 0.3, 0.5, 0.7]
+    max_features_options: List[str] = field(default_factory=lambda: ["sqrt", "log2", None])
     bootstrap: bool = True
     oob_score: bool = True
     n_jobs: int = -1
@@ -65,7 +65,7 @@ class EnsembleConfig:
     cv_folds: int = 5
     n_iter_search: int = 50
     polynomial_degree: int = 2
-    quantile_alpha: List[float] = [0.05, 0.95]  # 90% prediction interval
+    quantile_alpha: List[float] = field(default_factory=lambda: [0.05, 0.95])  # 90% prediction interval
 
 
 @dataclass

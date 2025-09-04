@@ -1,3 +1,4 @@
+from typing import List, Dict, Optional
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -1102,3 +1103,44 @@ if __name__ == "__main__":
     print("This module provides real-time trading performance metrics")
     print("Integrate with trading engine for full functionality")
     print("=" * 60)
+class MetricsCollector:
+    """Trading metrics collector for aggregating and managing trading metrics"""
+    
+    def __init__(self):
+        self.trade_metrics: List[TradeMetrics] = []
+        self.strategy_metrics: Dict[str, StrategyMetrics] = {}
+        self.portfolio_metrics: Optional[PortfolioMetrics] = None
+        
+    def add_trade_metric(self, metric: TradeMetrics) -> None:
+        """Add a trade metric"""
+        self.trade_metrics.append(metric)
+    
+    def add_strategy_metric(self, strategy_name: str, metric: StrategyMetrics) -> None:
+        """Add a strategy metric"""
+        self.strategy_metrics[strategy_name] = metric
+    
+    def set_portfolio_metric(self, metric: PortfolioMetrics) -> None:
+        """Set portfolio metric"""
+        self.portfolio_metrics = metric
+    
+    def get_trade_metrics(self) -> List[TradeMetrics]:
+        """Get all trade metrics"""
+        return self.trade_metrics
+    
+    def get_strategy_metrics(self) -> Dict[str, StrategyMetrics]:
+        """Get all strategy metrics"""
+        return self.strategy_metrics
+    
+    def get_portfolio_metrics(self) -> Optional[PortfolioMetrics]:
+        """Get portfolio metrics"""
+        return self.portfolio_metrics
+    
+    def clear_metrics(self) -> None:
+        """Clear all metrics"""
+        self.trade_metrics.clear()
+        self.strategy_metrics.clear()
+        self.portfolio_metrics = None
+
+def get_metrics_collector() -> MetricsCollector:
+    """Factory function to get MetricsCollector instance"""
+    return MetricsCollector()

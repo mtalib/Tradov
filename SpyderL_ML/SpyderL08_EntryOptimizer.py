@@ -54,7 +54,7 @@ from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingCalendar
 from SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer, FeatureSet
-from SpyderL_ML.SpyderL09_RegimeClassifier import RegimeClassifier, RegimeType
+from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier, RegimeType, MarketRegime
 
 # ==============================================================================
 # CONSTANTS
@@ -575,13 +575,13 @@ class EntryOptimizer:
            self.logger.error(f"Error analyzing entry patterns: {e}")
            return {}
    
-   def get_feature_importance(self) -> Dict[str, float]:
+    def get_feature_importance(self) -> Dict[str, float]:
        """Get current feature importance scores"""
        if hasattr(self, 'feature_importance'):
            return self.feature_importance.copy()
        return {}
    
-   def get_regime_specific_parameters(
+    def get_regime_specific_parameters(
        self,
        regime: RegimeType
    ) -> Dict[str, Any]:
@@ -640,7 +640,7 @@ class EntryOptimizer:
    # ==========================================================================
    # PRIVATE METHODS - PREDICTION
    # ==========================================================================
-   def _prepare_features(self, feature_set: FeatureSet) -> np.ndarray:
+    def _prepare_features(self, feature_set: FeatureSet) -> np.ndarray:
        """Prepare features for model input"""
        # Extract selected features
        features = []
@@ -656,7 +656,7 @@ class EntryOptimizer:
        
        return feature_array
    
-   def _get_ensemble_predictions(
+    def _get_ensemble_predictions(
        self,
        features: np.ndarray,
        regime: RegimeType
@@ -679,7 +679,7 @@ class EntryOptimizer:
        
        return predictions
    
-   def _calculate_entry_signal(
+    def _calculate_entry_signal(
        self,
        predictions: Dict[str, float]
    ) -> Tuple[EntrySignal, float]:
@@ -723,7 +723,7 @@ class EntryOptimizer:
        
        return signal, confidence
    
-   def _calculate_expected_return(
+    def _calculate_expected_return(
        self,
        features: np.ndarray,
        regime: RegimeType
@@ -749,10 +749,10 @@ class EntryOptimizer:
        
        return float(expected_return)
    
-   def _calculate_risk_score(
+    def _calculate_risk_score(
        self,
        features: FeatureSet,
-       regime: MarketRegime
+       regime: "MarketRegime"
    ) -> float:
        """Calculate risk score for entry"""
        risk_factors = []
@@ -788,7 +788,7 @@ class EntryOptimizer:
        
        return float(min(risk_score, 1.0))
    
-   def _calculate_time_risk(self, timestamp: datetime) -> float:
+    def _calculate_time_risk(self, timestamp: datetime) -> float:
        """Calculate time-based risk"""
        current_time = timestamp.time()
        
@@ -814,10 +814,10 @@ class EntryOptimizer:
        else:
            return 0.4  # Other times
    
-   def _generate_entry_reasons(
+    def _generate_entry_reasons(
        self,
        features: FeatureSet,
-       regime: MarketRegime,
+       regime: "MarketRegime",
        predictions: Dict[str, float],
        signal: EntrySignal
    ) -> List[str]:
@@ -855,7 +855,7 @@ class EntryOptimizer:
        
        return reasons
    
-   def _is_in_optimal_window(self, timestamp: datetime) -> bool:
+    def _is_in_optimal_window(self, timestamp: datetime) -> bool:
        """Check if timestamp is in optimal entry window"""
        current_time = timestamp.time()
        
@@ -868,7 +868,7 @@ class EntryOptimizer:
    # ==========================================================================
    # PRIVATE METHODS - TRAINING
    # ==========================================================================
-   def _prepare_training_data(
+    def _prepare_training_data(
        self,
        features_df: pd.DataFrame,
        outcomes: pd.Series
@@ -885,7 +885,7 @@ class EntryOptimizer:
        
        return X[mask], y[mask]
    
-   def _select_features(self, X: pd.DataFrame, y: pd.Series) -> None:
+    def _select_features(self, X: pd.DataFrame, y: pd.Series) -> None:
        """Select most important features"""
        # Use Random Forest for initial feature importance
        rf = RandomForestClassifier(n_estimators=100, random_state=42)
@@ -906,7 +906,7 @@ class EntryOptimizer:
        
        self.logger.info(f"Selected {len(self.selected_features)} features")
    
-   def _train_regime_models(
+    def _train_regime_models(
        self,
        X: pd.DataFrame,
        y: pd.Series,
@@ -960,7 +960,7 @@ class EntryOptimizer:
                
                self.logger.info(f"Trained model for {regime.value} regime ({len(X_regime)} samples)")
    
-   def _calculate_feature_importance(self, X: np.ndarray, y: np.ndarray) -> None:
+    def _calculate_feature_importance(self, X: np.ndarray, y: np.ndarray) -> None:
        """Calculate and store feature importance"""
        # Use permutation importance for ensemble
        feature_importance = {}
@@ -994,7 +994,7 @@ class EntryOptimizer:
    # ==========================================================================
    # PRIVATE METHODS - OPTIMIZATION
    # ==========================================================================
-   def _train_with_params(
+    def _train_with_params(
        self,
        X: pd.DataFrame,
        y: pd.Series,
@@ -1020,7 +1020,7 @@ class EntryOptimizer:
        for model in self.models.values():
            model.fit(X_scaled, y)
    
-   def _evaluate_objective(self, X: pd.DataFrame, y: pd.Series) -> float:
+    def _evaluate_objective(self, X: pd.DataFrame, y: pd.Series) -> float:
        """Evaluate optimization objective"""
        # Time series cross-validation
        tscv = TimeSeriesSplit(n_splits=3)
@@ -1063,7 +1063,7 @@ class EntryOptimizer:
        
        return float(np.mean(scores))
    
-   def _calculate_expected_performance(
+    def _calculate_expected_performance(
        self,
        X: pd.DataFrame,
        y: pd.Series
@@ -1093,7 +1093,7 @@ class EntryOptimizer:
            'auc': float(roc_auc_score(y, ensemble_pred))
        }
    
-   def _analyze_regime_performance(
+    def _analyze_regime_performance(
        self,
        X: pd.DataFrame,
        y: pd.Series
@@ -1131,14 +1131,14 @@ class EntryOptimizer:
        
        return regime_performance
    
-   def _get_validation_metrics(self) -> Dict[str, float]:
+    def _get_validation_metrics(self) -> Dict[str, float]:
        """Get validation metrics from training"""
        return self.model_performance.copy()
    
    # ==========================================================================
    # PRIVATE METHODS - UTILITIES
    # ==========================================================================
-   def _get_key_features(self, feature_set: FeatureSet) -> Dict[str, float]:
+    def _get_key_features(self, feature_set: FeatureSet) -> Dict[str, float]:
        """Extract key features for display"""
        key_features = [
            'volatility_30m', 'trend_strength', 'rsi_14', 
@@ -1151,7 +1151,7 @@ class EntryOptimizer:
            if feature in self.selected_features
        }
    
-   def _cache_prediction(self, opportunity: EntryOpportunity) -> None:
+    def _cache_prediction(self, opportunity: EntryOpportunity) -> None:
        """Cache prediction for analysis"""
        self.entry_history.append(opportunity)
        
@@ -1168,7 +1168,7 @@ class EntryOptimizer:
        for key in old_keys:
            del self.prediction_cache[key]
    
-   def _get_signal_distribution(self, entries: List[EntryOpportunity]) -> Dict[str, float]:
+    def _get_signal_distribution(self, entries: List[EntryOpportunity]) -> Dict[str, float]:
        """Get distribution of signals"""
        signal_counts = {}
        total = len(entries)
@@ -1179,7 +1179,7 @@ class EntryOptimizer:
        
        return signal_counts
    
-   def _analyze_hourly_patterns(
+    def _analyze_hourly_patterns(
        self,
        entries: List[EntryOpportunity]
    ) -> Dict[int, Dict[str, float]]:
@@ -1204,7 +1204,7 @@ class EntryOptimizer:
        
        return hourly_data
    
-   def _analyze_feature_patterns(
+    def _analyze_feature_patterns(
        self,
        entries: List[EntryOpportunity]
    ) -> Dict[str, Dict[str, float]]:
@@ -1243,7 +1243,7 @@ class EntryOptimizer:
        
        return feature_stats
    
-   def _identify_best_entry_times(
+    def _identify_best_entry_times(
        self,
        entries: List[EntryOpportunity]
    ) -> List[Dict[str, Any]]:
@@ -1282,7 +1282,7 @@ class EntryOptimizer:
        
        return best_times[:10]  # Top 10 times
    
-   def _get_neutral_opportunity(self, timestamp: datetime) -> EntryOpportunity:
+    def _get_neutral_opportunity(self, timestamp: datetime) -> EntryOpportunity:
        """Get neutral opportunity for default cases"""
        return EntryOpportunity(
            timestamp=timestamp,
@@ -1295,7 +1295,7 @@ class EntryOptimizer:
            reasons=["Insufficient data for prediction"]
        )
    
-   def _get_avoid_opportunity(self, timestamp: datetime, reason: str) -> EntryOpportunity:
+    def _get_avoid_opportunity(self, timestamp: datetime, reason: str) -> EntryOpportunity:
        """Get avoid opportunity with reason"""
        return EntryOpportunity(
            timestamp=timestamp,
@@ -1308,7 +1308,7 @@ class EntryOptimizer:
            reasons=[reason]
        )
    
-   def _get_default_optimization_result(self) -> OptimizationResult:
+    def _get_default_optimization_result(self) -> OptimizationResult:
        """Get default optimization result for error cases"""
        return OptimizationResult(
            optimal_parameters={
@@ -1329,7 +1329,7 @@ class EntryOptimizer:
    # ==========================================================================
    # PUBLIC METHODS - PERSISTENCE
    # ==========================================================================
-   def save_model(self, filepath: Path) -> None:
+    def save_model(self, filepath: Path) -> None:
        """Save trained models and configuration"""
        model_data = {
            'fitted': self.fitted,
@@ -1355,7 +1355,7 @@ class EntryOptimizer:
            with open(filepath.with_suffix('.pkl'), 'wb') as f:
                pickle.dump(model_dict, f)
    
-   def load_model(self, filepath: Path) -> None:
+    def load_model(self, filepath: Path) -> None:
        """Load trained models and configuration"""
        # Load configuration
        with open(filepath.with_suffix('.json'), 'r') as f:
@@ -1409,7 +1409,7 @@ def get_default_entry_filter() -> EntryFilter:
 if __name__ == "__main__":
    # Test entry optimizer
    from SpyderL_ML.SpyderL10_FeatureEngineering import create_feature_engineer
-   from SpyderL_ML.SpyderL09_RegimeClassifier import create_regime_classifier
+   from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import create_unified_regime_engine as create_regime_classifier
    
    # Initialize components
    feature_engineer = create_feature_engineer()

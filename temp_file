@@ -1223,15 +1223,3 @@ class RegimeType(Enum):
     CRISIS = "crisis"
     RECOVERY = "recovery"
     UNKNOWN = "unknown"
-
-class MarketRegime(Enum):
-    """Market regime enumeration"""
-    BULL = "bull"
-    BEAR = "bear"
-    SIDEWAYS = "sideways"
-    VOLATILE = "volatile"
-    CALM = "calm"
-    TRENDING_UP = "trending_up"
-    TRENDING_DOWN = "trending_down"
-    RANGE_BOUND = "range_bound"
-    UNKNOWN = "unknown"

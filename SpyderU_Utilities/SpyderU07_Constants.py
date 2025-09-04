@@ -1,3 +1,4 @@
+from enum import Enum
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -748,3 +749,41 @@ try:
 except Exception as e:
     print(f"Constants validation failed: {e}")
     raise
+
+class TimeFrame(Enum):
+    """Trading timeframe enumeration"""
+    TICK = "tick"
+    SECOND_1 = "1s"
+    SECOND_5 = "5s" 
+    SECOND_15 = "15s"
+    SECOND_30 = "30s"
+    MINUTE_1 = "1m"
+    MINUTE_5 = "5m"
+    MINUTE_15 = "15m"
+    MINUTE_30 = "30m"
+    HOUR_1 = "1h"
+    HOUR_4 = "4h"
+    DAY_1 = "1d"
+    WEEK_1 = "1w"
+    MONTH_1 = "1M"
+    UNKNOWN = "unknown"
+    
+    def to_seconds(self) -> int:
+        """Convert timeframe to seconds"""
+        mapping = {
+            TimeFrame.TICK: 0,
+            TimeFrame.SECOND_1: 1,
+            TimeFrame.SECOND_5: 5,
+            TimeFrame.SECOND_15: 15,
+            TimeFrame.SECOND_30: 30,
+            TimeFrame.MINUTE_1: 60,
+            TimeFrame.MINUTE_5: 300,
+            TimeFrame.MINUTE_15: 900,
+            TimeFrame.MINUTE_30: 1800,
+            TimeFrame.HOUR_1: 3600,
+            TimeFrame.HOUR_4: 14400,
+            TimeFrame.DAY_1: 86400,
+            TimeFrame.WEEK_1: 604800,
+            TimeFrame.MONTH_1: 2592000,  # Approximate
+        }
+        return mapping.get(self, 0)

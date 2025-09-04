@@ -729,3 +729,17 @@ class OptionData:
     theta: float = 0.0
     vega: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
+
+class MarketDataType(Enum):
+    """Market data type enumeration"""
+    QUOTE = "quote"
+    TRADE = "trade" 
+    BAR = "bar"
+    TICK = "tick"
+    LEVEL2 = "level2"
+    OPTIONS_CHAIN = "options_chain"
+    GREEKS = "greeks"
+    VOLATILITY = "volatility"
+    NEWS = "news"
+    FUNDAMENTAL = "fundamental"
+    UNKNOWN = "unknown"

@@ -955,3 +955,9 @@ if __name__ == "__main__":
     monitor.stop()
     
     print("\n✅ SystemMonitor test completed")
+
+
+def get_system_monitor(*args, **kwargs):
+    """Factory function to get SystemMonitor instance"""
+    return SystemMonitor(*args, **kwargs)
+

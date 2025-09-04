@@ -1,3 +1,4 @@
+from enum import Enum
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -1839,3 +1840,30 @@ def get_trading_time_utils():
     if _trading_time_utils is None:
         _trading_time_utils = TradingTimeUtils()
     return _trading_time_utils
+
+class MarketSession(Enum):
+    """Market trading session enumeration"""
+    PRE_MARKET = "pre_market"
+    REGULAR_HOURS = "regular_hours" 
+    AFTER_HOURS = "after_hours"
+    EXTENDED_HOURS = "extended_hours"
+    CLOSED = "closed"
+    HOLIDAY = "holiday"
+    WEEKEND = "weekend"
+    UNKNOWN = "unknown"
+
+def get_current_market_session() -> MarketSession:
+    """Get current market session based on time"""
+    # Simplified logic - would normally check actual market hours
+    from datetime import datetime
+    now = datetime.now()
+    hour = now.hour
+    
+    if 4 <= hour < 9:
+        return MarketSession.PRE_MARKET
+    elif 9 <= hour < 16:
+        return MarketSession.REGULAR_HOURS
+    elif 16 <= hour < 20:
+        return MarketSession.AFTER_HOURS
+    else:
+        return MarketSession.CLOSED

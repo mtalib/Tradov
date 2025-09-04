@@ -63,7 +63,7 @@ from SpyderU_Utilities.SpyderU07_Constants import AlertLevel
 # ML Integration imports (optional - graceful fallback if not available)
 try:
     from SpyderL_ML.SpyderL01_MLPredictor import MLPredictor
-    from SpyderL_ML.SpyderL09_RegimeClassifier import RegimeClassifier
+    from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
     from SpyderL_ML.SpyderL14_RealTimePredictor import RealTimePredictor
     ML_AVAILABLE = True
 except ImportError:
