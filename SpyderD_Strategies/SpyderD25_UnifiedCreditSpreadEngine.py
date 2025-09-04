@@ -8,7 +8,7 @@ Module: SpyderD25_UnifiedCreditSpreadEngine.py
 Purpose: Unified credit spread strategy engine - consolidates all credit spread variations
 Author: Mohamed Talib
 Year Created: 2025 
-Last Updated: 2025-09-02 Time: 18:00:00  
+Last Updated: 2025-09-04 Time: 15:00:00  
 
 Module Description:
     Unified credit spread engine that consolidates D03_CreditSpread, D06_BullPutSpread,
@@ -1470,7 +1470,8 @@ if __name__ == "__main__":
                     # Small delay for realism
                     await asyncio.sleep(0.1)
             
-            await run_position_management()
+            # FIXED: Use asyncio.run() instead of await
+            asyncio.run(run_position_management())
             
         else:
             print(f"   ❌ Spread execution failed")

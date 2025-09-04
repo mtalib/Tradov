@@ -3,19 +3,18 @@
 """
 SPYDER - Automated SPY Options Trading System
 
+Series: SpyderD_Strategies
 Module: SpyderD08_OpeningRangeBreakout.py
-Group: D (Trading Strategies)
 Purpose: Opening range breakout strategy
+Author: Mohamed Talib
+Year Created: 2025 
+Last Updated: 2025-09-04 Time: 15:30:00
 
-Description:
+Module Description:
     This module implements an opening range breakout strategy that monitors
     the first 15-30 minutes of trading to establish a range, then trades
     breakouts from that range. The strategy focuses on Monday/Tuesday and
     uses tight trailing stops as recommended by the research.
-
-Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0 (Production-Ready)
 """
 
 # ==============================================================================
@@ -172,14 +171,16 @@ class BreakoutSignal:
 
 @dataclass
 class BreakoutPosition:
-    """Active breakout position"""
+    """Active breakout position - FIXED field ordering"""
+    # Required fields (no defaults) MUST come first
     position_id: str
     breakout_signal: BreakoutSignal
     entry_time: datetime
-    
-    # Position details
     option_contracts: int
     entry_price: float
+    current_stop: float  # MOVED: This field without default must come before fields with defaults
+    
+    # Optional fields (with defaults) come after required fields
     current_price: float = 0.0
     
     # P&L tracking
@@ -189,7 +190,6 @@ class BreakoutPosition:
     max_loss: float = 0.0
     
     # Risk management
-    current_stop: float
     trailing_stop_active: bool = False
     highest_price: float = 0.0  # For trailing stop
     lowest_price: float = 0.0   # For trailing stop
@@ -888,14 +888,15 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                 confidence=signal.confidence
             )
             
-            # Create position
+            # Create position - FIXED: proper field ordering
             position = BreakoutPosition(
                 position_id=str(uuid.uuid4()),
                 breakout_signal=breakout_signal,
                 entry_time=datetime.now(),
                 option_contracts=signal.position_size,
                 entry_price=breakout_data['entry_price'],
-                current_stop=breakout_data['stop_loss'],
+                current_stop=breakout_data['stop_loss'],  # Now properly ordered
+                # Optional fields with defaults:
                 highest_price=breakout_data['entry_price'],
                 lowest_price=breakout_data['entry_price'],
                 max_profit=(breakout_data['initial_target'] - breakout_data['entry_price']) * 

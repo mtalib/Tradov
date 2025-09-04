@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+SPYDER - Autonomous Options Trading System v1.0
+
+Package: SpyderO_TradingIntelligence
+Purpose: Advanced trading intelligence and optimization modules
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2025-09-04
+
+Package Description:
+    The SpyderO_TradingIntelligence package provides sophisticated trading intelligence
+    capabilities that go beyond basic technical analysis. This package includes advanced
+    technical indicators, trading opportunity scanning, and strategy optimization tools
+    specifically designed for options trading and market microstructure analysis.
+
+Modules Overview:
+    • SpyderO01_CoreTechnicalIndicators: Pure Python technical indicators with signal generation
+    • SpyderO02_TradingOpportunityScanner: Multi-strategy opportunity ranking and scanning
+    • SpyderO03_StrategyOptimizers: Specialized optimization calculators for options strategies
+
+Key Features:
+    • Pure Python implementations (no TA-Lib dependency)
+    • Options-specific indicators and calculations
+    • Multi-strategy opportunity ranking
+    • Pin risk analysis and liquidity scoring
+    • Real-time skew anomaly detection
+    • Strategy efficiency optimization
+    • Regime-aware signal generation
+"""
+
+# ==============================================================================
+# VERSION INFORMATION
+# ==============================================================================
+__version__ = "1.0.0"
+__author__ = "Mohamed Talib"
+__email__ = "mtalib@spyder-trading.com"
+__status__ = "Production"
+
+# ==============================================================================
+# CORE MODULE IMPORTS
+# ==============================================================================
+
+# Core Technical Indicators
+try:
+    from .SpyderO01_CoreTechnicalIndicators import (
+        # Main class
+        CoreTechnicalIndicators,
+        # Enums and data classes
+        SignalType,
+        IndicatorStrength,
+        TrendDirection,
+        VolatilityRegime,
+        IndicatorSignal,
+        SupportResistanceLevel,
+        VolumeProfile,
+    )
+
+    CORE_INDICATORS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ SpyderO01_CoreTechnicalIndicators not available: {e}")
+    CORE_INDICATORS_AVAILABLE = False
+
+# Trading Opportunity Scanner
+try:
+    from .SpyderO02_TradingOpportunityScanner import (
+        # Main class
+        TradingOpportunityScanner,
+        # Enums and data classes
+        OpportunityType,
+        OpportunityPriority,
+        MarketBias,
+        VolatilityEnvironment,
+        TradingOpportunity,
+        OpportunityContext,
+        StrategyComparison,
+    )
+
+    OPPORTUNITY_SCANNER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ SpyderO02_TradingOpportunityScanner not available: {e}")
+    OPPORTUNITY_SCANNER_AVAILABLE = False
+
+# Strategy Optimizers
+try:
+    from .SpyderO03_StrategyOptimizers import (
+        # Main classes
+        PinRiskCalculator,
+        OptionsLiquidityScorer,
+        SkewAnomalyDetector,
+        # Enums and data classes
+        PinRiskLevel,
+        LiquidityTier,
+        SkewAnomalyType,
+        OptimizationObjective,
+        PinRiskAnalysis,
+        LiquidityScore,
+        SkewAnomalyDetection,
+        StrategyOptimization,
+    )
+
+    STRATEGY_OPTIMIZERS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ SpyderO03_StrategyOptimizers not available: {e}")
+    STRATEGY_OPTIMIZERS_AVAILABLE = False
+
+# ==============================================================================
+# PACKAGE CONVENIENCE FUNCTIONS
+# ==============================================================================
+
+
+def get_available_modules():
+    """
+    Get a list of available modules in the SpyderO_TradingIntelligence package.
+
+    Returns:
+        dict: Dictionary with module availability status
+    """
+    return {
+        "SpyderO01_CoreTechnicalIndicators": CORE_INDICATORS_AVAILABLE,
+        "SpyderO02_TradingOpportunityScanner": OPPORTUNITY_SCANNER_AVAILABLE,
+        "SpyderO03_StrategyOptimizers": STRATEGY_OPTIMIZERS_AVAILABLE,
+    }
+
+
+def get_package_info():
+    """
+    Get comprehensive package information.
+
+    Returns:
+        dict: Package information including version, modules, and capabilities
+    """
+    available_modules = get_available_modules()
+    total_modules = len(available_modules)
+    available_count = sum(available_modules.values())
+
+    return {
+        "package_name": "SpyderO_TradingIntelligence",
+        "version": __version__,
+        "author": __author__,
+        "status": __status__,
+        "total_modules": total_modules,
+        "available_modules": available_count,
+        "module_status": available_modules,
+        "capabilities": {
+            "technical_indicators": CORE_INDICATORS_AVAILABLE,
+            "opportunity_scanning": OPPORTUNITY_SCANNER_AVAILABLE,
+            "strategy_optimization": STRATEGY_OPTIMIZERS_AVAILABLE,
+        },
+    }
+
+
+def create_indicators_engine():
+    """
+    Factory function to create a CoreTechnicalIndicators instance.
+
+    Returns:
+        CoreTechnicalIndicators: Configured indicators engine
+
+    Raises:
+        ImportError: If CoreTechnicalIndicators is not available
+    """
+    if not CORE_INDICATORS_AVAILABLE:
+        raise ImportError("CoreTechnicalIndicators module is not available")
+
+    return CoreTechnicalIndicators()
+
+
+def create_opportunity_scanner():
+    """
+    Factory function to create a TradingOpportunityScanner instance.
+
+    Returns:
+        TradingOpportunityScanner: Configured opportunity scanner
+
+    Raises:
+        ImportError: If TradingOpportunityScanner is not available
+    """
+    if not OPPORTUNITY_SCANNER_AVAILABLE:
+        raise ImportError("TradingOpportunityScanner module is not available")
+
+    return TradingOpportunityScanner()
+
+
+def create_strategy_optimizers():
+    """
+    Factory function to create strategy optimizer instances.
+
+    Returns:
+        dict: Dictionary containing optimizer instances
+
+    Raises:
+        ImportError: If StrategyOptimizers modules are not available
+    """
+    if not STRATEGY_OPTIMIZERS_AVAILABLE:
+        raise ImportError("StrategyOptimizers modules are not available")
+
+    return {
+        "pin_risk_calculator": PinRiskCalculator(),
+        "liquidity_scorer": OptionsLiquidityScorer(),
+        "skew_anomaly_detector": SkewAnomalyDetector(),
+    }
+
+
+# ==============================================================================
+# MODULE VALIDATION
+# ==============================================================================
+
+
+def validate_package():
+    """
+    Validate the package installation and module availability.
+
+    Returns:
+        bool: True if package is fully functional, False otherwise
+    """
+    try:
+        info = get_package_info()
+        print(f"📊 {info['package_name']} v{info['version']}")
+        print(
+            f"✅ {info['available_modules']}/{info['total_modules']} modules available"
+        )
+
+        if info["available_modules"] == info["total_modules"]:
+            print("🚀 All modules loaded successfully")
+            return True
+        else:
+            print("⚠️ Some modules are missing - package partially functional")
+            for module, status in info["module_status"].items():
+                status_icon = "✅" if status else "❌"
+                print(f"   {status_icon} {module}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Package validation failed: {e}")
+        return False
+
+
+# ==============================================================================
+# PACKAGE EXPORTS
+# ==============================================================================
+
+# Core exports for easy importing
+__all__ = [
+    # Version info
+    "__version__",
+    "__author__",
+    # Core classes (if available)
+    "CoreTechnicalIndicators",
+    "TradingOpportunityScanner",
+    "PinRiskCalculator",
+    "OptionsLiquidityScorer",
+    "SkewAnomalyDetector",
+    # Enums and data classes
+    "SignalType",
+    "IndicatorStrength",
+    "TrendDirection",
+    "VolatilityRegime",
+    "IndicatorSignal",
+    "SupportResistanceLevel",
+    "VolumeProfile",
+    "OpportunityType",
+    "OpportunityPriority",
+    "MarketBias",
+    "VolatilityEnvironment",
+    "TradingOpportunity",
+    "OpportunityContext",
+    "StrategyComparison",
+    "PinRiskLevel",
+    "LiquidityTier",
+    "SkewAnomalyType",
+    "OptimizationObjective",
+    "PinRiskAnalysis",
+    "LiquidityScore",
+    "SkewAnomalyDetection",
+    "StrategyOptimization",
+    # Utility functions
+    "get_available_modules",
+    "get_package_info",
+    "create_indicators_engine",
+    "create_opportunity_scanner",
+    "create_strategy_optimizers",
+    "validate_package",
+]
+
+# Remove unavailable items from __all__
+if not CORE_INDICATORS_AVAILABLE:
+    items_to_remove = [
+        "CoreTechnicalIndicators",
+        "SignalType",
+        "IndicatorStrength",
+        "TrendDirection",
+        "VolatilityRegime",
+        "IndicatorSignal",
+        "SupportResistanceLevel",
+        "VolumeProfile",
+    ]
+    __all__ = [item for item in __all__ if item not in items_to_remove]
+
+if not OPPORTUNITY_SCANNER_AVAILABLE:
+    items_to_remove = [
+        "TradingOpportunityScanner",
+        "OpportunityType",
+        "OpportunityPriority",
+        "MarketBias",
+        "VolatilityEnvironment",
+        "TradingOpportunity",
+        "OpportunityContext",
+        "StrategyComparison",
+    ]
+    __all__ = [item for item in __all__ if item not in items_to_remove]
+
+if not STRATEGY_OPTIMIZERS_AVAILABLE:
+    items_to_remove = [
+        "PinRiskCalculator",
+        "OptionsLiquidityScorer",
+        "SkewAnomalyDetector",
+        "PinRiskLevel",
+        "LiquidityTier",
+        "SkewAnomalyType",
+        "OptimizationObjective",
+        "PinRiskAnalysis",
+        "LiquidityScore",
+        "SkewAnomalyDetection",
+        "StrategyOptimization",
+    ]
+    __all__ = [item for item in __all__ if item not in items_to_remove]
+
+# ==============================================================================
+# INITIALIZATION
+# ==============================================================================
+
+# Perform package validation on import
+if __name__ != "__main__":
+    # Only validate if not running as main script
+    validate_package()
+else:
+    # If running as main, show detailed package info
+    print("=" * 70)
+    print("SPYDER O - TRADING INTELLIGENCE PACKAGE")
+    print("=" * 70)
+    validate_package()
+    info = get_package_info()
+    print("\nPackage Details:")
+    for key, value in info.items():
+        if key != "module_status":
+            print(f"  {key}: {value}")
