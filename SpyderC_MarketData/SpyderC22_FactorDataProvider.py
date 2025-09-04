@@ -36,7 +36,7 @@ Dependencies:
     - SpyderU02_ErrorHandler
     - SpyderC01_DataFeed (integration)
     - SpyderC21_FSeriesIntegrationHub (integration)
-    - SpyderF15_PerformanceAttribution (target)
+    - SpyderF17_UnifiedPerformanceEngine (target)
 """
 
 # ==============================================================================

@@ -17,8 +17,14 @@ Description:
 Spyder Version: 1.0
 Architect: Mohamed Talib
 Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 14:30:00
-"""
+Last 
+
+from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketRegime
+from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
+from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import RegimeType
+from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import create_unified_regime_engine as create_regime_classifier
+
+
 
 # ==============================================================================
 # STANDARD IMPORTS

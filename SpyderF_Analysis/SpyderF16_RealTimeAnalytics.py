@@ -38,7 +38,7 @@ Dependencies:
     - SpyderF12_AdvancedBacktestingEngine (integration)
     - SpyderF13_ModelValidation (integration)
     - SpyderF14_MarketMicrostructure (integration)
-    - SpyderF15_PerformanceAttribution (integration)
+    - SpyderF17_UnifiedPerformanceEngine (integration)
 """
 
 # ==============================================================================
@@ -124,7 +124,7 @@ except ImportError:
     F14_AVAILABLE = False
 
 try:
-    from SpyderF15_PerformanceAttribution import PerformanceAttributionEngine
+    from SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine import UnifiedPerformanceEngine as PerformanceAttributionEngine
     F15_AVAILABLE = True
 except ImportError:
     F15_AVAILABLE = False

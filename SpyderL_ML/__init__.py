@@ -19,7 +19,7 @@ Version: 1.4
 from .SpyderL01_MLPredictor import MLPredictor
 from .SpyderL07_PaperTradeLearner import PaperTradeLearner
 from .SpyderL08_EntryOptimizer import EntryOptimizer
-from .SpyderL09_RegimeClassifier import RegimeClassifier
+from .SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
 from .SpyderL10_FeatureEngineering import FeatureEngineer
 from .SpyderL11_MLModelManager import MLModelManager
 from .SpyderL12_RandomForestEnsemble import RandomForestEnsemble

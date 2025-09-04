@@ -112,7 +112,6 @@ class AlertLevel:
 
 # Optional ML imports for enhanced features
 try:
-    # from SpyderL_ML.SpyderL09_RegimeClassifier import RegimeClassifier
     from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
     from SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector
     ML_AVAILABLE = True
@@ -1171,7 +1170,6 @@ class AlertLevel:
 
 # Optional ML imports for enhanced features
 try:
-    # from SpyderL_ML.SpyderL09_RegimeClassifier import RegimeClassifier
     from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
     from SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector
     ML_AVAILABLE = True

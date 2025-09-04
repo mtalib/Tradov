@@ -103,7 +103,7 @@ except ImportError:
 
 # Original F15 and X08 components (if available)
 try:
-    from SpyderF_Analysis.SpyderF15_PerformanceAttribution import create_attribution_engine
+    from SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine import create_unified_performance_engine as create_attribution_engine
     F15_AVAILABLE = True
 except ImportError:
     F15_AVAILABLE = False

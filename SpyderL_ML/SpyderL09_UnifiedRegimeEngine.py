@@ -94,7 +94,7 @@ except ImportError:
     QUANT_MODELS_AVAILABLE = False
 
 try:
-    from SpyderF_Analysis.SpyderF15_PerformanceAttribution import create_attribution_engine
+    from SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine import create_unified_performance_engine as create_attribution_engine
     ATTRIBUTION_AVAILABLE = True
 except ImportError:
     ATTRIBUTION_AVAILABLE = False

@@ -340,8 +340,8 @@ class ProductionDeploymentManager:
             "F15_PerformanceAttribution": ComponentConfig(
                 component_id="F15_PerformanceAttribution",
                 component_type=ComponentType.ANALYTICS,
-                module_path="SpyderF_Analysis/SpyderF15_PerformanceAttribution.py",
-                startup_command="python -m SpyderF_Analysis.SpyderF15_PerformanceAttribution",
+                module_path="SpyderF_Analysis/SpyderF17_UnifiedPerformanceEngine.py",
+                startup_command="python -m SpyderF_Analysis.SpyderF17_UnifiedPerformanceEngine",
                 priority=2,
                 resource_limits={"memory_mb": 1024, "cpu_cores": 2}
             ),
