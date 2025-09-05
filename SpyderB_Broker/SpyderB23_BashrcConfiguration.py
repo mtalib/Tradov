@@ -51,7 +51,7 @@ IB_ENV_VARS = {
     "SPYDER_DATA": "$HOME/spyder/data",
     
     # Display Configuration
-    "DISPLAY": ":99",
+    "DISPLAY": ":0",
     "XAUTHORITY": "/tmp/.Xauthority",
     
     # Java Configuration
@@ -91,7 +91,7 @@ SPYDER_ALIASES = {
     "cdlogs": "cd $SPYDER_LOGS",
     
     # Process Management
-    "xvfb-start": "Xvfb :99 -screen 0 1600x1200x24 -dpi 96 -ac -noreset &",
+    "xvfb-start": "Xvfb :0 -screen 0 1600x1200x24 -dpi 96 -ac -noreset &",
     "xvfb-stop": "pkill Xvfb",
     "xvfb-status": "ps aux | grep Xvfb | grep -v grep",
     
@@ -120,12 +120,12 @@ spyder_gateway_start() {
     # Start Xvfb if not running
     if ! pgrep Xvfb > /dev/null; then
         echo "Starting Xvfb display..."
-        Xvfb :99 -screen 0 1600x1200x24 -dpi 96 -ac -noreset &
+        Xvfb :0 -screen 0 1600x1200x24 -dpi 96 -ac -noreset &
         sleep 2
     fi
     
     # Set display
-    export DISPLAY=:99
+    export DISPLAY=:0
     
     # Start Gateway
     python3 $SPYDER_HOME/SpyderB_Broker/SpyderB21_GatewayStartupAutomation.py

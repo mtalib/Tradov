@@ -196,8 +196,9 @@ except ImportError:
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-WINDOW_WIDTH = 1920
-WINDOW_HEIGHT = 1080
+# Window size - restored to original working size
+WINDOW_WIDTH = 1920  # Restored to original that works with icon
+WINDOW_HEIGHT = 1080  # Restored to original that works with icon
 
 # Use the proven working client ID
 CLIENT_ID = 123
@@ -1345,7 +1346,10 @@ class SpyderTradingDashboard(QMainWindow):
     def setup_ui(self):
         """Setup the complete UI"""
         self.setWindowTitle("SPYDER - Autonomous Options Trading System v1.0")
-        self.setGeometry(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
+
+        # Position window to avoid dock overlap (top-left with small offset)
+        # This matches how it works when launched from icon
+        self.setGeometry(50, 50, WINDOW_WIDTH, WINDOW_HEIGHT)
 
         self.setStyleSheet(
             f"""

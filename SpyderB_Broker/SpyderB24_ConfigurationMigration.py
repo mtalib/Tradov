@@ -86,8 +86,8 @@ export JAVA_OPTS="-Dfile.encoding=UTF-8 -Djava.awt.headless=false -Dswing.aatext
 # ===============================================================================
 # XVFB CONFIGURATION FOR HEADLESS OPERATION
 # ===============================================================================
-export DISPLAY=":99"
-export XVFB_DISPLAY=":99"
+export DISPLAY=":0"
+export XVFB_DISPLAY=":0"
 export XAUTHORITY="/tmp/.Xauthority"
 export XVFB_OPTIONS="-screen 0 1600x1200x24 -dpi 96 -ac -noreset"
 
