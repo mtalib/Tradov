@@ -117,6 +117,26 @@ except ImportError as e:
     MANAGER_AVAILABLE = False
     print(f"⚠️ MultiClientDataManager not available: {e}")
 
+    # Create placeholder classes when MultiClientDataManager is not available
+    class MultiClientDataManager:
+        pass
+
+    class DataPriority:
+        pass
+
+    class DataRequestType:
+        pass
+
+    class MarketDataRequest:
+        pass
+
+    class MarketDataTick:
+        pass
+
+    def get_manager_instance():
+        return None
+
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================

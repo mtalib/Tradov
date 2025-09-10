@@ -1,0 +1,8 @@
+# AI/ML Dependencies (Optional)
+scikit-learn>=1.0.0
+tensorflow>=2.8.0
+torch>=1.10.0
+xgboost>=1.5.0
+lightgbm>=3.3.0
+optuna>=2.10.0
+shap>=0.40.0

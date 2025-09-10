@@ -1,0 +1,82 @@
+# ===============================================================================
+# SPYDER - Autonomous Options Trading System
+#
+# Service: SpyderQ74_SpyderMain.service  
+# Group: Q (Scripts/Services)
+# Purpose: Main systemd service for complete Spyder Trading System
+# Author: Mohamed Talib
+# Date Created: 2025-01-11
+# Last Updated: 2025-01-11 Time: 12:00:00
+#
+# Description:
+#     Primary systemd service that manages the entire Spyder trading system
+#     including IB Gateway monitoring, multi-client connections, AI agents,
+#     and dashboard components. Ensures proper startup order and dependencies.
+# ===============================================================================
+
+[Unit]
+Description=SPYDER Autonomous Options Trading System - Main Service
+Documentation=file:///home/$USER/Spyder/docs/README.md
+After=network-online.target
+Wants=network-online.target
+Requires=SpyderQ70_Watchdog.service SpyderQ71_Metrics.service
+
+[Service]
+Type=forking
+User=$USER
+Group=$USER
+WorkingDirectory=/home/$USER/Spyder
+
+# Environment variables
+Environment="PYTHONPATH=/home/$USER/Spyder"
+Environment="SPYDER_HOME=/home/$USER/Spyder"
+Environment="PATH=/home/$USER/Spyder/spyder_venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="DISPLAY=:0"
+Environment="QT_QPA_PLATFORM=xcb"
+Environment="PYTHONUNBUFFERED=1"
+
+# Pre-start checks
+ExecStartPre=/bin/bash -c 'source /home/$USER/Spyder/spyder_venv/bin/activate'
+ExecStartPre=/bin/bash -c 'test -f /home/$USER/Spyder/.env || exit 1'
+ExecStartPre=/bin/bash -c 'pgrep -f ibgateway || echo "Warning: IB Gateway not running"'
+
+# Main execution - Start all components
+ExecStart=/home/$USER/Spyder/spyder_venv/bin/python -m SpyderA_Core.SpyderA06_MasterController
+
+# Post-start verification
+ExecStartPost=/bin/sleep 5
+ExecStartPost=/bin/bash -c 'curl -s localhost:8000/metrics > /dev/null || exit 1'
+
+# Stop command
+ExecStop=/home/$USER/Spyder/scripts/SpyderQ11_StopAll.sh
+
+# Restart behavior
+Restart=on-failure
+RestartSec=30
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+MemoryLimit=4G
+CPUQuota=200%
+
+# Security
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/$USER/Spyder/logs /home/$USER/Spyder/data
+
+# Logging
+StandardOutput=append:/home/$USER/Spyder/logs/system/spyder_main.log
+StandardError=append:/home/$USER/Spyder/logs/system/spyder_main_error.log
+
+# Timeouts
+TimeoutStartSec=120
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
+Alias=spyder.service
