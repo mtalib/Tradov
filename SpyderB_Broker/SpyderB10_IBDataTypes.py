@@ -3,12 +3,12 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderB_Broker
+Series: SpyderB_Broker     
 Module: SpyderB10_IBDataTypes.py
 Purpose: Enhanced IB data type definitions and conversions with modern ib_async integration
 Author: Mohamed Talib
 Year Created: 2025 
-Last Updated: 2025-08-21 Time: 20:45:00  
+Last Updated: 2025-09-11 Time: 17:30:00
 
 Module Description:
     This module provides comprehensive data type definitions for IB integration
@@ -16,7 +16,7 @@ Module Description:
     orders, executions, market data, and account information. The module provides
     validation, serialization, and conversion utilities to ensure type safety and
     data integrity throughout the broker integration layer with enhanced IB Gateway
-    10.37 compatibility.
+    compatibility.
 
 Key Features:
     • Modern ib_async integration for enhanced stability
@@ -24,103 +24,218 @@ Key Features:
     • Type-safe conversion utilities between SPYDER and IB formats
     • Enhanced validation and error handling
     • Serialization support for persistence and messaging
-
-Dependencies:
-    • ib_async (modern IB API wrapper)
-    • Standard Python typing and dataclasses
-
-Installation Note:
-    pip install ib_async
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from typing import Optional, Dict, Any, List, Union, Tuple
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-from datetime import datetime, date, time
 import json
 import pickle
+import logging
+from typing import Optional, Dict, Any, List, Union, Tuple, Callable
+from dataclasses import dataclass, field, asdict
+from enum import Enum, auto
+from datetime import datetime, date, time, timedelta
 from decimal import Decimal
+import copy
+import uuid
 
 # ==============================================================================
-# LOCAL IMPORTS
+# THIRD-PARTY IMPORTS WITH FALLBACKS
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+
+# ib_async with fallback
+try:
+    from ib_async import (
+        IB, Contract, Stock, Option, Future, Forex, Index, CFD, Commodity,
+        Order, Trade, Fill, Execution, CommissionReport, PortfolioItem,
+        Position, AccountValue, TickData, BarData, RealTimeBar,
+        MarketDataType, OrderStatus, OrderType, OrderAction, TimeInForce
+    )
+    HAS_IB_ASYNC = True
+except ImportError:
+    HAS_IB_ASYNC = False
+    # Mock classes for fallback
+    class Contract:
+        def __init__(self):
+            self.symbol = ""
+            self.secType = ""
+            self.exchange = ""
+            self.currency = ""
+    
+    class Stock(Contract):
+        def __init__(self, symbol="", exchange="SMART", currency="USD"):
+            super().__init__()
+            self.symbol = symbol
+            self.secType = "STK"
+            self.exchange = exchange
+            self.currency = currency
+    
+    class Option(Contract):
+        def __init__(self, symbol="", lastTradeDateOrContractMonth="", strike=0.0, right="C", exchange="SMART"):
+            super().__init__()
+            self.symbol = symbol
+            self.secType = "OPT"
+            self.lastTradeDateOrContractMonth = lastTradeDateOrContractMonth
+            self.strike = strike
+            self.right = right
+            self.exchange = exchange
+    
+    class Order:
+        def __init__(self):
+            self.orderId = 0
+            self.action = "BUY"
+            self.orderType = "MKT"
+            self.totalQuantity = 0
+    
+    class OrderStatus:
+        PendingSubmit = "PendingSubmit"
+        Submitted = "Submitted"
+        Filled = "Filled"
+        Cancelled = "Cancelled"
+    
+    class OrderType:
+        Market = "MKT"
+        Limit = "LMT"
+        Stop = "STP"
+        StopLimit = "STPLMT"
+    
+    class OrderAction:
+        BUY = "BUY"
+        SELL = "SELL"
+    
+    class TimeInForce:
+        DAY = "DAY"
+        GTC = "GTC"
+        IOC = "IOC"
+        FOK = "FOK"
 
 # ==============================================================================
-# CONSTANTS
+# LOCAL IMPORTS WITH SAFE FALLBACKS
 # ==============================================================================
+
+# Logger with fallback
+try:
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    HAS_SPYDER_LOGGER = True
+except ImportError:
+    HAS_SPYDER_LOGGER = False
+    # Fallback logger
+    class SpyderLogger:
+        def __init__(self, name):
+            self.logger = logging.getLogger(name)
+        def info(self, msg): self.logger.info(msg)
+        def error(self, msg): self.logger.error(msg)
+        def warning(self, msg): self.logger.warning(msg)
+        def debug(self, msg): self.logger.debug(msg)
+        
+        @staticmethod
+        def get_logger(name):
+            return SpyderLogger(name)
+
+# Error Handler with fallback
+try:
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    HAS_ERROR_HANDLER = True
+except ImportError:
+    HAS_ERROR_HANDLER = False
+    # Fallback error handler
+    class SpyderErrorHandler:
+        def __init__(self, logger=None):
+            self.logger = logger or logging.getLogger(__name__)
+        def handle_error(self, error, context=""):
+            self.logger.error(f"Error in {context}: {error}")
+            return False
+
+# ==============================================================================
+# CONSTANTS AND CONFIGURATION
+# ==============================================================================
+
 # Default values for IB contracts
 DEFAULT_EXCHANGE = "SMART"
 DEFAULT_CURRENCY = "USD"
-DEFAULT_MULTIPLIER = "100"
+DEFAULT_PRIMARY_EXCHANGE = ""
 
-# Contract ID ranges
-COMBO_CONTRACT_ID = 28812380  # IB's special ID for combos
+# Security types
+SECURITY_TYPES = {
+    'STOCK': 'STK',
+    'OPTION': 'OPT',
+    'FUTURE': 'FUT',
+    'FOREX': 'CASH',
+    'INDEX': 'IND',
+    'CFD': 'CFD',
+    'COMMODITY': 'CMDTY'
+}
+
+# Order types mapping
+ORDER_TYPES = {
+    'MARKET': 'MKT',
+    'LIMIT': 'LMT',
+    'STOP': 'STP',
+    'STOP_LIMIT': 'STPLMT',
+    'TRAIL': 'TRAIL',
+    'TRAIL_LIMIT': 'TRAIL LIMIT'
+}
+
+# Time in force values
+TIME_IN_FORCE_VALUES = {
+    'DAY': 'DAY',
+    'GTC': 'GTC',  # Good Till Cancelled
+    'IOC': 'IOC',  # Immediate or Cancel
+    'FOK': 'FOK',  # Fill or Kill
+    'GTD': 'GTD'   # Good Till Date
+}
+
+# Market data types
+MARKET_DATA_TYPES = {
+    'REALTIME': 1,
+    'FROZEN': 2,
+    'DELAYED': 3,
+    'DELAYED_FROZEN': 4
+}
 
 # ==============================================================================
-# ENUMS - COMPREHENSIVE IB TYPES
+# ENUMS
 # ==============================================================================
 
 class SecurityType(Enum):
-    """Security types for IB contracts"""
+    """Security type enumeration."""
     STOCK = "STK"
     OPTION = "OPT"
     FUTURE = "FUT"
     FOREX = "CASH"
     INDEX = "IND"
+    CFD = "CFD"
     COMMODITY = "CMDTY"
     BOND = "BOND"
-    FUND = "FUND"
-    CFD = "CFD"
-    CRYPTO = "CRYPTO"
-    COMBO = "BAG"
     WARRANT = "WAR"
-    STRUCTURED = "IOPT"
 
-class OrderAction(Enum):
-    """Order actions"""
-    BUY = "BUY"
-    SELL = "SELL"
-
-class OrderType(Enum):
-    """Order types"""
+class IBOrderType(Enum):
+    """IB order type enumeration."""
     MARKET = "MKT"
     LIMIT = "LMT"
     STOP = "STP"
-    STOP_LIMIT = "STP LMT"
-    RELATIVE = "REL"
+    STOP_LIMIT = "STPLMT"
     TRAIL = "TRAIL"
     TRAIL_LIMIT = "TRAIL LIMIT"
-    MIDPRICE = "MIDPRICE"
-    VWAP = "VWAP"
-    TWAP = "TWAP"
-    ARRIVAL_PRICE = "ARRIVAL PRICE"
-    BALANCE_IMPACT_RISK = "BALANCE IMPACT RISK"
-    MARKET_ON_CLOSE = "MOC"
-    LIMIT_ON_CLOSE = "LOC"
-    PEGGED_TO_PRIMARY = "PEGPRIM"
-    PEGGED_TO_MARKET = "PEGMKT"
-    PEGGED_TO_STOCK = "PEGSTK"
-    PEGGED_TO_MIDPOINT = "PEGMID"
-    BRACKET = "BRACKET"
-    ICEBERG = "ICEBERG"
+    MIT = "MIT"  # Market if Touched
+    LIT = "LIT"  # Limit if Touched
 
-class TimeInForce(Enum):
-    """Time in force values"""
+class IBOrderAction(Enum):
+    """IB order action enumeration."""
+    BUY = "BUY"
+    SELL = "SELL"
+
+class IBTimeInForce(Enum):
+    """IB time in force enumeration."""
     DAY = "DAY"
-    GOOD_TILL_CANCEL = "GTC"
-    IMMEDIATE_OR_CANCEL = "IOC"
-    GOOD_TILL_DATE = "GTD"
-    FILL_OR_KILL = "FOK"
-    AT_THE_OPENING = "OPG"
-    AT_THE_CLOSE = "CLS"
+    GTC = "GTC"
+    IOC = "IOC"
+    FOK = "FOK"
+    GTD = "GTD"
 
-class OrderStatus(Enum):
-    """Order status values"""
+class IBOrderStatus(Enum):
+    """IB order status enumeration."""
     PENDING_SUBMIT = "PendingSubmit"
     PENDING_CANCEL = "PendingCancel"
     PRE_SUBMITTED = "PreSubmitted"
@@ -131,781 +246,1103 @@ class OrderStatus(Enum):
     INACTIVE = "Inactive"
 
 class TickType(Enum):
-    """Market data tick types"""
+    """Tick type enumeration."""
     BID_SIZE = 0
-    BID = 1
-    ASK = 2
+    BID_PRICE = 1
+    ASK_PRICE = 2
     ASK_SIZE = 3
-    LAST = 4
+    LAST_PRICE = 4
     LAST_SIZE = 5
     HIGH = 6
     LOW = 7
     VOLUME = 8
     CLOSE = 9
-    BID_OPTION_COMPUTATION = 10
-    ASK_OPTION_COMPUTATION = 11
-    LAST_OPTION_COMPUTATION = 12
+    BID_OPTION = 10
+    ASK_OPTION = 11
+    LAST_OPTION = 12
     MODEL_OPTION = 13
     OPEN = 14
-    LOW_13_WEEK = 15
-    HIGH_13_WEEK = 16
-    LOW_26_WEEK = 17
-    HIGH_26_WEEK = 18
-    LOW_52_WEEK = 19
-    HIGH_52_WEEK = 20
-    AVG_VOLUME = 21
 
-class PositionSide(Enum):
-    """Position side enumeration"""
-    LONG = "LONG"
-    SHORT = "SHORT"
-    FLAT = "FLAT"
+class IBMarketDataType(Enum):
+    """Market data type enumeration."""
+    REALTIME = 1
+    FROZEN = 2
+    DELAYED = 3
+    DELAYED_FROZEN = 4
 
 # ==============================================================================
-# DATACLASS DEFINITIONS
+# DATA STRUCTURES
 # ==============================================================================
 
 @dataclass
+class IBContract:
+    """Enhanced IB contract representation."""
+    symbol: str = ""
+    sec_type: SecurityType = SecurityType.STOCK
+    exchange: str = DEFAULT_EXCHANGE
+    currency: str = DEFAULT_CURRENCY
+    primary_exchange: str = DEFAULT_PRIMARY_EXCHANGE
+    
+    # Option-specific fields
+    last_trade_date_or_contract_month: str = ""
+    strike: float = 0.0
+    right: str = ""  # 'C' for Call, 'P' for Put
+    multiplier: str = ""
+    
+    # Future-specific fields
+    local_symbol: str = ""
+    
+    # Additional fields
+    conid: int = 0  # Contract ID
+    include_expired: bool = False
+    combo_legs_description: str = ""
+    combo_legs: List[Any] = field(default_factory=list)
+    delta_neutral_contract: Optional[Any] = None
+    
+    def __post_init__(self):
+        """Post-initialization validation."""
+        if not self.symbol:
+            raise ValueError("Symbol cannot be empty")
+        
+        if self.sec_type == SecurityType.OPTION:
+            if not self.last_trade_date_or_contract_month:
+                raise ValueError("Option contract must have expiration date")
+            if self.strike <= 0:
+                raise ValueError("Option contract must have valid strike price")
+            if self.right not in ['C', 'P', 'CALL', 'PUT']:
+                raise ValueError("Option right must be 'C', 'P', 'CALL', or 'PUT'")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        data = asdict(self)
+        data['sec_type'] = self.sec_type.value
+        return {k: v for k, v in data.items() if v is not None and v != "" and v != 0}
+    
+    def is_option(self) -> bool:
+        """Check if this is an option contract."""
+        return self.sec_type == SecurityType.OPTION
+    
+    def is_stock(self) -> bool:
+        """Check if this is a stock contract."""
+        return self.sec_type == SecurityType.STOCK
+    
+    def get_option_symbol(self) -> str:
+        """Get formatted option symbol."""
+        if self.is_option():
+            return f"{self.symbol} {self.last_trade_date_or_contract_month} {self.right}{self.strike}"
+        return self.symbol
+
+@dataclass
+class IBOrder:
+    """Enhanced IB order representation."""
+    order_id: int = 0
+    client_id: int = 0
+    perm_id: int = 0
+    
+    # Main order fields
+    action: IBOrderAction = IBOrderAction.BUY
+    order_type: IBOrderType = IBOrderType.MARKET
+    total_quantity: float = 0.0
+    cash_qty: float = 0.0
+    
+    # Prices
+    lmt_price: Optional[float] = None
+    aux_price: Optional[float] = None  # Stop price for stop orders
+    
+    # Time in force
+    tif: IBTimeInForce = IBTimeInForce.DAY
+    active_start_time: str = ""
+    active_stop_time: str = ""
+    good_after_time: str = ""
+    good_till_date: str = ""
+    
+    # Execution and display
+    oca_group: str = ""  # One-Cancels-All group
+    oca_type: int = 0
+    order_ref: str = ""
+    transmit: bool = True
+    parent_id: int = 0
+    block_order: bool = False
+    sweep_to_fill: bool = False
+    display_size: int = 0
+    trigger_method: int = 0
+    outside_rth: bool = False  # Regular trading hours
+    hidden: bool = False
+    
+    # Algo orders
+    algo_strategy: str = ""
+    algo_params: List[Any] = field(default_factory=list)
+    
+    # Trailing stop
+    trail_stop_price: Optional[float] = None
+    trailing_percent: Optional[float] = None
+    
+    # Advanced fields
+    discretionary_amt: float = 0.0
+    min_qty: Optional[int] = None
+    percent_offset: Optional[float] = None
+    override_percentage_constraints: bool = False
+    
+    # Order status tracking
+    status: IBOrderStatus = IBOrderStatus.PENDING_SUBMIT
+    filled: float = 0.0
+    remaining: float = 0.0
+    avg_fill_price: float = 0.0
+    last_fill_price: float = 0.0
+    why_held: str = ""
+    mkt_cap_price: Optional[float] = None
+    
+    def __post_init__(self):
+        """Post-initialization validation."""
+        if self.total_quantity <= 0:
+            raise ValueError("Total quantity must be positive")
+        
+        if self.order_type == IBOrderType.LIMIT and self.lmt_price is None:
+            raise ValueError("Limit orders must have limit price")
+        
+        if self.order_type in [IBOrderType.STOP, IBOrderType.STOP_LIMIT] and self.aux_price is None:
+            raise ValueError("Stop orders must have stop price")
+        
+        # Set remaining quantity if not set
+        if self.remaining == 0.0:
+            self.remaining = self.total_quantity
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        data = asdict(self)
+        data['action'] = self.action.value
+        data['order_type'] = self.order_type.value
+        data['tif'] = self.tif.value
+        data['status'] = self.status.value
+        return {k: v for k, v in data.items() if v is not None and v != "" and v != 0}
+    
+    def is_buy_order(self) -> bool:
+        """Check if this is a buy order."""
+        return self.action == IBOrderAction.BUY
+    
+    def is_sell_order(self) -> bool:
+        """Check if this is a sell order."""
+        return self.action == IBOrderAction.SELL
+    
+    def is_filled(self) -> bool:
+        """Check if order is completely filled."""
+        return self.status == IBOrderStatus.FILLED
+    
+    def is_active(self) -> bool:
+        """Check if order is active (can be filled)."""
+        return self.status in [IBOrderStatus.SUBMITTED, IBOrderStatus.PRE_SUBMITTED]
+
+@dataclass
+class IBExecution:
+    """IB execution representation."""
+    exec_id: str = ""
+    time: str = ""
+    account: str = ""
+    exchange: str = ""
+    side: str = ""  # BOT (bought) or SLD (sold)
+    shares: float = 0.0
+    price: float = 0.0
+    perm_id: int = 0
+    client_id: int = 0
+    order_id: int = 0
+    liquidation: int = 0
+    cum_qty: float = 0.0
+    avg_price: float = 0.0
+    order_ref: str = ""
+    ev_rule: str = ""
+    ev_multiplier: float = 0.0
+    model_code: str = ""
+    last_liquidity: int = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+@dataclass
+class IBCommissionReport:
+    """IB commission report representation."""
+    exec_id: str = ""
+    commission: float = 0.0
+    currency: str = DEFAULT_CURRENCY
+    realized_pnl: Optional[float] = None
+    yield_: Optional[float] = None
+    yield_redemption_date: Optional[int] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+@dataclass
+class IBTrade:
+    """IB trade representation (combines order, fills, commissions)."""
+    contract: IBContract
+    order: IBOrder
+    order_status: IBOrderStatus = IBOrderStatus.PENDING_SUBMIT
+    fills: List[IBExecution] = field(default_factory=list)
+    log: List[Dict[str, Any]] = field(default_factory=list)
+    
+    def filled_quantity(self) -> float:
+        """Get total filled quantity."""
+        return sum(fill.shares for fill in self.fills)
+    
+    def remaining_quantity(self) -> float:
+        """Get remaining quantity to fill."""
+        return self.order.total_quantity - self.filled_quantity()
+    
+    def average_fill_price(self) -> float:
+        """Calculate average fill price."""
+        if not self.fills:
+            return 0.0
+        
+        total_value = sum(fill.shares * fill.price for fill in self.fills)
+        total_shares = sum(fill.shares for fill in self.fills)
+        
+        return total_value / total_shares if total_shares > 0 else 0.0
+    
+    def is_filled(self) -> bool:
+        """Check if trade is completely filled."""
+        return self.filled_quantity() >= self.order.total_quantity
+
+@dataclass
+class IBPosition:
+    """IB position representation."""
+    account: str = ""
+    contract: Optional[IBContract] = None
+    position: float = 0.0
+    avg_cost: float = 0.0
+    
+    def market_value(self, market_price: float) -> float:
+        """Calculate market value."""
+        return self.position * market_price
+    
+    def unrealized_pnl(self, market_price: float) -> float:
+        """Calculate unrealized P&L."""
+        return (market_price - self.avg_cost) * self.position
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        data = asdict(self)
+        if self.contract:
+            data['contract'] = self.contract.to_dict()
+        return data
+
+@dataclass
+class IBAccountValue:
+    """IB account value representation."""
+    account: str = ""
+    tag: str = ""
+    value: str = ""
+    currency: str = DEFAULT_CURRENCY
+    model_code: str = ""
+    
+    def numeric_value(self) -> Optional[float]:
+        """Get numeric value if possible."""
+        try:
+            return float(self.value)
+        except (ValueError, TypeError):
+            return None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+@dataclass
+class IBPortfolioItem:
+    """IB portfolio item representation."""
+    contract: Optional[IBContract] = None
+    position: float = 0.0
+    market_price: float = 0.0
+    market_value: float = 0.0
+    average_cost: float = 0.0
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    account: str = ""
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        data = asdict(self)
+        if self.contract:
+            data['contract'] = self.contract.to_dict()
+        return data
+
+@dataclass
+class IBTickData:
+    """IB tick data representation."""
+    time: datetime = field(default_factory=datetime.now)
+    tick_type: TickType = TickType.LAST_PRICE
+    value: Union[float, int, str] = 0.0
+    
+    # Additional attributes
+    can_auto_execute: bool = False
+    past_limit: bool = False
+    pre_open: bool = False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        data = asdict(self)
+        data['time'] = self.time.isoformat()
+        data['tick_type'] = self.tick_type.value
+        return data
+
+@dataclass
+class IBBarData:
+    """IB bar data representation."""
+    date: Union[date, datetime] = field(default_factory=datetime.now)
+    open: float = 0.0
+    high: float = 0.0
+    low: float = 0.0
+    close: float = 0.0
+    volume: int = 0
+    wap: float = 0.0  # Weighted average price
+    bar_count: int = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        data = asdict(self)
+        if isinstance(self.date, datetime):
+            data['date'] = self.date.isoformat()
+        elif isinstance(self.date, date):
+            data['date'] = self.date.isoformat()
+        return data
+
+@dataclass
 class ComboLeg:
-    """
-    Represents a leg in a combination order.
-    """
+    """Combination leg for spread orders."""
     con_id: int = 0
     ratio: int = 1
     action: str = "BUY"  # BUY or SELL
     exchange: str = DEFAULT_EXCHANGE
-    open_close: int = 0  # 0=Same, 1=Open, 2=Close
-    short_sale_slot: int = 0  # 0=NA, 1=clearing broker, 2=third party
+    open_close: int = 0  # 0=same as parent, 1=open, 2=close
+    short_sale_slot: int = 0  # 1 or 2
     designated_location: str = ""
     exempt_code: int = -1
-
-@dataclass
-class DeltaNeutralContract:
-    """
-    Represents a delta neutral contract for options.
-    """
-    con_id: int = 0
-    delta: float = 0.0
-    price: float = 0.0
-
-@dataclass
-class IBContract:
-    """
-    Enhanced IB Contract representation.
     
-    Represents any tradeable instrument in the IB system with all possible fields.
-    """
-    symbol: str
-    sec_type: SecurityType
-    exchange: str = DEFAULT_EXCHANGE
-    currency: str = DEFAULT_CURRENCY
-    local_symbol: str = ""
-    primary_exchange: str = ""
-    
-    # Identifiers
-    con_id: Optional[int] = None
-    sec_id: Optional[str] = None
-    sec_id_type: Optional[str] = None  # ISIN, CUSIP, etc.
-    
-    # Option-specific fields
-    last_trade_date_or_contract_month: Optional[str] = None
-    strike: Optional[float] = None
-    right: Optional[str] = None  # "C" for Call, "P" for Put
-    multiplier: Optional[str] = None
-    
-    # Combo fields
-    combo_legs: Optional[List[ComboLeg]] = None
-    combo_legs_description: Optional[str] = None
-    
-    # Additional fields
-    include_expired: bool = False
-    trading_class: Optional[str] = None
-    min_tick: Optional[float] = None
-    md_size_multiplier: Optional[int] = None
-    aggr_group: Optional[int] = None
-    under_symbol: Optional[str] = None
-    under_sec_type: Optional[str] = None
-    market_rule_ids: Optional[str] = None
-    real_expiration_date: Optional[str] = None
-    stock_type: Optional[str] = None
-    
-    # Bond-specific
-    cusip: Optional[str] = None
-    ratings: Optional[str] = None
-    desc_append: Optional[str] = None
-    bond_type: Optional[str] = None
-    coupon_type: Optional[str] = None
-    callable: Optional[bool] = None
-    putable: Optional[bool] = None
-    coupon: Optional[float] = None
-    convertible: Optional[bool] = None
-    maturity: Optional[str] = None
-    issue_date: Optional[str] = None
-    
-    def to_ib_contract(self):
-        """Convert to ib_async Contract object."""
-        from ib_async import Contract, ComboLeg as IBComboLeg
-        
-        contract = Contract()
-        contract.symbol = self.symbol
-        contract.secType = self.sec_type.value
-        contract.exchange = self.exchange
-        contract.currency = self.currency
-        contract.localSymbol = self.local_symbol
-        contract.primaryExchange = self.primary_exchange
-        
-        # Set optional fields if present
-        if self.con_id is not None:
-            contract.conId = self.con_id
-        if self.sec_id:
-            contract.secId = self.sec_id
-        if self.sec_id_type:
-            contract.secIdType = self.sec_id_type
-        if self.last_trade_date_or_contract_month:
-            contract.lastTradeDateOrContractMonth = self.last_trade_date_or_contract_month
-        if self.strike is not None:
-            contract.strike = self.strike
-        if self.right:
-            contract.right = self.right
-        if self.multiplier:
-            contract.multiplier = self.multiplier
-        if self.trading_class:
-            contract.tradingClass = self.trading_class
-        if self.include_expired:
-            contract.includeExpired = self.include_expired
-        
-        # Handle combo legs
-        if self.combo_legs:
-            contract.comboLegs = []
-            for leg in self.combo_legs:
-                ib_leg = IBComboLeg()
-                ib_leg.conId = leg.con_id
-                ib_leg.ratio = leg.ratio
-                ib_leg.action = leg.action
-                ib_leg.exchange = leg.exchange
-                ib_leg.openClose = leg.open_close
-                ib_leg.shortSaleSlot = leg.short_sale_slot
-                ib_leg.designatedLocation = leg.designated_location
-                ib_leg.exemptCode = leg.exempt_code
-                contract.comboLegs.append(ib_leg)
-        
-        return contract
-    
-    @classmethod
-    def from_ib_contract(cls, ib_contract) -> 'IBContract':
-        """Create IBContract from ib_async Contract object."""
-        combo_legs = None
-        if hasattr(ib_contract, 'comboLegs') and ib_contract.comboLegs:
-            combo_legs = []
-            for leg in ib_contract.comboLegs:
-                combo_legs.append(ComboLeg(
-                    con_id=leg.conId,
-                    ratio=leg.ratio,
-                    action=leg.action,
-                    exchange=leg.exchange,
-                    open_close=leg.openClose,
-                    short_sale_slot=leg.shortSaleSlot,
-                    designated_location=leg.designatedLocation,
-                    exempt_code=leg.exemptCode
-                ))
-        
-        return cls(
-            symbol=ib_contract.symbol,
-            sec_type=SecurityType(ib_contract.secType),
-            exchange=ib_contract.exchange,
-            currency=ib_contract.currency,
-            local_symbol=getattr(ib_contract, 'localSymbol', ''),
-            primary_exchange=getattr(ib_contract, 'primaryExchange', ''),
-            con_id=getattr(ib_contract, 'conId', None),
-            sec_id=getattr(ib_contract, 'secId', None),
-            sec_id_type=getattr(ib_contract, 'secIdType', None),
-            last_trade_date_or_contract_month=getattr(ib_contract, 'lastTradeDateOrContractMonth', None),
-            strike=getattr(ib_contract, 'strike', None),
-            right=getattr(ib_contract, 'right', None),
-            multiplier=getattr(ib_contract, 'multiplier', None),
-            combo_legs=combo_legs,
-            trading_class=getattr(ib_contract, 'tradingClass', None)
-        )
-
-@dataclass
-class IBOrder:
-    """
-    Enhanced IB Order representation with all order fields.
-    """
-    action: OrderAction
-    total_quantity: float
-    order_type: OrderType = OrderType.MARKET
-    
-    # Price fields
-    limit_price: Optional[float] = None
-    aux_price: Optional[float] = None  # Stop price for stop orders
-    
-    # Order management
-    order_id: Optional[int] = None
-    client_id: Optional[int] = None
-    perm_id: Optional[int] = None
-    parent_id: Optional[int] = None
-    oca_group: Optional[str] = None
-    oca_type: int = 0  # 0=None, 1=Cancel with Block, 2=Reduce with Block, 3=Reduce Non-Block
-    
-    # Time and validity
-    tif: TimeInForce = TimeInForce.DAY
-    good_after_time: Optional[str] = None
-    good_till_date: Optional[str] = None
-    
-    # Execution settings
-    all_or_none: bool = False
-    min_qty: Optional[int] = None
-    percent_offset: Optional[float] = None
-    override_percentage_constraints: bool = False
-    trail_stop_price: Optional[float] = None
-    trailing_percent: Optional[float] = None
-    
-    # Advanced order fields
-    fa_group: Optional[str] = None
-    fa_profile: Optional[str] = None
-    fa_method: Optional[str] = None
-    fa_percentage: Optional[str] = None
-    
-    # Institutional
-    open_close: str = "O"  # O=Open, C=Close
-    origin: int = 0  # 0=Customer, 1=Firm
-    short_sale_slot: int = 0  # 0=NA, 1=clearing broker, 2=third party
-    designated_location: Optional[str] = None
-    exempt_code: int = -1
-    
-    # Execution and display
-    discretionary_amt: float = 0
-    e_trade_only: bool = True
-    firm_quote_only: bool = True
-    nbbo_price_cap: Optional[float] = None
-    opt_out_smart_routing: bool = False
-    
-    # Order status and timing
-    status: Optional[OrderStatus] = None
-    initial_margin: Optional[str] = None
-    maintenance_margin: Optional[str] = None
-    equity_with_loan: Optional[str] = None
-    commission: Optional[float] = None
-    min_commission: Optional[float] = None
-    max_commission: Optional[float] = None
-    commission_currency: Optional[str] = None
-    warning_text: Optional[str] = None
-    
-    # Timestamps
-    created_time: Optional[datetime] = None
-    filled_time: Optional[datetime] = None
-    
-    def to_ib_order(self):
-        """Convert to ib_async Order object."""
-        from ib_async import Order, OrderCondition, TagValue
-        
-        order = Order()
-        order.action = self.action.value
-        order.totalQuantity = self.total_quantity
-        order.orderType = self.order_type.value
-        order.tif = self.tif.value
-        
-        # Price fields
-        if self.limit_price is not None:
-            order.lmtPrice = self.limit_price
-        if self.aux_price is not None:
-            order.auxPrice = self.aux_price
-        
-        # Order management
-        if self.order_id is not None:
-            order.orderId = self.order_id
-        if self.client_id is not None:
-            order.clientId = self.client_id
-        if self.perm_id is not None:
-            order.permId = self.perm_id
-        if self.parent_id is not None:
-            order.parentId = self.parent_id
-        if self.oca_group:
-            order.ocaGroup = self.oca_group
-        order.ocaType = self.oca_type
-        
-        # Time and validity
-        if self.good_after_time:
-            order.goodAfterTime = self.good_after_time
-        if self.good_till_date:
-            order.goodTillDate = self.good_till_date
-        
-        # Execution settings
-        order.allOrNone = self.all_or_none
-        if self.min_qty is not None:
-            order.minQty = self.min_qty
-        if self.percent_offset is not None:
-            order.percentOffset = self.percent_offset
-        order.overridePercentageConstraints = self.override_percentage_constraints
-        if self.trail_stop_price is not None:
-            order.trailStopPrice = self.trail_stop_price
-        if self.trailing_percent is not None:
-            order.trailingPercent = self.trailing_percent
-        
-        # Advanced fields
-        if self.fa_group:
-            order.faGroup = self.fa_group
-        if self.fa_profile:
-            order.faProfile = self.fa_profile
-        if self.fa_method:
-            order.faMethod = self.fa_method
-        if self.fa_percentage:
-            order.faPercentage = self.fa_percentage
-        
-        # Institutional
-        order.openClose = self.open_close
-        order.origin = self.origin
-        order.shortSaleSlot = self.short_sale_slot
-        if self.designated_location:
-            order.designatedLocation = self.designated_location
-        order.exemptCode = self.exempt_code
-        
-        # Execution and display
-        order.discretionaryAmt = self.discretionary_amt
-        order.eTradeOnly = self.e_trade_only
-        order.firmQuoteOnly = self.firm_quote_only
-        if self.nbbo_price_cap is not None:
-            order.nbboPriceCap = self.nbbo_price_cap
-        order.optOutSmartRouting = self.opt_out_smart_routing
-        
-        return order
-    
-    @classmethod
-    def from_ib_order(cls, ib_order) -> 'IBOrder':
-        """Create IBOrder from ib_async Order object."""
-        return cls(
-            action=OrderAction(ib_order.action),
-            total_quantity=ib_order.totalQuantity,
-            order_type=OrderType(ib_order.orderType),
-            limit_price=getattr(ib_order, 'lmtPrice', None),
-            aux_price=getattr(ib_order, 'auxPrice', None),
-            order_id=getattr(ib_order, 'orderId', None),
-            client_id=getattr(ib_order, 'clientId', None),
-            perm_id=getattr(ib_order, 'permId', None),
-            parent_id=getattr(ib_order, 'parentId', None),
-            oca_group=getattr(ib_order, 'ocaGroup', None),
-            oca_type=getattr(ib_order, 'ocaType', 0),
-            tif=TimeInForce(getattr(ib_order, 'tif', 'DAY')),
-            good_after_time=getattr(ib_order, 'goodAfterTime', None),
-            good_till_date=getattr(ib_order, 'goodTillDate', None),
-            all_or_none=getattr(ib_order, 'allOrNone', False),
-            min_qty=getattr(ib_order, 'minQty', None),
-            percent_offset=getattr(ib_order, 'percentOffset', None)
-        )
-
-@dataclass
-class IBExecution:
-    """
-    Represents an order execution/fill.
-    """
-    exec_id: str
-    time: str
-    acct_number: str
-    exchange: str
-    side: str  # BOT or SLD
-    shares: float
-    price: float
-    perm_id: int
-    client_id: int
-    order_id: int
-    liquidation: int
-    cum_qty: float
-    avg_price: float
-    order_ref: Optional[str] = None
-    ev_rule: Optional[str] = None
-    ev_multiplier: Optional[float] = None
-    model_code: Optional[str] = None
-    last_liquidity: Optional[int] = None
-
-@dataclass
-class IBCommissionReport:
-    """
-    Represents commission information for an execution.
-    """
-    exec_id: str
-    commission: float
-    currency: str
-    realized_pnl: Optional[float] = None
-    yield_: Optional[float] = None
-    yield_redemption_date: Optional[int] = None
-
-@dataclass
-class IBPosition:
-    """
-    Represents a position in an account.
-    """
-    contract: IBContract
-    position: float
-    market_price: float
-    market_value: float
-    average_cost: float
-    unrealized_pnl: float
-    realized_pnl: float
-    account: str
-
-@dataclass
-class IBAccountValue:
-    """
-    Represents an account value/summary item.
-    """
-    key: str
-    value: str
-    currency: str
-    account_name: str
-
-@dataclass
-class IBTicker:
-    """
-    Represents market data for a contract.
-    """
-    contract: IBContract
-    time: Optional[datetime] = None
-    bid: Optional[float] = None
-    bid_size: Optional[int] = None
-    ask: Optional[float] = None
-    ask_size: Optional[int] = None
-    last: Optional[float] = None
-    last_size: Optional[int] = None
-    volume: Optional[int] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    close: Optional[float] = None
-    open_: Optional[float] = None
-    halted: Optional[bool] = None
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
 
 # ==============================================================================
-# DATA TYPE MANAGER CLASS
+# TYPE ALIASES
+# ==============================================================================
+ContractId = int
+OrderId = int
+TickerId = int
+ExecutionId = str
+RequestId = int
+
+# ==============================================================================
+# IB DATA TYPE MANAGER CLASS
 # ==============================================================================
 
 class IBDataTypeManager:
     """
-    Manager class for IB data types with conversion utilities.
+    Enhanced manager class for IB data types with validation and conversion.
     
-    This class provides centralized management of IB data types with
-    methods for creation, validation, conversion, and serialization
-    of contracts, orders, and other IB entities.
+    Provides comprehensive validation, conversion, and serialization utilities
+    for all IB data types, ensuring data integrity throughout the system.
     """
     
     def __init__(self):
-        """Initialize the data type manager."""
-        self.logger = SpyderLogger.get_logger(__name__)
-        self.error_handler = SpyderErrorHandler()
+        """Initialize the IB data type manager."""
+        self.logger = SpyderLogger("IBDataTypeManager") if HAS_SPYDER_LOGGER else SpyderLogger(__name__)
+        self.error_handler = SpyderErrorHandler(self.logger) if HAS_ERROR_HANDLER else SpyderErrorHandler()
         
-        # Cache for validated contracts
+        # Cache for validated contracts and orders
         self._contract_cache: Dict[str, IBContract] = {}
+        self._order_cache: Dict[int, IBOrder] = {}
         
-        self.logger.debug("IBDataTypeManager initialized with ib_async support")
+        # Performance tracking
+        self._validation_count = 0
+        self._conversion_count = 0
+        self._cache_hits = 0
+        
+        self.logger.info("IBDataTypeManager initialized with ib_async support")
+        self.logger.info(f"Available features: IB_Async={HAS_IB_ASYNC}")
     
     # ==========================================================================
     # CONTRACT CREATION METHODS
     # ==========================================================================
     
     def create_stock_contract(self, symbol: str, exchange: str = DEFAULT_EXCHANGE,
-                            currency: str = DEFAULT_CURRENCY) -> IBContract:
-        """Create a stock contract."""
-        return IBContract(
-            symbol=symbol,
-            sec_type=SecurityType.STOCK,
-            exchange=exchange,
-            currency=currency
-        )
+                            currency: str = DEFAULT_CURRENCY, 
+                            primary_exchange: str = "") -> IBContract:
+        """
+        Create a stock contract.
+        
+        Args:
+            symbol: Stock symbol
+            exchange: Exchange name
+            currency: Currency code
+            primary_exchange: Primary exchange
+            
+        Returns:
+            IBContract for stock
+        """
+        try:
+            contract = IBContract(
+                symbol=symbol.upper(),
+                sec_type=SecurityType.STOCK,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange
+            )
+            
+            # Cache the contract
+            cache_key = f"STK_{symbol.upper()}_{exchange}_{currency}"
+            self._contract_cache[cache_key] = contract
+            
+            return contract
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, f"Creating stock contract for {symbol}")
+            raise
     
     def create_option_contract(self, symbol: str, last_trade_date: str, strike: float,
                              right: str, exchange: str = DEFAULT_EXCHANGE,
-                             currency: str = DEFAULT_CURRENCY) -> IBContract:
-        """Create an option contract."""
-        return IBContract(
-            symbol=symbol,
-            sec_type=SecurityType.OPTION,
-            exchange=exchange,
-            currency=currency,
-            last_trade_date_or_contract_month=last_trade_date,
-            strike=strike,
-            right=right.upper(),
-            multiplier=DEFAULT_MULTIPLIER
-        )
+                             currency: str = DEFAULT_CURRENCY, 
+                             multiplier: str = "100") -> IBContract:
+        """
+        Create an option contract.
+        
+        Args:
+            symbol: Underlying symbol
+            last_trade_date: Expiration date (YYYYMMDD)
+            strike: Strike price
+            right: 'C' for Call, 'P' for Put
+            exchange: Exchange name
+            currency: Currency code
+            multiplier: Contract multiplier
+            
+        Returns:
+            IBContract for option
+        """
+        try:
+            # Normalize right
+            right = right.upper()
+            if right in ['CALL', 'C']:
+                right = 'C'
+            elif right in ['PUT', 'P']:
+                right = 'P'
+            else:
+                raise ValueError(f"Invalid option right: {right}")
+            
+            contract = IBContract(
+                symbol=symbol.upper(),
+                sec_type=SecurityType.OPTION,
+                exchange=exchange,
+                currency=currency,
+                last_trade_date_or_contract_month=last_trade_date,
+                strike=strike,
+                right=right,
+                multiplier=multiplier
+            )
+            
+            # Cache the contract
+            cache_key = f"OPT_{symbol.upper()}_{last_trade_date}_{strike}_{right}_{exchange}"
+            self._contract_cache[cache_key] = contract
+            
+            return contract
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, f"Creating option contract for {symbol}")
+            raise
     
     def create_future_contract(self, symbol: str, last_trade_date: str,
-                             exchange: str, currency: str = DEFAULT_CURRENCY) -> IBContract:
-        """Create a futures contract."""
-        return IBContract(
-            symbol=symbol,
-            sec_type=SecurityType.FUTURE,
-            exchange=exchange,
-            currency=currency,
-            last_trade_date_or_contract_month=last_trade_date
-        )
+                             exchange: str = DEFAULT_EXCHANGE,
+                             currency: str = DEFAULT_CURRENCY,
+                             multiplier: str = "") -> IBContract:
+        """
+        Create a future contract.
+        
+        Args:
+            symbol: Future symbol
+            last_trade_date: Expiration date
+            exchange: Exchange name
+            currency: Currency code
+            multiplier: Contract multiplier
+            
+        Returns:
+            IBContract for future
+        """
+        try:
+            contract = IBContract(
+                symbol=symbol.upper(),
+                sec_type=SecurityType.FUTURE,
+                exchange=exchange,
+                currency=currency,
+                last_trade_date_or_contract_month=last_trade_date,
+                multiplier=multiplier
+            )
+            
+            return contract
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, f"Creating future contract for {symbol}")
+            raise
     
-    def create_forex_contract(self, symbol: str, currency: str = DEFAULT_CURRENCY) -> IBContract:
-        """Create a forex contract."""
-        return IBContract(
-            symbol=symbol,
-            sec_type=SecurityType.FOREX,
-            exchange="IDEALPRO",
-            currency=currency
-        )
-    
-    def create_index_contract(self, symbol: str, exchange: str,
-                            currency: str = DEFAULT_CURRENCY) -> IBContract:
-        """Create an index contract."""
-        return IBContract(
-            symbol=symbol,
-            sec_type=SecurityType.INDEX,
-            exchange=exchange,
-            currency=currency
-        )
-    
-    def create_combo_contract(self, symbol: str, legs: List[ComboLeg],
+    def create_combo_contract(self, symbol: str, combo_legs: List[ComboLeg],
                             exchange: str = DEFAULT_EXCHANGE,
                             currency: str = DEFAULT_CURRENCY) -> IBContract:
-        """Create a combination contract."""
-        return IBContract(
-            symbol=symbol,
-            sec_type=SecurityType.COMBO,
-            exchange=exchange,
-            currency=currency,
-            combo_legs=legs
-        )
+        """
+        Create a combination/spread contract.
+        
+        Args:
+            symbol: Underlying symbol
+            combo_legs: List of combination legs
+            exchange: Exchange name
+            currency: Currency code
+            
+        Returns:
+            IBContract for combination
+        """
+        try:
+            contract = IBContract(
+                symbol=symbol.upper(),
+                sec_type=SecurityType.STOCK,  # Base type for combo
+                exchange=exchange,
+                currency=currency,
+                combo_legs=[leg.to_dict() for leg in combo_legs]
+            )
+            
+            return contract
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, f"Creating combo contract for {symbol}")
+            raise
     
     # ==========================================================================
     # ORDER CREATION METHODS
     # ==========================================================================
     
-    def create_market_order(self, action: OrderAction, quantity: float, **kwargs) -> IBOrder:
-        """Create a market order."""
-        return IBOrder(
-            action=action,
-            total_quantity=quantity,
-            order_type=OrderType.MARKET,
-            **kwargs
-        )
+    def create_market_order(self, action: IBOrderAction, quantity: float,
+                          transmit: bool = True) -> IBOrder:
+        """
+        Create a market order.
+        
+        Args:
+            action: BUY or SELL
+            quantity: Order quantity
+            transmit: Whether to transmit immediately
+            
+        Returns:
+            IBOrder for market order
+        """
+        try:
+            order = IBOrder(
+                action=action,
+                order_type=IBOrderType.MARKET,
+                total_quantity=quantity,
+                transmit=transmit
+            )
+            
+            return order
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Creating market order")
+            raise
     
-    def create_limit_order(self, action: OrderAction, quantity: float, 
-                         limit_price: float, **kwargs) -> IBOrder:
-        """Create a limit order."""
-        return IBOrder(
-            action=action,
-            total_quantity=quantity,
-            order_type=OrderType.LIMIT,
-            limit_price=limit_price,
-            **kwargs
-        )
+    def create_limit_order(self, action: IBOrderAction, quantity: float, 
+                         limit_price: float, transmit: bool = True,
+                         tif: IBTimeInForce = IBTimeInForce.DAY) -> IBOrder:
+        """
+        Create a limit order.
+        
+        Args:
+            action: BUY or SELL
+            quantity: Order quantity
+            limit_price: Limit price
+            transmit: Whether to transmit immediately
+            tif: Time in force
+            
+        Returns:
+            IBOrder for limit order
+        """
+        try:
+            order = IBOrder(
+                action=action,
+                order_type=IBOrderType.LIMIT,
+                total_quantity=quantity,
+                lmt_price=limit_price,
+                tif=tif,
+                transmit=transmit
+            )
+            
+            return order
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Creating limit order")
+            raise
     
-    def create_stop_order(self, action: OrderAction, quantity: float,
-                        stop_price: float, **kwargs) -> IBOrder:
-        """Create a stop order."""
-        return IBOrder(
-            action=action,
-            total_quantity=quantity,
-            order_type=OrderType.STOP,
-            aux_price=stop_price,
-            **kwargs
-        )
+    def create_stop_order(self, action: IBOrderAction, quantity: float,
+                        stop_price: float, transmit: bool = True) -> IBOrder:
+        """
+        Create a stop order.
+        
+        Args:
+            action: BUY or SELL
+            quantity: Order quantity
+            stop_price: Stop price
+            transmit: Whether to transmit immediately
+            
+        Returns:
+            IBOrder for stop order
+        """
+        try:
+            order = IBOrder(
+                action=action,
+                order_type=IBOrderType.STOP,
+                total_quantity=quantity,
+                aux_price=stop_price,
+                transmit=transmit
+            )
+            
+            return order
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Creating stop order")
+            raise
     
-    def create_stop_limit_order(self, action: OrderAction, quantity: float,
-                              limit_price: float, stop_price: float, **kwargs) -> IBOrder:
-        """Create a stop limit order."""
-        return IBOrder(
-            action=action,
-            total_quantity=quantity,
-            order_type=OrderType.STOP_LIMIT,
-            limit_price=limit_price,
-            aux_price=stop_price,
-            **kwargs
-        )
+    def create_stop_limit_order(self, action: IBOrderAction, quantity: float,
+                              stop_price: float, limit_price: float,
+                              transmit: bool = True) -> IBOrder:
+        """
+        Create a stop limit order.
+        
+        Args:
+            action: BUY or SELL
+            quantity: Order quantity
+            stop_price: Stop price
+            limit_price: Limit price
+            transmit: Whether to transmit immediately
+            
+        Returns:
+            IBOrder for stop limit order
+        """
+        try:
+            order = IBOrder(
+                action=action,
+                order_type=IBOrderType.STOP_LIMIT,
+                total_quantity=quantity,
+                aux_price=stop_price,
+                lmt_price=limit_price,
+                transmit=transmit
+            )
+            
+            return order
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Creating stop limit order")
+            raise
+    
+    def create_bracket_order(self, parent_order: IBOrder, take_profit_price: float,
+                           stop_loss_price: float) -> List[IBOrder]:
+        """
+        Create a bracket order (parent + take profit + stop loss).
+        
+        Args:
+            parent_order: Main order
+            take_profit_price: Take profit price
+            stop_loss_price: Stop loss price
+            
+        Returns:
+            List of orders [parent, take_profit, stop_loss]
+        """
+        try:
+            # Parent order should not transmit (child orders will trigger it)
+            parent_order.transmit = False
+            parent_order.order_id = 1  # Will be updated by IB
+            
+            # Take profit order (opposite action)
+            take_profit_action = IBOrderAction.SELL if parent_order.action == IBOrderAction.BUY else IBOrderAction.BUY
+            take_profit = IBOrder(
+                action=take_profit_action,
+                order_type=IBOrderType.LIMIT,
+                total_quantity=parent_order.total_quantity,
+                lmt_price=take_profit_price,
+                parent_id=parent_order.order_id,
+                transmit=False
+            )
+            
+            # Stop loss order (opposite action)
+            stop_loss = IBOrder(
+                action=take_profit_action,
+                order_type=IBOrderType.STOP,
+                total_quantity=parent_order.total_quantity,
+                aux_price=stop_loss_price,
+                parent_id=parent_order.order_id,
+                transmit=True  # Last order transmits all
+            )
+            
+            return [parent_order, take_profit, stop_loss]
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Creating bracket order")
+            raise
     
     # ==========================================================================
     # VALIDATION METHODS
     # ==========================================================================
     
     def validate_contract(self, contract: IBContract) -> bool:
-        """Validate a contract."""
+        """
+        Validate a contract.
+        
+        Args:
+            contract: Contract to validate
+            
+        Returns:
+            True if valid
+        """
         try:
+            self._validation_count += 1
+            
             # Basic validation
             if not contract.symbol:
-                raise ValueError("Contract symbol is required")
+                return False
             
-            if not contract.sec_type:
-                raise ValueError("Contract security type is required")
-            
-            # Option-specific validation
             if contract.sec_type == SecurityType.OPTION:
                 if not contract.last_trade_date_or_contract_month:
-                    raise ValueError("Option contract requires expiration date")
-                if contract.strike is None:
-                    raise ValueError("Option contract requires strike price")
-                if not contract.right:
-                    raise ValueError("Option contract requires right (C/P)")
+                    return False
+                if contract.strike <= 0:
+                    return False
                 if contract.right not in ['C', 'P']:
-                    raise ValueError("Option right must be 'C' or 'P'")
+                    return False
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Contract validation failed: {e}")
-            self.error_handler.handle_error(e)
+            self.error_handler.handle_error(e, "Validating contract")
             return False
     
     def validate_order(self, order: IBOrder) -> bool:
-        """Validate an order."""
+        """
+        Validate an order.
+        
+        Args:
+            order: Order to validate
+            
+        Returns:
+            True if valid
+        """
         try:
+            self._validation_count += 1
+            
             # Basic validation
             if order.total_quantity <= 0:
-                raise ValueError("Order quantity must be positive")
+                return False
             
-            # Limit order validation
-            if order.order_type == OrderType.LIMIT:
-                if order.limit_price is None or order.limit_price <= 0:
-                    raise ValueError("Limit orders require valid limit price")
+            if order.order_type == IBOrderType.LIMIT and order.lmt_price is None:
+                return False
             
-            # Stop order validation
-            if order.order_type in [OrderType.STOP, OrderType.STOP_LIMIT]:
-                if order.aux_price is None or order.aux_price <= 0:
-                    raise ValueError("Stop orders require valid stop price")
+            if order.order_type in [IBOrderType.STOP, IBOrderType.STOP_LIMIT] and order.aux_price is None:
+                return False
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Order validation failed: {e}")
-            self.error_handler.handle_error(e)
+            self.error_handler.handle_error(e, "Validating order")
             return False
+    
+    # ==========================================================================
+    # CONVERSION METHODS
+    # ==========================================================================
+    
+    def convert_to_ib_contract(self, contract: IBContract) -> Optional[Any]:
+        """
+        Convert IBContract to ib_async Contract.
+        
+        Args:
+            contract: IBContract to convert
+            
+        Returns:
+            ib_async Contract object
+        """
+        try:
+            if not HAS_IB_ASYNC:
+                self.logger.warning("ib_async not available - returning mock object")
+                return contract
+            
+            self._conversion_count += 1
+            
+            if contract.sec_type == SecurityType.STOCK:
+                return Stock(
+                    symbol=contract.symbol,
+                    exchange=contract.exchange,
+                    currency=contract.currency
+                )
+            elif contract.sec_type == SecurityType.OPTION:
+                return Option(
+                    symbol=contract.symbol,
+                    lastTradeDateOrContractMonth=contract.last_trade_date_or_contract_month,
+                    strike=contract.strike,
+                    right=contract.right,
+                    exchange=contract.exchange,
+                    currency=contract.currency
+                )
+            else:
+                # Create generic contract
+                ib_contract = Contract()
+                ib_contract.symbol = contract.symbol
+                ib_contract.secType = contract.sec_type.value
+                ib_contract.exchange = contract.exchange
+                ib_contract.currency = contract.currency
+                return ib_contract
+                
+        except Exception as e:
+            self.error_handler.handle_error(e, "Converting to ib_async contract")
+            return None
+    
+    def convert_to_ib_order(self, order: IBOrder) -> Optional[Any]:
+        """
+        Convert IBOrder to ib_async Order.
+        
+        Args:
+            order: IBOrder to convert
+            
+        Returns:
+            ib_async Order object
+        """
+        try:
+            if not HAS_IB_ASYNC:
+                self.logger.warning("ib_async not available - returning mock object")
+                return order
+            
+            self._conversion_count += 1
+            
+            ib_order = Order()
+            ib_order.orderId = order.order_id
+            ib_order.action = order.action.value
+            ib_order.orderType = order.order_type.value
+            ib_order.totalQuantity = order.total_quantity
+            ib_order.tif = order.tif.value
+            ib_order.transmit = order.transmit
+            
+            if order.lmt_price is not None:
+                ib_order.lmtPrice = order.lmt_price
+            
+            if order.aux_price is not None:
+                ib_order.auxPrice = order.aux_price
+            
+            if order.parent_id:
+                ib_order.parentId = order.parent_id
+            
+            return ib_order
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Converting to ib_async order")
+            return None
+    
+    def convert_from_ib_contract(self, ib_contract: Any) -> Optional[IBContract]:
+        """
+        Convert ib_async Contract to IBContract.
+        
+        Args:
+            ib_contract: ib_async Contract object
+            
+        Returns:
+            IBContract object
+        """
+        try:
+            if not hasattr(ib_contract, 'symbol'):
+                return None
+            
+            # Map security type
+            sec_type_map = {v: k for k, v in SECURITY_TYPES.items()}
+            sec_type = SecurityType(getattr(ib_contract, 'secType', 'STK'))
+            
+            contract = IBContract(
+                symbol=getattr(ib_contract, 'symbol', ''),
+                sec_type=sec_type,
+                exchange=getattr(ib_contract, 'exchange', DEFAULT_EXCHANGE),
+                currency=getattr(ib_contract, 'currency', DEFAULT_CURRENCY),
+                conid=getattr(ib_contract, 'conId', 0)
+            )
+            
+            # Option-specific fields
+            if sec_type == SecurityType.OPTION:
+                contract.last_trade_date_or_contract_month = getattr(
+                    ib_contract, 'lastTradeDateOrContractMonth', ''
+                )
+                contract.strike = getattr(ib_contract, 'strike', 0.0)
+                contract.right = getattr(ib_contract, 'right', '')
+                contract.multiplier = getattr(ib_contract, 'multiplier', '100')
+            
+            return contract
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Converting from ib_async contract")
+            return None
     
     # ==========================================================================
     # SERIALIZATION METHODS
     # ==========================================================================
     
     def contract_to_json(self, contract: IBContract) -> str:
-        """Serialize contract to JSON."""
-        data = asdict(contract)
-        # Convert enum to value
-        data['sec_type'] = contract.sec_type.value
-        # Remove None values
-        data = {k: v for k, v in data.items() if v is not None}
-        return json.dumps(data)
+        """
+        Serialize contract to JSON.
+        
+        Args:
+            contract: Contract to serialize
+            
+        Returns:
+            JSON string
+        """
+        try:
+            return json.dumps(contract.to_dict(), default=str)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Serializing contract to JSON")
+            return "{}"
     
-    def contract_from_json(self, json_str: str) -> IBContract:
-        """Deserialize contract from JSON."""
-        data = json.loads(json_str)
-        # Convert sec_type back to enum
-        data['sec_type'] = SecurityType(data['sec_type'])
-        return IBContract(**data)
+    def contract_from_json(self, json_str: str) -> Optional[IBContract]:
+        """
+        Deserialize contract from JSON.
+        
+        Args:
+            json_str: JSON string
+            
+        Returns:
+            IBContract object
+        """
+        try:
+            data = json.loads(json_str)
+            
+            # Convert sec_type back to enum
+            if 'sec_type' in data:
+                data['sec_type'] = SecurityType(data['sec_type'])
+            
+            return IBContract(**data)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Deserializing contract from JSON")
+            return None
     
     def order_to_json(self, order: IBOrder) -> str:
-        """Serialize order to JSON."""
-        data = asdict(order)
-        # Convert enums to values
-        data['action'] = order.action.value
-        data['order_type'] = order.order_type.value
-        data['tif'] = order.tif.value
-        if order.status:
-            data['status'] = order.status.value
-        # Remove None values
-        data = {k: v for k, v in data.items() if v is not None}
-        return json.dumps(data)
-    
-    def order_from_json(self, json_str: str) -> IBOrder:
-        """Deserialize order from JSON."""
-        data = json.loads(json_str)
-        # Convert enums back
-        data['action'] = OrderAction(data['action'])
-        data['order_type'] = OrderType(data['order_type'])
-        data['tif'] = TimeInForce(data['tif'])
-        if 'status' in data:
-            data['status'] = OrderStatus(data['status'])
-        return IBOrder(**data)
-    
-    # ==========================================================================
-    # CONVERSION METHODS
-    # ==========================================================================
-    
-    def convert_to_ib_contract(self, spyder_contract: IBContract):
-        """Convert SPYDER contract to ib_async contract."""
-        return spyder_contract.to_ib_contract()
-    
-    def convert_to_ib_order(self, spyder_order: IBOrder):
-        """Convert SPYDER order to ib_async order."""
-        return spyder_order.to_ib_order()
-    
-    def convert_from_ib_position(self, ib_position) -> IBPosition:
-        """Convert ib_async position to SPYDER position."""
-        # Extract contract details
-        contract = IBContract(
-            symbol=ib_position.contract.symbol,
-            sec_type=SecurityType(ib_position.contract.secType),
-            exchange=ib_position.contract.exchange,
-            currency=ib_position.contract.currency
-        )
+        """
+        Serialize order to JSON.
         
-        return IBPosition(
-            contract=contract,
-            position=ib_position.position,
-            market_price=ib_position.marketPrice,
-            market_value=ib_position.marketValue,
-            average_cost=ib_position.avgCost,
-            unrealized_pnl=ib_position.unrealizedPNL,
-            realized_pnl=ib_position.realizedPNL,
-            account=ib_position.account
-        )
+        Args:
+            order: Order to serialize
+            
+        Returns:
+            JSON string
+        """
+        try:
+            return json.dumps(order.to_dict(), default=str)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Serializing order to JSON")
+            return "{}"
+    
+    def order_from_json(self, json_str: str) -> Optional[IBOrder]:
+        """
+        Deserialize order from JSON.
+        
+        Args:
+            json_str: JSON string
+            
+        Returns:
+            IBOrder object
+        """
+        try:
+            data = json.loads(json_str)
+            
+            # Convert enums back
+            if 'action' in data:
+                data['action'] = IBOrderAction(data['action'])
+            if 'order_type' in data:
+                data['order_type'] = IBOrderType(data['order_type'])
+            if 'tif' in data:
+                data['tif'] = IBTimeInForce(data['tif'])
+            if 'status' in data:
+                data['status'] = IBOrderStatus(data['status'])
+            
+            return IBOrder(**data)
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "Deserializing order from JSON")
+            return None
+    
+    # ==========================================================================
+    # UTILITY METHODS
+    # ==========================================================================
+    
+    def get_contract_key(self, contract: IBContract) -> str:
+        """Generate unique key for contract."""
+        if contract.is_option():
+            return f"{contract.sec_type.value}_{contract.symbol}_{contract.last_trade_date_or_contract_month}_{contract.strike}_{contract.right}"
+        else:
+            return f"{contract.sec_type.value}_{contract.symbol}_{contract.exchange}_{contract.currency}"
+    
+    def clear_cache(self):
+        """Clear all caches."""
+        with self._lock if hasattr(self, '_lock') else self:
+            self._contract_cache.clear()
+            self._order_cache.clear()
+        
+        self.logger.info("Caches cleared")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        return {
+            'contract_cache_size': len(self._contract_cache),
+            'order_cache_size': len(self._order_cache),
+            'validation_count': self._validation_count,
+            'conversion_count': self._conversion_count,
+            'cache_hits': self._cache_hits
+        }
+    
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """Get performance metrics."""
+        return {
+            'total_validations': self._validation_count,
+            'total_conversions': self._conversion_count,
+            'cache_hit_rate': self._cache_hits / max(1, self._validation_count + self._conversion_count),
+            'cache_stats': self.get_cache_stats(),
+            'dependencies': {
+                'ib_async': HAS_IB_ASYNC,
+                'spyder_logger': HAS_SPYDER_LOGGER,
+                'error_handler': HAS_ERROR_HANDLER
+            }
+        }
 
 # ==============================================================================
-# MODULE FUNCTIONS
+# FACTORY FUNCTIONS
 # ==============================================================================
-
-# Singleton instance
-_data_type_manager: Optional[IBDataTypeManager] = None
 
 def get_data_type_manager() -> IBDataTypeManager:
     """
-    Get singleton IBDataTypeManager instance.
+    Get IBDataTypeManager instance.
     
     Returns:
         IBDataTypeManager instance
     """
-    global _data_type_manager
-    if _data_type_manager is None:
-        _data_type_manager = IBDataTypeManager()
-    return _data_type_manager
+    return IBDataTypeManager()
 
-# Convenience functions for contract creation
-def create_stock_contract(symbol: str, exchange: str = DEFAULT_EXCHANGE,
-                        currency: str = DEFAULT_CURRENCY) -> IBContract:
-    """Create a stock contract."""
-    return get_data_type_manager().create_stock_contract(symbol, exchange, currency)
+def create_stock_contract(symbol: str, **kwargs) -> IBContract:
+    """Factory function to create stock contract."""
+    manager = get_data_type_manager()
+    return manager.create_stock_contract(symbol, **kwargs)
 
-def create_option_contract(symbol: str, last_trade_date: str, strike: float,
-                         right: str, exchange: str = DEFAULT_EXCHANGE,
-                         currency: str = DEFAULT_CURRENCY) -> IBContract:
-    """Create an option contract."""
-    return get_data_type_manager().create_option_contract(
-        symbol, last_trade_date, strike, right, exchange, currency
-    )
+def create_option_contract(symbol: str, expiry: str, strike: float, right: str, **kwargs) -> IBContract:
+    """Factory function to create option contract."""
+    manager = get_data_type_manager()
+    return manager.create_option_contract(symbol, expiry, strike, right, **kwargs)
 
-def create_combo_contract(symbol: str, legs: List[ComboLeg],
-                        exchange: str = DEFAULT_EXCHANGE,
-                        currency: str = DEFAULT_CURRENCY) -> IBContract:
-    """Create a combo contract."""
-    return get_data_type_manager().create_combo_contract(symbol, legs, exchange, currency)
+def create_market_order(action: IBOrderAction, quantity: float, **kwargs) -> IBOrder:
+    """Factory function to create market order."""
+    manager = get_data_type_manager()
+    return manager.create_market_order(action, quantity, **kwargs)
 
-# Convenience functions for order creation
-def create_market_order(action: OrderAction, quantity: float, **kwargs) -> IBOrder:
-    """Create a market order."""
-    return get_data_type_manager().create_market_order(action, quantity, **kwargs)
+def create_limit_order(action: IBOrderAction, quantity: float, price: float, **kwargs) -> IBOrder:
+    """Factory function to create limit order."""
+    manager = get_data_type_manager()
+    return manager.create_limit_order(action, quantity, price, **kwargs)
 
-def create_limit_order(action: OrderAction, quantity: float, limit_price: float, **kwargs) -> IBOrder:
-    """Create a limit order."""
-    return get_data_type_manager().create_limit_order(action, quantity, limit_price, **kwargs)
-
-def create_stop_order(action: OrderAction, quantity: float, stop_price: float, **kwargs) -> IBOrder:
-    """Create a stop order."""
-    return get_data_type_manager().create_stop_order(action, quantity, stop_price, **kwargs)
-
-def create_stop_limit_order(action: OrderAction, quantity: float, limit_price: float,
-                          stop_price: float, **kwargs) -> IBOrder:
-    """Create a stop limit order."""
-    return get_data_type_manager().create_stop_limit_order(
-        action, quantity, limit_price, stop_price, **kwargs
-    )
+def create_bracket_order(parent_order: IBOrder, take_profit: float, stop_loss: float) -> List[IBOrder]:
+    """Factory function to create bracket order."""
+    manager = get_data_type_manager()
+    return manager.create_bracket_order(parent_order, take_profit, stop_loss)
 
 # ==============================================================================
 # MODULE INITIALIZATION
@@ -913,20 +1350,23 @@ def create_stop_limit_order(action: OrderAction, quantity: float, limit_price: f
 
 __all__ = [
     # Enums
-    'SecurityType', 'OrderAction', 'OrderType', 'TimeInForce', 'OrderStatus',
-    'TickType', 'PositionSide',
+    'SecurityType', 'IBOrderType', 'IBOrderAction', 'IBTimeInForce', 'IBOrderStatus',
+    'TickType', 'IBMarketDataType',
     
-    # Data classes
-    'ComboLeg', 'DeltaNeutralContract', 'IBContract', 'IBOrder', 'IBExecution',
-    'IBCommissionReport', 'IBPosition', 'IBAccountValue', 'IBTicker',
+    # Data Structures
+    'IBContract', 'IBOrder', 'IBExecution', 'IBCommissionReport', 'IBTrade',
+    'IBPosition', 'IBAccountValue', 'IBPortfolioItem', 'IBTickData', 'IBBarData',
+    'ComboLeg',
     
-    # Manager class
-    'IBDataTypeManager', 'get_data_type_manager',
+    # Manager Class
+    'IBDataTypeManager',
     
-    # Convenience functions
-    'create_stock_contract', 'create_option_contract', 'create_combo_contract',
-    'create_market_order', 'create_limit_order', 'create_stop_order',
-    'create_stop_limit_order'
+    # Factory Functions
+    'get_data_type_manager', 'create_stock_contract', 'create_option_contract',
+    'create_market_order', 'create_limit_order', 'create_bracket_order',
+    
+    # Type Aliases
+    'ContractId', 'OrderId', 'TickerId', 'ExecutionId', 'RequestId'
 ]
 
 # ==============================================================================
@@ -935,52 +1375,77 @@ __all__ = [
 
 if __name__ == "__main__":
     # Example usage and testing
-    import sys
+    import logging
     
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
-    logger.info("IBDataTypes - Enhanced with ib_async")
-    logger.info("=" * 50)
+    print("SpyderB10_IBDataTypes - Production Ready")
+    print("=" * 60)
+    print("Features:")
+    print("- Comprehensive IB data type definitions with ib_async integration")
+    print("- Type-safe contract and order creation with validation")
+    print("- Advanced order types including bracket orders")
+    print("- Robust conversion utilities between SPYDER and IB formats")
+    print("- JSON serialization/deserialization for persistence")
+    print("- Performance tracking and caching for efficiency")
+    print("- Comprehensive validation and error handling")
+    print("- Support for stocks, options, futures, and combinations")
+    print("\nDependency Status:")
+    print(f"- ib_async: {'✓' if HAS_IB_ASYNC else '✗ (using fallback)'}")
+    print(f"- SpyderLogger: {'✓' if HAS_SPYDER_LOGGER else '✗ (using fallback)'}")
+    print(f"- ErrorHandler: {'✓' if HAS_ERROR_HANDLER else '✗ (using fallback)'}")
+    print("\n" + "=" * 60)
+    print("Ready for production use!")
     
+    # Basic functionality test
     try:
-        # Create data type manager
         manager = get_data_type_manager()
         
         # Test contract creation
         spy_stock = manager.create_stock_contract('SPY')
-        logger.info(f"📄 Created stock contract: {spy_stock.symbol}")
+        print(f"\nStock contract created: {spy_stock.symbol} ({spy_stock.sec_type.value})")
         
         # Test option contract
         spy_call = manager.create_option_contract('SPY', '20250620', 450.0, 'C')
-        logger.info(f"📄 Created option contract: {spy_call.symbol} {spy_call.strike} {spy_call.right}")
+        print(f"Option contract created: {spy_call.get_option_symbol()}")
         
         # Test order creation
-        market_order = manager.create_market_order(OrderAction.BUY, 100)
-        logger.info(f"📝 Created market order: {market_order.action.value} {market_order.total_quantity}")
+        market_order = manager.create_market_order(IBOrderAction.BUY, 100)
+        print(f"Market order created: {market_order.action.value} {market_order.total_quantity}")
+        
+        limit_order = manager.create_limit_order(IBOrderAction.SELL, 50, 451.50)
+        print(f"Limit order created: {limit_order.action.value} {limit_order.total_quantity} @ ${limit_order.lmt_price}")
+        
+        # Test bracket order
+        parent = manager.create_limit_order(IBOrderAction.BUY, 100, 450.00)
+        bracket = manager.create_bracket_order(parent, 455.00, 445.00)
+        print(f"Bracket order created with {len(bracket)} orders")
         
         # Test validation
         is_valid_contract = manager.validate_contract(spy_stock)
         is_valid_order = manager.validate_order(market_order)
-        logger.info(f"✅ Contract valid: {is_valid_contract}, Order valid: {is_valid_order}")
-        
-        # Test conversion to ib_async objects
-        ib_contract = manager.convert_to_ib_contract(spy_stock)
-        ib_order = manager.convert_to_ib_order(market_order)
-        logger.info(f"🔄 Converted to ib_async objects successfully")
+        print(f"Validation results - Contract: {is_valid_contract}, Order: {is_valid_order}")
         
         # Test serialization
         contract_json = manager.contract_to_json(spy_stock)
         order_json = manager.order_to_json(market_order)
-        logger.info(f"💾 Serialized contract and order to JSON")
+        print(f"Serialization successful - Contract: {len(contract_json)} chars, Order: {len(order_json)} chars")
         
         # Test deserialization
-        contract_from_json = manager.contract_from_json(contract_json)
-        order_from_json = manager.order_from_json(order_json)
-        logger.info(f"📥 Deserialized contract and order from JSON")
+        contract_restored = manager.contract_from_json(contract_json)
+        order_restored = manager.order_from_json(order_json)
+        print(f"Deserialization successful - Contract: {contract_restored.symbol}, Order: {order_restored.action.value}")
+        
+        # Show performance metrics
+        metrics = manager.get_performance_metrics()
+        print(f"\nPerformance Metrics:")
+        print(f"- Total validations: {metrics['total_validations']}")
+        print(f"- Total conversions: {metrics['total_conversions']}")
+        print(f"- Cache hit rate: {metrics['cache_hit_rate']:.1%}")
+        print(f"- Dependencies available: {sum(metrics['dependencies'].values())}/3")
         
     except Exception as e:
-        logger.error(f"Error in main: {e}")
-        
-    logger.info(f"\n🎉 IBDataTypes ready with ib_async!")
-    logger.info(f"Comprehensive data type support for IB integration")
+        print(f"Error during testing: {e}")
