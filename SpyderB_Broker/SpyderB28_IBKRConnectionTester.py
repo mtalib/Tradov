@@ -4,7 +4,7 @@
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderB_Broker     
-Module: SpyderB23_IBKRConnectionTester.py
+Module: SpyderB28_IBKRConnectionTester.py
 Purpose: IBKR Connection Validation and Diagnostic Testing
 Author: Mohamed Talib
 Year Created: 2025 

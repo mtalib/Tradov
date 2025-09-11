@@ -37,7 +37,7 @@ import subprocess
 
 # Import our Gateway modules
 try:
-    from SpyderB19_GatewayConfiguration import (
+    from SpyderB_Broker.SpyderB13_GatewayConfig import (
         GatewayConfigurationManager,
         GatewayConfig,
         get_default_config

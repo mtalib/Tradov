@@ -81,7 +81,7 @@ SPYDER_ALIASES = {
     # Spyder System
     "spyder": "cd $SPYDER_HOME && python3 SpyderA_Core/SpyderA01_Main.py",
     "spyder-test": "python3 $SPYDER_HOME/SpyderB_Broker/SpyderB22_IntegrationTestSuite.py",
-    "spyder-config": "python3 $SPYDER_HOME/SpyderB_Broker/SpyderB19_GatewayConfiguration.py",
+    "spyder-config": "python3 $SPYDER_HOME/SpyderB_Broker/SpyderB13_GatewayConfig.py",
     "spyder-logs": "cd $SPYDER_LOGS && ls -la",
     
     # Quick Navigation

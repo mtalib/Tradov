@@ -1,112 +1,838 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
+Series: SpyderB_Broker     
 Module: SpyderB00_OrderTypes.py
-Group: B (Broker Integration)
-Purpose: Common order data structures for broker modules
+Purpose: Comprehensive order data structures for broker modules
 Author: Mohamed Talib
-Date Created: 2025-01-27
-Last Updated: 2025-08-14 Time: 18:00:00
+Year Created: 2025 
+Last Updated: 2025-09-11 Time: 15:45:00  
 
-Description:
-    This module provides common order-related data structures used across
-    the broker integration modules. It defines OrderRequest, OrderAction,
-    OrderType and other shared classes to ensure consistency.
+Module Description:
+    This module provides comprehensive order-related data structures used across
+    all broker integration modules. It defines OrderRequest, OrderAction,
+    OrderType, and other shared classes to ensure consistency and type safety
+    throughout the trading system. This is the foundational module that all
+    other broker modules depend on for order-related operations.
+
+Key Features:
+    - Complete IB Gateway-compatible order types
+    - Advanced order attributes for institutional trading
+    - Options-specific order structures for SPY trading
+    - Bracket order support for risk management
+    - Comprehensive validation and serialization
+    - Type-safe enums and data classes
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from dataclasses import dataclass, field
-from datetime import datetime
+import json
+import uuid
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, time as dt_time
+from decimal import Decimal
 from enum import Enum, auto
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union, Tuple
 
 # ==============================================================================
-# ENUMS
+# CORE ENUMS
 # ==============================================================================
 
 class OrderAction(Enum):
-    """Order action types"""
+    """Order action types for buy/sell operations."""
     BUY = "BUY"
     SELL = "SELL"
+    
+    def __str__(self) -> str:
+        return self.value
 
 class OrderType(Enum):
-    """Order types"""
+    """Comprehensive order types supported by IB Gateway."""
+    # Basic order types
     MARKET = "MKT"
     LIMIT = "LMT"
     STOP = "STP"
     STOP_LIMIT = "STP LMT"
+    
+    # Advanced order types
     TRAILING_STOP = "TRAIL"
+    TRAILING_STOP_LIMIT = "TRAIL LIMIT"
     MARKET_ON_CLOSE = "MOC"
     LIMIT_ON_CLOSE = "LOC"
+    MARKET_ON_OPEN = "MOO"
+    LIMIT_ON_OPEN = "LOO"
+    
+    # Algorithmic order types
+    ADAPTIVE = "ADAPTIVE"
+    ARRIVAL_PRICE = "Arrival Price"
+    DARK_ICE = "Dark Ice"
+    MIDPOINT = "Midpoint"
+    TWAP = "TWAP"
+    VWAP = "VWAP"
+    
+    # Options-specific
+    VOLATILITY = "VOL"
+    RELATIVE = "REL"
+    
+    def __str__(self) -> str:
+        return self.value
 
 class OrderStatus(Enum):
-    """Order status"""
+    """Order status lifecycle."""
+    # Pre-submission
     PENDING = "PendingSubmit"
+    PENDING_CANCEL = "PendingCancel"
+    
+    # Active states
     SUBMITTED = "Submitted"
+    WORKING = "Working"
+    PARTIALLY_FILLED = "PartiallyFilled"
+    
+    # Terminal states
     FILLED = "Filled"
     CANCELLED = "Cancelled"
+    REJECTED = "Rejected"
+    
+    # Error states
     INACTIVE = "Inactive"
     ERROR = "Error"
+    
+    def __str__(self) -> str:
+        return self.value
+    
+    @property
+    def is_active(self) -> bool:
+        """Check if order is in an active state."""
+        return self in {self.SUBMITTED, self.WORKING, self.PARTIALLY_FILLED}
+    
+    @property
+    def is_terminal(self) -> bool:
+        """Check if order is in a terminal state."""
+        return self in {self.FILLED, self.CANCELLED, self.REJECTED}
+
+class TimeInForce(Enum):
+    """Time in force options."""
+    DAY = "DAY"           # Day order
+    GTC = "GTC"           # Good till canceled
+    IOC = "IOC"           # Immediate or cancel
+    FOK = "FOK"           # Fill or kill
+    GTD = "GTD"           # Good till date
+    OPG = "OPG"           # Market open
+    
+    def __str__(self) -> str:
+        return self.value
+
+class TriggerMethod(Enum):
+    """Trigger method for stop orders."""
+    DEFAULT = 0
+    DOUBLE_BID_ASK = 1
+    LAST = 2
+    DOUBLE_LAST = 3
+    BID_ASK = 4
+    LAST_OR_BID_ASK = 7
+    MIDPOINT = 8
+
+class OCAType(Enum):
+    """One-Cancels-All group types."""
+    CANCEL_WITH_BLOCK = 1
+    REDUCE_WITH_BLOCK = 2
+    REDUCE_NON_BLOCK = 3
+
+class SecType(Enum):
+    """Security types for contracts."""
+    STOCK = "STK"
+    OPTION = "OPT"
+    FUTURE = "FUT"
+    FOREX = "CASH"
+    INDEX = "IND"
+    CFD = "CFD"
+    COMMODITY = "CMDTY"
+    BOND = "BOND"
+    FUND = "FUND"
+    
+    def __str__(self) -> str:
+        return self.value
+
+class OptionRight(Enum):
+    """Option rights (Call/Put)."""
+    CALL = "C"
+    PUT = "P"
+    
+    def __str__(self) -> str:
+        return self.value
+
+class OrderOrigin(Enum):
+    """Order origin for regulatory purposes."""
+    CUSTOMER = 0
+    FIRM = 1
+    UNKNOWN = 2
 
 # ==============================================================================
-# DATA CLASSES
+# CONTRACT DATA STRUCTURES
+# ==============================================================================
+
+@dataclass
+class ContractDetails:
+    """Contract specification for trading instruments."""
+    symbol: str
+    sec_type: SecType
+    exchange: str = "SMART"
+    currency: str = "USD"
+    
+    # Options-specific
+    strike: Optional[float] = None
+    expiry: Optional[str] = None  # YYYYMMDD format
+    right: Optional[OptionRight] = None
+    multiplier: Optional[str] = None
+    
+    # Futures-specific
+    last_trade_date: Optional[str] = None
+    
+    # Identification
+    con_id: Optional[int] = None
+    local_symbol: Optional[str] = None
+    trading_class: Optional[str] = None
+    
+    def __post_init__(self):
+        """Validate contract details."""
+        if self.sec_type == SecType.OPTION:
+            if not all([self.strike, self.expiry, self.right]):
+                raise ValueError("Options require strike, expiry, and right")
+    
+    @property
+    def full_symbol(self) -> str:
+        """Generate full symbol representation."""
+        if self.sec_type == SecType.OPTION:
+            return f"{self.symbol}_{self.expiry}_{self.right.value}{self.strike}"
+        return self.symbol
+    
+    def to_ib_contract(self) -> Dict[str, Any]:
+        """Convert to IB Contract format."""
+        contract_dict = {
+            'symbol': self.symbol,
+            'secType': self.sec_type.value,
+            'exchange': self.exchange,
+            'currency': self.currency
+        }
+        
+        if self.strike is not None:
+            contract_dict['strike'] = self.strike
+        if self.expiry:
+            contract_dict['lastTradeDateOrContractMonth'] = self.expiry
+        if self.right:
+            contract_dict['right'] = self.right.value
+        if self.multiplier:
+            contract_dict['multiplier'] = self.multiplier
+        if self.con_id:
+            contract_dict['conId'] = self.con_id
+            
+        return contract_dict
+
+@dataclass
+class ComboLeg:
+    """Combination leg for spread orders."""
+    con_id: int
+    ratio: int = 1
+    action: str = "BUY"  # BUY or SELL
+    exchange: str = "SMART"
+    open_close: int = 0  # 0=Same, 1=Open, 2=Close
+    short_sale_slot: int = 0
+    designated_location: str = ""
+    exempt_code: int = -1
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format."""
+        return asdict(self)
+
+# ==============================================================================
+# CORE ORDER DATA STRUCTURES
 # ==============================================================================
 
 @dataclass
 class OrderRequest:
-    """Order request structure"""
-    symbol: str
+    """
+    Comprehensive order request structure with full IB Gateway compatibility.
+    This is the primary order structure used throughout the SPYDER system.
+    """
+    # Required fields
+    contract: ContractDetails
     action: OrderAction
-    quantity: int
-    order_type: OrderType = OrderType.MARKET
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
-    time_in_force: str = "DAY"
-    outside_rth: bool = False
-    transmit: bool = True
-    account: Optional[str] = None
-    order_ref: Optional[str] = None
+    total_quantity: Union[int, float]
+    order_type: OrderType
+    
+    # Price fields
+    lmt_price: Optional[float] = None
+    aux_price: Optional[float] = None  # Stop price for stop orders
+    
+    # Time in force
+    tif: TimeInForce = TimeInForce.DAY
+    
+    # Order identification
+    order_id: Optional[int] = None
+    client_id: Optional[int] = None
+    perm_id: Optional[int] = None
     parent_id: Optional[int] = None
+    order_ref: Optional[str] = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    
+    # Account and transmission
+    account: Optional[str] = None
+    transmit: bool = True
+    
+    # Advanced order attributes
     oca_group: Optional[str] = None
-    oca_type: Optional[int] = None
+    oca_type: Optional[OCAType] = None
+    
+    # Execution options
+    display_size: Optional[int] = None
+    trigger_method: Optional[TriggerMethod] = None
+    outside_rth: bool = False
+    hidden: bool = False
+    
+    # Discretionary and timing
+    discretionary_amt: float = 0.0
+    good_after_time: Optional[str] = None  # YYYYMMDD HH:MM:SS
+    good_till_date: Optional[str] = None   # YYYYMMDD HH:MM:SS
+    
+    # Advanced features
+    sweep_to_fill: bool = False
+    all_or_none: bool = False
+    min_qty: Optional[int] = None
+    percent_offset: Optional[float] = None
+    
+    # Trailing stops
     trail_stop_price: Optional[float] = None
     trailing_percent: Optional[float] = None
-    percent_offset: Optional[float] = None
-    trigger_method: Optional[int] = None
-    lmt_price_offset: Optional[float] = None
-    aux_price: Optional[float] = None
-    good_after_time: Optional[str] = None
-    good_till_date: Optional[str] = None
     
-    def validate(self) -> bool:
-        """Validate order request"""
-        if self.quantity <= 0:
-            return False
+    # Financial advisors
+    fa_group: Optional[str] = None
+    fa_method: Optional[str] = None
+    fa_percentage: Optional[str] = None
+    fa_profile: Optional[str] = None
+    
+    # Institutional and regulatory
+    designated_location: Optional[str] = None
+    open_close: Optional[str] = None  # "O"=Open, "C"=Close
+    origin: OrderOrigin = OrderOrigin.CUSTOMER
+    short_sale_slot: int = 0  # 1=Broker, 2=Third party
+    exempt_code: int = -1
+    
+    # Combination orders
+    combo_legs: List[ComboLeg] = field(default_factory=list)
+    smart_combo_routing_params: List[Tuple[str, str]] = field(default_factory=list)
+    
+    # Algorithmic orders
+    algo_strategy: Optional[str] = None
+    algo_params: Dict[str, str] = field(default_factory=dict)
+    
+    # Volatility orders (for options)
+    volatility: Optional[float] = None
+    volatility_type: Optional[int] = None  # 1=daily, 2=annual
+    delta_neutral_order_type: Optional[str] = None
+    delta_neutral_aux_price: Optional[float] = None
+    
+    # Status tracking
+    status: OrderStatus = OrderStatus.PENDING
+    filled: float = 0.0
+    remaining: float = 0.0
+    avg_fill_price: float = 0.0
+    last_fill_price: float = 0.0
+    
+    # Timestamps
+    created_time: datetime = field(default_factory=datetime.now)
+    submitted_time: Optional[datetime] = None
+    filled_time: Optional[datetime] = None
+    
+    # Metadata
+    strategy_name: Optional[str] = None
+    notes: Optional[str] = None
+    
+    def __post_init__(self):
+        """Post-initialization validation."""
+        self._validate_order()
+    
+    def _validate_order(self) -> None:
+        """Comprehensive order validation."""
+        # Quantity validation
+        if self.total_quantity <= 0:
+            raise ValueError("Order quantity must be positive")
         
-        if self.order_type == OrderType.LIMIT and self.limit_price is None:
-            return False
-            
-        if self.order_type == OrderType.STOP and self.stop_price is None:
-            return False
-            
+        # Price validation based on order type
+        if self.order_type == OrderType.LIMIT and self.lmt_price is None:
+            raise ValueError("Limit orders require limit price")
+        
+        if self.order_type == OrderType.STOP and self.aux_price is None:
+            raise ValueError("Stop orders require stop price")
+        
         if self.order_type == OrderType.STOP_LIMIT:
-            if self.limit_price is None or self.stop_price is None:
-                return False
+            if self.lmt_price is None or self.aux_price is None:
+                raise ValueError("Stop-limit orders require both limit and stop prices")
         
-        return True
+        # Trailing stop validation
+        if self.order_type == OrderType.TRAILING_STOP:
+            if self.trail_stop_price is None and self.trailing_percent is None:
+                raise ValueError("Trailing stops require either trail price or trailing percent")
+        
+        # Combination order validation
+        if self.combo_legs and self.contract.sec_type not in [SecType.OPTION, SecType.FUTURE]:
+            raise ValueError("Combination orders only supported for options and futures")
+    
+    @property
+    def is_buy(self) -> bool:
+        """Check if order is a buy order."""
+        return self.action == OrderAction.BUY
+    
+    @property
+    def is_sell(self) -> bool:
+        """Check if order is a sell order."""
+        return self.action == OrderAction.SELL
+    
+    @property
+    def is_option(self) -> bool:
+        """Check if order is for an option."""
+        return self.contract.sec_type == SecType.OPTION
+    
+    @property
+    def is_combo(self) -> bool:
+        """Check if order is a combination order."""
+        return len(self.combo_legs) > 0
+    
+    @property
+    def notional_value(self) -> Optional[float]:
+        """Calculate notional value of the order."""
+        if self.order_type == OrderType.MARKET:
+            return None  # Cannot calculate without market price
+        
+        price = self.lmt_price or self.aux_price
+        if price is None:
+            return None
+        
+        multiplier = 100 if self.is_option else 1
+        return abs(self.total_quantity * price * multiplier)
+    
+    def to_ib_order(self) -> Dict[str, Any]:
+        """Convert to IB Order format."""
+        ib_order = {
+            'action': self.action.value,
+            'totalQuantity': self.total_quantity,
+            'orderType': self.order_type.value,
+            'tif': self.tif.value,
+            'transmit': self.transmit,
+            'outsideRth': self.outside_rth,
+            'hidden': self.hidden
+        }
+        
+        # Add optional fields
+        if self.lmt_price is not None:
+            ib_order['lmtPrice'] = self.lmt_price
+        if self.aux_price is not None:
+            ib_order['auxPrice'] = self.aux_price
+        if self.order_ref:
+            ib_order['orderRef'] = self.order_ref
+        if self.account:
+            ib_order['account'] = self.account
+        if self.parent_id:
+            ib_order['parentId'] = self.parent_id
+        if self.oca_group:
+            ib_order['ocaGroup'] = self.oca_group
+        if self.oca_type:
+            ib_order['ocaType'] = self.oca_type.value
+        
+        return ib_order
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        data = asdict(self)
+        # Convert enums to values
+        data['action'] = self.action.value
+        data['order_type'] = self.order_type.value
+        data['tif'] = self.tif.value
+        data['status'] = self.status.value
+        data['contract'] = asdict(self.contract)
+        
+        # Handle datetime serialization
+        data['created_time'] = self.created_time.isoformat()
+        if self.submitted_time:
+            data['submitted_time'] = self.submitted_time.isoformat()
+        if self.filled_time:
+            data['filled_time'] = self.filled_time.isoformat()
+        
+        return data
+    
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=2)
+
+# ==============================================================================
+# SPECIALIZED ORDER TYPES
+# ==============================================================================
+
+@dataclass
+class BracketOrder:
+    """
+    Bracket order for risk management - combines parent, profit-taking, and stop-loss orders.
+    Essential for automated options trading with defined risk parameters.
+    """
+    parent_order: OrderRequest
+    profit_target_price: Optional[float] = None
+    stop_loss_price: Optional[float] = None
+    profit_target_offset: Optional[float] = None
+    stop_loss_offset: Optional[float] = None
+    
+    def __post_init__(self):
+        """Validate bracket order configuration."""
+        if not (self.profit_target_price or self.profit_target_offset):
+            raise ValueError("Bracket order requires profit target price or offset")
+        
+        if not (self.stop_loss_price or self.stop_loss_offset):
+            raise ValueError("Bracket order requires stop loss price or offset")
+    
+    def generate_orders(self) -> Tuple[OrderRequest, OrderRequest, OrderRequest]:
+        """Generate the three orders that comprise the bracket."""
+        # Parent order
+        parent = self.parent_order
+        parent.transmit = False  # Don't transmit until all orders are ready
+        
+        # Calculate prices if using offsets
+        if self.parent_order.lmt_price:
+            base_price = self.parent_order.lmt_price
+        else:
+            raise ValueError("Bracket orders require parent order with limit price")
+        
+        # Profit target order
+        if self.profit_target_price:
+            profit_price = self.profit_target_price
+        else:
+            if self.parent_order.is_buy:
+                profit_price = base_price + self.profit_target_offset
+            else:
+                profit_price = base_price - self.profit_target_offset
+        
+        profit_order = OrderRequest(
+            contract=parent.contract,
+            action=OrderAction.SELL if parent.is_buy else OrderAction.BUY,
+            total_quantity=parent.total_quantity,
+            order_type=OrderType.LIMIT,
+            lmt_price=profit_price,
+            parent_id=parent.order_id,
+            transmit=False
+        )
+        
+        # Stop loss order
+        if self.stop_loss_price:
+            stop_price = self.stop_loss_price
+        else:
+            if self.parent_order.is_buy:
+                stop_price = base_price - self.stop_loss_offset
+            else:
+                stop_price = base_price + self.stop_loss_offset
+        
+        stop_order = OrderRequest(
+            contract=parent.contract,
+            action=OrderAction.SELL if parent.is_buy else OrderAction.BUY,
+            total_quantity=parent.total_quantity,
+            order_type=OrderType.STOP,
+            aux_price=stop_price,
+            parent_id=parent.order_id,
+            transmit=True  # Transmit the last order
+        )
+        
+        return parent, profit_order, stop_order
+
+@dataclass
+class SpreadOrder:
+    """
+    Multi-leg spread order for options strategies (Iron Condor, Credit Spreads, etc.).
+    """
+    legs: List[OrderRequest]
+    net_premium: Optional[float] = None
+    strategy_name: Optional[str] = None
+    
+    def __post_init__(self):
+        """Validate spread order."""
+        if len(self.legs) < 2:
+            raise ValueError("Spread orders require at least 2 legs")
+        
+        # Ensure all legs are for options
+        for leg in self.legs:
+            if leg.contract.sec_type != SecType.OPTION:
+                raise ValueError("Spread orders are only for options")
+    
+    @property
+    def total_legs(self) -> int:
+        """Get total number of legs."""
+        return len(self.legs)
+    
+    @property
+    def is_credit_spread(self) -> bool:
+        """Check if this is a credit spread (net premium received)."""
+        return self.net_premium is not None and self.net_premium > 0
+    
+    @property
+    def is_debit_spread(self) -> bool:
+        """Check if this is a debit spread (net premium paid)."""
+        return self.net_premium is not None and self.net_premium < 0
+
+# ==============================================================================
+# EXECUTION AND FILL DATA STRUCTURES
+# ==============================================================================
+
+@dataclass
+class Execution:
+    """Order execution details."""
+    order_id: int
+    exec_id: str
+    time: datetime
+    account: str
+    exchange: str
+    side: str
+    shares: float
+    price: float
+    perm_id: int
+    client_id: int
+    liquidation: int = 0
+    cum_qty: float = 0.0
+    avg_price: float = 0.0
+    
+    @property
+    def notional_value(self) -> float:
+        """Calculate execution notional value."""
+        return abs(self.shares * self.price)
+
+@dataclass
+class Commission:
+    """Commission details for executions."""
+    commission: float
+    currency: str
+    realized_pnl: Optional[float] = None
+    yield_: Optional[float] = None
+    yield_redemption_date: Optional[int] = None
+
+@dataclass
+class Fill:
+    """Complete fill information combining execution and commission."""
+    execution: Execution
+    commission: Commission
+    
+    @property
+    def net_proceeds(self) -> float:
+        """Calculate net proceeds after commission."""
+        gross = self.execution.notional_value
+        if self.execution.side == "BOT":  # Bought
+            return -(gross + abs(self.commission.commission))
+        else:  # Sold
+            return gross - abs(self.commission.commission)
+
+# ==============================================================================
+# FACTORY FUNCTIONS
+# ==============================================================================
+
+def create_market_order(contract: ContractDetails, action: OrderAction, 
+                       quantity: Union[int, float], **kwargs) -> OrderRequest:
+    """Create a market order."""
+    return OrderRequest(
+        contract=contract,
+        action=action,
+        total_quantity=quantity,
+        order_type=OrderType.MARKET,
+        **kwargs
+    )
+
+def create_limit_order(contract: ContractDetails, action: OrderAction, 
+                      quantity: Union[int, float], limit_price: float, 
+                      **kwargs) -> OrderRequest:
+    """Create a limit order."""
+    return OrderRequest(
+        contract=contract,
+        action=action,
+        total_quantity=quantity,
+        order_type=OrderType.LIMIT,
+        lmt_price=limit_price,
+        **kwargs
+    )
+
+def create_stop_order(contract: ContractDetails, action: OrderAction, 
+                     quantity: Union[int, float], stop_price: float, 
+                     **kwargs) -> OrderRequest:
+    """Create a stop order."""
+    return OrderRequest(
+        contract=contract,
+        action=action,
+        total_quantity=quantity,
+        order_type=OrderType.STOP,
+        aux_price=stop_price,
+        **kwargs
+    )
+
+def create_stop_limit_order(contract: ContractDetails, action: OrderAction, 
+                           quantity: Union[int, float], stop_price: float, 
+                           limit_price: float, **kwargs) -> OrderRequest:
+    """Create a stop-limit order."""
+    return OrderRequest(
+        contract=contract,
+        action=action,
+        total_quantity=quantity,
+        order_type=OrderType.STOP_LIMIT,
+        aux_price=stop_price,
+        lmt_price=limit_price,
+        **kwargs
+    )
+
+def create_spy_option_contract(expiry: str, strike: float, 
+                              right: OptionRight) -> ContractDetails:
+    """Create SPY option contract."""
+    return ContractDetails(
+        symbol="SPY",
+        sec_type=SecType.OPTION,
+        exchange="SMART",
+        currency="USD",
+        expiry=expiry,
+        strike=strike,
+        right=right,
+        multiplier="100"
+    )
+
+def create_iron_condor_spread(short_call_strike: float, long_call_strike: float,
+                             short_put_strike: float, long_put_strike: float,
+                             expiry: str, quantity: int = 1) -> SpreadOrder:
+    """Create an Iron Condor spread order."""
+    # Create the four legs
+    legs = [
+        # Short Call
+        OrderRequest(
+            contract=create_spy_option_contract(expiry, short_call_strike, OptionRight.CALL),
+            action=OrderAction.SELL,
+            total_quantity=quantity,
+            order_type=OrderType.LIMIT
+        ),
+        # Long Call
+        OrderRequest(
+            contract=create_spy_option_contract(expiry, long_call_strike, OptionRight.CALL),
+            action=OrderAction.BUY,
+            total_quantity=quantity,
+            order_type=OrderType.LIMIT
+        ),
+        # Short Put
+        OrderRequest(
+            contract=create_spy_option_contract(expiry, short_put_strike, OptionRight.PUT),
+            action=OrderAction.SELL,
+            total_quantity=quantity,
+            order_type=OrderType.LIMIT
+        ),
+        # Long Put
+        OrderRequest(
+            contract=create_spy_option_contract(expiry, long_put_strike, OptionRight.PUT),
+            action=OrderAction.BUY,
+            total_quantity=quantity,
+            order_type=OrderType.LIMIT
+        )
+    ]
+    
+    return SpreadOrder(legs=legs, strategy_name="Iron Condor")
+
+# ==============================================================================
+# VALIDATION FUNCTIONS
+# ==============================================================================
+
+def validate_order_request(order: OrderRequest) -> Tuple[bool, List[str]]:
+    """
+    Comprehensive order validation.
+    
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    errors = []
+    
+    try:
+        # Let the order validate itself
+        order._validate_order()
+    except ValueError as e:
+        errors.append(str(e))
+    
+    # Additional business logic validation
+    if order.total_quantity > 10000:
+        errors.append("Order quantity exceeds maximum allowed (10,000)")
+    
+    if order.is_option and order.total_quantity > 1000:
+        errors.append("Option order quantity exceeds maximum allowed (1,000)")
+    
+    # Price reasonableness checks
+    if order.lmt_price and order.lmt_price > 1000000:
+        errors.append("Limit price appears unreasonable (> $1M)")
+    
+    return len(errors) == 0, errors
 
 # ==============================================================================
 # EXPORTS
 # ==============================================================================
 
 __all__ = [
-    'OrderAction',
-    'OrderType', 
-    'OrderStatus',
-    'OrderRequest'
+    # Enums
+    'OrderAction', 'OrderType', 'OrderStatus', 'TimeInForce', 'TriggerMethod',
+    'OCAType', 'SecType', 'OptionRight', 'OrderOrigin',
+    
+    # Core data structures
+    'ContractDetails', 'ComboLeg', 'OrderRequest',
+    
+    # Specialized orders
+    'BracketOrder', 'SpreadOrder',
+    
+    # Execution data
+    'Execution', 'Commission', 'Fill',
+    
+    # Factory functions
+    'create_market_order', 'create_limit_order', 'create_stop_order',
+    'create_stop_limit_order', 'create_spy_option_contract', 'create_iron_condor_spread',
+    
+    # Validation
+    'validate_order_request'
 ]
+
+# ==============================================================================
+# MODULE TEST
+# ==============================================================================
+
+if __name__ == "__main__":
+    # Example usage and testing
+    print("SpyderB00_OrderTypes - Comprehensive Order Data Structures")
+    print("=" * 60)
+    
+    # Create a sample SPY option contract
+    spy_contract = create_spy_option_contract("20250321", 580.0, OptionRight.CALL)
+    print(f"SPY Contract: {spy_contract.full_symbol}")
+    
+    # Create a limit order
+    order = create_limit_order(
+        contract=spy_contract,
+        action=OrderAction.BUY,
+        quantity=10,
+        limit_price=2.50,
+        strategy_name="Test Order"
+    )
+    
+    print(f"Order: {order.action.value} {order.total_quantity} @ ${order.lmt_price}")
+    print(f"Notional Value: ${order.notional_value:,.2f}")
+    
+    # Validate order
+    is_valid, errors = validate_order_request(order)
+    print(f"Order Valid: {is_valid}")
+    if errors:
+        for error in errors:
+            print(f"  Error: {error}")
+    
+    # Create an Iron Condor
+    ic_spread = create_iron_condor_spread(
+        short_call_strike=590.0,
+        long_call_strike=595.0,
+        short_put_strike=570.0,
+        long_put_strike=565.0,
+        expiry="20250321",
+        quantity=5
+    )
+    
+    print(f"\nIron Condor: {ic_spread.total_legs} legs")
+    print(f"Strategy: {ic_spread.strategy_name}")
+    
+    print("\nModule loaded successfully - Ready for production use!")
