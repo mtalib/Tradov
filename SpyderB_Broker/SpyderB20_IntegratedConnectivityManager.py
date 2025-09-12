@@ -161,7 +161,7 @@ class ConnectivityAction:
 class ConnectivityReport:
     """Comprehensive connectivity status report"""
     timestamp: datetime = field(default_factory=datetime.now)
-    overall_state: ConnectivityState = ConnectivityState.UNKNOWN
+    overall_state: ConnectivityState = ConnectivityState.FAILED
     server_status: Optional[ServerStatus] = None
     server_name: Optional[str] = None
     server_latency: float = -1.0

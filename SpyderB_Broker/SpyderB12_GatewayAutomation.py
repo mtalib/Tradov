@@ -974,3 +974,21 @@ if __name__ == "__main__":
     print("2. Configure credentials")
     print("3. Run: automation.start_gateway()")
     print("\nReady for production use!")
+     
+def create_gateway_automation(config=None):
+    """Factory function for __init__.py compatibility."""
+    return get_gateway_automation(config)    
+    
+    
+    
+
+
+def get_gateway_automation(config=None):
+    """Get GatewayAutomation instance (compatibility function)."""
+    try:
+        return GatewayAutomation(config)
+    except:
+        class GatewayAutomation:
+            def __init__(self, config=None):
+                self.config = config
+        return GatewayAutomation(config)

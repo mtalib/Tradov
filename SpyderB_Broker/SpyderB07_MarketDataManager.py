@@ -1116,3 +1116,11 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"Error during initialization: {e}")
+        
+def create_market_data_manager(config=None):
+    """Factory function for __init__.py compatibility.""" 
+    return get_market_data_manager(config)        
+        
+        
+        
+        
