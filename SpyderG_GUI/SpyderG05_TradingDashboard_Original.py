@@ -65,7 +65,7 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PySide6.QtWidgets import (
+from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
@@ -92,12 +92,12 @@ from PySide6.QtWidgets import (
     QStyle,
     QMessageBox,
 )
-from PySide6.QtCore import (
+from PyQt6.QtCore import (
     Qt,
     QTimer,
-    Signal,
+    pyqtSignal,
     QThread,
-    Slot,
+    pyqtSlot,
     QSize,
     QRect,
     QPoint,
@@ -105,7 +105,7 @@ from PySide6.QtCore import (
     QMutex,
     QMutexLocker,
 )
-from PySide6.QtGui import (
+from PyQt6.QtGui import (
     QFont,
     QPalette,
     QColor,
@@ -369,13 +369,13 @@ class ConnectionInfo:
 class ThreadSafeMarketDataWorker(QObject):
     """Thread-safe market data worker with real IB connection detection and heartbeat monitoring"""
 
-    data_updated = Signal(dict)
-    connection_status_changed = Signal(bool, str)
-    market_data_status_changed = Signal(str)
-    error_occurred = Signal(str)
-    heartbeat_received = Signal(str)
-    heartbeat_status_changed = Signal(str)  # New signal for heartbeat status
-    log_message = Signal(str)  # New signal for log messages
+    data_updated = pyqtSignal(dict)
+    connection_status_changed = pyqtSignal(bool, str)
+    market_data_status_changed = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+    heartbeat_received = pyqtSignal(str)
+    heartbeat_status_changed = pyqtSignal(str)  # New signal for heartbeat status
+    log_message = pyqtSignal(str)  # New signal for log messages
 
     def __init__(self):
         super().__init__()
@@ -543,7 +543,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 if self.ib_connected:
                     self.market_data_status_changed.emit("NONE")
 
-    @Slot()
+    @pyqtSlot()
     def start(self):
         """Start the worker - FIXED TO EMIT PROPER INITIAL STATUS"""
         print("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
@@ -653,7 +653,7 @@ class TrafficLightButton(QPushButton):
         self.status = "green"
         self.setFixedHeight(24)
         self.setMinimumWidth(120)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
             """
             QPushButton {
@@ -690,7 +690,7 @@ class TrafficLightButton(QPushButton):
         super().paintEvent(event)
 
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         circle_rect = self.rect().adjusted(5, 5, -self.width() + 19, -5)
 
@@ -1003,15 +1003,15 @@ class MarketSymbolWidget(QWidget):
         self.price_label = QLabel("---.--")
         self.price_label.setStyleSheet(f"color: {COLORS['text']};")
         self.price_label.setFixedWidth(70)
-        self.price_label.setAlignment(Qt.AlignRight)
+        self.price_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.change_label = QLabel("+0.00")
         self.change_label.setFixedWidth(55)
-        self.change_label.setAlignment(Qt.AlignRight)
+        self.change_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.pct_label = QLabel("0.00%")
         self.pct_label.setFixedWidth(55)
-        self.pct_label.setAlignment(Qt.AlignRight)
+        self.pct_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         layout.addWidget(self.symbol_label)
         layout.addWidget(self.price_label)
@@ -1119,7 +1119,7 @@ class GreekBar(QWidget):
     def paintEvent(self, event):
         """Custom paint for the Greek bar"""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         painter.fillRect(self.rect(), QColor(COLORS["background"]))
 
@@ -1151,7 +1151,7 @@ class GreekBar(QWidget):
         status_rect = QRect(self.width() - 190, 0, 180, 22)
         painter.drawText(
             status_rect,
-            Qt.AlignVCenter | Qt.AlignRight,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
             self.status,
         )
 
@@ -1551,7 +1551,7 @@ class SpyderTradingDashboard(QMainWindow):
         toolbar = self.create_toolbar()
         main_layout.addWidget(toolbar)
 
-        content_splitter = QSplitter(Qt.Horizontal)
+        content_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_panel = self.create_left_panel()
         content_splitter.addWidget(left_panel)
@@ -1580,9 +1580,9 @@ class SpyderTradingDashboard(QMainWindow):
         # SPYDER logo on left
         logo_label = QLabel("S P Y D E R")
         try:
-            logo_font = QFont("Michroma", 16, QFont.Normal)
+            logo_font = QFont("Michroma", 16, QFont.Weight.Normal)
         except:
-            logo_font = QFont("Arial", 16, QFont.Normal)
+            logo_font = QFont("Arial", 16, QFont.Weight.Normal)
         logo_label.setFont(logo_font)
         logo_label.setStyleSheet(f"color: {COLORS['text']}; letter-spacing: 5px;")
         layout.addWidget(logo_label)
@@ -1660,7 +1660,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.ib_status_container = QWidget()
         self.ib_status_container.setMinimumWidth(190)  # REDUCED from 200
         self.ib_status_container.setMaximumWidth(190)  # REDUCED from 200
-        self.ib_status_container.setCursor(Qt.PointingHandCursor)
+        self.ib_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ib_status_container.setToolTip("Click to connect/disconnect IB Gateway")
         self.ib_status_container.setStyleSheet(
             """
@@ -1705,7 +1705,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.heartbeat_icon.setStyleSheet(
             "color: " + COLORS["negative"] + f"; font-size: 16px;"
         )
-        self.heartbeat_icon.setAlignment(Qt.AlignCenter)
+        self.heartbeat_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heartbeat_layout.addWidget(self.heartbeat_icon)
 
         self.heartbeat_container.setLayout(heartbeat_layout)
@@ -1726,7 +1726,7 @@ class SpyderTradingDashboard(QMainWindow):
             "color: " + COLORS["warning"] + f"; font-size: 14px;"
         )
         self.data_status_dot.setAlignment(
-            Qt.AlignVCenter
+            Qt.AlignmentFlag.AlignVCenter
         )  # ENSURE vertical center alignment
         data_status_layout.addWidget(self.data_status_dot)
 
@@ -1735,7 +1735,7 @@ class SpyderTradingDashboard(QMainWindow):
             "color: " + COLORS["warning"] + f"; font-size: 14px;"
         )
         self.data_status_label.setAlignment(
-            Qt.AlignLeft | Qt.AlignVCenter
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )  # LEFT + VERTICAL CENTER
         data_status_layout.addWidget(self.data_status_label)
 
@@ -1744,7 +1744,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Simulation Toggle Button (Blue) - Only visible when IB disconnected
         self.simulation_toggle = QLabel("🔵")
-        self.simulation_toggle.setCursor(Qt.PointingHandCursor)
+        self.simulation_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.simulation_toggle.setToolTip(
             "CLICK TO DISPLAY SIMULATED DATA WHEN IB IS DISCONNECTED"
         )
@@ -1752,7 +1752,7 @@ class SpyderTradingDashboard(QMainWindow):
             f"font-size: 14px;"
         )  # REMOVED padding-left
         self.simulation_toggle.setAlignment(
-            Qt.AlignVCenter
+            Qt.AlignmentFlag.AlignVCenter
         )  # VERTICAL CENTER alignment
         self.simulation_toggle.mousePressEvent = self.toggle_simulation_mode
         self.simulation_toggle.setVisible(
@@ -1806,17 +1806,17 @@ class SpyderTradingDashboard(QMainWindow):
 
         last_header = QLabel("LAST")
         last_header.setFixedWidth(70)
-        last_header.setAlignment(Qt.AlignRight)
+        last_header.setAlignment(Qt.AlignmentFlag.AlignRight)
         last_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         chg_header = QLabel("CHG")
         chg_header.setFixedWidth(55)
-        chg_header.setAlignment(Qt.AlignRight)
+        chg_header.setAlignment(Qt.AlignmentFlag.AlignRight)
         chg_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         chg_pct_header = QLabel("CHG%")
         chg_pct_header.setFixedWidth(55)
-        chg_pct_header.setAlignment(Qt.AlignRight)
+        chg_pct_header.setAlignment(Qt.AlignmentFlag.AlignRight)
         chg_pct_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         header_layout.addWidget(symbol_header)
@@ -1828,14 +1828,14 @@ class SpyderTradingDashboard(QMainWindow):
         layout.addWidget(header)
 
         separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShape(QFrame.Shape.HLine)
         separator.setStyleSheet(f"color: {COLORS['border']};")
         layout.addWidget(separator)
 
         # Scroll area for symbols
         scroll_area = QScrollArea()
         scroll_area.setStyleSheet(f"background-color: {COLORS['background']};")
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_widget = QWidget()
         scroll_widget.setStyleSheet(f"background-color: {COLORS['background']};")
         scroll_layout = QVBoxLayout()
@@ -2055,7 +2055,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.settled_value = QLabel("$21,800,000.00")
         self.settled_value.setStyleSheet(cell_style + "text-align: right;")
         self.settled_value.setAlignment(
-            Qt.AlignRight | Qt.AlignVCenter
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         table_layout.addWidget(self.settled_value, 2, 1)
 
@@ -2068,7 +2068,7 @@ class SpyderTradingDashboard(QMainWindow):
             cell_style + f"color: {COLORS['positive']}; text-align: right;"
         )
         self.realized_value.setAlignment(
-            Qt.AlignRight | Qt.AlignVCenter
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         table_layout.addWidget(self.realized_value, 2, 3)
 
@@ -2079,7 +2079,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.buying_value = QLabel("$20,450,000.00")
         self.buying_value.setStyleSheet(cell_style + "text-align: right;")
         self.buying_value.setAlignment(
-            Qt.AlignRight | Qt.AlignVCenter
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         table_layout.addWidget(self.buying_value, 3, 1)
 
@@ -2092,7 +2092,7 @@ class SpyderTradingDashboard(QMainWindow):
             cell_style + f"color: {COLORS['positive']}; text-align: right;"
         )
         self.unrealized_value.setAlignment(
-            Qt.AlignRight | Qt.AlignVCenter
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
         table_layout.addWidget(self.unrealized_value, 3, 3)
 
@@ -2172,9 +2172,9 @@ class SpyderTradingDashboard(QMainWindow):
             }}
         """
         )
-        self.auto_log.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.auto_log.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.auto_log.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOff
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
 
         auto_layout.addWidget(self.auto_log)
@@ -2478,7 +2478,7 @@ class SpyderTradingDashboard(QMainWindow):
         table.setHorizontalHeaderLabels(columns)
         table.verticalHeader().setVisible(False)
         table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setStyleSheet("font-size: 11px;")
 
         # Set column widths
@@ -2493,8 +2493,8 @@ class SpyderTradingDashboard(QMainWindow):
         table.setColumnWidth(8, 95)  # P&L
         table.setColumnWidth(9, 130)  # AUTO STATUS
 
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         table.verticalHeader().setDefaultSectionSize(22)
         table.setMinimumHeight(190)
         table.setMaximumHeight(190)
@@ -2530,32 +2530,32 @@ class SpyderTradingDashboard(QMainWindow):
             table.setItem(row, 0, QTableWidgetItem(period))
 
             pnl_item = QTableWidgetItem(values[0])
-            pnl_item.setTextAlignment(Qt.AlignRight)
+            pnl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
             pnl_item.setForeground(QColor(COLORS["positive"]))
             table.setItem(row, 1, pnl_item)
 
             win_rate_item = QTableWidgetItem(values[1])
-            win_rate_item.setTextAlignment(Qt.AlignCenter)
+            win_rate_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 2, win_rate_item)
 
             avg_item = QTableWidgetItem(values[2])
-            avg_item.setTextAlignment(Qt.AlignCenter)
+            avg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 3, avg_item)
 
             profit_factor_item = QTableWidgetItem(values[3])
-            profit_factor_item.setTextAlignment(Qt.AlignCenter)
+            profit_factor_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 4, profit_factor_item)
 
             sharp_ratio_item = QTableWidgetItem(values[4])
-            sharp_ratio_item.setTextAlignment(Qt.AlignCenter)
+            sharp_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 5, sharp_ratio_item)
 
             sortino_ratio_item = QTableWidgetItem(values[5])
-            sortino_ratio_item.setTextAlignment(Qt.AlignCenter)
+            sortino_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 6, sortino_ratio_item)
 
             calmar_ratio_item = QTableWidgetItem(values[6])
-            calmar_ratio_item.setTextAlignment(Qt.AlignCenter)
+            calmar_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 7, calmar_ratio_item)
 
         table.setStyleSheet("font-size: 13px;")
@@ -2573,8 +2573,8 @@ class SpyderTradingDashboard(QMainWindow):
         table.setColumnWidth(7, 65)  # CALMAR
 
         table.setFixedWidth(610)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         return table
 
@@ -2606,7 +2606,7 @@ class SpyderTradingDashboard(QMainWindow):
             padding-bottom: 1px;
         """
         )
-        title_label.setAlignment(Qt.AlignLeft)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         main_layout.addWidget(title_label)
 
         main_layout.addSpacing(8)
@@ -2634,7 +2634,7 @@ class SpyderTradingDashboard(QMainWindow):
                 border-bottom: 1px solid {COLORS['border']};
             """
             )
-            header_label.setAlignment(Qt.AlignCenter)
+            header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             grid.addWidget(header_label, 0, col)
 
         # System Components (Column 1)
@@ -2774,7 +2774,7 @@ class SpyderTradingDashboard(QMainWindow):
     # ==========================================================================
     # SIGNAL HANDLERS - ENHANCED WITH HEARTBEAT
     # ==========================================================================
-    @Slot(bool, str)
+    @pyqtSlot(bool, str)
     def on_connection_status_changed(self, connected: bool, status: str):
         """Handle connection status change - FIXED to prevent override"""
         self.connection_info.ib_connected = connected
@@ -2817,7 +2817,7 @@ class SpyderTradingDashboard(QMainWindow):
         # Update data status (but don't override IB status)
         self.update_status_indicators()
 
-    @Slot(str)
+    @pyqtSlot(str)
     def on_heartbeat_status_changed(self, status: str):
         """Handle heartbeat status changes - FIXED heart icons with bright green"""
         if status == "connected":
@@ -2836,7 +2836,7 @@ class SpyderTradingDashboard(QMainWindow):
                 f"color: {COLORS['negative']}; font-size: 16px;"
             )
 
-    @Slot(str)
+    @pyqtSlot(str)
     def on_market_data_status_changed(self, status: str):
         """Handle market data status change"""
         if status == "LIVE":
@@ -2858,7 +2858,7 @@ class SpyderTradingDashboard(QMainWindow):
             else:
                 self.add_system_log("📊 Market data: NONE")
 
-    @Slot(dict)
+    @pyqtSlot(dict)
     def on_market_data_updated(self, data: dict):
         """Handle market data update - only if not using real data"""
         if self.real_data_active:
@@ -2874,12 +2874,12 @@ class SpyderTradingDashboard(QMainWindow):
         except Exception as e:
             self.logger.error(f"Error updating market data: {e}")
 
-    @Slot(str)
+    @pyqtSlot(str)
     def on_market_error(self, error: str):
         """Handle market error"""
         self.add_system_log(f"❌ Market error: {error}")
 
-    @Slot(str)
+    @pyqtSlot(str)
     def on_heartbeat_received(self, message: str):
         """Handle heartbeat message - FIXED to route to system log"""
         # Route heartbeat messages to system log (not automation log)
@@ -2895,11 +2895,11 @@ class SpyderTradingDashboard(QMainWindow):
                     "Trading is currently active.\n\n"
                     "Disconnecting will stop all trading activities.\n"
                     "Do you want to continue?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
                 )
 
-                if reply != QMessageBox.Yes:
+                if reply != QMessageBox.StandardButton.Yes:
                     return
 
                 self.trading_active = False
@@ -3019,11 +3019,11 @@ class SpyderTradingDashboard(QMainWindow):
             "• Stop automated trading\n"
             "• Disconnect from IB Gateway\n\n"
             "Are you sure?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.add_system_log(
                 "🚨 EMERGENCY CLOSE - All positions closed, system stopped"
             )
@@ -3471,7 +3471,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Scroll to bottom
         cursor = self.system_log.textCursor()
-        cursor.movePosition(QTextCursor.End)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.system_log.setTextCursor(cursor)
 
     def add_automation_log(self, message: str):
@@ -3491,7 +3491,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Scroll to bottom
         cursor = self.auto_log.textCursor()
-        cursor.movePosition(QTextCursor.End)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.auto_log.setTextCursor(cursor)
 
     def setup_white_tooltips(self):
@@ -3791,33 +3791,84 @@ def apply_external_real_data_patch(dashboard, data_file_path=None):
 def main():
     """Main function for standalone testing"""
     print("=" * 70)
-    print("🔥 SPYDER G05 - WITH REAL IB MARKET DATA")
+    print("🔥 SPYDER G05 - FIXED IB CONNECTION & HEARTBEAT DASHBOARD")
     print("=" * 70)
-    
+    print("🔧 Fixed IB connection detection (starts disconnected)")
+    print("💔💚💙 30-second heartbeat: Red→Green→Blue (20s warning)")
+    print("📊 Clean 4-status data display: LIVE/EOD/FROZEN/SIMULATED")
+    print("🔵 Fixed blue simulation button visibility control")
+    print("📞 Fixed trading button messages with IBKR phone number")
+    print("🎯 Fixed-width containers prevent UI jumping")
+    print("🚫 Removed 'REAL DATA (FILE)' override issues")
+    print("=" * 70)
+
     # Create Qt application
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    
+    app.setApplicationName("Spyder Fixed Trading Dashboard")
+    app.setOrganizationName("Spyder Trading System")
+
     try:
-        # Create dashboard
+        # Create fixed dashboard
+        print("🔧 Initializing fixed dashboard with heartbeat monitoring...")
         dashboard = SpyderTradingDashboard()
-        
-        # INTEGRATE REAL IB DATA
-        try:
-            from SpyderB_Broker.SpyderB27_IBDataConnector import patch_dashboard_with_ib_data
-            patch_dashboard_with_ib_data(dashboard)
-            print("✅ Real IB market data connector integrated!")
-        except Exception as e:
-            print(f"⚠️ Could not integrate IB data: {e}")
-        
+
         # Show dashboard
         dashboard.show()
-        
+
+        # Check real data status
+        data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
+        if data_file.exists():
+            try:
+                with open(data_file, "r") as f:
+                    data = json.load(f)
+                spy_price = data.get("SPY", {}).get("last", "N/A")
+                print(f"✅ Real data detected - SPY: ${spy_price}")
+            except:
+                print("⚠️ Real data file exists but couldn't read it")
+        else:
+            print("📊 No real data detected - using simulation")
+            print("   Start injector: python temp_WorkingDataInjector.py")
+
+        print("\n💔💚💙 FIXED FEATURES:")
+        print("   • IB connection starts DISCONNECTED with proper status display")
+        print(
+            "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
+        )
+        print(
+            "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
+        )
+        print("   • Blue simulation button only visible when IB disconnected")
+        print("   • Fixed-width status containers (no UI jumping)")
+        print("   • Removed 'REAL DATA (FILE)' override - shows proper IB status")
+        print("   • Correct IBKR phone number in all trading button messages")
+
+        print("\n🔥 Enhanced Trading Dashboard is ready!")
+        print("   Heartbeat will check IB connection every 30 seconds")
+        print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+
+        # Run application
         return app.exec()
-        
+
     except Exception as e:
         print(f"\n❌ Startup error: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+        # Show error dialog if possible
+        try:
+            QMessageBox.critical(
+                None,
+                "Fixed Trading Dashboard Error",
+                f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
+                "Please check the console for detailed error information.",
+            )
+        except:
+            pass
+
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

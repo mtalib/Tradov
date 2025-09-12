@@ -44,10 +44,10 @@ if str(project_root) not in sys.path:
 # ==============================================================================
 # THIRD-PARTY IMPORTS - UPDATED TO PYQT6
 # ==============================================================================
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, \
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, \
     QCheckBox, QGroupBox, QSplitter, QMenu, QApplication, QComboBox
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QPointF
-from PyQt6.QtGui import QPalette, QColor, QFont, QPen, QBrush, QPixmap, QAction
+from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPointF
+from PySide6.QtGui import QPalette, QColor, QFont, QPen, QBrush, QPixmap, QAction
 try:
     import pyqtgraph as pg
 
@@ -173,10 +173,10 @@ class ChartWidget(QWidget):
     """
 
     # Signals
-    timeframe_changed = pyqtSignal(str)
-    indicator_toggled = pyqtSignal(str, bool)
-    drawing_completed = pyqtSignal(dict)
-    chart_clicked = pyqtSignal(float, float)  # price, time
+    timeframe_changed = Signal(str)
+    indicator_toggled = Signal(str, bool)
+    drawing_completed = Signal(dict)
+    chart_clicked = Signal(float, float)  # price, time
 
     def __init__(self, event_manager=None, parent=None):
         super().__init__(parent)
@@ -520,7 +520,7 @@ class ChartWidget(QWidget):
             "Chart visualization requires pyqtgraph\n"
             "Install with: pip install pyqtgraph"
         )
-        fallback_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fallback_label.setAlignment(Qt.AlignCenter)
         fallback_label.setStyleSheet("color: #ff0000; font-size: 14px; padding: 50px;")
         layout.addWidget(fallback_label)
 

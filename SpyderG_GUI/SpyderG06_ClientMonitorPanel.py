@@ -36,7 +36,7 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -49,8 +49,8 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QProgressBar,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThread, QObject
-from PyQt6.QtGui import QFont, QColor, QPalette
+from PySide6.QtCore import Qt, QTimer, Signal, Slot, QThread, QObject
+from PySide6.QtGui import QFont, QColor, QPalette
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -122,8 +122,8 @@ class ClientMonitorPanel(QWidget):
     """
 
     # Signals
-    health_status_changed = pyqtSignal(str, bool)  # component_name, is_healthy
-    client_status_changed = pyqtSignal(int, bool)  # client_id, is_connected
+    health_status_changed = Signal(str, bool)  # component_name, is_healthy
+    client_status_changed = Signal(int, bool)  # client_id, is_connected
 
     def __init__(self, parent=None):
         """
@@ -357,7 +357,7 @@ class ClientMonitorPanel(QWidget):
             }}
         """
         )
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)
 
         return cell
@@ -634,7 +634,7 @@ class ClientMonitorPanel(QWidget):
     # ==========================================================================
     # UPDATE METHODS
     # ==========================================================================
-    @pyqtSlot()
+    @Slot()
     def update_metrics(self):
         """Update metrics display (called by timer)."""
         # This would normally get data from SpyderB15_PrometheusMetrics

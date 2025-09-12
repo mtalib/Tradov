@@ -26,12 +26,12 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor, QFont, QPalette
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QFont, QPalette
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel,
                             QPushButton, QTextEdit, QVBoxLayout, QWidget)
 
 # ==============================================================================
@@ -70,7 +70,7 @@ class SignalInfoDialog(QDialog):
     Features uniform 420x380 size, dark theme, and auto-close functionality.
     """
 
-    closed = pyqtSignal()
+    closed = Signal()
 
     def __init__(self, signal_type: str, parent=None):
         """
@@ -83,9 +83,9 @@ class SignalInfoDialog(QDialog):
         super().__init__(parent)
         self.signal_type = signal_type
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
+            Qt.FramelessWindowHint
+            | Qt.WindowStaysOnTopHint
+            | Qt.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setup_ui()

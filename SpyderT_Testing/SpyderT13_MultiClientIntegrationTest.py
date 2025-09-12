@@ -48,12 +48,12 @@ import numpy as np
 
 # PyQt6 for GUI testing
 try:
-    from PyQt6.QtWidgets import QApplication, QWidget
-    from PyQt6.QtCore import QTimer, QObject, pyqtSignal
-    from PyQt6.QtTest import QTest
-    PYQT6_AVAILABLE = True
+    from PySide6.QtWidgets import QApplication, QWidget
+    from PySide6.QtCore import QTimer, QObject, Signal
+    from PySide6.QtTest import QTest
+    PYSIDE6_AVAILABLE = True
 except ImportError:
-    PYQT6_AVAILABLE = False
+    PYSIDE6_AVAILABLE = False
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -219,11 +219,11 @@ class MockIBGateway:
         size = random.randint(*MOCK_VOLUME_RANGE)
         return MockMarketDataTick(symbol, price, size, datetime.now())
 
-class MockQTWidget(QWidget if PYQT6_AVAILABLE else object):
+class MockQTWidget(QWidget if PYSIDE6_AVAILABLE else object):
     """Mock Qt widget for testing dashboard integration"""
     
     def __init__(self, symbol: str):
-        if PYQT6_AVAILABLE:
+        if PYSIDE6_AVAILABLE:
             super().__init__()
         self.symbol = symbol
         self.update_count = 0
@@ -266,7 +266,7 @@ class MultiClientIntegrationTestSuite(unittest.TestCase):
         cls.error_handler = SpyderErrorHandler()
         
         # Initialize Qt application if available
-        if PYQT6_AVAILABLE and QApplication.instance() is None:
+        if PYSIDE6_AVAILABLE and QApplication.instance() is None:
             cls.app = QApplication([])
         else:
             cls.app = None
@@ -384,7 +384,7 @@ class MultiClientIntegrationTestSuite(unittest.TestCase):
     def test_02_bridge_initialization(self):
         """Test dashboard bridge initialization"""
         try:
-            if not BRIDGE_AVAILABLE or not PYQT6_AVAILABLE:
+            if not BRIDGE_AVAILABLE or not PYSIDE6_AVAILABLE:
                 self.skipTest("Bridge or PyQt6 not available")
             
             # Test bridge creation
@@ -410,7 +410,7 @@ class MultiClientIntegrationTestSuite(unittest.TestCase):
     def test_03_dashboard_initialization(self):
         """Test trading dashboard initialization"""
         try:
-            if not DASHBOARD_AVAILABLE or not PYQT6_AVAILABLE:
+            if not DASHBOARD_AVAILABLE or not PYSIDE6_AVAILABLE:
                 self.skipTest("Dashboard or PyQt6 not available")
             
             # Test dashboard creation
@@ -483,7 +483,7 @@ class MultiClientIntegrationTestSuite(unittest.TestCase):
     def test_05_bridge_widget_registration(self):
         """Test bridge widget registration and management"""
         try:
-            if not BRIDGE_AVAILABLE or not PYQT6_AVAILABLE:
+            if not BRIDGE_AVAILABLE or not PYSIDE6_AVAILABLE:
                 self.skipTest("Bridge or PyQt6 not available")
             
             self.bridge = DashboardDataBridge()
@@ -566,7 +566,7 @@ class MultiClientIntegrationTestSuite(unittest.TestCase):
     def test_07_end_to_end_data_flow(self):
         """Test complete data flow from manager through bridge to widgets"""
         try:
-            if not all([MANAGER_AVAILABLE, BRIDGE_AVAILABLE, PYQT6_AVAILABLE]):
+            if not all([MANAGER_AVAILABLE, BRIDGE_AVAILABLE, PYSIDE6_AVAILABLE]):
                 self.skipTest("Required components not available")
             
             # Initialize complete system
@@ -870,7 +870,7 @@ class MultiClientIntegrationTestSuite(unittest.TestCase):
     def test_12_comprehensive_integration(self):
         """Comprehensive test of complete system integration"""
         try:
-            if not all([MANAGER_AVAILABLE, BRIDGE_AVAILABLE, PYQT6_AVAILABLE]):
+            if not all([MANAGER_AVAILABLE, BRIDGE_AVAILABLE, PYSIDE6_AVAILABLE]):
                 self.skipTest("Full integration test requires all components")
             
             integration_start_time = time.time()
@@ -1079,7 +1079,7 @@ if __name__ == "__main__":
     print(f"   MultiClientDataManager: {'✅' if MANAGER_AVAILABLE else '❌'}")
     print(f"   DashboardDataBridge: {'✅' if BRIDGE_AVAILABLE else '❌'}")
     print(f"   TradingDashboard: {'✅' if DASHBOARD_AVAILABLE else '❌'}")
-    print(f"   PyQt6: {'✅' if PYQT6_AVAILABLE else '❌'}")
+    print(f"   PyQt6: {'✅' if PYSIDE6_AVAILABLE else '❌'}")
     print(f"   Test Framework: {'✅' if TEST_FRAMEWORK_AVAILABLE else '❌'}")
     print("")
     

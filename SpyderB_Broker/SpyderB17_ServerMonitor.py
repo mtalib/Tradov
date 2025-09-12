@@ -49,9 +49,9 @@ from collections import deque
 # ==============================================================================
 import psutil
 import pytz
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt, QObject
-from PyQt6.QtGui import QColor, QFont, QIcon
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton
+from PySide6.QtCore import QTimer, QThread, Signal, Qt, QObject
+from PySide6.QtGui import QColor, QFont, QIcon
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -144,9 +144,9 @@ class ServerMonitorWorker(QThread):
     """Background thread for monitoring server status"""
     
     # Qt signals for UI updates
-    statusUpdated = pyqtSignal(dict)  # Server status update
-    metricsUpdated = pyqtSignal(dict)  # Performance metrics
-    errorOccurred = pyqtSignal(str)   # Error notifications
+    statusUpdated = Signal(dict)  # Server status update
+    metricsUpdated = Signal(dict)  # Performance metrics
+    errorOccurred = Signal(str)   # Error notifications
     
     def __init__(self, config: GatewayConfig):
         super().__init__()
@@ -488,7 +488,7 @@ class IBKRServerStatusWidget(QWidget):
             hosts_entry = f"{SERVER_IPS['zdc1.ibllc.com']} zdc1.ibllc.com"
             
             # Show message to user
-            from PyQt6.QtWidgets import QMessageBox
+            from PySide6.QtWidgets import QMessageBox
             
             msg = QMessageBox()
             msg.setWindowTitle("Force Zurich Routing")

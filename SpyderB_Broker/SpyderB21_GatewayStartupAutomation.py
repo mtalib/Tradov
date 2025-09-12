@@ -59,13 +59,13 @@ import docker
 import psutil
 import pytz
 from cryptography.fernet import Fernet
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                             QPushButton, QTextEdit, QProgressBar, QGroupBox,
                             QCheckBox, QMessageBox, QTabWidget, QListWidget,
                             QListWidgetItem, QLineEdit, QComboBox, QSpinBox,
                             QTimeEdit, QFrame, QSplitter, QScrollArea)
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt, QTime, QProcess
-from PyQt6.QtGui import QFont, QColor, QIcon, QPalette
+from PySide6.QtCore import QTimer, QThread, Signal, Qt, QTime, QProcess
+from PySide6.QtGui import QFont, QColor, QIcon, QPalette
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -1057,8 +1057,8 @@ class GatewayAutomationDashboard(QWidget):
     """
     
     # Qt signals
-    gatewayStateChanged = pyqtSignal(str)  # GatewayState
-    healthStatusChanged = pyqtSignal(bool, str)  # healthy, message
+    gatewayStateChanged = Signal(str)  # GatewayState
+    healthStatusChanged = Signal(bool, str)  # healthy, message
     
     def __init__(self, 
                  gateway_automation: Optional[GatewayStartupAutomation] = None,
@@ -1523,9 +1523,9 @@ class GatewayAutomationDashboard(QWidget):
             
         reply = QMessageBox.question(self, "Confirm Stop", 
                                    "Are you sure you want to stop the gateway?",
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                                   QMessageBox.Yes | QMessageBox.No)
         
-        if reply == QMessageBox.StandardButton.Yes:
+        if reply == QMessageBox.Yes:
             self.stop_btn.setEnabled(False)
             self.stop_btn.setText("🔄 Stopping...")
             

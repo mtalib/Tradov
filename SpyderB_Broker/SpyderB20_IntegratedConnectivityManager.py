@@ -51,12 +51,12 @@ import subprocess
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import psutil
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                             QPushButton, QTextEdit, QProgressBar, QGroupBox,
                             QCheckBox, QMessageBox, QTabWidget, QListWidget,
                             QListWidgetItem, QSplitter, QFrame, QScrollArea)
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt, QObject, QPropertyAnimation
-from PyQt6.QtGui import QFont, QColor, QIcon, QPalette
+from PySide6.QtCore import QTimer, QThread, Signal, Qt, QObject, QPropertyAnimation
+from PySide6.QtGui import QFont, QColor, QIcon, QPalette
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -600,8 +600,8 @@ class IntegratedConnectivityDashboard(QWidget):
     """
     
     # Qt signals
-    connectivityStateChanged = pyqtSignal(str)  # ConnectivityState
-    actionCompleted = pyqtSignal(str, bool)     # action_name, success
+    connectivityStateChanged = Signal(str)  # ConnectivityState
+    actionCompleted = Signal(str, bool)     # action_name, success
     
     def __init__(self, config: Optional[GatewayConfig] = None):
         super().__init__()
@@ -835,7 +835,7 @@ class IntegratedConnectivityDashboard(QWidget):
         layout = QVBoxLayout()
         
         label = QLabel(f"⚠️ {message}")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("color: orange; font-size: 14px;")
         layout.addWidget(label)
         
@@ -1021,9 +1021,9 @@ class IntegratedConnectivityDashboard(QWidget):
         """Emergency connectivity reset"""
         reply = QMessageBox.question(self, "Emergency Reset", 
                                    "This will disconnect all connections and reset the system. Continue?",
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                                   QMessageBox.Yes | QMessageBox.No)
         
-        if reply == QMessageBox.StandardButton.Yes:
+        if reply == QMessageBox.Yes:
             try:
                 # Disconnect VPN if connected
                 if (self.connectivity_manager.vpn_manager and 

@@ -35,11 +35,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from PyQt6.QtCore import QDateTime, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import (QBrush, QColor, QFont, QIcon, QPainter, QPalette,
+from PySide6.QtCore import QDateTime, Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtGui import (QBrush, QColor, QFont, QIcon, QPainter, QPalette,
                         QPixmap)
 # PyQt6 imports
-from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog,
                             QFrame, QGridLayout, QGroupBox, QHBoxLayout,
                             QHeaderView, QLabel, QProgressBar, QPushButton,
                             QRadioButton, QSlider, QSpinBox, QSplitter,
@@ -155,8 +155,8 @@ class SkewAlert:
 class SkewDataThread(QThread):
     """Background thread for fetching SKEW data"""
 
-    data_updated = pyqtSignal(SkewData)
-    error_occurred = pyqtSignal(str)
+    data_updated = Signal(SkewData)
+    error_occurred = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -279,8 +279,8 @@ class SkewMonitorDialog(QDialog):
     """
 
     # Signals
-    alert_triggered = pyqtSignal(SkewAlert)
-    strategy_updated = pyqtSignal(dict)
+    alert_triggered = Signal(SkewAlert)
+    strategy_updated = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -363,12 +363,12 @@ class SkewMonitorDialog(QDialog):
         skew_layout = QVBoxLayout()
 
         self.skew_value_label = QLabel("---.--")
-        self.skew_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.skew_value_label.setAlignment(Qt.AlignCenter)
         font = QFont("Arial", 36, QFont.Weight.Bold)
         self.skew_value_label.setFont(font)
 
         self.skew_timestamp_label = QLabel("Last Update: --:--:--")
-        self.skew_timestamp_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.skew_timestamp_label.setAlignment(Qt.AlignCenter)
 
         skew_layout.addWidget(self.skew_value_label)
         skew_layout.addWidget(self.skew_timestamp_label)
@@ -425,7 +425,7 @@ class SkewMonitorDialog(QDialog):
         regime_layout = QVBoxLayout()
 
         self.regime_label = QLabel("ANALYZING...")
-        self.regime_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.regime_label.setAlignment(Qt.AlignCenter)
         regime_font = QFont("Arial", 16, QFont.Weight.Bold)
         self.regime_label.setFont(regime_font)
 
@@ -443,7 +443,7 @@ class SkewMonitorDialog(QDialog):
         signal_layout = QVBoxLayout()
 
         self.signal_label = QLabel("NEUTRAL")
-        self.signal_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.signal_label.setAlignment(Qt.AlignCenter)
         signal_font = QFont("Arial", 16, QFont.Weight.Bold)
         self.signal_label.setFont(signal_font)
 
@@ -537,7 +537,7 @@ class SkewMonitorDialog(QDialog):
         else:
             # Fallback if PyQtGraph not available
             no_chart_label = QLabel("Charts require PyQtGraph installation")
-            no_chart_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            no_chart_label.setAlignment(Qt.AlignCenter)
             layout.addWidget(no_chart_label)
 
         widget.setLayout(layout)
@@ -785,7 +785,7 @@ class SkewMonitorDialog(QDialog):
     # DATA UPDATE METHODS
     # ==========================================================================
 
-    @pyqtSlot(SkewData)
+    @Slot(SkewData)
     def on_data_updated(self, data: SkewData):
         """Handle new SKEW data"""
         self.current_skew_data = data
@@ -1313,7 +1313,7 @@ class SkewMonitorDialog(QDialog):
         else:
             self.stop_monitoring()
 
-    @pyqtSlot(str)
+    @Slot(str)
     def on_error(self, error_msg: str):
         """Handle errors from data thread"""
         logger.error(f"Data thread error: {error_msg}")
@@ -1367,7 +1367,7 @@ def create_skew_monitor_dialog(parent=None) -> SkewMonitorDialog:
 
 
 if __name__ == "__main__":
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
 

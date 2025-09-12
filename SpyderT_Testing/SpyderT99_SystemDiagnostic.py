@@ -426,7 +426,7 @@ class SpyderDiagnostic:
         print("-" * 40)
         
         try:
-            from PyQt6.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication
             
             # Create QApplication if it doesn't exist
             app = QApplication.instance()

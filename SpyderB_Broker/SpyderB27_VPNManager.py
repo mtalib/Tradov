@@ -55,12 +55,12 @@ from urllib.parse import urlparse
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import psutil
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                             QPushButton, QComboBox, QTextEdit, QProgressBar, 
                             QGroupBox, QCheckBox, QMessageBox, QListWidget,
                             QListWidgetItem, QTabWidget)
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt, QProcess
-from PyQt6.QtGui import QFont, QColor, QIcon
+from PySide6.QtCore import QTimer, QThread, Signal, Qt, QProcess
+from PySide6.QtGui import QFont, QColor, QIcon
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -795,8 +795,8 @@ class VPNDashboardWidget(QWidget):
 class VPNConnectWorker(QThread):
     """Background worker for VPN connection"""
     
-    finished = pyqtSignal(bool, str)  # success, message
-    log_message = pyqtSignal(str)     # log message
+    finished = Signal(bool, str)  # success, message
+    log_message = Signal(str)     # log message
     
     def __init__(self, vpn_manager: VPNManager):
         super().__init__()

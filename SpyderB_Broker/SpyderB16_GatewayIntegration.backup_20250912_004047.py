@@ -42,14 +42,14 @@ import psutil
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    from PyQt6.QtWidgets import (
+    from PySide6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
         QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
         QGridLayout, QProgressBar, QTextEdit, QTabWidget,
         QFrame, QScrollArea, QSplitter, QStatusBar
     )
-    from PyQt6.QtCore import QThread, pyqtSignal, QTimer, Qt, QObject
-    from PyQt6.QtGui import QFont, QColor, QPalette, QPixmap, QIcon
+    from PySide6.QtCore import QThread, Signal, QTimer, Qt, QObject
+    from PySide6.QtGui import QFont, QColor, QPalette, QPixmap, QIcon
     HAS_PYQT6 = True
 except ImportError:
     HAS_PYQT6 = False

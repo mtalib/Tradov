@@ -38,8 +38,8 @@ import numpy as np
 # ==============================================================================
 import pandas as pd
 from colorama import Back, Fore, Style, init
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QTextEdit, QVBoxLayout,
+from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtWidgets import (QApplication, QMainWindow, QTextEdit, QVBoxLayout,
                             QWidget)
 
 # Initialize colorama for colored console output
@@ -161,9 +161,9 @@ class SpyderSystemTest(QObject):
     """
 
     # Signals for test status
-    test_started = pyqtSignal(str)
-    test_completed = pyqtSignal(str, bool)
-    test_progress = pyqtSignal(str)
+    test_started = Signal(str)
+    test_completed = Signal(str, bool)
+    test_progress = Signal(str)
 
     def __init__(self):
         super().__init__()

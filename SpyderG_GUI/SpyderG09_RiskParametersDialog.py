@@ -28,12 +28,12 @@ import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QFont
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                             QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                             QFormLayout, QFrame, QGridLayout, QGroupBox,
                             QHBoxLayout, QHeaderView, QLabel, QMessageBox,
@@ -118,8 +118,8 @@ class RiskParametersDialog(QDialog):
     """Professional risk levels configuration dialog with enhanced UI"""
 
     # Custom signals
-    parameters_updated = pyqtSignal(dict)
-    profile_changed = pyqtSignal(str)
+    parameters_updated = Signal(dict)
+    profile_changed = Signal(str)
 
     def __init__(self, parent=None, current_params: Optional[Dict] = None):
         super().__init__(parent)
@@ -1062,10 +1062,10 @@ class RiskParametersDialog(QDialog):
             self,
             "Reset to Defaults",
             "This will reset all levels to default values.\nAre you sure?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.Yes | QMessageBox.No,
         )
 
-        if reply == QMessageBox.StandardButton.Yes:
+        if reply == QMessageBox.Yes:
             self.is_loading = True
             self.risk_profile_combo.setCurrentText("Moderate")
             self.on_profile_changed("Moderate")
@@ -1093,10 +1093,10 @@ class RiskParametersDialog(QDialog):
                 "The following warnings were detected:\n\n"
                 + "\n".join(messages)
                 + "\n\nDo you want to continue?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.Yes | QMessageBox.No,
             )
 
-            if reply == QMessageBox.StandardButton.No:
+            if reply == QMessageBox.No:
                 return
 
         # Emit signal with parameters
@@ -1122,14 +1122,14 @@ class RiskParametersDialog(QDialog):
                 self,
                 "Unsaved Changes",
                 "You have unsaved changes. Apply them before closing?",
-                QMessageBox.StandardButton.Yes
-                | QMessageBox.StandardButton.No
-                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.Yes
+                | QMessageBox.No
+                | QMessageBox.Cancel,
             )
 
-            if reply == QMessageBox.StandardButton.Cancel:
+            if reply == QMessageBox.Cancel:
                 return
-            elif reply == QMessageBox.StandardButton.Yes:
+            elif reply == QMessageBox.Yes:
                 self.apply_parameters()
 
         super().accept()
@@ -1141,10 +1141,10 @@ class RiskParametersDialog(QDialog):
                 self,
                 "Unsaved Changes",
                 "You have unsaved changes. Discard them?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.Yes | QMessageBox.No,
             )
 
-            if reply == QMessageBox.StandardButton.No:
+            if reply == QMessageBox.No:
                 return
 
         super().reject()

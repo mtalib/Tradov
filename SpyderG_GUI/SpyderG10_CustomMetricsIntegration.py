@@ -30,9 +30,9 @@ from typing import Any, Dict, List, Optional
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import (QGroupBox, QHBoxLayout, QLabel, QVBoxLayout,
+from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QGroupBox, QHBoxLayout, QLabel, QVBoxLayout,
                             QWidget)
 
 # ==============================================================================
@@ -112,10 +112,10 @@ class CustomMetricsIntegration(QObject):
     """
 
     # Signals
-    metrics_updated = pyqtSignal(dict)  # Emits formatted metrics for display
-    connection_status_changed = pyqtSignal(bool)  # Connection status
-    error_occurred = pyqtSignal(str)  # Error messages
-    all_metrics_updated = pyqtSignal(dict)  # Complete metrics update
+    metrics_updated = Signal(dict)  # Emits formatted metrics for display
+    connection_status_changed = Signal(bool)  # Connection status
+    error_occurred = Signal(str)  # Error messages
+    all_metrics_updated = Signal(dict)  # Complete metrics update
 
     def __init__(self, parent_dashboard=None):
         """
@@ -307,7 +307,7 @@ class CustomMetricsIntegration(QObject):
     # SIGNAL HANDLERS
     # ==========================================================================
 
-    @pyqtSlot(dict)
+    @Slot(dict)
     def _on_metrics_updated(self, metrics: dict):
         """Handle metrics update from client"""
         self.previous_metrics = self.current_metrics.copy()
@@ -328,7 +328,7 @@ class CustomMetricsIntegration(QObject):
         self.metrics_updated.emit(metrics)
         self.all_metrics_updated.emit(metrics)
 
-    @pyqtSlot(bool)
+    @Slot(bool)
     def _on_connection_changed(self, connected: bool):
         """Handle connection status change"""
         self.connected = connected
@@ -339,13 +339,13 @@ class CustomMetricsIntegration(QObject):
         else:
             self.logger.warning("Client 10 disconnected from IB Gateway")
 
-    @pyqtSlot(str)
+    @Slot(str)
     def _on_error(self, error: str):
         """Handle error from client"""
         self.logger.error(f"Client 10 error: {error}")
         self.error_occurred.emit(error)
 
-    @pyqtSlot()
+    @Slot()
     def _process_metrics_update(self):
         """Process and format metrics for dashboard display"""
         if not self.current_metrics:
@@ -478,7 +478,7 @@ class DashboardMetricsUpdater(QObject):
         # Widget references (will be populated by dashboard)
         self.metric_widgets = {}
 
-    @pyqtSlot(dict)
+    @Slot(dict)
     def update_dashboard_widgets(self, metrics: dict):
         """
         Update dashboard widgets with new metrics
@@ -594,7 +594,7 @@ __all__ = [
 if __name__ == "__main__":
     import sys
 
-    from PyQt6.QtWidgets import QApplication, QMainWindow
+    from PySide6.QtWidgets import QApplication, QMainWindow
 
     app = QApplication(sys.argv)
 

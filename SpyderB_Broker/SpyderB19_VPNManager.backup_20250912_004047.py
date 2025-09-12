@@ -46,14 +46,14 @@ import ipaddress
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    from PyQt6.QtWidgets import (
+    from PySide6.QtWidgets import (
         QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
         QComboBox, QProgressBar, QTextEdit, QGroupBox, QGridLayout,
         QFrame, QScrollArea, QTabWidget, QTableWidget, QTableWidgetItem,
         QHeaderView, QStatusBar, QDialog, QDialogButtonBox
     )
-    from PyQt6.QtCore import QThread, pyqtSignal, QTimer, Qt, QObject
-    from PyQt6.QtGui import QFont, QColor, QPalette
+    from PySide6.QtCore import QThread, Signal, QTimer, Qt, QObject
+    from PySide6.QtGui import QFont, QColor, QPalette
     HAS_PYQT6 = True
 except ImportError:
     HAS_PYQT6 = False

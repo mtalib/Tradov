@@ -51,11 +51,11 @@ import shutil
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import psutil
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                             QPushButton, QTextEdit, QProgressBar, QGroupBox,
                             QCheckBox, QMessageBox)
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt
-from PyQt6.QtGui import QFont, QColor
+from PySide6.QtCore import QTimer, QThread, Signal, Qt
+from PySide6.QtGui import QFont, QColor
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS
@@ -731,9 +731,9 @@ class ZurichDiagnosticWidget(QWidget):
                    "• Adding DNS overrides to /etc/hosts\n"
                    "• Configuring firewall rules\n\n"
                    "Admin privileges may be required. Continue?")
-        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         
-        if msg.exec() == QMessageBox.StandardButton.Yes:
+        if msg.exec() == QMessageBox.Yes:
             self.apply_repairs()
             
     def apply_repairs(self):
@@ -759,8 +759,8 @@ class ZurichDiagnosticWidget(QWidget):
 class DiagnosticWorker(QThread):
     """Background worker for running diagnostics"""
     
-    finished = pyqtSignal(object)  # DiagnosticResult
-    progress = pyqtSignal(str)     # Progress message
+    finished = Signal(object)  # DiagnosticResult
+    progress = Signal(str)     # Progress message
     
     def __init__(self, diagnostic: ZurichConnectivityDiagnostic, level: DiagnosticLevel):
         super().__init__()

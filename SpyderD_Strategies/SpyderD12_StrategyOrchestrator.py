@@ -60,15 +60,15 @@ from scipy import stats, optimize
 # THIRD-PARTY IMPORTS  
 # ==============================================================================
 import pytz
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                             QPushButton, QTextEdit, QProgressBar, QGroupBox,
                             QCheckBox, QMessageBox, QTabWidget, QListWidget,
                             QListWidgetItem, QTableWidget, QTableWidgetItem,
                             QSplitter, QFrame, QScrollArea, QComboBox,
                             QSpinBox, QDoubleSpinBox, QSlider, QTreeWidget,
                             QTreeWidgetItem, QHeaderView)
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt, QAbstractTableModel, QModelIndex
-from PyQt6.QtGui import QFont, QColor, QIcon, QPalette
+from PySide6.QtCore import QTimer, QThread, Signal, Qt, QAbstractTableModel, QModelIndex
+from PySide6.QtGui import QFont, QColor, QIcon, QPalette
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -1356,8 +1356,8 @@ class StrategyOrchestratorDashboard(QWidget):
     """
     
     # Qt signals
-    portfolioUpdated = pyqtSignal(dict)
-    rebalanceCompleted = pyqtSignal(str)
+    portfolioUpdated = Signal(dict)
+    rebalanceCompleted = Signal(str)
     
     def __init__(self, orchestrator: Optional[StrategyOrchestrator] = None):
         super().__init__()

@@ -31,15 +31,15 @@ sys.path.insert(0, str(project_root))
 
 # Try to import Qt modules for GUI
 try:
-    from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit
-    from PyQt6.QtCore import QTimer, pyqtSignal, QObject, QThread
-    from PyQt6.QtGui import QIcon, QFont
+    from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit
+    from PySide6.QtCore import QTimer, Signal, QObject, QThread
+    from PySide6.QtGui import QIcon, QFont
     HAS_QT = True
 except ImportError:
     print("Warning: PyQt6 not available. GUI mode disabled.")
     HAS_QT = False
     QApplication = QWidget = QVBoxLayout = QLabel = QPushButton = QTextEdit = None
-    QTimer = pyqtSignal = QObject = QThread = QIcon = QFont = None
+    QTimer = Signal = QObject = QThread = QIcon = QFont = None
 
 # Import Spyder modules with separated error handling
 # Logger (required)

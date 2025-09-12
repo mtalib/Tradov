@@ -40,8 +40,8 @@ except ImportError as e:
         BRIDGE_SUCCESSFUL = False
         
         # Create a minimal fallback class
-        from PyQt6.QtWidgets import QMainWindow, QLabel
-        from PyQt6.QtCore import Qt
+        from PySide6.QtWidgets import QMainWindow, QLabel
+        from PySide6.QtCore import Qt
         
         class SpyderMainWindow(QMainWindow):
             """Minimal fallback if SpyderG05 is not available"""
@@ -54,7 +54,7 @@ except ImportError as e:
                     "Error: Could not load SpyderG05_TradingDashboard\n\n"
                     "Please ensure SpyderG05_TradingDashboard.py is in the SpyderG_GUI folder."
                 )
-                error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                error_label.setAlignment(Qt.AlignCenter)
                 error_label.setStyleSheet("color: red; font-size: 14px;")
                 self.setCentralWidget(error_label)
                 

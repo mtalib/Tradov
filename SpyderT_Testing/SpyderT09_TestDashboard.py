@@ -42,14 +42,14 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PyQt6.QtCore import (QPoint, QRect, QSize, Qt, QThread, QTimer,
-                        pyqtSignal, pyqtSlot)
-from PyQt6.QtGui import (QBrush, QColor, QFont, QIcon, QKeySequence, QPainter,
+from PySide6.QtCore import (QPoint, QRect, QSize, Qt, QThread, QTimer,
+                        Signal, Slot)
+from PySide6.QtGui import (QBrush, QColor, QFont, QIcon, QKeySequence, QPainter,
                          QPalette, QPen, QPixmap, QShortcut, QTextCursor)
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt6.QtWidgets import (QApplication, QDialog, QFrame, QGridLayout,
+from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QGridLayout,
                             QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                             QLineEdit, QMainWindow, QMessageBox, QProgressBar,
                              QPushButton, QScrollArea, QSplitter, QTableWidget,
@@ -322,7 +322,7 @@ class MonitorDialog(QDialog):
         # Title
         title_label = QLabel(title)
         title_label.setStyleSheet(f"font-size: 16px; font-weight: normal; color: {COLORS['cyan']};")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(title_label)
 
         # Separator
@@ -1359,17 +1359,17 @@ class MarketSymbolWidget(QWidget):
         self.price_label = QLabel("---.--")
         self.price_label.setStyleSheet(f"color: {COLORS['text']};")
         self.price_label.setFixedWidth(70)
-        self.price_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.price_label.setAlignment(Qt.AlignRight)
 
         # Change label
         self.change_label = QLabel("+0.00")
         self.change_label.setFixedWidth(55)
-        self.change_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.change_label.setAlignment(Qt.AlignRight)
 
         # Percent label
         self.pct_label = QLabel("0.00%")
         self.pct_label.setFixedWidth(55)
-        self.pct_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.pct_label.setAlignment(Qt.AlignRight)
 
         layout.addWidget(self.symbol_label)
         layout.addWidget(self.price_label)
@@ -1543,7 +1543,7 @@ class GreekBar(QWidget):
         painter.setFont(font)
         status_rect = QRect(self.width() - 190, 0, 180, 22)
         painter.drawText(
-            status_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, self.status
+            status_rect, Qt.AlignVCenter | Qt.AlignRight, self.status
         )
 
 
@@ -1972,17 +1972,17 @@ class SpyderTestDashboard(QMainWindow):
 
         last_header = QLabel("LAST")
         last_header.setFixedWidth(70)
-        last_header.setAlignment(Qt.AlignmentFlag.AlignRight)
+        last_header.setAlignment(Qt.AlignRight)
         last_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         chg_header = QLabel("CHG")
         chg_header.setFixedWidth(55)
-        chg_header.setAlignment(Qt.AlignmentFlag.AlignRight)
+        chg_header.setAlignment(Qt.AlignRight)
         chg_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         chg_pct_header = QLabel("CHG%")
         chg_pct_header.setFixedWidth(55)
-        chg_pct_header.setAlignment(Qt.AlignmentFlag.AlignRight)
+        chg_pct_header.setAlignment(Qt.AlignRight)
         chg_pct_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         header_layout.addWidget(symbol_header)
@@ -2344,7 +2344,7 @@ class SpyderTestDashboard(QMainWindow):
 
         self.settled_value = QLabel("$21,800,000.00")
         self.settled_value.setStyleSheet(cell_style + "text-align: right;")
-        self.settled_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.settled_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         table_layout.addWidget(self.settled_value, 1, 1)
 
         realized_label = QLabel("REALIZED P&L")
@@ -2356,7 +2356,7 @@ class SpyderTestDashboard(QMainWindow):
             cell_style + f"color: {COLORS['positive']}; text-align: right;"
         )
         self.realized_value.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            Qt.AlignRight | Qt.AlignVCenter
         )
         table_layout.addWidget(self.realized_value, 1, 3)
 
@@ -2367,7 +2367,7 @@ class SpyderTestDashboard(QMainWindow):
 
         self.buying_value = QLabel("$20,450,000.00")
         self.buying_value.setStyleSheet(cell_style + "text-align: right;")
-        self.buying_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.buying_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         table_layout.addWidget(self.buying_value, 2, 1)
 
         unrealized_label = QLabel("UNREALIZED P&L")
@@ -2379,7 +2379,7 @@ class SpyderTestDashboard(QMainWindow):
             cell_style + f"color: {COLORS['positive']}; text-align: right;"
         )
         self.unrealized_value.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            Qt.AlignRight | Qt.AlignVCenter
         )
         table_layout.addWidget(self.unrealized_value, 2, 3)
 
@@ -2617,38 +2617,38 @@ class SpyderTestDashboard(QMainWindow):
 
             # P&L - right aligned
             pnl_item = QTableWidgetItem(values[0])
-            pnl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
+            pnl_item.setTextAlignment(Qt.AlignRight)
             pnl_item.setForeground(QColor(COLORS["positive"]))
             table.setItem(row, 1, pnl_item)
 
             # Win Rate - centered
             win_rate_item = QTableWidgetItem(values[1])
-            win_rate_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            win_rate_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row, 2, win_rate_item)
 
             # Avg Win/Loss - centered
             avg_item = QTableWidgetItem(values[2])
-            avg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            avg_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row, 3, avg_item)
 
             # Profit Factor - centered
             profit_factor_item = QTableWidgetItem(values[3])
-            profit_factor_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            profit_factor_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row, 4, profit_factor_item)
 
             # Sharpe Ratio - centered
             sharp_ratio_item = QTableWidgetItem(values[4])
-            sharp_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            sharp_ratio_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row, 5, sharp_ratio_item)
 
             # Sortino Ratio - centered
             sortino_ratio_item = QTableWidgetItem(values[5])
-            sortino_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            sortino_ratio_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row, 6, sortino_ratio_item)
 
             # Calmar Ratio - centered
             calmar_ratio_item = QTableWidgetItem(values[6])
-            calmar_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            calmar_ratio_item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row, 7, calmar_ratio_item)
 
         # Configure table
@@ -3125,33 +3125,33 @@ class SpyderTestDashboard(QMainWindow):
         for row, position in enumerate(self.positions):
             # Set items with proper alignment
             date_item = QTableWidgetItem(position.date)
-            date_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            date_item.setTextAlignment(Qt.AlignCenter)
             self.positions_table.setItem(row, 0, date_item)
 
             symbol_item = QTableWidgetItem(position.symbol)
-            symbol_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            symbol_item.setTextAlignment(Qt.AlignCenter)
             self.positions_table.setItem(row, 1, symbol_item)
 
             contract_item = QTableWidgetItem(str(position.contracts))
-            contract_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            contract_item.setTextAlignment(Qt.AlignCenter)
             self.positions_table.setItem(row, 2, contract_item)
 
             strikes_item = QTableWidgetItem(position.strikes)
-            strikes_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            strikes_item.setTextAlignment(Qt.AlignCenter)
             self.positions_table.setItem(row, 3, strikes_item)
 
             expiry_item = QTableWidgetItem(position.expiry)
-            expiry_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            expiry_item.setTextAlignment(Qt.AlignCenter)
             self.positions_table.setItem(row, 4, expiry_item)
 
             self.positions_table.setItem(row, 5, QTableWidgetItem(position.strategy))
 
             status_item = QTableWidgetItem(position.status)
-            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            status_item.setTextAlignment(Qt.AlignCenter)
             self.positions_table.setItem(row, 6, status_item)
 
             cost_item = QTableWidgetItem(f"${position.cost:,.2f}")
-            cost_item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
+            cost_item.setTextAlignment(Qt.AlignRight)
             self.positions_table.setItem(row, 7, cost_item)
 
             # P&L with color
@@ -3160,7 +3160,7 @@ class SpyderTestDashboard(QMainWindow):
                 pnl_item.setForeground(QColor(COLORS["positive"]))
             elif position.pnl < 0:
                 pnl_item.setForeground(QColor(COLORS["negative"]))
-            pnl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
+            pnl_item.setTextAlignment(Qt.AlignRight)
             self.positions_table.setItem(row, 8, pnl_item)
 
             # Auto status with color

@@ -24,7 +24,7 @@ def main():
     """Main entry point"""
     try:
         # Try to import and launch the dashboard
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         from SpyderG_GUI.SpyderG05_TradingDashboard import TradingDashboard
 
@@ -44,8 +44,8 @@ def main():
 
         # Try a basic PyQt window
         try:
-            from PyQt6.QtCore import Qt
-            from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow,
+            from PySide6.QtCore import Qt
+            from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow,
                                         QPushButton, QVBoxLayout, QWidget)
 
             app = QApplication(sys.argv)
@@ -61,13 +61,13 @@ def main():
 
             # Add label
             label = QLabel("Spyder Trading Dashboard")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setAlignment(Qt.AlignCenter)
             label.setStyleSheet("font-size: 24px; font-weight: bold; margin: 20px;")
             layout.addWidget(label)
 
             # Add status
             status = QLabel("Dashboard modules not found. Please check installation.")
-            status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status.setAlignment(Qt.AlignCenter)
             layout.addWidget(status)
 
             # Add button

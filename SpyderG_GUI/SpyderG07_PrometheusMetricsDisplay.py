@@ -44,7 +44,7 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -53,15 +53,15 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QFrame,
 )
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     Qt,
     QTimer,
-    pyqtSignal,
-    pyqtSlot,
+    Signal,
+    Slot,
     QThread,
     QObject,
 )
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QFont,
     QColor,
 )
@@ -124,9 +124,9 @@ class MetricsDataWorker(QObject):
     """Worker thread to fetch metrics from SpyderB15"""
     
     # Signals
-    metrics_updated = pyqtSignal(dict)
-    connection_status_changed = pyqtSignal(bool)
-    error_occurred = pyqtSignal(str)
+    metrics_updated = Signal(dict)
+    connection_status_changed = Signal(bool)
+    error_occurred = Signal(str)
     
     def __init__(self):
         super().__init__()
@@ -298,7 +298,7 @@ class PrometheusMetricsDisplay(QGroupBox):
     """Main Prometheus Metrics display widget that connects to B15 backend"""
     
     # Signals
-    metrics_updated = pyqtSignal(dict)
+    metrics_updated = Signal(dict)
     
     def __init__(self, parent=None):
         super().__init__("PROMETHEUS METRICS", parent)
@@ -464,14 +464,14 @@ class PrometheusMetricsDisplay(QGroupBox):
             }}
         """)
     
-    @pyqtSlot(dict)
+    @Slot(dict)
     def on_metrics_received(self, metrics: dict):
         """Handle metrics from B15 backend"""
         self.current_metrics = metrics
         self.update_display()
         self.metrics_updated.emit(metrics)
     
-    @pyqtSlot(bool)
+    @Slot(bool)
     def on_connection_changed(self, connected: bool):
         """Handle B15 connection status change"""
         if connected:
@@ -479,7 +479,7 @@ class PrometheusMetricsDisplay(QGroupBox):
         else:
             print("⚠️ Running in simulation mode (B15 not available)")
     
-    @pyqtSlot(str)
+    @Slot(str)
     def on_error(self, error: str):
         """Handle errors from worker"""
         print(f"❌ Metrics error: {error}")
@@ -615,7 +615,7 @@ __all__ = ['get_client_status', 'get_system_metrics', 'PrometheusMetricsDisplay'
 
 
 if __name__ == "__main__":
-    from PyQt6.QtWidgets import QApplication, QMainWindow
+    from PySide6.QtWidgets import QApplication, QMainWindow
     
     app = QApplication(sys.argv)
     

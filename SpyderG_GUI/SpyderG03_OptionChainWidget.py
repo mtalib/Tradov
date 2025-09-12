@@ -27,16 +27,16 @@ from datetime import datetime, date
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QLabel, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QPointF
-from PyQt6.QtGui import QFont, QPalette, QColor, QPen, QBrush, QPixmap
+from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPointF
+from PySide6.QtGui import QFont, QPalette, QColor, QPen, QBrush, QPixmap
     QLabel, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QFont
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QBrush, QFont
 import numpy as np
 
 # ==============================================================================
@@ -109,8 +109,8 @@ class OptionChainWidget(QWidget):
     """
     
     # Signals
-    strike_selected = pyqtSignal(float, str, date)  # strike, type, expiration
-    trade_requested = pyqtSignal(dict)  # trade parameters
+    strike_selected = Signal(float, str, date)  # strike, type, expiration
+    trade_requested = Signal(dict)  # trade parameters
     
     def __init__(self, event_manager: EventManager, parent=None):
         super().__init__(parent)

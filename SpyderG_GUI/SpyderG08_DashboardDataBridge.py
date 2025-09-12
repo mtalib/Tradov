@@ -37,16 +37,16 @@ import weakref
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 try:
-    from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, QMutex, QMutexLocker
-    from PyQt6.QtWidgets import QApplication
-    PYQT6_AVAILABLE = True
+    from PySide6.QtCore import QObject, QThread, QTimer, Signal, QMutex, QMutexLocker
+    from PySide6.QtWidgets import QApplication
+    PYSIDE6_AVAILABLE = True
 except ImportError:
     print("⚠️ PyQt6 not available - running in headless mode")
-    PYQT6_AVAILABLE = False
+    PYSIDE6_AVAILABLE = False
     # Mock classes for headless mode
     class QObject:
         pass
-    class pyqtSignal:
+    class Signal:
         def __init__(self, *args):
             pass
         def emit(self, *args):
@@ -166,7 +166,7 @@ class BridgeMetrics:
 # ==============================================================================
 # DASHBOARD DATA BRIDGE CLASS
 # ==============================================================================
-class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
+class DashboardDataBridge(QObject if PYSIDE6_AVAILABLE else object):
     """
     Fixed Dashboard Data Bridge
     
@@ -180,14 +180,14 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
     """
     
     # PyQt6 Signals for thread-safe communication
-    if PYQT6_AVAILABLE:
-        data_updated = pyqtSignal(str, dict)      # symbol, dashboard_data_dict
-        status_changed = pyqtSignal(str)          # status string
-        error_occurred = pyqtSignal(str)          # error message
+    if PYSIDE6_AVAILABLE:
+        data_updated = Signal(str, dict)      # symbol, dashboard_data_dict
+        status_changed = Signal(str)          # status string
+        error_occurred = Signal(str)          # error message
         
     def __init__(self):
         """Initialize the Dashboard Data Bridge"""
-        if PYQT6_AVAILABLE:
+        if PYSIDE6_AVAILABLE:
             super().__init__()
             
         # Core components
@@ -204,7 +204,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
         self._stop_event = threading.Event()
         
         # Thread safety
-        self._mutex = QMutex() if PYQT6_AVAILABLE else threading.RLock()
+        self._mutex = QMutex() if PYSIDE6_AVAILABLE else threading.RLock()
         
         # Data management
         self.current_data: Dict[str, DashboardData] = {}
@@ -257,7 +257,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
                     return False
             
             # Setup update timers
-            if PYQT6_AVAILABLE:
+            if PYSIDE6_AVAILABLE:
                 self._setup_update_timers()
                 self._setup_data_export_timer()
             
@@ -295,7 +295,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             self._subscribe_to_market_data()
             
             # Start update timers
-            if PYQT6_AVAILABLE:
+            if PYSIDE6_AVAILABLE:
                 for timer in self.update_timers.values():
                     timer.start()
                     
@@ -305,7 +305,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             self.is_running = True
             self.status = BridgeStatus.CONNECTED
             
-            if PYQT6_AVAILABLE:
+            if PYSIDE6_AVAILABLE:
                 self.status_changed.emit("Connected")
             
             self.logger.info("✅ DashboardDataBridge started successfully")
@@ -332,7 +332,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             self.logger.info("🛑 Stopping DashboardDataBridge...")
             
             # Stop timers
-            if PYQT6_AVAILABLE:
+            if PYSIDE6_AVAILABLE:
                 for timer in self.update_timers.values():
                     timer.stop()
                     
@@ -344,7 +344,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             self.is_running = False
             self.status = BridgeStatus.DISCONNECTED
             
-            if PYQT6_AVAILABLE:
+            if PYSIDE6_AVAILABLE:
                 self.status_changed.emit("Disconnected")
             
             self.logger.info("✅ DashboardDataBridge stopped")
@@ -386,7 +386,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             dashboard_data = self._convert_snapshot_to_dashboard_data(snapshot)
             
             # Update internal cache
-            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+            with (QMutexLocker(self._mutex) if PYSIDE6_AVAILABLE else self._mutex):
                 self.previous_data[snapshot.symbol] = self.current_data.get(snapshot.symbol)
                 self.current_data[snapshot.symbol] = dashboard_data
                 
@@ -396,7 +396,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
                 self.metrics.last_update_time = datetime.now()
             
             # Emit signal for PyQt widgets
-            if PYQT6_AVAILABLE:
+            if PYSIDE6_AVAILABLE:
                 self.data_updated.emit(snapshot.symbol, dashboard_data.to_dict())
             
             # Notify registered callbacks
@@ -463,7 +463,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
     # ==========================================================================
     def _setup_update_timers(self) -> None:
         """Setup update timers for different priority levels."""
-        if not PYQT6_AVAILABLE:
+        if not PYSIDE6_AVAILABLE:
             return
             
         timer_configs = {
@@ -483,7 +483,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
     
     def _setup_data_export_timer(self) -> None:
         """Setup timer for exporting data to JSON for dashboard compatibility."""
-        if not PYQT6_AVAILABLE:
+        if not PYSIDE6_AVAILABLE:
             return
             
         self.data_export_timer = QTimer()
@@ -540,7 +540,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
     def _export_data_to_json(self) -> None:
         """Export current data to JSON file for dashboard compatibility."""
         try:
-            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+            with (QMutexLocker(self._mutex) if PYSIDE6_AVAILABLE else self._mutex):
                 export_data = {}
                 
                 for symbol, data in self.current_data.items():
@@ -579,7 +579,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
         try:
             widget_id = f"{symbol}_{id(widget)}"
             
-            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+            with (QMutexLocker(self._mutex) if PYSIDE6_AVAILABLE else self._mutex):
                 self.registered_widgets[widget_id] = weakref.ref(widget)
                 
                 if symbol not in self.widget_callbacks:
@@ -626,7 +626,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             Dict containing status information
         """
         try:
-            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+            with (QMutexLocker(self._mutex) if PYSIDE6_AVAILABLE else self._mutex):
                 return {
                     'status': self.status.name,
                     'is_running': self.is_running,
@@ -653,7 +653,7 @@ class DashboardDataBridge(QObject if PYQT6_AVAILABLE else object):
             Dict containing current data
         """
         try:
-            with (QMutexLocker(self._mutex) if PYQT6_AVAILABLE else self._mutex):
+            with (QMutexLocker(self._mutex) if PYSIDE6_AVAILABLE else self._mutex):
                 if symbol:
                     data = self.current_data.get(symbol)
                     return data.to_dict() if data else {}
