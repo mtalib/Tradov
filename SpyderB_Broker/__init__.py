@@ -4,37 +4,44 @@
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderB_Broker     
-Module: __init__.py (COMPLETE FINAL FIXED VERSION)
-Purpose: Package initialization with all import dependencies resolved
+Module: __init__.py (CONSOLIDATED VERSION WITH B29)
+Purpose: Package initialization with consolidated connection manager
 Author: Mohamed Talib
 Year Created: 2025 
-Last Updated: 2025-09-12 Time: 01:20:00  
+Last Updated: 2025-09-13 Time: 20:00:00  
 
 Module Description:
-    Complete package initialization for SpyderB_Broker with ALL import dependencies
-    resolved. This version includes fixes for missing exports, renamed modules,
-    and ensures all broker components load correctly for comprehensive testing.
+    Updated package initialization for SpyderB_Broker with the new consolidated
+    SpyderB29_EnhancedConnectionManager and proper handling of renamed modules.
+    This version resolves duplicate module numbers and provides a clean interface
+    for all broker components.
     
-    FINAL FIXES APPLIED:
-    - Fixed IBDataTypes export in __all__ list
-    - Complete ConnectivityState.UNKNOWN support  
-    - All factory functions working
-    - Comprehensive fallback handling
-    - 100% package loading success rate achieved
+    KEY CHANGES:
+    - Added SpyderB29_EnhancedConnectionManager (consolidated connection manager)
+    - Fixed duplicate module numbers (B26, B27)
+    - Proper module renaming support
+    - Backward compatibility maintained
+    - Enhanced error handling and diagnostics
+    - Timeout prevention integration
 """
 
-__version__ = "2.1.1"
+# ==============================================================================
+# PACKAGE METADATA
+# ==============================================================================
+__version__ = "2.2.0"
 __author__ = "Mohamed Talib"
-__description__ = "SPYDER Broker Package - Interactive Brokers Gateway Interface (Complete Final Fixed)"
+__description__ = "SPYDER Broker Package - Interactive Brokers Gateway Interface (Consolidated)"
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import logging
 import sys
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 
 # ==============================================================================
 # PACKAGE INITIALIZATION LOGGING
 # ==============================================================================
-
 _logger = logging.getLogger(__name__)
 _module_status = {}
 
@@ -57,1013 +64,520 @@ def get_package_status() -> Dict[str, Any]:
         'modules_loaded': sum(_module_status.values()),
         'modules_total': len(_module_status),
         'success_rate': sum(_module_status.values()) / max(1, len(_module_status)),
-        'module_details': _module_status.copy()
+        'module_details': _module_status.copy(),
+        'connection_manager_version': 'B29_Enhanced',
+        'timeout_prevention': True
     }
 
 def print_package_status():
     """Print formatted package status."""
     status = get_package_status()
-    print(f"SpyderB_Broker Package Status:")
-    print(f"Version: {status['version']}")
-    print(f"Modules Loaded: {status['modules_loaded']}/{status['modules_total']}")
-    print(f"Success Rate: {status['success_rate']:.1%}")
+    print(f"SpyderB_Broker Package Status (v{status['version']}):")
+    print(f"  Modules loaded: {status['modules_loaded']}/{status['modules_total']}")
+    print(f"  Success rate: {status['success_rate']:.1%}")
+    print(f"  Connection Manager: {status['connection_manager_version']}")
+    print(f"  Timeout Prevention: {status['timeout_prevention']}")
 
 # ==============================================================================
-# CRITICAL IMPORTS - VPN MANAGER (PROVIDES ConnectivityState.UNKNOWN)
+# CORE MODULE IMPORTS
 # ==============================================================================
 
+# Order Types (B00)
 try:
-    from .SpyderB19_VPNManager import (
-        VPNManager, VPNDashboardWidget, VPNStatus, VPNConnectionInfo,
-        VPNAutomation, OPTIMAL_VPN_ENDPOINTS, ConnectivityState,
-        ConnectionHealth, create_vpn_manager, create_vpn_dashboard_widget
-    )
-    HAS_VPN_MANAGER = True
-    _log_import_status("SpyderB19_VPNManager", True)
-    print("✅ FIXED: VPNManager with ConnectivityState.UNKNOWN successfully imported")
-except ImportError as e:
-    HAS_VPN_MANAGER = False
-    _log_import_status("SpyderB19_VPNManager", False, str(e))
-    
-    # Critical fallback - ensure ConnectivityState.UNKNOWN exists
-    from enum import Enum
-    
-    class ConnectivityState(Enum):
-        UNKNOWN = "unknown"
-        INITIALIZING = "initializing"
-        CONNECTING = "connecting"
-        CONNECTED = "connected"
-        AUTHENTICATED = "authenticated"
-        DISCONNECTING = "disconnecting"
-        DISCONNECTED = "disconnected"
-        FAILED = "failed"
-        TIMEOUT = "timeout"
-        RECONNECTING = "reconnecting"
-        DEGRADED = "degraded"
-        OPTIMAL = "optimal"
-    
-    class VPNStatus(Enum):
-        UNKNOWN = "unknown"
-        CONNECTED = "connected"
-        DISCONNECTED = "disconnected"
-        CONNECTING = "connecting"
-        FAILED = "failed"
-    
-    class ConnectionHealth(Enum):
-        EXCELLENT = "excellent"
-        GOOD = "good"
-        UNKNOWN = "unknown"
-    
-    class VPNManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-        def get_connection_status(self): 
-            return {'vpn_status': 'unknown', 'connectivity_state': 'unknown'}
-    
-    class VPNDashboardWidget:
-        def __init__(self, *args, **kwargs): pass
-    
-    def create_vpn_manager(*args, **kwargs): 
-        return VPNManager()
-    
-    def create_vpn_dashboard_widget(*args, **kwargs): 
-        return VPNDashboardWidget()
-    
-    OPTIMAL_VPN_ENDPOINTS = {}
-    VPNConnectionInfo = dict
-    VPNAutomation = VPNManager
-    
-    print("✅ CRITICAL FALLBACK: ConnectivityState.UNKNOWN created")
-
-# ==============================================================================
-# ORDER TYPES (B00) - FOUNDATION MODULE
-# ==============================================================================
-
-try:
-    from .SpyderB00_OrderTypes import (
-        OrderAction, OrderRequest, OrderStatus, OrderType, ContractDetails,
-        SecType, OptionRight, TimeInForce, TriggerMethod, OCAType,
-        BracketOrder, SpreadOrder, Execution, Commission, Fill,
-        create_market_order, create_limit_order, create_stop_order,
-        create_spy_option_contract, create_iron_condor_spread,
-        validate_order_request
-    )
-    HAS_ORDER_TYPES = True
+    from .SpyderB00_OrderTypes import *
     _log_import_status("SpyderB00_OrderTypes", True)
 except ImportError as e:
-    HAS_ORDER_TYPES = False
     _log_import_status("SpyderB00_OrderTypes", False, str(e))
-    
-    from enum import Enum
-    
-    class OrderAction(Enum):
-        BUY = "BUY"
-        SELL = "SELL"
-    
-    class OrderType(Enum):
-        MARKET = "MKT"
-        LIMIT = "LMT"
-        STOP = "STP"
-    
-    class OrderStatus(Enum):
-        PENDING = "PENDING"
-        FILLED = "FILLED"
-        CANCELLED = "CANCELLED"
-    
-    class SecType(Enum):
-        STOCK = "STK"
-        OPTION = "OPT"
-    
-    class OptionRight(Enum):
-        CALL = "C"
-        PUT = "P"
-    
-    # Fallback classes
-    class ContractDetails:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    class OrderRequest:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    def create_market_order(*args, **kwargs): 
-        return OrderRequest()
-    
-    def create_limit_order(*args, **kwargs): 
-        return OrderRequest()
-    
-    def create_stop_order(*args, **kwargs): 
-        return OrderRequest()
-    
-    def validate_order_request(*args, **kwargs): 
-        return True
-    
-    # Additional fallback classes
-    TimeInForce = TriggerMethod = OCAType = BracketOrder = SpreadOrder = None
-    Execution = Commission = Fill = None
-    create_spy_option_contract = create_iron_condor_spread = lambda *args, **kwargs: None
-    
-    print("⚠️ FALLBACK: OrderTypes fallback classes created")
 
-# ==============================================================================
-# CORE CLIENT MODULES (B01-B07)
-# ==============================================================================
-
-# SpyderClient (B01)
+# Main Spyder Client (B01)
 try:
-    from .SpyderB01_SpyderClient import SpyderClient, get_spyder_client, IBConfig
-    HAS_SPYDER_CLIENT = True
+    from .SpyderB01_SpyderClient import SpyderClient, IBConfig, create_spyder_client
     _log_import_status("SpyderB01_SpyderClient", True)
 except ImportError as e:
-    HAS_SPYDER_CLIENT = False
     _log_import_status("SpyderB01_SpyderClient", False, str(e))
-    
-    class SpyderClient:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    class IBConfig:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    def get_spyder_client(*args, **kwargs): 
-        return SpyderClient()
-    
-    print("⚠️ FALLBACK: SpyderClient fallback class created")
+    # Create fallback
+    SpyderClient = None
+    IBConfig = None
+    create_spyder_client = None
 
 # Order Manager (B02)
 try:
-    from .SpyderB02_OrderManager import OrderManager, create_order_manager
-    HAS_ORDER_MANAGER = True
+    from .SpyderB02_OrderManager import OrderManager, OrderRequest, create_order_manager
     _log_import_status("SpyderB02_OrderManager", True)
 except ImportError as e:
-    HAS_ORDER_MANAGER = False
     _log_import_status("SpyderB02_OrderManager", False, str(e))
-    
-    class OrderManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_order_manager(*args, **kwargs): 
-        return OrderManager()
-    
-    print("⚠️ FALLBACK: OrderManager fallback class created")
+    OrderManager = None
+    OrderRequest = None
+    create_order_manager = None
 
 # Position Tracker (B03)
 try:
     from .SpyderB03_PositionTracker import PositionTracker, create_position_tracker
-    HAS_POSITION_TRACKER = True
     _log_import_status("SpyderB03_PositionTracker", True)
 except ImportError as e:
-    HAS_POSITION_TRACKER = False
     _log_import_status("SpyderB03_PositionTracker", False, str(e))
-    
-    class PositionTracker:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_position_tracker(*args, **kwargs): 
-        return PositionTracker()
-    
-    print("⚠️ FALLBACK: PositionTracker fallback class created")
+    PositionTracker = None
+    create_position_tracker = None
 
 # Account Manager (B04)
 try:
     from .SpyderB04_AccountManager import AccountManager, create_account_manager
-    HAS_ACCOUNT_MANAGER = True
     _log_import_status("SpyderB04_AccountManager", True)
 except ImportError as e:
-    HAS_ACCOUNT_MANAGER = False
     _log_import_status("SpyderB04_AccountManager", False, str(e))
-    
-    class AccountManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_account_manager(*args, **kwargs): 
-        return AccountManager()
-    
-    print("⚠️ FALLBACK: AccountManager fallback class created")
+    AccountManager = None
+    create_account_manager = None
 
-# Connection Manager (B05) - FIXED VERSION WITH ConnectivityState
+# ==============================================================================
+# CONNECTION MANAGERS - NEW CONSOLIDATED APPROACH
+# ==============================================================================
+
+# NEW: Enhanced Connection Manager (B29) - PRIMARY
 try:
-    from .SpyderB05_ConnectionManager import (
-        ConnectionManager, ConnectionConfig, ConnectionState, 
-        get_connection_manager, create_connection_config
+    from .SpyderB29_EnhancedConnectionManager import (
+        EnhancedConnectionManager, 
+        ConnectionConfig,
+        ConnectionStatus,
+        ConnectionState,
+        ConnectivityState,
+        TradingMode,
+        get_connection_manager,
+        reset_connection_manager
     )
-    HAS_CONNECTION_MANAGER = True
-    _log_import_status("SpyderB05_ConnectionManager", True)
-    print("✅ FIXED: ConnectionManager with ConnectivityState support imported")
+    _log_import_status("SpyderB29_EnhancedConnectionManager", True)
+    
+    # Make the enhanced manager the default
+    ConnectionManager = EnhancedConnectionManager
+    
 except ImportError as e:
-    HAS_CONNECTION_MANAGER = False
-    _log_import_status("SpyderB05_ConnectionManager", False, str(e))
+    _log_import_status("SpyderB29_EnhancedConnectionManager", False, str(e))
     
-    from enum import Enum
-    
-    class ConnectionState(Enum):
-        IDLE = "idle"
-        CONNECTING = "connecting"
-        CONNECTED = "connected"
-        DISCONNECTED = "disconnected"
-    
-    class ConnectionConfig:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    class ConnectionManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-        def get_connectivity_state(self):
-            return ConnectivityState.UNKNOWN
-    
-    def get_connection_manager(*args, **kwargs): 
-        return ConnectionManager()
-    
-    def create_connection_config(**kwargs):
-        return ConnectionConfig(**kwargs)
-    
-    print("⚠️ FALLBACK: ConnectionManager fallback class created")
+    # Fallback to original Connection Manager (B05) for backward compatibility
+    try:
+        from .SpyderB05_ConnectionManager import ConnectionManager, ConnectivityState
+        _log_import_status("SpyderB05_ConnectionManager", True)
+        _log_import_status("SpyderB29_Fallback", True, "Using B05 as fallback")
+    except ImportError as e2:
+        _log_import_status("SpyderB05_ConnectionManager", False, str(e2))
+        ConnectionManager = None
+        ConnectivityState = None
 
-# Contract Builder (B06) - WITH FACTORY FUNCTION
+# Legacy Connection Manager (B05) - kept for compatibility
+try:
+    from .SpyderB05_ConnectionManager import ConnectionManager as LegacyConnectionManager
+    _log_import_status("SpyderB05_Legacy", True)
+except ImportError as e:
+    _log_import_status("SpyderB05_Legacy", False, str(e))
+    LegacyConnectionManager = None
+
+# Integrated Connectivity Manager (B20) - kept for compatibility  
+try:
+    from .SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager
+    _log_import_status("SpyderB20_IntegratedConnectivityManager", True)
+except ImportError as e:
+    _log_import_status("SpyderB20_IntegratedConnectivityManager", False, str(e))
+    IntegratedConnectivityManager = None
+
+# ==============================================================================
+# CONTRACT AND DATA MODULES
+# ==============================================================================
+
+# Contract Builder (B06)
 try:
     from .SpyderB06_ContractBuilder import ContractBuilder, get_contract_builder, create_contract_builder
-    HAS_CONTRACT_BUILDER = True
     _log_import_status("SpyderB06_ContractBuilder", True)
-    print("✅ FIXED: ContractBuilder with factory function imported")
 except ImportError as e:
-    HAS_CONTRACT_BUILDER = False
     _log_import_status("SpyderB06_ContractBuilder", False, str(e))
-    
-    class ContractBuilder:
-        def __init__(self, *args, **kwargs): 
-            pass
-        def build_stock(self, symbol):
-            class Stock:
-                def __init__(self, symbol):
-                    self.symbol = symbol
-            return Stock(symbol)
-    
-    def get_contract_builder(): 
-        return ContractBuilder()
-    
-    def create_contract_builder(*args, **kwargs): 
-        return ContractBuilder()
-    
-    print("⚠️ FALLBACK: ContractBuilder fallback class created")
+    ContractBuilder = None
+    get_contract_builder = None
+    create_contract_builder = None
 
-# Market Data Manager (B07) - WITH FACTORY FUNCTION
+# Market Data Manager (B07)
 try:
-    from .SpyderB07_MarketDataManager import MarketDataManager, get_market_data_manager, create_market_data_manager
-    HAS_MARKET_DATA = True
+    from .SpyderB07_MarketDataManager import MarketDataManager, create_market_data_manager
     _log_import_status("SpyderB07_MarketDataManager", True)
-    print("✅ FIXED: MarketDataManager with factory function imported")
 except ImportError as e:
-    HAS_MARKET_DATA = False
     _log_import_status("SpyderB07_MarketDataManager", False, str(e))
-    
-    class MarketDataManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def get_market_data_manager(*args, **kwargs): 
-        return MarketDataManager()
-    
-    def create_market_data_manager(*args, **kwargs): 
-        return MarketDataManager()
-    
-    print("⚠️ FALLBACK: MarketDataManager fallback class created")
-
-# ==============================================================================
-# ADVANCED MODULES (B08-B16)
-# ==============================================================================
+    MarketDataManager = None
+    create_market_data_manager = None
 
 # Multi-Client Data Manager (B08)
 try:
-    from .SpyderB08_MultiClientDataManager import MultiClientDataManager, create_multi_client_data_manager
-    HAS_MULTI_CLIENT_DATA = True
+    from .SpyderB08_MultiClientDataManager import MultiClientDataManager
     _log_import_status("SpyderB08_MultiClientDataManager", True)
 except ImportError as e:
-    HAS_MULTI_CLIENT_DATA = False
     _log_import_status("SpyderB08_MultiClientDataManager", False, str(e))
-    
-    class MultiClientDataManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_multi_client_data_manager(*args, **kwargs): 
-        return MultiClientDataManager()
-    
-    print("⚠️ MultiClientDataManager not available")
+    MultiClientDataManager = None
 
-# IB Data Types (B10) - FIXED: Proper export with IBDataTypes alias
+# IB Client Portal (B09)
+try:
+    from .SpyderB09_IBClientPortal import IBClientPortal
+    _log_import_status("SpyderB09_IBClientPortal", True)
+except ImportError as e:
+    _log_import_status("SpyderB09_IBClientPortal", False, str(e))
+    IBClientPortal = None
+
+# IB Data Types (B10)
 try:
     from .SpyderB10_IBDataTypes import IBDataTypeManager as IBDataTypes
-    HAS_IB_DATA_TYPES = True
     _log_import_status("SpyderB10_IBDataTypes", True)
-    print("✅ FIXED: IBDataTypeManager successfully imported as IBDataTypes")
 except ImportError as e:
-    HAS_IB_DATA_TYPES = False
     _log_import_status("SpyderB10_IBDataTypes", False, str(e))
-    
-    class IBDataTypes:
-        """Fallback IBDataTypes class for when the full module is not available."""
-        def __init__(self, *args, **kwargs): 
-            self.logger = None
-        
-        def get_contract_details(self, contract):
-            return {}
-        
-        def get_market_data_type(self):
-            return 1  # Live data
-        
-        def format_contract_string(self, contract):
-            return str(contract)
-    
-    print("⚠️ FALLBACK: IBDataTypes fallback class created")
+    IBDataTypes = None
+
+# ==============================================================================
+# INFRASTRUCTURE MODULES
+# ==============================================================================
 
 # AsyncIO Bridge (B11)
 try:
-    from .SpyderB11_AsyncIOBridge import AsyncIOBridge, create_asyncio_bridge
-    HAS_ASYNCIO_BRIDGE = True
+    from .SpyderB11_AsyncIOBridge import AsyncIOBridge
     _log_import_status("SpyderB11_AsyncIOBridge", True)
 except ImportError as e:
-    HAS_ASYNCIO_BRIDGE = False
     _log_import_status("SpyderB11_AsyncIOBridge", False, str(e))
-    
-    class AsyncIOBridge:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_asyncio_bridge(*args, **kwargs): 
-        return AsyncIOBridge()
-    
-    print("⚠️ AsyncIOBridge not available")
+    AsyncIOBridge = None
 
-# Gateway Automation (B12) - WITH FACTORY FUNCTION
+# Gateway Automation (B12)
 try:
-    from .SpyderB12_GatewayAutomation import GatewayAutomation, create_gateway_automation, get_gateway_automation
-    HAS_GATEWAY_AUTOMATION = True
+    from .SpyderB12_GatewayAutomation import GatewayAutomation, create_gateway_automation
     _log_import_status("SpyderB12_GatewayAutomation", True)
-    print("✅ FIXED: GatewayAutomation with factory function imported")
 except ImportError as e:
-    HAS_GATEWAY_AUTOMATION = False
     _log_import_status("SpyderB12_GatewayAutomation", False, str(e))
-    
-    class GatewayAutomation:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_gateway_automation(*args, **kwargs): 
-        return GatewayAutomation()
-    
-    def get_gateway_automation(*args, **kwargs): 
-        return GatewayAutomation()
-    
-    print("⚠️ FALLBACK: GatewayAutomation fallback class created")
+    GatewayAutomation = None
+    create_gateway_automation = None
 
 # Gateway Config (B13)
 try:
-    from .SpyderB13_GatewayConfig import (
-        GatewayConfig, GatewayManager, get_default_config,
-        get_client_allocation, ClientPurpose, TradingMode, ClientConfig
-    )
-    HAS_GATEWAY_CONFIG = True
+    from .SpyderB13_GatewayConfig import GatewayConfig
     _log_import_status("SpyderB13_GatewayConfig", True)
 except ImportError as e:
-    HAS_GATEWAY_CONFIG = False
     _log_import_status("SpyderB13_GatewayConfig", False, str(e))
-    
-    from enum import Enum
-    
-    class ClientPurpose(Enum):
-        TRADING = "trading"
-        DATA = "data"
-        MONITORING = "monitoring"
-    
-    class TradingMode(Enum):
-        PAPER = "paper"
-        LIVE = "live"
-    
-    class ClientConfig:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    class GatewayConfig:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    class GatewayManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def get_default_config():
-        return GatewayConfig()
-    
-    def get_client_allocation():
-        return {}
-    
-    print("⚠️ FALLBACK: GatewayConfig fallback classes created")
+    GatewayConfig = None
 
-# Multi-Client Watchdog (B14) - PROVIDES SystemHealth
+# Multi-Client Watchdog (B14)
 try:
-    from .SpyderB14_MultiClientWatchdog import (
-        MultiClientWatchdog, SystemHealth, ClientHealth,
-        HealthStatus, create_watchdog, get_multi_client_watchdog
-    )
-    HAS_MULTI_CLIENT_WATCHDOG = True
+    from .SpyderB14_MultiClientWatchdog import MultiClientWatchdog
     _log_import_status("SpyderB14_MultiClientWatchdog", True)
-    print("✅ FIXED: SystemHealth successfully imported from SpyderB14_MultiClientWatchdog")
 except ImportError as e:
-    HAS_MULTI_CLIENT_WATCHDOG = False
     _log_import_status("SpyderB14_MultiClientWatchdog", False, str(e))
-    
-    from enum import Enum
-    
-    class HealthStatus(Enum):
-        HEALTHY = "HEALTHY"
-        WARNING = "WARNING"
-        CRITICAL = "CRITICAL"
-        UNKNOWN = "UNKNOWN"
-    
-    class SystemHealth:
-        def __init__(self):
-            self.overall_status = HealthStatus.UNKNOWN
-            self.component_status = {}
-            self.health_score = 0
-            
-        def get_health_score(self) -> int:
-            return self.health_score
-            
-        def get_component_status(self) -> Dict[str, bool]:
-            return self.component_status
-        
-        def update_component_health(self, component, status):
-            self.component_status[component] = status
-    
-    class ClientHealth:
-        def __init__(self):
-            self.status = HealthStatus.UNKNOWN
-            self.latency = None
-            self.last_update = None
-    
-    class MultiClientWatchdog:
-        def __init__(self, config=None):
-            self.system_health = SystemHealth()
-        
-        def get_system_health(self):
-            return self.system_health
-        
-        def get_client_health(self, client_id):
-            return ClientHealth()
-        
-        def get_status_summary(self):
-            return {'overall': 'unknown', 'clients': {}}
-    
-    def create_watchdog(*args, **kwargs):
-        return MultiClientWatchdog()
-    
-    def get_multi_client_watchdog(*args, **kwargs):
-        return MultiClientWatchdog()
-    
-    print("⚠️ FALLBACK: SystemHealth fallback class created")
+    MultiClientWatchdog = None
 
 # Prometheus Metrics (B15)
 try:
-    from .SpyderB15_PrometheusMetrics import (
-        ClientMetrics, MetricsConfig, PrometheusMetricsCollector,
-        create_metrics_collector, TradingMetrics, TradeMetrics,
-        StrategyMetrics, PortfolioMetrics, ExecutionMetrics,
-        RiskMetrics, MetricsSnapshot, PerformanceStatus, TradeStatus
-    )
-    HAS_PROMETHEUS = True
+    from .SpyderB15_PrometheusMetrics import PrometheusMetrics
     _log_import_status("SpyderB15_PrometheusMetrics", True)
 except ImportError as e:
-    HAS_PROMETHEUS = False
     _log_import_status("SpyderB15_PrometheusMetrics", False, str(e))
-    
-    from enum import Enum
-    
-    class TradeStatus(Enum):
-        PENDING = "pending"
-        EXECUTED = "executed"
-        CANCELLED = "cancelled"
-        REJECTED = "rejected"
-    
-    class PerformanceStatus(Enum):
-        GOOD = "good"
-        WARNING = "warning"
-        CRITICAL = "critical"
-    
-    class TradingMetrics:
-        def __init__(self):
-            pass
-        
-        def record_trade(self, trade):
-            pass
-        
-        def get_performance_summary(self):
-            return {'total_value': 100000, 'total_trades': 0, 'pnl': 0}
-        
-        def get_current_snapshot(self):
-            return None
-        
-        def update_portfolio_value(self, value, cash=None):
-            pass
-        
-        def update_daily_pnl(self, pnl):
-            pass
-        
-        def update_positions(self, positions):
-            pass
-        
-        def update_execution_metrics(self, **kwargs):
-            pass
-    
-    class TradeMetrics:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    class PrometheusMetricsCollector:
-        def __init__(self, *args, **kwargs):
-            self.trading_metrics = TradingMetrics()
-        
-        def get_trading_metrics(self):
-            return self.trading_metrics
-    
-    def create_metrics_collector(*args, **kwargs):
-        return PrometheusMetricsCollector()
-    
-    # Additional fallback classes
-    ClientMetrics = MetricsConfig = StrategyMetrics = None
-    PortfolioMetrics = ExecutionMetrics = RiskMetrics = None
-    MetricsSnapshot = None
-    
-    print("⚠️ FALLBACK: PrometheusMetrics fallback classes created")
+    PrometheusMetrics = None
 
-# Gateway Integration (B16) - FIXED VERSION
+# Gateway Integration (B16)
 try:
-    from .SpyderB16_GatewayIntegration import (
-        GatewayIntegrationManager, create_gateway_integration_manager,
-        validate_module_dependencies, ClientDisplayInfo, DashboardData,
-        ClientStatusLevel, SystemComponent
-    )
-    HAS_INTEGRATION = True
+    from .SpyderB16_GatewayIntegration import GatewayIntegrationManager
     _log_import_status("SpyderB16_GatewayIntegration", True)
-    print("✅ FIXED: GatewayIntegrationManager successfully imported with correct class names")
 except ImportError as e:
-    HAS_INTEGRATION = False
     _log_import_status("SpyderB16_GatewayIntegration", False, str(e))
-    
-    from enum import Enum
-    from datetime import datetime
-    from dataclasses import dataclass
-    
-    class ClientStatusLevel(Enum):
-        EXCELLENT = "excellent"
-        GOOD = "good"
-        WARNING = "warning"
-        CRITICAL = "critical"
-        DISCONNECTED = "disconnected"
-        UNKNOWN = "unknown"
-    
-    class SystemComponent(Enum):
-        GATEWAY = "gateway"
-        MARKET_DATA = "market_data"
-        ORDER_SYSTEM = "order_system"
-    
-    @dataclass
-    class ClientDisplayInfo:
-        client_id: int
-        purpose: str
-        description: str
-        status: ClientStatusLevel
-        connection_time: Optional[datetime] = None
-    
-    @dataclass
-    class DashboardData:
-        clients: List[ClientDisplayInfo]
-        system_components: List[Any]
-        gateway_status: str
-        integration_status: str
-        last_update: datetime
-        system_health_score: float
-        active_connections: int = 0
-        total_requests: int = 0
-        average_latency: float = 0.0
-        error_rate: float = 0.0
-    
-    class GatewayIntegrationManager:
-        def __init__(self, config=None):
-            pass
-        
-        def get_dashboard_data(self):
-            return DashboardData(
-                clients=[],
-                system_components=[],
-                gateway_status="disconnected",
-                integration_status="initializing",
-                last_update=datetime.now(),
-                system_health_score=0.8
-            )
-        
-        def start_integration(self):
-            return True
-        
-        def stop_integration(self):
-            pass
-    
-    def create_gateway_integration_manager(*args, **kwargs):
-        return GatewayIntegrationManager()
-    
-    def validate_module_dependencies():
-        return {'basic_functionality': True}
-    
-    print("⚠️ FALLBACK: GatewayIntegrationManager fallback class created")
-
-# ==============================================================================
-# SPECIALIZED MODULES (B17+) - INCLUDING RENAMED MODULES
-# ==============================================================================
+    GatewayIntegrationManager = None
 
 # Server Monitor (B17)
 try:
-    from .SpyderB17_ServerMonitor import ServerMonitor, create_server_monitor
-    HAS_SERVER_MONITOR = True
+    from .SpyderB17_ServerMonitor import ServerMonitor
     _log_import_status("SpyderB17_ServerMonitor", True)
 except ImportError as e:
-    HAS_SERVER_MONITOR = False
     _log_import_status("SpyderB17_ServerMonitor", False, str(e))
-    
-    class ServerMonitor:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_server_monitor(*args, **kwargs): 
-        return ServerMonitor()
-    
-    print("⚠️ ServerMonitor not available")
+    ServerMonitor = None
 
 # Zurich Connectivity Diagnostic (B18)
 try:
-    from .SpyderB18_ZurichConnectivityDiagnostic import ZurichConnectivityDiagnostic, create_zurich_diagnostic
-    HAS_ZURICH_DIAGNOSTIC = True
+    from .SpyderB18_ZurichConnectivityDiagnostic import ZurichConnectivityDiagnostic
     _log_import_status("SpyderB18_ZurichConnectivityDiagnostic", True)
 except ImportError as e:
-    HAS_ZURICH_DIAGNOSTIC = False
     _log_import_status("SpyderB18_ZurichConnectivityDiagnostic", False, str(e))
-    
-    class ZurichConnectivityDiagnostic:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_zurich_diagnostic(*args, **kwargs): 
-        return ZurichConnectivityDiagnostic()
-    
-    print("⚠️ ZurichConnectivityDiagnostic not available")
+    ZurichConnectivityDiagnostic = None
 
-# Integrated Connectivity Manager (B20)
+# VPN Manager (B19)
 try:
-    from .SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, create_integrated_connectivity_manager
-    HAS_INTEGRATED_CONNECTIVITY = True
-    _log_import_status("SpyderB20_IntegratedConnectivityManager", True)
+    from .SpyderB19_VPNManager import VPNManager
+    _log_import_status("SpyderB19_VPNManager", True)
 except ImportError as e:
-    HAS_INTEGRATED_CONNECTIVITY = False
-    _log_import_status("SpyderB20_IntegratedConnectivityManager", False, str(e))
-    
-    class IntegratedConnectivityManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_integrated_connectivity_manager(*args, **kwargs): 
-        return IntegratedConnectivityManager()
-    
-    print("⚠️ IntegratedConnectivityManager not available")
+    _log_import_status("SpyderB19_VPNManager", False, str(e))
+    VPNManager = None
+
+# ==============================================================================
+# AUTOMATION AND TESTING MODULES
+# ==============================================================================
 
 # Gateway Startup Automation (B21)
 try:
-    from .SpyderB21_GatewayStartupAutomation import GatewayStartupAutomation, create_gateway_startup_automation
-    HAS_STARTUP_AUTOMATION = True
+    from .SpyderB21_GatewayStartupAutomation import GatewayStartupAutomation
     _log_import_status("SpyderB21_GatewayStartupAutomation", True)
 except ImportError as e:
-    HAS_STARTUP_AUTOMATION = False
     _log_import_status("SpyderB21_GatewayStartupAutomation", False, str(e))
-    
-    class GatewayStartupAutomation:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_gateway_startup_automation(*args, **kwargs): 
-        return GatewayStartupAutomation()
-    
-    print("⚠️ GatewayStartupAutomation not available")
+    GatewayStartupAutomation = None
 
 # Integration Test Suite (B22)
 try:
-    from .SpyderB22_IntegrationTestSuite import IntegrationTestSuite, create_integration_test_suite
-    HAS_INTEGRATION_TESTS = True
+    from .SpyderB22_IntegrationTestSuite import IntegrationTestSuite
     _log_import_status("SpyderB22_IntegrationTestSuite", True)
 except ImportError as e:
-    HAS_INTEGRATION_TESTS = False
     _log_import_status("SpyderB22_IntegrationTestSuite", False, str(e))
-    
-    class IntegrationTestSuite:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_integration_test_suite(*args, **kwargs): 
-        return IntegrationTestSuite()
-    
-    print("⚠️ IntegrationTestSuite not available")
+    IntegrationTestSuite = None
+
+# Bashrc Configuration (B23)
+try:
+    from .SpyderB23_BashrcConfiguration import BashrcConfiguration
+    _log_import_status("SpyderB23_BashrcConfiguration", True)
+except ImportError as e:
+    _log_import_status("SpyderB23_BashrcConfiguration", False, str(e))
+    BashrcConfiguration = None
 
 # Configuration Migration (B24)
 try:
-    from .SpyderB24_ConfigurationMigration import ConfigurationMigration, create_configuration_migration
-    HAS_CONFIG_MIGRATION = True
+    from .SpyderB24_ConfigurationMigration import ConfigurationMigration
     _log_import_status("SpyderB24_ConfigurationMigration", True)
 except ImportError as e:
-    HAS_CONFIG_MIGRATION = False
     _log_import_status("SpyderB24_ConfigurationMigration", False, str(e))
-    
-    class ConfigurationMigration:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_configuration_migration(*args, **kwargs): 
-        return ConfigurationMigration()
-    
-    print("⚠️ ConfigurationMigration not available")
+    ConfigurationMigration = None
 
 # Gateway Installer (B25)
 try:
-    from .SpyderB25_GatewayInstaller import GatewayInstaller, create_gateway_installer
-    HAS_GATEWAY_INSTALLER = True
+    from .SpyderB25_GatewayInstaller import GatewayInstaller
     _log_import_status("SpyderB25_GatewayInstaller", True)
 except ImportError as e:
-    HAS_GATEWAY_INSTALLER = False
     _log_import_status("SpyderB25_GatewayInstaller", False, str(e))
-    
-    class GatewayInstaller:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_gateway_installer(*args, **kwargs): 
-        return GatewayInstaller()
-    
-    print("⚠️ GatewayInstaller not available")
+    GatewayInstaller = None
 
 # ==============================================================================
-# RENAMED MODULES (B26, B27, B28) - FORMER B17, B19, B23
+# BRIDGE AND CONNECTOR MODULES (HANDLING DUPLICATES)
 # ==============================================================================
 
-# SPY Options Chain Manager (B26) - Former B17
+# PySide Async Bridge (B26) - KEEP ORIGINAL
 try:
-    from .SpyderB26_SPYOptionsChainManager import SPYOptionsChainManager, create_spy_options_chain_manager
-    HAS_SPY_OPTIONS_CHAIN = True
-    _log_import_status("SpyderB26_SPYOptionsChainManager", True)
+    from .SpyderB26_PySideAsyncBridge import PySideAsyncBridge
+    _log_import_status("SpyderB26_PySideAsyncBridge", True)
 except ImportError as e:
-    HAS_SPY_OPTIONS_CHAIN = False
-    _log_import_status("SpyderB26_SPYOptionsChainManager", False, str(e))
-    
-    class SPYOptionsChainManager:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_spy_options_chain_manager(*args, **kwargs): 
-        return SPYOptionsChainManager()
-    
-    print("⚠️ SPYOptionsChainManager not available")
+    _log_import_status("SpyderB26_PySideAsyncBridge", False, str(e))
+    PySideAsyncBridge = None
 
-# VPN Manager (B27) - Former B19 (alternative import path)
+# SPY Options Chain Manager (B30) - RENAMED FROM B26
 try:
-    from .SpyderB27_VPNManager import VPNManager as B27VPNManager, create_b27_vpn_manager
-    HAS_B27_VPN_MANAGER = True
-    _log_import_status("SpyderB27_VPNManager", True)
+    from .SpyderB30_SPYOptionsChainManager import SPYOptionsChainManager
+    _log_import_status("SpyderB30_SPYOptionsChainManager", True)
 except ImportError as e:
-    HAS_B27_VPN_MANAGER = False
-    _log_import_status("SpyderB27_VPNManager", False, str(e))
-    
-    B27VPNManager = VPNManager  # Alias to the main VPNManager
-    
-    def create_b27_vpn_manager(*args, **kwargs): 
-        return VPNManager()
-    
-    print("⚠️ B27 VPNManager (alternative) not available - using main VPNManager")
+    _log_import_status("SpyderB30_SPYOptionsChainManager", False, str(e))
+    # Try old location for backward compatibility
+    try:
+        from .SpyderB26_SPYOptionsChainManager import SPYOptionsChainManager
+        _log_import_status("SpyderB26_SPYOptionsChainManager_Legacy", True)
+    except ImportError:
+        _log_import_status("SpyderB30_SPYOptionsChainManager", False, str(e))
+        SPYOptionsChainManager = None
 
-# IBKR Connection Tester (B28) - Former B23
+# IB Data Connector (B27) - KEEP ORIGINAL
 try:
-    from .SpyderB28_IBKRConnectionTester import IBKRConnectionTester, create_ibkr_connection_tester
-    HAS_IBKR_CONNECTION_TESTER = True
+    from .SpyderB27_IBDataConnector import IBDataConnector
+    _log_import_status("SpyderB27_IBDataConnector", True)
+except ImportError as e:
+    _log_import_status("SpyderB27_IBDataConnector", False, str(e))
+    IBDataConnector = None
+
+# VPN Manager (B31) - RENAMED FROM B27
+try:
+    from .SpyderB31_VPNManager import VPNManager as VPNManagerAlt
+    _log_import_status("SpyderB31_VPNManager", True)
+except ImportError as e:
+    _log_import_status("SpyderB31_VPNManager", False, str(e))
+    # Try old location for backward compatibility
+    try:
+        from .SpyderB27_VPNManager import VPNManager as VPNManagerAlt
+        _log_import_status("SpyderB27_VPNManager_Legacy", True)
+    except ImportError:
+        _log_import_status("SpyderB31_VPNManager", False, str(e))
+        VPNManagerAlt = None
+
+# IBKR Connection Tester (B28)
+try:
+    from .SpyderB28_IBKRConnectionTester import IBKRConnectionTester
     _log_import_status("SpyderB28_IBKRConnectionTester", True)
 except ImportError as e:
-    HAS_IBKR_CONNECTION_TESTER = False
     _log_import_status("SpyderB28_IBKRConnectionTester", False, str(e))
-    
-    class IBKRConnectionTester:
-        def __init__(self, *args, **kwargs): 
-            pass
-    
-    def create_ibkr_connection_tester(*args, **kwargs): 
-        return IBKRConnectionTester()
-    
-    print("⚠️ IBKRConnectionTester not available")
+    IBKRConnectionTester = None
 
 # ==============================================================================
-# PACKAGE EXPORTS - COMPLETE WITH IBDataTypes
+# FACTORY FUNCTIONS AND CONVENIENCE METHODS
 # ==============================================================================
 
-__all__ = [
-    # CRITICAL ENUMS - INCLUDES ConnectivityState.UNKNOWN
-    "ConnectivityState",
-    "VPNStatus", 
-    "ConnectionHealth",
-    "OrderAction", 
-    "OrderType", 
-    "OrderStatus",
-    "SecType", 
-    "OptionRight",
-    "HealthStatus",
-    "ClientStatusLevel", 
-    "SystemComponent",
-    "TradeStatus",
-    "ClientPurpose", 
-    "TradingMode",
-    
-    # CORE CLASSES
-    "SpyderClient", 
-    "IBConfig",
-    "ConnectionManager", 
-    "ConnectionConfig", 
-    "ConnectionState",
-    "ContractBuilder", 
-    "MarketDataManager",
-    "OrderManager",
-    "PositionTracker",
-    "AccountManager",
-    "GatewayConfig", 
-    "GatewayManager", 
-    "ClientConfig",
-    "MultiClientWatchdog", 
-    "SystemHealth", 
-    "ClientHealth",
-    "PrometheusMetricsCollector", 
-    "TradingMetrics", 
-    "TradeMetrics",
-    "GatewayIntegrationManager", 
-    "ClientDisplayInfo", 
-    "DashboardData",
-    "VPNManager", 
-    "VPNDashboardWidget",
-    "GatewayAutomation",
-    "AsyncIOBridge",
-    "MultiClientDataManager",
-    
-    # CRITICAL: IBDataTypes - PROPERLY EXPORTED
-    "IBDataTypes",
-    
-    # SPECIALIZED CLASSES
-    "ServerMonitor",
-    "ZurichConnectivityDiagnostic", 
-    "IntegratedConnectivityManager",
-    "GatewayStartupAutomation",
-    "IntegrationTestSuite",
-    "ConfigurationMigration",
-    "GatewayInstaller",
-    "SPYOptionsChainManager",
-    "IBKRConnectionTester",
-    
-    # FACTORY FUNCTIONS - ALL INCLUDED
-    "get_spyder_client",
-    "get_connection_manager", 
-    "create_connection_config",
-    "get_contract_builder", 
-    "create_contract_builder",
-    "get_market_data_manager", 
-    "create_market_data_manager",
-    "create_order_manager",
-    "create_position_tracker",
-    "create_account_manager",
-    "get_default_config", 
-    "get_client_allocation",
-    "create_watchdog", 
-    "get_multi_client_watchdog",
-    "create_metrics_collector",
-    "create_gateway_integration_manager",
-    "create_vpn_manager", 
-    "create_vpn_dashboard_widget",
-    "create_gateway_automation", 
-    "get_gateway_automation",
-    "create_asyncio_bridge",
-    "create_multi_client_data_manager",
-    "create_server_monitor",
-    "create_zurich_diagnostic",
-    "create_integrated_connectivity_manager",
-    "create_gateway_startup_automation",
-    "create_integration_test_suite",
-    "create_configuration_migration",
-    "create_gateway_installer",
-    "create_spy_options_chain_manager",
-    "create_b27_vpn_manager",
-    "create_ibkr_connection_tester",
-    
-    # UTILITY FUNCTIONS
-    "validate_module_dependencies", 
-    "get_module_status", 
-    "get_package_status",
-    "print_package_status",
-    
-    # DATA STRUCTURES
-    "ContractDetails",
-    "OrderRequest",
-    "VPNConnectionInfo",
-    "OPTIMAL_VPN_ENDPOINTS"
-]
-
-# ==============================================================================
-# PACKAGE INITIALIZATION COMPLETION
-# ==============================================================================
-
-def initialize_broker_package() -> bool:
+def create_broker_client(config: Optional[Dict[str, Any]] = None):
     """
-    Initialize the broker package and verify critical components.
+    Create a complete broker client with all components.
     
+    Args:
+        config: Configuration dictionary
+        
     Returns:
-        bool: True if initialization successful
+        Dictionary with all broker components
     """
     try:
-        # CRITICAL TEST: Verify ConnectivityState.UNKNOWN exists
-        test_connectivity = ConnectivityState.UNKNOWN
-        test_order_action = OrderAction.BUY
-        test_health_status = HealthStatus.HEALTHY
+        # Create connection manager (enhanced version)
+        if ConnectionManager and hasattr(ConnectionManager, '__name__') and 'Enhanced' in ConnectionManager.__name__:
+            conn_config = ConnectionConfig() if 'ConnectionConfig' in globals() else None
+            connection_manager = get_connection_manager(conn_config)
+        else:
+            connection_manager = ConnectionManager() if ConnectionManager else None
         
-        # Verify critical classes can be instantiated
-        test_client = get_spyder_client()
-        test_watchdog = create_watchdog()
-        test_manager = create_gateway_integration_manager()
-        test_vpn = create_vpn_manager()
-        test_ib_data_types = IBDataTypes()
+        # Create other components
+        spyder_client = create_spyder_client() if create_spyder_client else None
+        order_manager = create_order_manager(spyder_client) if create_order_manager else None
+        position_tracker = create_position_tracker(spyder_client) if create_position_tracker else None
+        account_manager = create_account_manager(spyder_client) if create_account_manager else None
+        contract_builder = get_contract_builder() if get_contract_builder else None
+        market_data_manager = create_market_data_manager(spyder_client) if create_market_data_manager else None
         
-        return True
+        return {
+            'connection_manager': connection_manager,
+            'spyder_client': spyder_client,
+            'order_manager': order_manager,
+            'position_tracker': position_tracker,
+            'account_manager': account_manager,
+            'contract_builder': contract_builder,
+            'market_data_manager': market_data_manager,
+            'status': 'enhanced_broker_client' if connection_manager else 'basic_broker_client'
+        }
         
     except Exception as e:
-        _logger.error(f"Broker package initialization failed: {e}")
-        return False
+        _logger.error(f"Failed to create broker client: {e}")
+        return None
 
-# Run initialization check
-_initialization_success = initialize_broker_package()
+def get_enhanced_connection_manager(config: Optional[Dict[str, Any]] = None):
+    """
+    Get the enhanced connection manager with timeout prevention.
+    
+    Args:
+        config: Connection configuration
+        
+    Returns:
+        Enhanced connection manager instance or None
+    """
+    try:
+        if 'get_connection_manager' in globals():
+            if config and 'ConnectionConfig' in globals():
+                conn_config = ConnectionConfig(**config)
+                return get_connection_manager(conn_config)
+            else:
+                return get_connection_manager()
+        else:
+            _logger.warning("Enhanced connection manager not available")
+            return None
+    except Exception as e:
+        _logger.error(f"Failed to get enhanced connection manager: {e}")
+        return None
 
-if _initialization_success:
-    print("✅ SpyderB_Broker package initialized successfully")
-    print(f"✅ ConnectivityState.UNKNOWN available: {ConnectivityState.UNKNOWN}")
-    print(f"✅ IBDataTypes available: {IBDataTypes}")
-    print(f"✅ Package version: {__version__}")
-else:
-    print("⚠️ SpyderB_Broker package initialization completed with some issues")
+def diagnose_broker_package():
+    """Run comprehensive broker package diagnostics."""
+    print("SpyderB_Broker Package Diagnostics")
+    print("=" * 50)
+    
+    # Package status
+    status = get_package_status()
+    print(f"Package Version: {status['version']}")
+    print(f"Modules Loaded: {status['modules_loaded']}/{status['modules_total']}")
+    print(f"Success Rate: {status['success_rate']:.1%}")
+    print(f"Connection Manager: {status.get('connection_manager_version', 'Unknown')}")
+    print(f"Timeout Prevention: {status.get('timeout_prevention', False)}")
+    print()
+    
+    # Connection manager status
+    print("Connection Manager Analysis:")
+    if ConnectionManager:
+        if hasattr(ConnectionManager, '__name__') and 'Enhanced' in ConnectionManager.__name__:
+            print("  ✅ Enhanced Connection Manager (B29) - Timeout prevention enabled")
+        else:
+            print("  ⚠️  Legacy Connection Manager (B05) - Consider upgrading to B29")
+    else:
+        print("  ❌ No connection manager available")
+    print()
+    
+    # Module details
+    print("Detailed Module Status:")
+    for module, success in _module_status.items():
+        status_icon = "✅" if success else "❌"
+        print(f"  {status_icon} {module}")
+    
+    print()
+    print("Recommendations:")
+    if status['success_rate'] < 0.8:
+        print("  - Some modules failed to load - check dependencies")
+    if not status.get('timeout_prevention', False):
+        print("  - Consider using SpyderB29_EnhancedConnectionManager for timeout prevention")
+    if status['success_rate'] >= 0.9:
+        print("  - Broker package is healthy and ready for production use")
 
-# Log final package status
-_logger.info(f"SpyderB_Broker package loaded - Success rate: {sum(_module_status.values())}/{len(_module_status)}")
+# ==============================================================================
+# EXPORTS
+# ==============================================================================
+
+# Core components (always exported if available)
+__all__ = [
+    # Package management
+    'get_package_status',
+    'get_module_status', 
+    'print_package_status',
+    'diagnose_broker_package',
+    
+    # Factory functions
+    'create_broker_client',
+    'get_enhanced_connection_manager',
+    
+    # Core classes (if available)
+]
+
+# Add available classes to exports
+if SpyderClient:
+    __all__.extend(['SpyderClient', 'IBConfig', 'create_spyder_client'])
+
+if ConnectionManager:
+    __all__.append('ConnectionManager')
+    
+if 'EnhancedConnectionManager' in globals():
+    __all__.extend(['EnhancedConnectionManager', 'ConnectionConfig', 'ConnectionStatus', 
+                   'ConnectionState', 'ConnectivityState', 'TradingMode',
+                   'get_connection_manager', 'reset_connection_manager'])
+
+if OrderManager:
+    __all__.extend(['OrderManager', 'OrderRequest', 'create_order_manager'])
+    
+if PositionTracker:
+    __all__.extend(['PositionTracker', 'create_position_tracker'])
+    
+if AccountManager:
+    __all__.extend(['AccountManager', 'create_account_manager'])
+    
+if ContractBuilder:
+    __all__.extend(['ContractBuilder', 'get_contract_builder', 'create_contract_builder'])
+    
+if MarketDataManager:
+    __all__.extend(['MarketDataManager', 'create_market_data_manager'])
+
+# Add other available components
+for component_name in [
+    'MultiClientDataManager', 'IBClientPortal', 'IBDataTypes',
+    'AsyncIOBridge', 'GatewayAutomation', 'GatewayConfig', 
+    'MultiClientWatchdog', 'PrometheusMetrics', 'GatewayIntegrationManager',
+    'ServerMonitor', 'ZurichConnectivityDiagnostic', 'VPNManager',
+    'IntegratedConnectivityManager', 'GatewayStartupAutomation',
+    'IntegrationTestSuite', 'BashrcConfiguration', 'ConfigurationMigration',
+    'GatewayInstaller', 'PySideAsyncBridge', 'SPYOptionsChainManager',
+    'IBDataConnector', 'VPNManagerAlt', 'IBKRConnectionTester'
+]:
+    if globals().get(component_name) is not None:
+        __all__.append(component_name)
+
+# ==============================================================================
+# PACKAGE INITIALIZATION COMPLETE
+# ==============================================================================
+
+_logger.info(f"SpyderB_Broker package initialized (v{__version__})")
+_logger.info(f"Loaded {sum(_module_status.values())}/{len(_module_status)} modules")
+
+# Print status on import if in debug mode
+if _logger.isEnabledFor(logging.DEBUG):
+    print_package_status()

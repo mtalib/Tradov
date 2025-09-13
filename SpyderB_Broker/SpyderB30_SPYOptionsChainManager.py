@@ -4,7 +4,7 @@
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderB_Broker
-Module: SpyderB26_SPYOptionsChainManager.py
+Module: SpyderB30_SPYOptionsChainManager.py
 Purpose: Comprehensive SPY options chain management with modern ib_async integration
 Author: Mohamed Talib
 Year Created: 2025

@@ -5,7 +5,7 @@
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderB_Broker
-Module: SpyderB27_VPNManager.py
+Module: SpyderB31_VPNManager.py
 Purpose: VPN Management for IBKR Zurich Connectivity Bypass
 Author: Mohamed Talib
 Year Created: 2025 
