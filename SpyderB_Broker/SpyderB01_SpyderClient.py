@@ -705,3 +705,74 @@ if __name__ == "__main__":
             
     except Exception as e:
         print(f"\n❌ Error creating SpyderClient: {e}")
+        
+        
+# ==============================================================================
+# FACTORY FUNCTIONS (Missing Export Fix)
+# ==============================================================================
+def create_spyder_client(config: Optional[Dict[str, Any]] = None) -> Optional['SpyderClient']:
+    """
+    Factory function to create SpyderClient instance.
+    
+    Args:
+        config: Optional configuration dictionary
+        
+    Returns:
+        SpyderClient instance or None if creation fails
+    """
+    try:
+        if config:
+            # If configuration provided, create with custom settings
+            return SpyderClient(**config)
+        else:
+            # Create with default settings
+            return SpyderClient()
+            
+    except Exception as e:
+        logger = SpyderLogger.get_logger(__name__)
+        logger.error(f"Failed to create SpyderClient: {e}")
+        return None
+
+def get_spyder_client() -> Optional['SpyderClient']:
+    """
+    Get global SpyderClient instance.
+    
+    Returns:
+        SpyderClient instance
+    """
+    global _spyder_client_instance
+    if _spyder_client_instance is None:
+        _spyder_client_instance = create_spyder_client()
+    return _spyder_client_instance
+
+# ==============================================================================
+# MODULE INITIALIZATION (Add if missing)
+# ==============================================================================
+# Global instance for singleton pattern
+_spyder_client_instance: Optional['SpyderClient'] = None
+
+# Export the factory function
+__all__ = getattr(globals(), '__all__', []) + ['create_spyder_client', 'get_spyder_client']
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+
+def create_spyder_client(config=None):
+    """Factory function to create SpyderClient instance."""
+    try:
+        if "SpyderClient" in globals():
+            return SpyderClient() if not config else SpyderClient(**config)
+        return None
+    except Exception as e:
+        print(f"Failed to create SpyderClient: {e}")
+        return None
+

@@ -366,8 +366,8 @@ except ImportError as e:
     _log_import_status("SpyderB30_SPYOptionsChainManager", False, str(e))
     # Try old location for backward compatibility
     try:
-        from .SpyderB26_SPYOptionsChainManager import SPYOptionsChainManager
-        _log_import_status("SpyderB26_SPYOptionsChainManager_Legacy", True)
+        from .SpyderB30_SPYOptionsChainManager import SPYOptionsChainManager
+        _log_import_status("SpyderB30_SPYOptionsChainManager_Legacy", True)
     except ImportError:
         _log_import_status("SpyderB30_SPYOptionsChainManager", False, str(e))
         SPYOptionsChainManager = None
@@ -388,8 +388,8 @@ except ImportError as e:
     _log_import_status("SpyderB31_VPNManager", False, str(e))
     # Try old location for backward compatibility
     try:
-        from .SpyderB27_VPNManager import VPNManager as VPNManagerAlt
-        _log_import_status("SpyderB27_VPNManager_Legacy", True)
+        from .SpyderB31_VPNManager import VPNManager as VPNManagerAlt
+        _log_import_status("SpyderB31_VPNManager_Legacy", True)
     except ImportError:
         _log_import_status("SpyderB31_VPNManager", False, str(e))
         VPNManagerAlt = None
@@ -458,17 +458,15 @@ def get_enhanced_connection_manager(config: Optional[Dict[str, Any]] = None):
         Enhanced connection manager instance or None
     """
     try:
-        if 'get_connection_manager' in globals():
-            if config and 'ConnectionConfig' in globals():
-                conn_config = ConnectionConfig(**config)
-                return get_connection_manager(conn_config)
-            else:
-                return get_connection_manager()
+        from .SpyderB29_EnhancedConnectionManager import EnhancedConnectionManager
+        
+        if config:
+            return EnhancedConnectionManager(**config)
         else:
-            _logger.warning("Enhanced connection manager not available")
-            return None
+            return EnhancedConnectionManager()
+            
     except Exception as e:
-        _logger.error(f"Failed to get enhanced connection manager: {e}")
+        print(f"Failed to create enhanced connection manager: {e}")
         return None
 
 def diagnose_broker_package():

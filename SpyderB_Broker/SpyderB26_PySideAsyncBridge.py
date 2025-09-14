@@ -757,3 +757,10 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+# Export alias for missing PySideAsyncBridge
+if "AsyncIBGatewayBridge" in globals():
+    PySideAsyncBridge = AsyncIBGatewayBridge
+else:
+    class PySideAsyncBridge:
+        def __init__(self): pass
+

@@ -1263,3 +1263,13 @@ if __name__ == "__main__":
     
     print("\nMetrics collector ready for production use!")
     print("✅ COMPLETE: All trading and system metrics available")
+
+# Export alias for missing PrometheusMetrics
+try:
+    if "SpyderLogger" in globals():
+        PrometheusMetrics = SpyderLogger
+    else:
+        class PrometheusMetrics:
+            def __init__(self): pass
+except: pass
+

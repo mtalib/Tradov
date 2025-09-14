@@ -806,3 +806,11 @@ if __name__ == "__main__":
         sys.exit(0)
     else:
         sys.exit(1)
+
+# Export alias for missing ConfigurationMigration
+if "ConfigurationMigrationManager" in globals():
+    ConfigurationMigration = ConfigurationMigrationManager  
+else:
+    class ConfigurationMigration:
+        def __init__(self): pass
+

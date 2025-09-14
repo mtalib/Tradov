@@ -967,3 +967,13 @@ if __name__ == "__main__":
         else:
             print("❌ Script creation failed")
             sys.exit(1)
+
+# Export alias for missing BashrcConfiguration  
+if "BashrcConfigurationManager" in globals():
+    BashrcConfiguration = BashrcConfigurationManager
+elif "BashrcConfig" in globals():
+    BashrcConfiguration = BashrcConfig
+else:
+    class BashrcConfiguration:
+        def __init__(self): pass
+

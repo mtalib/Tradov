@@ -407,7 +407,7 @@ class EnhancedConnectionManager:
                         f"after {total_delay:.1f}s delay")
         
         # Use ib.sleep instead of asyncio.sleep to avoid blocking event loop (key recommendation)
-        await ib.sleep(total_delay)
+        await asyncio.sleep(total_delay)
         
         # Attempt reconnection
         success = await self.connect_async()
@@ -719,17 +719,17 @@ class EnhancedConnectionManager:
                 
                 # Memory monitoring integration
                 if self.memory_monitor:
-                    stats = self.memory_monitor.check_memory()
+                    stats = self.memory_monitor.get_system_memory() if hasattr(self.memory_monitor, "get_system_memory") else None
                     if stats and stats.percent > 85:
                         self.logger.warning(f"High memory usage detected: {stats.percent:.1f}%")
                 
-                await ib.sleep(self.config.connection_check_interval)
+                await asyncio.sleep(self.config.connection_check_interval)
                 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.error_handler.handle_error(e, "Monitoring loop error")
-                await ib.sleep(self.config.connection_check_interval)
+                await asyncio.sleep(self.config.connection_check_interval)
 
     async def _health_check_loop(self):
         """Connection health monitoring loop."""
@@ -744,13 +744,13 @@ class EnhancedConnectionManager:
                 # Update heartbeat
                 self.status.last_heartbeat = datetime.now()
                 
-                await ib.sleep(self.config.health_check_interval)
+                await asyncio.sleep(self.config.health_check_interval)
                 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.error_handler.handle_error(e, "Health check error")
-                await ib.sleep(self.config.health_check_interval)
+                await asyncio.sleep(self.config.health_check_interval)
 
     # ==========================================================================
     # SUBSCRIPTION MANAGEMENT
@@ -1051,7 +1051,7 @@ async def main():
             print(f"Connection Status: {status['state']} ({status['connectivity_state']})")
             
             # Wait then disconnect
-            await ib.sleep(5) if IB_ASYNC_AVAILABLE else time.sleep(5)
+            await asyncio.sleep(5) if IB_ASYNC_AVAILABLE else time.sleep(5)
             await conn_mgr.disconnect_async() if IB_ASYNC_AVAILABLE else conn_mgr.disconnect()
         else:
             print("Connection failed!")
