@@ -3,8 +3,8 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderG_GUI
-Module: SpyderG05_TradingDashboard.py 
+Series: SpyderG_GUI [Application Name] [Group Letter] [Group Name]
+Module: SpyderG05_TradingDashboard.py [Application Name][Group Letter] [Module Number]_[Purpose].py
 Purpose: Complete Trading Dashboard with Real Data Integration & Enhanced Features
 Author: Mohamed Talib
 Year Created: 2025
