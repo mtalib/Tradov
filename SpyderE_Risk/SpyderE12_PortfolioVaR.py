@@ -54,7 +54,8 @@ from scipy import stats
 from scipy.optimize import minimize
 from scipy.stats import norm, t, chi2, jarque_bera
 from sklearn.covariance import LedoitWolf
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 from numpy.linalg import cholesky
 
 # ==============================================================================

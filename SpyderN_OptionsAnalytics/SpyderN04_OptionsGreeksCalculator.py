@@ -31,7 +31,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 import numpy as np
 import pandas as pd
 from matplotlib import cm

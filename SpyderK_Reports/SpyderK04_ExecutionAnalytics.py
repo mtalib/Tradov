@@ -38,7 +38,8 @@ from collections import defaultdict, Counter
 # ==============================================================================
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 import seaborn as sns
 from matplotlib.patches import Rectangle
 import plotly.graph_objects as go

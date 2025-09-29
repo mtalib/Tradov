@@ -47,7 +47,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats, optimize, linalg
 from scipy.stats import norm, multivariate_normal
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 import seaborn as sns
 
 # Machine Learning
@@ -2042,7 +2043,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats, optimize, linalg
 from scipy.stats import norm, multivariate_normal
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 import seaborn as sns
 
 # Machine Learning

@@ -48,7 +48,8 @@ from scipy.optimize import minimize, differential_evolution
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import seaborn as sns
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 from tqdm import tqdm
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import StandardScaler

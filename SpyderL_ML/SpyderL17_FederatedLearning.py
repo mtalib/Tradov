@@ -59,7 +59,8 @@ import grpc
 from flask import Flask, request, jsonify
 import requests
 from scipy import stats
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 import seaborn as sns
 
 # ==============================================================================

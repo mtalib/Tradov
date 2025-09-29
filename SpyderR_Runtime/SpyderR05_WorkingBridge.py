@@ -21,13 +21,13 @@ Key Features:
     - ib_async integration for IB Gateway 10.37+ compatibility
     - Multiple client ID testing (3, 10, 123, 999, 1234)
     - Automatic fallback to simulation mode on connection failure
-    - PyQt6 integration for dashboard connectivity
+    - PySide6 integration for dashboard connectivity
     - Proper connection status monitoring and reporting
     - Thread-safe operation with event handling
 
 Dependencies:
     - ib_async: Modern Interactive Brokers API client
-    - PyQt6: GUI framework for dashboard integration
+    - PySide6: GUI framework for dashboard integration
     - SpyderG_GUI: Dashboard components
 
 """
@@ -46,8 +46,8 @@ from datetime import datetime
 # Add Spyder to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtCore import QTimer, QObject, pyqtSignal
+from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QTimer, QObject, Signal
 
 # Import dashboard
 from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
@@ -87,9 +87,9 @@ class WorkingIBBridge(QObject):
     """
     
     # Signals for connection status
-    connection_established = pyqtSignal(int)  # client_id
-    connection_failed = pyqtSignal(str)       # error_message
-    fallback_activated = pyqtSignal()         # simulation mode
+    connection_established = Signal(int)  # client_id
+    connection_failed = Signal(str)       # error_message
+    fallback_activated = Signal()         # simulation mode
     
     def __init__(self, dashboard: SpyderTradingDashboard):
         """

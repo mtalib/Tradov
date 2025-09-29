@@ -54,9 +54,9 @@ import traceback
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from PyQt6.QtWidgets import QApplication, QMessageBox, QSplashScreen, QProgressBar, QVBoxLayout, QLabel
-from PyQt6.QtCore import QTimer, pyqtSignal, QObject, Qt, QThread
-from PyQt6.QtGui import QPixmap, QPainter, QFont, QColor, QBrush, QPen
+from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen, QProgressBar, QVBoxLayout, QLabel
+from PySide6.QtCore import QTimer, Signal, QObject, Qt, QThread
+from PySide6.QtGui import QPixmap, QPainter, QFont, QColor, QBrush, QPen
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -99,8 +99,8 @@ STARTUP_CHECKS = [
 class SystemChecker(QObject):
     """Comprehensive system health and connectivity checker."""
     
-    progress_update = pyqtSignal(int, str)
-    check_complete = pyqtSignal(dict)
+    progress_update = Signal(int, str)
+    check_complete = Signal(dict)
     
     def __init__(self):
         super().__init__()
@@ -152,7 +152,7 @@ class SystemChecker(QObject):
     
     def _check_required_modules(self) -> dict:
         """Check for required Python modules."""
-        required_modules = ['PyQt6', 'pandas', 'numpy', 'requests']
+        required_modules = ['PySide6', 'pandas', 'numpy', 'requests']
         missing_modules = []
         
         for module in required_modules:
@@ -360,8 +360,8 @@ class SpyderSplashScreen(QSplashScreen):
 class StartupWorker(QThread):
     """Worker thread for performing startup checks without blocking GUI."""
     
-    progress_update = pyqtSignal(int, str)
-    checks_complete = pyqtSignal(dict)
+    progress_update = Signal(int, str)
+    checks_complete = Signal(dict)
     
     def run(self):
         """Run startup checks in separate thread."""

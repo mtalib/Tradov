@@ -122,19 +122,19 @@ class DashboardIntegrationVerifier:
         """Print info message"""
         print(f"{Colors.CYAN}[i]{Colors.RESET} {message}")
 
-    def verify_pyqt6(self) -> bool:
-        """Verify PyQt6 is installed"""
+    def verify_PySide6(self) -> bool:
+        """Verify PySide6 is installed"""
         try:
-            import PyQt6.QtCore
-            import PyQt6.QtGui
-            import PyQt6.QtWidgets
+            import PySide6.QtCore
+            import PySide6.QtGui
+            import PySide6.QtWidgets
 
             self.pyqt_available = True
-            self.print_ok("PyQt6 installed and available")
+            self.print_ok("PySide6 installed and available")
             return True
         except ImportError as e:
-            self.print_error(f"PyQt6 not installed: {e}")
-            self.print_info("Install with: pip install PyQt6")
+            self.print_error(f"PySide6 not installed: {e}")
+            self.print_info("Install with: pip install PySide6")
             return False
 
     def verify_dashboard_modules(self) -> Dict[str, bool]:
@@ -394,7 +394,7 @@ class DashboardIntegrationVerifier:
         self.print_header()
 
         # Basic checks
-        self.verify_pyqt6()
+        self.verify_PySide6()
 
         # Module verification
         self.verify_dashboard_modules()

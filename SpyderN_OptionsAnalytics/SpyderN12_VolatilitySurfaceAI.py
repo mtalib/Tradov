@@ -74,7 +74,8 @@ from sklearn.model_selection import train_test_split
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 from matplotlib import cm
 
 # Quantitative Finance

@@ -37,9 +37,9 @@ try:
     PYSIDE6_AVAILABLE = True
 except ImportError:
     try:
-        from PyQt6.QtWidgets import QApplication, QWidget
-        from PyQt6.QtCore import QTimer, QObject, pyqtSignal as Signal
-        from PyQt6.QtGui import QGuiApplication
+        from PySide6.QtWidgets import QApplication, QWidget
+        from PySide6.QtCore import QTimer, QObject, Signal as Signal
+        from PySide6.QtGui import QGuiApplication
         PYSIDE6_AVAILABLE = False
     except ImportError:
         QApplication = None

@@ -8,8 +8,8 @@ Module: SpyderV01_QuantEngine.py
 Purpose: Quantitative models orchestrator - coordination and delegation only
 
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-31 Time: 18:30:00  
+Year Created: 2025
+Last Updated: 2025-08-31 Time: 18:30:00
 
 Module Description:
     Pure orchestration engine for all quantitative models in the Spyder system.
@@ -20,7 +20,7 @@ Module Description:
 
 Consolidation Notes:
     - REMOVED: All pricing calculations (delegated to V05_PricingEngine)
-    - REMOVED: All risk calculations (delegated to V04_RiskManager)  
+    - REMOVED: All risk calculations (delegated to V04_RiskManager)
     - REMOVED: Duplicate model implementations
     - ENHANCED: Orchestration and coordination logic
     - ENHANCED: Data flow management between V04/V05
@@ -64,7 +64,13 @@ except ImportError:
 # Import consolidated V-series modules
 try:
     from SpyderV04_RiskManager import SpyderRiskManager, RiskParameters, RiskMetrics
-    from SpyderV05_PricingEngine import SpyderPricingEngine, OptionContract, PricingParameters, PricingResult
+    from SpyderV05_PricingEngine import (
+        SpyderPricingEngine,
+        OptionContract,
+        PricingParameters,
+        PricingResult,
+    )
+
     CONSOLIDATED_MODULES_AVAILABLE = True
 except ImportError:
     print("⚠️  Consolidated V04/V05 modules not available")
@@ -72,11 +78,13 @@ except ImportError:
     SpyderPricingEngine = None
     CONSOLIDATED_MODULES_AVAILABLE = False
 
+
 # ==============================================================================
 # CONFIGURATION CONSTANTS
 # ==============================================================================
 class RequestType(Enum):
     """Types of quantitative requests."""
+
     PRICE_SINGLE = "price_single"
     PRICE_PORTFOLIO = "price_portfolio"
     CALCULATE_GREEKS = "calculate_greeks"
@@ -84,19 +92,24 @@ class RequestType(Enum):
     STRESS_TEST = "stress_test"
     MODEL_VALIDATION = "model_validation"
 
+
 class DataSource(Enum):
     """Data source types from SpyderB08."""
-    CORE_DATA = 3           # Client 3: Core market data
-    SPY_OPTIONS = 4         # Client 4: SPY options chains
-    MARKET_INTERNALS = 6    # Client 6: VUD + market internals
-    INTERNATIONAL = 10      # Client 10: International markets
+
+    CORE_DATA = 3  # Client 3: Core market data
+    SPY_OPTIONS = 4  # Client 4: SPY options chains
+    MARKET_INTERNALS = 6  # Client 6: VUD + market internals
+    INTERNATIONAL = 10  # Client 10: International markets
+
 
 class Priority(Enum):
     """Request priority levels."""
-    CRITICAL = 1    # Real-time trading decisions
-    HIGH = 2        # Risk management
-    MEDIUM = 3      # Portfolio analysis
-    LOW = 4         # Research and backtesting
+
+    CRITICAL = 1  # Real-time trading decisions
+    HIGH = 2  # Risk management
+    MEDIUM = 3  # Portfolio analysis
+    LOW = 4  # Research and backtesting
+
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -104,6 +117,7 @@ class Priority(Enum):
 @dataclass
 class QuantRequest:
     """Unified quantitative request structure."""
+
     request_id: str
     request_type: RequestType
     priority: Priority
@@ -113,9 +127,11 @@ class QuantRequest:
     retry_count: int = 0
     max_retries: int = 3
 
+
 @dataclass
 class QuantResponse:
     """Unified quantitative response structure."""
+
     request_id: str
     success: bool
     data: Dict[str, Any]
@@ -125,9 +141,11 @@ class QuantResponse:
     timestamp: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+
 @dataclass
 class OrchestrationMetrics:
     """Orchestration performance metrics."""
+
     total_requests: int = 0
     successful_requests: int = 0
     failed_requests: int = 0
@@ -138,17 +156,18 @@ class OrchestrationMetrics:
     risk_manager_calls: int = 0
     last_reset: datetime = field(default_factory=datetime.now)
 
+
 # ==============================================================================
 # MAIN ORCHESTRATOR CLASS
 # ==============================================================================
 class SpyderQuantEngine:
     """
     Pure quantitative models orchestrator for Spyder trading system.
-    
+
     Provides unified interface for all quantitative operations while delegating
     all calculations to specialized engines. No duplicate calculations - acts
     solely as coordinator, data flow manager, and external interface provider.
-    
+
     Key Responsibilities:
     - Request routing to appropriate engines (V04/V05)
     - Data flow coordination between modules
@@ -157,134 +176,136 @@ class SpyderQuantEngine:
     - Unified external interface
     - Model lifecycle management
     """
-    
-    def __init__(self, 
-                 config: Dict[str, Any] = None,
-                 data_manager: MultiClientDataManager = None):
+
+    def __init__(
+        self, config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+    ):
         """Initialize pure orchestration engine."""
         self.config = config or {}
         self.data_manager = data_manager
         self.logger = logging.getLogger(__name__)
-        
+
         # Orchestration state
         self.is_running = False
         self.shutdown_requested = False
-        
+
         # Performance metrics
         self.metrics = OrchestrationMetrics()
-        
+
         # Request tracking
         self.active_requests: Dict[str, QuantRequest] = {}
         self.request_history: List[QuantResponse] = []
-        self.max_history_size = self.config.get('max_history_size', 1000)
-        
+        self.max_history_size = self.config.get("max_history_size", 1000)
+
         # Initialize consolidated engines
         self.pricing_engine: Optional[SpyderPricingEngine] = None
         self.risk_manager: Optional[SpyderRiskManager] = None
-        
+
         if CONSOLIDATED_MODULES_AVAILABLE:
             self._initialize_engines()
         else:
             self.logger.error("Consolidated modules V04/V05 not available")
-            raise ImportError("Cannot initialize without V04_RiskManager and V05_PricingEngine")
-        
+            raise ImportError(
+                "Cannot initialize without V04_RiskManager and V05_PricingEngine"
+            )
+
         # Threading for async operations
         self.thread_pool = ThreadPoolExecutor(
-            max_workers=self.config.get('max_workers', 8)
+            max_workers=self.config.get("max_workers", 8)
         )
-        
+
         self.logger.info("SpyderQuantEngine (Orchestrator) initialized successfully")
-    
+
     def _initialize_engines(self):
         """Initialize the consolidated pricing and risk engines."""
         try:
             # Initialize V05 Pricing Engine
-            pricing_config = self.config.get('pricing_engine', {})
+            pricing_config = self.config.get("pricing_engine", {})
             self.pricing_engine = SpyderPricingEngine(
-                config=pricing_config,
-                data_manager=self.data_manager
+                config=pricing_config, data_manager=self.data_manager
             )
-            
+
             # Initialize V04 Risk Manager
-            risk_config = self.config.get('risk_manager', {})
+            risk_config = self.config.get("risk_manager", {})
             self.risk_manager = SpyderRiskManager(
-                config=risk_config,
-                data_manager=self.data_manager
+                config=risk_config, data_manager=self.data_manager
             )
-            
+
             self.logger.info("Consolidated engines V04/V05 initialized successfully")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize engines: {e}")
             raise
-    
+
     # ==========================================================================
     # MAIN ORCHESTRATION INTERFACE
     # ==========================================================================
-    
+
     async def start(self):
         """Start the orchestration engine."""
         if self.is_running:
             self.logger.warning("Engine already running")
             return
-        
+
         self.is_running = True
         self.shutdown_requested = False
-        
+
         self.logger.info("SpyderQuantEngine orchestration started")
-    
+
     async def shutdown(self):
         """Graceful shutdown of orchestration engine."""
         self.logger.info("Initiating graceful shutdown...")
-        
+
         self.shutdown_requested = True
-        
+
         # Wait for active requests to complete
         if self.active_requests:
-            self.logger.info(f"Waiting for {len(self.active_requests)} active requests...")
+            self.logger.info(
+                f"Waiting for {len(self.active_requests)} active requests..."
+            )
             await asyncio.sleep(2.0)  # Grace period
-        
+
         # Shutdown engines
         if self.pricing_engine:
             await self.pricing_engine.shutdown()
-        
+
         if self.risk_manager:
             # Risk manager doesn't have async shutdown, but we can clean up
             self.risk_manager.reset_risk_manager()
-        
+
         # Shutdown thread pool
         self.thread_pool.shutdown(wait=True)
-        
+
         self.is_running = False
         self.logger.info("SpyderQuantEngine shutdown complete")
-    
+
     # ==========================================================================
     # UNIFIED REQUEST PROCESSING
     # ==========================================================================
-    
+
     async def process_request(self, request: QuantRequest) -> QuantResponse:
         """
         Process unified quantitative request.
-        
+
         Args:
             request: Quantitative request specification
-            
+
         Returns:
             QuantResponse: Unified response with results
         """
         start_time = time.time()
-        
+
         # Validate engine availability
         if not self.is_running:
             return self._create_error_response(
                 request, "Engine not running", start_time
             )
-        
+
         try:
             # Track request
             self.active_requests[request.request_id] = request
             self._update_request_metrics(request)
-            
+
             # Route request to appropriate handler
             if request.request_type == RequestType.PRICE_SINGLE:
                 response_data = await self._handle_price_single(request)
@@ -300,287 +321,298 @@ class SpyderQuantEngine:
                 response_data = await self._handle_model_validation(request)
             else:
                 raise ValueError(f"Unknown request type: {request.request_type}")
-            
+
             # Create successful response
             execution_time = (time.time() - start_time) * 1000
             response = QuantResponse(
                 request_id=request.request_id,
                 success=True,
                 data=response_data,
-                execution_time_ms=execution_time
+                execution_time_ms=execution_time,
             )
-            
+
             # Update metrics
             self.metrics.successful_requests += 1
             self._update_response_time(execution_time)
-            
+
             return response
-            
+
         except Exception as e:
             self.logger.error(f"Error processing request {request.request_id}: {e}")
             self.metrics.failed_requests += 1
-            
+
             return self._create_error_response(request, str(e), start_time)
-            
+
         finally:
             # Clean up
             if request.request_id in self.active_requests:
                 del self.active_requests[request.request_id]
-    
+
     # ==========================================================================
     # REQUEST HANDLERS (DELEGATION TO V04/V05)
     # ==========================================================================
-    
+
     async def _handle_price_single(self, request: QuantRequest) -> Dict[str, Any]:
         """Handle single option pricing request."""
         if not self.pricing_engine:
             raise ValueError("Pricing engine not available")
-        
+
         # Extract contract from request data
-        contract_data = request.data.get('contract')
+        contract_data = request.data.get("contract")
         if not contract_data:
             raise ValueError("Contract data required for pricing")
-        
+
         # Convert to OptionContract
         contract = self._convert_to_option_contract(contract_data)
-        
+
         # Get pricing parameters
-        params_data = request.data.get('parameters', {})
+        params_data = request.data.get("parameters", {})
         parameters = self._convert_to_pricing_parameters(params_data)
-        
+
         # Delegate to V05 PricingEngine
         result = await self.pricing_engine.price_option(contract, parameters)
         self.metrics.pricing_engine_calls += 1
-        
+
         return {
-            'price': result.theoretical_price,
-            'greeks': {
-                'delta': result.greeks.delta,
-                'gamma': result.greeks.gamma,
-                'vega': result.greeks.vega,
-                'theta': result.greeks.theta,
-                'rho': result.greeks.rho,
-                'vanna': result.greeks.vanna,
-                'volga': result.greeks.volga,
-                'charm': result.greeks.charm,
-                'veta': result.greeks.veta
+            "price": result.theoretical_price,
+            "greeks": {
+                "delta": result.greeks.delta,
+                "gamma": result.greeks.gamma,
+                "vega": result.greeks.vega,
+                "theta": result.greeks.theta,
+                "rho": result.greeks.rho,
+                "vanna": result.greeks.vanna,
+                "volga": result.greeks.volga,
+                "charm": result.greeks.charm,
+                "veta": result.greeks.veta,
             },
-            'model_used': result.model_used.value,
-            'early_exercise_premium': result.early_exercise_premium,
-            'calculation_time_ms': result.calculation_time_ms,
-            'accuracy_estimate': result.accuracy_estimate,
-            'warnings': result.warnings
+            "model_used": result.model_used.value,
+            "early_exercise_premium": result.early_exercise_premium,
+            "calculation_time_ms": result.calculation_time_ms,
+            "accuracy_estimate": result.accuracy_estimate,
+            "warnings": result.warnings,
         }
-    
+
     async def _handle_price_portfolio(self, request: QuantRequest) -> Dict[str, Any]:
         """Handle portfolio pricing request."""
         if not self.pricing_engine:
             raise ValueError("Pricing engine not available")
-        
+
         # Extract contracts from request data
-        contracts_data = request.data.get('contracts')
+        contracts_data = request.data.get("contracts")
         if not contracts_data:
             raise ValueError("Contracts data required for portfolio pricing")
-        
+
         # Convert to OptionContracts
         contracts = [
             self._convert_to_option_contract(contract_data)
             for contract_data in contracts_data
         ]
-        
+
         # Get pricing parameters
-        params_data = request.data.get('parameters', {})
+        params_data = request.data.get("parameters", {})
         parameters = self._convert_to_pricing_parameters(params_data)
-        
+
         # Delegate to V05 PricingEngine
         results = await self.pricing_engine.price_portfolio(contracts, parameters)
         self.metrics.pricing_engine_calls += 1
-        
+
         # Aggregate results
         portfolio_value = sum(result.theoretical_price for result in results)
         portfolio_delta = sum(result.greeks.delta for result in results)
         portfolio_gamma = sum(result.greeks.gamma for result in results)
         portfolio_vega = sum(result.greeks.vega for result in results)
         portfolio_theta = sum(result.greeks.theta for result in results)
-        
+
         return {
-            'portfolio_value': portfolio_value,
-            'portfolio_greeks': {
-                'delta': portfolio_delta,
-                'gamma': portfolio_gamma,
-                'vega': portfolio_vega,
-                'theta': portfolio_theta
+            "portfolio_value": portfolio_value,
+            "portfolio_greeks": {
+                "delta": portfolio_delta,
+                "gamma": portfolio_gamma,
+                "vega": portfolio_vega,
+                "theta": portfolio_theta,
             },
-            'individual_results': [
+            "individual_results": [
                 {
-                    'price': result.theoretical_price,
-                    'delta': result.greeks.delta,
-                    'model_used': result.model_used.value
+                    "price": result.theoretical_price,
+                    "delta": result.greeks.delta,
+                    "model_used": result.model_used.value,
                 }
                 for result in results
             ],
-            'total_contracts': len(results),
-            'successful_pricings': sum(1 for r in results if r.convergence_achieved)
+            "total_contracts": len(results),
+            "successful_pricings": sum(1 for r in results if r.convergence_achieved),
         }
-    
+
     async def _handle_calculate_greeks(self, request: QuantRequest) -> Dict[str, Any]:
         """Handle Greeks calculation request."""
         # Greeks are calculated as part of pricing, so delegate to pricing
         return await self._handle_price_single(request)
-    
+
     async def _handle_assess_risk(self, request: QuantRequest) -> Dict[str, Any]:
         """Handle risk assessment request."""
         if not self.risk_manager:
             raise ValueError("Risk manager not available")
-        
+
         # Extract portfolio from request data
-        portfolio_data = request.data.get('portfolio')
+        portfolio_data = request.data.get("portfolio")
         if not portfolio_data:
             raise ValueError("Portfolio data required for risk assessment")
-        
+
         # Get risk parameters
-        params_data = request.data.get('parameters', {})
+        params_data = request.data.get("parameters", {})
         risk_params = self._convert_to_risk_parameters(params_data)
-        
+
         # Delegate to V04 RiskManager
         risk_metrics = await self.risk_manager.calculate_portfolio_risk(
-            portfolio=portfolio_data,
-            parameters=risk_params
+            portfolio=portfolio_data, parameters=risk_params
         )
         self.metrics.risk_manager_calls += 1
-        
+
         return {
-            'var': risk_metrics.var,
-            'cvar': risk_metrics.cvar,
-            'expected_shortfall': risk_metrics.expected_shortfall,
-            'cvar_var_ratio': risk_metrics.cvar_var_ratio,
-            'portfolio_value': risk_metrics.portfolio_value,
-            'maximum_drawdown': risk_metrics.maximum_drawdown,
-            'sharpe_ratio': risk_metrics.sharpe_ratio,
-            'risk_utilization': risk_metrics.risk_utilization,
-            'diversification_ratio': risk_metrics.diversification_ratio,
-            'model_accuracy': risk_metrics.model_accuracy,
-            'calculation_method': risk_metrics.calculation_method.value,
-            'warnings': risk_metrics.warnings
+            "var": risk_metrics.var,
+            "cvar": risk_metrics.cvar,
+            "expected_shortfall": risk_metrics.expected_shortfall,
+            "cvar_var_ratio": risk_metrics.cvar_var_ratio,
+            "portfolio_value": risk_metrics.portfolio_value,
+            "maximum_drawdown": risk_metrics.maximum_drawdown,
+            "sharpe_ratio": risk_metrics.sharpe_ratio,
+            "risk_utilization": risk_metrics.risk_utilization,
+            "diversification_ratio": risk_metrics.diversification_ratio,
+            "model_accuracy": risk_metrics.model_accuracy,
+            "calculation_method": risk_metrics.calculation_method.value,
+            "warnings": risk_metrics.warnings,
         }
-    
+
     async def _handle_stress_test(self, request: QuantRequest) -> Dict[str, Any]:
         """Handle stress testing request."""
         if not self.risk_manager:
             raise ValueError("Risk manager not available")
-        
+
         # Extract custom scenarios if provided
-        custom_scenarios = request.data.get('custom_scenarios')
-        
+        custom_scenarios = request.data.get("custom_scenarios")
+
         # Delegate to V04 RiskManager
         stress_results = await self.risk_manager.run_stress_tests(custom_scenarios)
         self.metrics.risk_manager_calls += 1
-        
+
         return {
-            'total_scenarios': len(stress_results),
-            'scenarios': [
+            "total_scenarios": len(stress_results),
+            "scenarios": [
                 {
-                    'name': result.scenario.name,
-                    'description': result.scenario.description,
-                    'portfolio_loss': result.portfolio_loss,
-                    'loss_percentage': result.loss_percentage,
-                    'var_breach': result.var_breach,
-                    'cvar_breach': result.cvar_breach,
-                    'hedge_recommendations': result.hedge_recommendations,
-                    'recovery_time_estimate': result.recovery_time_estimate
+                    "name": result.scenario.name,
+                    "description": result.scenario.description,
+                    "portfolio_loss": result.portfolio_loss,
+                    "loss_percentage": result.loss_percentage,
+                    "var_breach": result.var_breach,
+                    "cvar_breach": result.cvar_breach,
+                    "hedge_recommendations": result.hedge_recommendations,
+                    "recovery_time_estimate": result.recovery_time_estimate,
                 }
                 for result in stress_results
             ],
-            'worst_scenario': max(
-                stress_results, 
-                key=lambda x: abs(x.portfolio_loss)
-            ).scenario.name if stress_results else None
+            "worst_scenario": (
+                max(stress_results, key=lambda x: abs(x.portfolio_loss)).scenario.name
+                if stress_results
+                else None
+            ),
         }
-    
+
     async def _handle_model_validation(self, request: QuantRequest) -> Dict[str, Any]:
         """Handle model validation request."""
         validation_results = {}
-        
+
         # Get pricing engine performance if available
         if self.pricing_engine:
             pricing_performance = self.pricing_engine.get_performance_summary()
-            validation_results['pricing_engine'] = pricing_performance
-        
+            validation_results["pricing_engine"] = pricing_performance
+
         # Get risk manager performance if available
         if self.risk_manager:
             risk_performance = self.risk_manager.get_performance_metrics()
-            validation_results['risk_manager'] = risk_performance
-        
+            validation_results["risk_manager"] = risk_performance
+
         # Add orchestration metrics
-        validation_results['orchestration'] = {
-            'total_requests': self.metrics.total_requests,
-            'success_rate': self.metrics.successful_requests / max(self.metrics.total_requests, 1),
-            'avg_response_time_ms': self.metrics.avg_response_time_ms,
-            'active_requests': len(self.active_requests),
-            'pricing_engine_calls': self.metrics.pricing_engine_calls,
-            'risk_manager_calls': self.metrics.risk_manager_calls
+        validation_results["orchestration"] = {
+            "total_requests": self.metrics.total_requests,
+            "success_rate": self.metrics.successful_requests
+            / max(self.metrics.total_requests, 1),
+            "avg_response_time_ms": self.metrics.avg_response_time_ms,
+            "active_requests": len(self.active_requests),
+            "pricing_engine_calls": self.metrics.pricing_engine_calls,
+            "risk_manager_calls": self.metrics.risk_manager_calls,
         }
-        
+
         return validation_results
-    
+
     # ==========================================================================
     # DATA CONVERSION UTILITIES
     # ==========================================================================
-    
-    def _convert_to_option_contract(self, contract_data: Dict[str, Any]) -> OptionContract:
+
+    def _convert_to_option_contract(
+        self, contract_data: Dict[str, Any]
+    ) -> "OptionContract":
         """Convert dictionary to OptionContract."""
-        from SpyderV05_PricingEngine import OptionType, ExerciseStyle
-        
+        from SpyderV05_PricingEngine import OptionType, ExerciseStyle, OptionContract
+
         return OptionContract(
-            underlying_price=contract_data['underlying_price'],
-            strike_price=contract_data['strike_price'],
-            time_to_expiry=contract_data['time_to_expiry'],
-            risk_free_rate=contract_data.get('risk_free_rate', 0.05),
-            dividend_yield=contract_data.get('dividend_yield', 0.02),
-            volatility=contract_data.get('volatility', 0.25),
-            option_type=OptionType(contract_data.get('option_type', 'call')),
-            exercise_style=ExerciseStyle(contract_data.get('exercise_style', 'american'))
+            underlying_price=contract_data["underlying_price"],
+            strike_price=contract_data["strike_price"],
+            time_to_expiry=contract_data["time_to_expiry"],
+            risk_free_rate=contract_data.get("risk_free_rate", 0.05),
+            dividend_yield=contract_data.get("dividend_yield", 0.02),
+            volatility=contract_data.get("volatility", 0.25),
+            option_type=OptionType(contract_data.get("option_type", "call")),
+            exercise_style=ExerciseStyle(
+                contract_data.get("exercise_style", "american")
+            ),
         )
-    
-    def _convert_to_pricing_parameters(self, params_data: Dict[str, Any]) -> PricingParameters:
+
+    def _convert_to_pricing_parameters(
+        self, params_data: Dict[str, Any]
+    ) -> "PricingParameters":
         """Convert dictionary to PricingParameters."""
-        from SpyderV05_PricingEngine import PricingModel
-        
+        from SpyderV05_PricingEngine import PricingModel, PricingParameters
+
         return PricingParameters(
-            model=PricingModel(params_data.get('model', 'auto')),
-            binomial_steps=params_data.get('binomial_steps', 100),
-            monte_carlo_sims=params_data.get('monte_carlo_sims', 10000),
-            use_cache=params_data.get('use_cache', True),
-            parallel_processing=params_data.get('parallel_processing', True)
+            model=PricingModel(params_data.get("model", "auto")),
+            binomial_steps=params_data.get("binomial_steps", 100),
+            monte_carlo_sims=params_data.get("monte_carlo_sims", 10000),
+            use_cache=params_data.get("use_cache", True),
+            parallel_processing=params_data.get("parallel_processing", True),
         )
-    
-    def _convert_to_risk_parameters(self, params_data: Dict[str, Any]) -> RiskParameters:
+
+    def _convert_to_risk_parameters(
+        self, params_data: Dict[str, Any]
+    ) -> "RiskParameters":
         """Convert dictionary to RiskParameters."""
         from SpyderV04_RiskManager import RiskMethod
-        
+
         return RiskParameters(
-            confidence_level=params_data.get('confidence_level', 0.95),
-            time_horizon=params_data.get('time_horizon', 1),
-            method=RiskMethod(params_data.get('method', 'historical')),
-            lookback_days=params_data.get('lookback_days', 252),
-            monte_carlo_sims=params_data.get('monte_carlo_sims', 10000)
+            confidence_level=params_data.get("confidence_level", 0.95),
+            time_horizon=params_data.get("time_horizon", 1),
+            method=RiskMethod(params_data.get("method", "historical")),
+            lookback_days=params_data.get("lookback_days", 252),
+            monte_carlo_sims=params_data.get("monte_carlo_sims", 10000),
         )
-    
+
     # ==========================================================================
     # CONVENIENCE METHODS (HIGH-LEVEL INTERFACE)
     # ==========================================================================
-    
-    async def price_option(self,
-                          underlying_price: float,
-                          strike_price: float,
-                          time_to_expiry: float,
-                          volatility: float,
-                          option_type: str = 'call',
-                          risk_free_rate: float = 0.05,
-                          dividend_yield: float = 0.02) -> Dict[str, Any]:
+
+    async def price_option(
+        self,
+        underlying_price: float,
+        strike_price: float,
+        time_to_expiry: float,
+        volatility: float,
+        option_type: str = "call",
+        risk_free_rate: float = 0.05,
+        dividend_yield: float = 0.02,
+    ) -> Dict[str, Any]:
         """
         Convenient method for pricing single option.
-        
+
         Args:
             underlying_price: Current underlying price
             strike_price: Option strike price
@@ -589,7 +621,7 @@ class SpyderQuantEngine:
             option_type: 'call' or 'put'
             risk_free_rate: Risk-free rate
             dividend_yield: Dividend yield
-            
+
         Returns:
             Dict with price and Greeks
         """
@@ -598,37 +630,41 @@ class SpyderQuantEngine:
             request_type=RequestType.PRICE_SINGLE,
             priority=Priority.HIGH,
             data={
-                'contract': {
-                    'underlying_price': underlying_price,
-                    'strike_price': strike_price,
-                    'time_to_expiry': time_to_expiry,
-                    'volatility': volatility,
-                    'option_type': option_type,
-                    'risk_free_rate': risk_free_rate,
-                    'dividend_yield': dividend_yield
+                "contract": {
+                    "underlying_price": underlying_price,
+                    "strike_price": strike_price,
+                    "time_to_expiry": time_to_expiry,
+                    "volatility": volatility,
+                    "option_type": option_type,
+                    "risk_free_rate": risk_free_rate,
+                    "dividend_yield": dividend_yield,
                 }
-            }
+            },
         )
-        
+
         response = await self.process_request(request)
-        
+
         if response.success:
             return response.data
         else:
-            raise ValueError(f"Pricing failed: {response.data.get('error', 'Unknown error')}")
-    
-    async def assess_portfolio_risk(self,
-                                  portfolio: List[Dict[str, Any]],
-                                  confidence_level: float = 0.95,
-                                  method: str = 'historical') -> Dict[str, Any]:
+            raise ValueError(
+                f"Pricing failed: {response.data.get('error', 'Unknown error')}"
+            )
+
+    async def assess_portfolio_risk(
+        self,
+        portfolio: List[Dict[str, Any]],
+        confidence_level: float = 0.95,
+        method: str = "historical",
+    ) -> Dict[str, Any]:
         """
         Convenient method for portfolio risk assessment.
-        
+
         Args:
             portfolio: List of positions with market data
             confidence_level: VaR confidence level
             method: Risk calculation method
-            
+
         Returns:
             Dict with risk metrics
         """
@@ -637,95 +673,99 @@ class SpyderQuantEngine:
             request_type=RequestType.ASSESS_RISK,
             priority=Priority.HIGH,
             data={
-                'portfolio': portfolio,
-                'parameters': {
-                    'confidence_level': confidence_level,
-                    'method': method
-                }
-            }
+                "portfolio": portfolio,
+                "parameters": {"confidence_level": confidence_level, "method": method},
+            },
         )
-        
+
         response = await self.process_request(request)
-        
+
         if response.success:
             return response.data
         else:
-            raise ValueError(f"Risk assessment failed: {response.data.get('error', 'Unknown error')}")
-    
+            raise ValueError(
+                f"Risk assessment failed: {response.data.get('error', 'Unknown error')}"
+            )
+
     # ==========================================================================
     # METRICS AND MONITORING
     # ==========================================================================
-    
+
     def _update_request_metrics(self, request: QuantRequest):
         """Update request metrics."""
         self.metrics.total_requests += 1
-        
+
         # Track by type
         request_type = request.request_type.value
-        self.metrics.requests_by_type[request_type] = \
+        self.metrics.requests_by_type[request_type] = (
             self.metrics.requests_by_type.get(request_type, 0) + 1
-        
+        )
+
         # Track by priority
         priority = request.priority.name
-        self.metrics.requests_by_priority[priority] = \
+        self.metrics.requests_by_priority[priority] = (
             self.metrics.requests_by_priority.get(priority, 0) + 1
-    
+        )
+
     def _update_response_time(self, execution_time_ms: float):
         """Update average response time."""
         current_avg = self.metrics.avg_response_time_ms
         total_requests = self.metrics.successful_requests
-        
+
         self.metrics.avg_response_time_ms = (
-            (current_avg * (total_requests - 1) + execution_time_ms) / total_requests
-        )
-    
-    def _create_error_response(self,
-                             request: QuantRequest,
-                             error_message: str,
-                             start_time: float) -> QuantResponse:
+            current_avg * (total_requests - 1) + execution_time_ms
+        ) / total_requests
+
+    def _create_error_response(
+        self, request: QuantRequest, error_message: str, start_time: float
+    ) -> QuantResponse:
         """Create error response."""
         execution_time = (time.time() - start_time) * 1000
-        
+
         return QuantResponse(
             request_id=request.request_id,
             success=False,
-            data={'error': error_message},
+            data={"error": error_message},
             execution_time_ms=execution_time,
-            warnings=[f"Request failed: {error_message}"]
+            warnings=[f"Request failed: {error_message}"],
         )
-    
+
     def get_orchestration_status(self) -> Dict[str, Any]:
         """Get comprehensive orchestration status."""
         return {
-            'engine_running': self.is_running,
-            'active_requests': len(self.active_requests),
-            'total_requests_processed': self.metrics.total_requests,
-            'success_rate': self.metrics.successful_requests / max(self.metrics.total_requests, 1),
-            'avg_response_time_ms': self.metrics.avg_response_time_ms,
-            'engines_available': {
-                'pricing_engine': self.pricing_engine is not None,
-                'risk_manager': self.risk_manager is not None
+            "engine_running": self.is_running,
+            "active_requests": len(self.active_requests),
+            "total_requests_processed": self.metrics.total_requests,
+            "success_rate": self.metrics.successful_requests
+            / max(self.metrics.total_requests, 1),
+            "avg_response_time_ms": self.metrics.avg_response_time_ms,
+            "engines_available": {
+                "pricing_engine": self.pricing_engine is not None,
+                "risk_manager": self.risk_manager is not None,
             },
-            'requests_by_type': dict(self.metrics.requests_by_type),
-            'requests_by_priority': dict(self.metrics.requests_by_priority),
-            'pricing_engine_calls': self.metrics.pricing_engine_calls,
-            'risk_manager_calls': self.metrics.risk_manager_calls,
-            'last_metrics_reset': self.metrics.last_reset.isoformat()
+            "requests_by_type": dict(self.metrics.requests_by_type),
+            "requests_by_priority": dict(self.metrics.requests_by_priority),
+            "pricing_engine_calls": self.metrics.pricing_engine_calls,
+            "risk_manager_calls": self.metrics.risk_manager_calls,
+            "last_metrics_reset": self.metrics.last_reset.isoformat(),
         }
-    
+
     def reset_metrics(self):
         """Reset orchestration metrics."""
         self.metrics = OrchestrationMetrics()
         self.request_history.clear()
         self.logger.info("Orchestration metrics reset")
 
+
 # ==============================================================================
 # FACTORY FUNCTIONS
 # ==============================================================================
-def create_quant_engine(config: Dict[str, Any] = None,
-                       data_manager: MultiClientDataManager = None) -> SpyderQuantEngine:
+def create_quant_engine(
+    config: Dict[str, Any] = None, data_manager: MultiClientDataManager = None
+) -> SpyderQuantEngine:
     """Factory function to create SpyderQuantEngine orchestrator."""
     return SpyderQuantEngine(config, data_manager)
+
 
 # ==============================================================================
 # DEMONSTRATION AND TESTING
@@ -735,87 +775,82 @@ async def main():
     print("=" * 80)
     print("SPYDER V01 PURE ORCHESTRATION ENGINE DEMONSTRATION")
     print("=" * 80)
-    
+
     # Initialize orchestration engine
     config = {
-        'max_workers': 4,
-        'max_history_size': 100,
-        'pricing_engine': {
-            'default_model': 'auto',
-            'binomial_steps': 100,
-            'use_cache': True
+        "max_workers": 4,
+        "max_history_size": 100,
+        "pricing_engine": {
+            "default_model": "auto",
+            "binomial_steps": 100,
+            "use_cache": True,
         },
-        'risk_manager': {
-            'default_confidence': 0.95,
-            'lookback_days': 252
-        }
+        "risk_manager": {"default_confidence": 0.95, "lookback_days": 252},
     }
-    
+
     try:
         quant_engine = create_quant_engine(config)
         await quant_engine.start()
-        
+
         print("\n✅ Pure Orchestration Engine Started")
         print("   • No calculation code - pure coordination only")
         print("   • Delegates pricing to V05_PricingEngine")
         print("   • Delegates risk to V04_RiskManager")
         print("   • Unified interface for external consumers")
-        
+
         # Test 1: Single Option Pricing
         print(f"\n--- Test 1: Single Option Pricing (Delegated to V05) ---")
         try:
             result = await quant_engine.price_option(
                 underlying_price=450.0,
                 strike_price=455.0,
-                time_to_expiry=30/365,
+                time_to_expiry=30 / 365,
                 volatility=0.25,
-                option_type='call'
+                option_type="call",
             )
-            
+
             print(f"   Option Price: ${result['price']:.4f}")
             print(f"   Delta: {result['greeks']['delta']:.4f}")
             print(f"   Model Used: {result['model_used']}")
             print(f"   Calculation Time: {result['calculation_time_ms']:.1f}ms")
-            
+
         except Exception as e:
             print(f"   ❌ Error: {e}")
-        
+
         # Test 2: Portfolio Risk Assessment
         print(f"\n--- Test 2: Portfolio Risk Assessment (Delegated to V04) ---")
         try:
             sample_portfolio = [
                 {
-                    'id': 'SPY_CALL_455',
-                    'type': 'option',
-                    'market_value': 3500,
-                    'delta': 0.45,
-                    'gamma': 0.02,
-                    'vega': 0.15
+                    "id": "SPY_CALL_455",
+                    "type": "option",
+                    "market_value": 3500,
+                    "delta": 0.45,
+                    "gamma": 0.02,
+                    "vega": 0.15,
                 },
                 {
-                    'id': 'SPY_PUT_445',
-                    'type': 'option',
-                    'market_value': -1600,
-                    'delta': -0.40,
-                    'gamma': 0.02,
-                    'vega': 0.15
-                }
+                    "id": "SPY_PUT_445",
+                    "type": "option",
+                    "market_value": -1600,
+                    "delta": -0.40,
+                    "gamma": 0.02,
+                    "vega": 0.15,
+                },
             ]
-            
+
             risk_result = await quant_engine.assess_portfolio_risk(
-                portfolio=sample_portfolio,
-                confidence_level=0.95,
-                method='historical'
+                portfolio=sample_portfolio, confidence_level=0.95, method="historical"
             )
-            
+
             print(f"   Portfolio VaR (95%): ${risk_result['var']:,.2f}")
             print(f"   Portfolio CVaR (95%): ${risk_result['cvar']:,.2f}")
             print(f"   Risk Utilization: {risk_result['risk_utilization']:.1%}")
             print(f"   Calculation Method: {risk_result['calculation_method']}")
-            
+
         except Exception as e:
             print(f"   ❌ Error: {e}")
-        
+
         # Test 3: Unified Request Processing
         print(f"\n--- Test 3: Unified Request Processing ---")
         try:
@@ -825,66 +860,68 @@ async def main():
                 request_type=RequestType.PRICE_PORTFOLIO,
                 priority=Priority.HIGH,
                 data={
-                    'contracts': [
+                    "contracts": [
                         {
-                            'underlying_price': 450.0,
-                            'strike_price': 450.0,
-                            'time_to_expiry': 21/365,
-                            'volatility': 0.22,
-                            'option_type': 'call'
+                            "underlying_price": 450.0,
+                            "strike_price": 450.0,
+                            "time_to_expiry": 21 / 365,
+                            "volatility": 0.22,
+                            "option_type": "call",
                         },
                         {
-                            'underlying_price': 450.0,
-                            'strike_price': 450.0,
-                            'time_to_expiry': 21/365,
-                            'volatility': 0.22,
-                            'option_type': 'put'
-                        }
+                            "underlying_price": 450.0,
+                            "strike_price": 450.0,
+                            "time_to_expiry": 21 / 365,
+                            "volatility": 0.22,
+                            "option_type": "put",
+                        },
                     ]
-                }
+                },
             )
-            
+
             response = await quant_engine.process_request(unified_request)
-            
+
             if response.success:
                 print(f"   Request ID: {response.request_id}")
                 print(f"   Portfolio Value: ${response.data['portfolio_value']:.2f}")
-                print(f"   Portfolio Delta: {response.data['portfolio_greeks']['delta']:.4f}")
+                print(
+                    f"   Portfolio Delta: {response.data['portfolio_greeks']['delta']:.4f}"
+                )
                 print(f"   Execution Time: {response.execution_time_ms:.1f}ms")
                 print(f"   Contracts Processed: {response.data['total_contracts']}")
             else:
                 print(f"   ❌ Request Failed: {response.data.get('error')}")
-            
+
         except Exception as e:
             print(f"   ❌ Error: {e}")
-        
+
         # Test 4: Orchestration Status
         print(f"\n--- Test 4: Orchestration Performance ---")
         try:
             status = quant_engine.get_orchestration_status()
-            
+
             print(f"   Engine Running: {status['engine_running']}")
             print(f"   Total Requests: {status['total_requests_processed']}")
             print(f"   Success Rate: {status['success_rate']:.1%}")
             print(f"   Avg Response Time: {status['avg_response_time_ms']:.1f}ms")
             print(f"   Pricing Engine Calls: {status['pricing_engine_calls']}")
             print(f"   Risk Manager Calls: {status['risk_manager_calls']}")
-            
+
             print(f"\n   Engines Available:")
-            for engine, available in status['engines_available'].items():
+            for engine, available in status["engines_available"].items():
                 print(f"     {engine}: {'✅' if available else '❌'}")
-            
-            if status['requests_by_type']:
+
+            if status["requests_by_type"]:
                 print(f"\n   Requests by Type:")
-                for req_type, count in status['requests_by_type'].items():
+                for req_type, count in status["requests_by_type"].items():
                     print(f"     {req_type}: {count}")
-            
+
         except Exception as e:
             print(f"   ❌ Error: {e}")
-        
+
         # Shutdown
         await quant_engine.shutdown()
-        
+
         print("\n" + "=" * 80)
         print("✅ PURE ORCHESTRATION ENGINE FEATURES DEMONSTRATED:")
         print("   • REMOVED: All pricing calculations (delegated to V05)")
@@ -898,10 +935,11 @@ async def main():
         print("   • INTEGRATED: Seamless V04/V05 engine coordination")
         print("   • ELIMINATED: All calculation duplications across V-series")
         print("=" * 80)
-        
+
     except Exception as e:
         print(f"\n❌ INITIALIZATION ERROR: {e}")
         print("   Make sure V04_RiskManager and V05_PricingEngine are available")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

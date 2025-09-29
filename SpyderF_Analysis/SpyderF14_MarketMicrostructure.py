@@ -51,7 +51,8 @@ from scipy.optimize import minimize_scalar
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import seaborn as sns
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 from tqdm import tqdm
 import numba
 from numba import jit, prange

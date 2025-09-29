@@ -69,9 +69,10 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QTreeWidgetItem, QHeaderView)
 from PySide6.QtCore import QTimer, QThread, Signal, Qt, QAbstractTableModel, QModelIndex
 from PySide6.QtGui import QFont, QColor, QIcon, QPalette
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+import plotly.graph_objects as go
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS

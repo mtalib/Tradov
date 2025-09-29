@@ -262,7 +262,7 @@ class SpyderLauncher:
     def _create_qt_app(self):
         """Create Qt application if possible"""
         try:
-            from PyQt6.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication
             app = QApplication.instance()
             if app is None:
                 app = QApplication(sys.argv)

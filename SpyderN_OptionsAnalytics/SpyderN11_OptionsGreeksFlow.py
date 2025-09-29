@@ -34,7 +34,8 @@ from datetime import date, datetime, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================

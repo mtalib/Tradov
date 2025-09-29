@@ -262,8 +262,8 @@ class SpyderLauncher:
     def _create_qt_app(self):
         """Create Qt application if possible with dock icon fix"""
         try:
-            from PyQt6.QtWidgets import QApplication
-            from PyQt6.QtCore import QCoreApplication
+            from PySide6.QtWidgets import QApplication
+            from PySide6.QtCore import QCoreApplication
             
             # DOCK ICON FIX: Set properties BEFORE creating QApplication
             QCoreApplication.setApplicationName("spyder-trading-system")

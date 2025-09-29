@@ -13,12 +13,12 @@ Last Updated: 2025-08-25 Time: 21:45:00
 Module Description:
     FIXED VERSION: This module creates a proper bridge between IB Gateway and the Spyder 
     dashboard using ib_async for IB Gateway 10.37+ compatibility. CRITICAL FIX: Resolved 
-    PyQt6 threading violations that caused segmentation faults. All GUI operations now 
+    PySide6 threading violations that caused segmentation faults. All GUI operations now 
     properly occur on the main thread using Qt signals.
 
 Key Features:
     - ib_async integration for IB Gateway 10.37+ compatibility
-    - FIXED: Thread-safe GUI updates using PyQt6 signals only
+    - FIXED: Thread-safe GUI updates using PySide6 signals only
     - FIXED: No direct GUI manipulation from background threads
     - Real-time market data injection into dashboard components
     - Comprehensive symbol subscription management (stocks, indices, futures)
@@ -34,7 +34,7 @@ THREADING FIXES:
 
 Dependencies:
     - ib_async: Modern Interactive Brokers API client
-    - PyQt6: GUI framework for dashboard integration
+    - PySide6: GUI framework for dashboard integration
     - SpyderG_GUI: Dashboard components for data display
 
 """
@@ -55,8 +55,8 @@ from concurrent.futures import ThreadPoolExecutor
 # Add Spyder to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer, QObject, pyqtSignal, QThread, QMutex, QMutexLocker
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer, QObject, Signal, QThread, QMutex, QMutexLocker
 
 # Import dashboard
 from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
@@ -120,10 +120,10 @@ class IBDataBridge(QObject):
     """
     
     # Qt Signals for thread-safe communication (ONLY way to update GUI)
-    data_update = pyqtSignal(str, float, float, float)  # symbol, price, change, change_pct
-    status_update = pyqtSignal(str)                     # status message
-    connection_status = pyqtSignal(bool, str)           # connected, status_text
-    log_message = pyqtSignal(str)                       # log messages for GUI
+    data_update = Signal(str, float, float, float)  # symbol, price, change, change_pct
+    status_update = Signal(str)                     # status message
+    connection_status = Signal(bool, str)           # connected, status_text
+    log_message = Signal(str)                       # log messages for GUI
     
     def __init__(self, dashboard: SpyderTradingDashboard):
         """

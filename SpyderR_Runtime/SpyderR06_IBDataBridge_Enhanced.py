@@ -28,7 +28,7 @@ Key Enhancements:
 
 Dependencies:
     - ib_async: Modern Interactive Brokers API client
-    - PyQt6: GUI framework for dashboard integration
+    - PySide6: GUI framework for dashboard integration
     - subprocess: For IBC Gateway automation
 
 """
@@ -53,8 +53,8 @@ import json
 # Add Spyder to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtCore import QTimer, QObject, pyqtSignal, QThread, QMutex, QMutexLocker
+from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QTimer, QObject, Signal, QThread, QMutex, QMutexLocker
 
 # Import dashboard
 from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
@@ -347,14 +347,14 @@ class EnhancedIBDataBridge(QObject):
     """
     
     # Qt Signals for thread-safe communication
-    data_update = pyqtSignal(str, float, float, float)  # symbol, price, change, change_pct
-    account_update = pyqtSignal(dict)                   # account info
-    position_update = pyqtSignal(list)                  # positions
-    order_update = pyqtSignal(list)                     # orders
-    news_update = pyqtSignal(str, str)                  # headline, summary
-    status_update = pyqtSignal(str)                     # status message
-    connection_status = pyqtSignal(str, bool)           # client_name, connected
-    log_message = pyqtSignal(str)                       # log messages
+    data_update = Signal(str, float, float, float)  # symbol, price, change, change_pct
+    account_update = Signal(dict)                   # account info
+    position_update = Signal(list)                  # positions
+    order_update = Signal(list)                     # orders
+    news_update = Signal(str, str)                  # headline, summary
+    status_update = Signal(str)                     # status message
+    connection_status = Signal(str, bool)           # client_name, connected
+    log_message = Signal(str)                       # log messages
     
     def __init__(self, dashboard: SpyderTradingDashboard):
         """Initialize the enhanced multi-client bridge."""

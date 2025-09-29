@@ -1,7 +1,19 @@
 # GUI Dependencies (Optional)
-PyQt6>=6.2.0
-PyQt6-Charts>=6.2.0
-pyqtgraph>=0.12.0
+# Primary GUI Framework
+PySide6>=6.5.0
+
+# Visualization Libraries (Plotly is primary, matplotlib as fallback)
+plotly>=5.17.0
+dash>=2.14.0
+kaleido>=0.2.1  # For static image export in Plotly
+
+# Legacy/Fallback Visualization (optional)
 matplotlib>=3.5.0
 seaborn>=0.11.0
-plotly>=5.0.0
+
+# Additional GUI Components
+pyqtgraph>=0.12.0
+
+# WebEngine for Plotly embedding (Ubuntu/Wayland compatibility)
+# Note: WebEngine is included in PySide6 6.5+ or install qtwebengine separately
+qtwebengine>=5.15.0

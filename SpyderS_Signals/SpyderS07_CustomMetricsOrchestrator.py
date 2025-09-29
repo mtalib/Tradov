@@ -55,8 +55,8 @@ import warnings
 # ==============================================================================
 import numpy as np
 import pandas as pd
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal, QThread
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QObject, QTimer, Signal, QThread
+from PySide6.QtWidgets import QApplication
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -166,14 +166,14 @@ class CustomMetricsOrchestrator(QObject):
     # ==========================================================================
     # QT SIGNALS
     # ==========================================================================
-    metrics_updated = pyqtSignal(dict)
-    gex_updated = pyqtSignal(dict)
-    dix_updated = pyqtSignal(float)
-    swan_updated = pyqtSignal(dict)
-    skew_updated = pyqtSignal(float)
-    connection_status_changed = pyqtSignal(bool, str)
-    error_occurred = pyqtSignal(str)
-    stress_level_changed = pyqtSignal(str)  # New signal for stress level changes
+    metrics_updated = Signal(dict)
+    gex_updated = Signal(dict)
+    dix_updated = Signal(float)
+    swan_updated = Signal(dict)
+    skew_updated = Signal(float)
+    connection_status_changed = Signal(bool, str)
+    error_occurred = Signal(str)
+    stress_level_changed = Signal(str)  # New signal for stress level changes
     
     def __init__(self, config: Optional[Dict] = None):
         """Initialize custom metrics orchestrator"""

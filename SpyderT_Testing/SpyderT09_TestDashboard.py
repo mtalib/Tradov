@@ -34,14 +34,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Matplotlib for charting
 import matplotlib
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 import numpy as np
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import pandas as pd
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+# Plotly integration - no direct canvas equivalent needed
+import plotly.graph_objects as go
 from PySide6.QtCore import (QPoint, QRect, QSize, Qt, QThread, QTimer,
                         Signal, Slot)
 from PySide6.QtGui import (QBrush, QColor, QFont, QIcon, QKeySequence, QPainter,
@@ -56,7 +57,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QGridLayout,
                              QTableWidgetItem, QTabWidget, QTextEdit, QToolTip,
                              QVBoxLayout, QWidget)
 
-matplotlib.use("QtAgg")
+# Plotly does not require backend configuration
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -2201,10 +2202,10 @@ class SpyderTestDashboard(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Create matplotlib figure
-        self.figure = Figure(figsize=(10, 6), dpi=100)
+        # Plotly figure created as needed - no persistent figure object
         self.figure.patch.set_facecolor(COLORS["panel"])
 
-        self.canvas = FigureCanvas(self.figure)
+        # Plotly widgets handle their own display
         self.canvas.setStyleSheet("background-color: transparent;")
         layout.addWidget(self.canvas)
 
@@ -3038,12 +3039,12 @@ class SpyderTestDashboard(QMainWindow):
         # Plot 20-period Moving Average (behind candlesticks)
         ma_x = [i for i, val in enumerate(ma_20) if val is not None]
         ma_y = [val for val in ma_20 if val is not None]
-        ax.plot(
+        go.Scatter(
             ma_x, ma_y, color="#00B8D4", linewidth=1.5, alpha=0.8, label="MA(20)", zorder=2
         )  # Normal weight
 
         # Plot VWAP (behind candlesticks) - CHANGED TO BRIGHT PURPLE
-        ax.plot(
+        go.Scatter(
             range(len(vwap)),
             vwap,
             color="#BF00FF",
@@ -3058,7 +3059,7 @@ class SpyderTestDashboard(QMainWindow):
             color = COLORS["positive"] if closes[i] >= opens[i] else COLORS["negative"]
 
             # High-Low line - normal weight
-            ax.plot([i, i], [lows[i], highs[i]], color=color, linewidth=1, zorder=3)
+            go.Scatter([i, i], [lows[i], highs[i]], color=color, linewidth=1, zorder=3)
 
             # Open-Close box - normal weight
             height = abs(closes[i] - opens[i])

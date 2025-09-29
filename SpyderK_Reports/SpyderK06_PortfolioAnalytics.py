@@ -38,7 +38,8 @@ import warnings
 # ==============================================================================
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 import seaborn as sns
 from scipy import stats, optimize
 from scipy.stats import norm, skew, kurtosis

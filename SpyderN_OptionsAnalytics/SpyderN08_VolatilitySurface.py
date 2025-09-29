@@ -37,7 +37,8 @@ import json
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import plotly.graph_objects as go

@@ -34,7 +34,7 @@ print_error() {
 install_requirements() {
     local file=$1
     local description=$2
-    
+
     print_status "Installing $description..."
     if pip install -r "$file"; then
         print_success "$description installed successfully"
@@ -80,7 +80,7 @@ print_success "All requirements files found"
 echo ""
 print_status "Choose installation type:"
 echo "1. Full installation (all components)"
-echo "2. Minimal (core + trading only)" 
+echo "2. Minimal (core + trading only)"
 echo "3. Custom (choose components)"
 echo "4. Development (includes dev tools)"
 
@@ -99,17 +99,17 @@ case $install_choice in
     3)
         print_status "Custom installation..."
         install_requirements "requirements-core.txt" "Core Dependencies (Required)"
-        
+
         read -p "📈 Install trading components? (Y/n): " trading
         if [[ ! $trading =~ ^[Nn]$ ]]; then
             install_requirements "requirements-trading.txt" "Trading Dependencies"
         fi
-        
+
         read -p "🖥️  Install GUI components? (y/N): " gui
         if [[ $gui =~ ^[Yy]$ ]]; then
             install_requirements "requirements-gui.txt" "GUI Dependencies (PyQt6)"
         fi
-        
+
         read -p "🧠 Install AI/ML components? (y/N): " ai
         if [[ $ai =~ ^[Yy]$ ]]; then
             install_requirements "requirements-ai.txt" "AI/ML Dependencies"
@@ -119,7 +119,7 @@ case $install_choice in
         print_status "Installing development environment..."
         install_requirements "requirements.txt" "All Components"
         install_requirements "requirements-dev.txt" "Development Tools"
-        
+
         # Setup pre-commit hooks
         if command -v pre-commit &> /dev/null; then
             print_status "Setting up pre-commit hooks..."
@@ -137,7 +137,7 @@ print_success "🎉 Installation Complete!"
 echo ""
 print_status "🧪 Test your installation:"
 echo "python -c 'import pandas, numpy, sqlalchemy; print(\"Core: OK\")'"
-echo "python -c 'import ib_insync; print(\"Trading: OK\")'"
+echo "python -c 'import ib_async; print(\"Trading: OK\")'"
 echo "python -c 'import PyQt6; print(\"GUI: OK\")'"
 echo ""
 print_status "🚀 Your Spyder system is ready!"

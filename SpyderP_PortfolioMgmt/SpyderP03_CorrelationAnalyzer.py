@@ -55,7 +55,8 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 import networkx as nx
 import seaborn as sns
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 
 # ==============================================================================
 # LOCAL IMPORTS

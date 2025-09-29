@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebEngine Test</title>
+    <style>
+        body {
+            background: #2d2d2d;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+        }
+
+        .test-box {
+            background: #1e1e1e;
+            border: 2px solid #00E676;
+            padding: 30px;
+            margin: 20px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="test-box">
+        <h1>🚀 WebEngine Test</h1>
+        <p>If you can see this, WebEngine is working!</p>
+        <p>Time: <span id="time"></span></p>
+    </div>
+
+    <script>
+        function updateTime() {
+            document.getElementById('time').textContent = new Date().toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+    </script>
+</body>
+
+</html>

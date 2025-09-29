@@ -41,7 +41,8 @@ import pandas as pd
 from scipy import interpolate, optimize, stats
 from scipy.interpolate import RBFInterpolator, griddata
 from scipy.ndimage import gaussian_filter
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 import plotly.graph_objects as go
