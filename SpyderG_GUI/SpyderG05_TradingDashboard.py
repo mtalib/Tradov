@@ -3,8 +3,8 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderG_GUI
-Module: SpyderG05_TradingDashboard.py
+Series: SpyderG_GUI [Application Name] [Group Letter] [Group Name]
+Module: SpyderG05_TradingDashboard.py [Application Name][Group Letter] [Module Number]_[Purpose].py
 Purpose: Complete Trading Dashboard with Real Data Integration & Enhanced Features
 Author: Mohamed Talib
 Year Created: 2025
@@ -120,37 +120,14 @@ from PySide6.QtGui import (
     QAction,
 )
 
-# Plotly for enhanced charting (primary visualization library)
-import plotly.graph_objects as go
-import plotly.express as px
+# Matplotlib for charting
+import matplotlib
 
-# Plotly for enhanced charting with Wayland compatibility
-USE_PLOTLY = False
-PlotlyChartWidget = None
-
-try:
-    from SpyderG_GUI.SpyderG04_ChartWidgetPlotly import PlotlyChartWidget
-
-    USE_PLOTLY = True
-    print("✅ Plotly charts enabled - superior Wayland compatibility")
-except ImportError as e:
-    print(f"⚠️ Plotly charts not available: {e}")
-    print("   Please install: pip install plotly dash kaleido")
-    USE_PLOTLY = False
-
-    # Matplotlib fallback (if Plotly unavailable)
-    try:
-        import matplotlib
-
-        matplotlib.use("QtAgg")
-        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-        from matplotlib.figure import Figure
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as patches
-
-        print("   Using matplotlib fallback")
-    except ImportError:
-        print("   ❌ No visualization library available - charts disabled")
+matplotlib.use("QtAgg")
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import pandas as pd
 
 # ==============================================================================
@@ -171,15 +148,21 @@ sys.path.insert(0, str(project_root))
 
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderB_Broker.SpyderB29_EnhancedConnectionManager import (
+    get_connection_manager,
+    ConnectionConfig,
+    TradingMode,
+)
 
 # Import Signal Info Dialog for popup system
 try:
     from SpyderG_GUI.SpyderG12_SignalInfoDialog import SignalInfoDialog
 
-    SIGNAL_DIALOG_AVAILABLE = True
+    signal_dialog_available = True
     print("✅ Signal Info Dialog module available")
 except ImportError:
-    SIGNAL_DIALOG_AVAILABLE = False
+    SignalInfoDialog = None  # type: ignore
+    signal_dialog_available = False
     print("⚠️ Signal Info Dialog not available - using fallback QMessageBox")
 
 # Import Risk Parameters Dialog
@@ -189,50 +172,49 @@ try:
         show_risk_parameters_dialog,
     )
 
-    RISK_DIALOG_AVAILABLE = True
+    risk_dialog_available = True
     print("✅ Risk Parameters Dialog module available")
 except ImportError:
-    RISK_DIALOG_AVAILABLE = False
+    RiskParametersDialog = None  # type: ignore
+    show_risk_parameters_dialog = None  # type: ignore
+    risk_dialog_available = False
     print("⚠️ Risk Parameters Dialog not available")
 
 # Import HMM and SKEW Dialog modules
 try:
     from SpyderM_Monitoring.SpyderM06_HMMRegimeDetector import HMMMonitorDialog
 
-    HMM_DIALOG_AVAILABLE = True
+    hmm_dialog_available = True
     print("✅ HMM Monitor Dialog available")
 except ImportError:
-    HMM_DIALOG_AVAILABLE = False
+    HMMMonitorDialog = None  # type: ignore
+    hmm_dialog_available = False
     print("⚠️ HMM Monitor Dialog not available")
 
 try:
     from SpyderG_GUI.SpyderG11_SkewMonitorDialog import SkewMonitorDialog
 
-    SKEW_DIALOG_AVAILABLE = True
+    skew_dialog_available = True
     print("✅ SKEW Monitor Dialog available")
 except ImportError:
-    SKEW_DIALOG_AVAILABLE = False
+    SkewMonitorDialog = None  # type: ignore
+    skew_dialog_available = False
     print("⚠️ SKEW Monitor Dialog not available")
 
 # Try to import Prometheus metrics display module if available
 try:
-    from SpyderG07_PrometheusMetricsDisplay import get_client_status, get_system_metrics
+    from SpyderG_GUI.SpyderG07_PrometheusMetricsDisplay import (
+        get_client_status,
+        get_system_metrics,
+    )
 
-    PROMETHEUS_AVAILABLE = True
+    prometheus_available = True
     print("✅ Prometheus metrics collector available")
 except ImportError:
-    PROMETHEUS_AVAILABLE = False
+    get_client_status = None  # type: ignore
+    get_system_metrics = None  # type: ignore
+    prometheus_available = False
     print("⚠️ Prometheus metrics collector not available - using simulation")
-
-# Import IB data connector for real-time market data streaming
-try:
-    from SpyderB_Broker.SpyderB27_IBDataConnector import IBDataConnector
-
-    IB_CONNECTOR_AVAILABLE = True
-    print("✅ IB data connector available")
-except ImportError as e:
-    IB_CONNECTOR_AVAILABLE = False
-    print(f"⚠️ IB data connector not available - using simulation only: {e}")
 
 # ==============================================================================
 # CONSTANTS
@@ -240,8 +222,6 @@ except ImportError as e:
 WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
 
-# Use the proven working client ID
-CLIENT_ID = 2
 
 # Market hours (Eastern Time)
 MARKET_OPEN_TIME = dt_time(4, 0)  # 4:00 AM ET
@@ -333,38 +313,34 @@ def is_market_hours():
 
 
 def check_ib_gateway_connection():
-    """Check if IB Gateway or TWS API is reachable, including TWS default ports."""
-    port_priority = [
-        ("PAPER", [4002, 7497]),
-        ("LIVE", [4001, 7496]),
-    ]
-
+    """Check if IB Gateway is running - ENHANCED WITH DEBUG"""
     try:
-        for label, ports in port_priority:
-            for port in ports:
-                if _is_port_open("127.0.0.1", port):
-                    print(f"✅ IB Gateway detected on port {port} ({label})")
-                    return True, f"{label} (Port {port})"
+        # Check paper trading port first (4002)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)  # Increased timeout
+        paper_result = sock.connect_ex(("127.0.0.1", 4002))
+        sock.close()
 
-        print("⌐ No IB Gateway detected on standard ports (4001/4002/7496/7497)")
+        if paper_result == 0:
+            print("✅ IB Gateway detected on port 4002 (PAPER)")
+            return True, "PAPER (Port 4002)"
+
+        # Check live trading port (4001)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)  # Increased timeout
+        live_result = sock.connect_ex(("127.0.0.1", 4001))
+        sock.close()
+
+        if live_result == 0:
+            print("✅ IB Gateway detected on port 4001 (LIVE)")
+            return True, "LIVE (Port 4001)"
+
+        print("❌ No IB Gateway detected on ports 4001 or 4002")
         return False, "No IB Gateway detected"
 
     except Exception as e:
-        print(f"⌐ IB Gateway connection check failed: {e}")
+        print(f"❌ IB Gateway connection check failed: {e}")
         return False, f"Check failed: {e}"
-
-
-def _is_port_open(host: str, port: int, timeout: float = 2.0) -> bool:
-    """Return True if the host:port is reachable."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(timeout)
-    try:
-        return sock.connect_ex((host, port)) == 0
-    finally:
-        try:
-            sock.close()
-        except Exception:
-            pass
 
 
 # ==============================================================================
@@ -401,126 +377,6 @@ class ConnectionInfo:
 
 
 # ==============================================================================
-# ENHANCED LOGGING CLASSES - REVERSE CHRONOLOGICAL ORDER
-# ==============================================================================
-class ReverseOrderLogger:
-    """Logger that maintains entries in reverse chronological order (newest first)"""
-
-    def __init__(self, max_entries: int = 150, update_callback=None):
-        self.entries = []
-        self.max_entries = max_entries
-        self.update_callback = update_callback
-
-    def add_entry(self, message: str):
-        """Add new entry at the beginning (newest first)"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}"
-
-        # Insert at beginning for reverse chronological order
-        self.entries.insert(0, formatted_message)
-
-        # Limit entries
-        if len(self.entries) > self.max_entries:
-            self.entries = self.entries[: self.max_entries]
-
-        # Notify UI to update
-        if self.update_callback:
-            self.update_callback()
-
-    def get_recent_entries(self, count: int = 20) -> List[str]:
-        """Get most recent entries (already in newest-first order)"""
-        return self.entries[:count]
-
-
-# ==============================================================================
-# AUTO-RECONNECTION MANAGER
-# ==============================================================================
-class AutoReconnectionManager(QObject):
-    """Manages auto-reconnection with exponential backoff"""
-
-    reconnection_status_changed = Signal(str)
-    connection_restored = Signal()
-
-    def __init__(self):
-        super().__init__()
-        self.retry_count = 0
-        self.max_retries = 10
-        self.base_delay = 5
-        self.max_delay = 60
-        self.retry_timer = QTimer()
-        self.retry_timer.setSingleShot(True)
-        self.retry_timer.timeout.connect(self.attempt_reconnection)
-        self.reconnection_active = False
-        self.worker_ref = None
-
-    def start_reconnection(self, worker):
-        """Start reconnection attempts with exponential backoff"""
-        if not is_market_hours():
-            return
-
-        self.worker_ref = worker
-        self.reconnection_active = True
-        self.retry_count = 0
-        self._schedule_next_attempt()
-
-    def stop_reconnection(self):
-        """Stop reconnection attempts"""
-        self.reconnection_active = False
-        self.retry_timer.stop()
-        self.retry_count = 0
-
-    def _schedule_next_attempt(self):
-        """Schedule next reconnection attempt with exponential backoff"""
-        if not self.reconnection_active or not is_market_hours():
-            return
-
-        self.retry_count += 1
-
-        if self.retry_count > self.max_retries:
-            self.reconnection_status_changed.emit(
-                "❌ Auto-reconnection failed - maximum attempts reached"
-            )
-            self.stop_reconnection()
-            return
-
-        delay = min(self.base_delay * (2 ** (self.retry_count - 1)), self.max_delay)
-
-        self.reconnection_status_changed.emit(
-            f"🔄 Reconnection attempt #{self.retry_count} in {delay}s..."
-        )
-        self.retry_timer.start(delay * 1000)
-
-    def attempt_reconnection(self):
-        """Attempt to reconnect"""
-        if not self.reconnection_active or not self.worker_ref:
-            return
-
-        self.reconnection_status_changed.emit(
-            f"🔌 Attempting reconnection #{self.retry_count}..."
-        )
-
-        connected, mode = check_ib_gateway_connection()
-
-        if connected:
-            self.reconnection_status_changed.emit(
-                f"✅ Reconnection successful! ({mode})"
-            )
-            self.connection_restored.emit()
-            self.stop_reconnection()
-
-            if self.worker_ref:
-                self.worker_ref.ib_connected = True
-                self.worker_ref.connection_status_changed.emit(
-                    True, f"IB CONNECTED ({mode})"
-                )
-        else:
-            self.reconnection_status_changed.emit(
-                f"⚠️ Reconnection attempt #{self.retry_count} failed"
-            )
-            self._schedule_next_attempt()
-
-
-# ==============================================================================
 # THREAD-SAFE MARKET DATA WORKER - FIXED CONNECTION DETECTION
 # ==============================================================================
 class ThreadSafeMarketDataWorker(QObject):
@@ -540,29 +396,30 @@ class ThreadSafeMarketDataWorker(QObject):
 
         # FIXED: Start with actual connection check instead of assuming connected
         self.ib_connected = False
-        self._check_initial_connection()
 
         self.market_data = {}
         self.data_mutex = QMutex()
-        self.client_id = CLIENT_ID
+        self.client_id = 0  # Dedicated client ID for the dashboard worker
         self.market_hours = is_market_hours()
 
-        # Initialize enhanced logging
-        self.reverse_logger = ReverseOrderLogger(max_entries=200)
+        # Initialize timer references (will be created in start() method)
+        self.update_timer = None
+        self.market_hours_timer = None
+        self.heartbeat_timer = None
+        self.heartbeat_warning_timer = None
 
-        # Real data integration state
-        self.simulation_active = True
-        self.real_data_available = False
-        self.real_data_connector = None
-        self._connector_retry_timer = None
-        self._shutting_down = False
-        self.data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
+        self.last_data_update = {}
+        self._init_simulation_data()
 
-        # Initialize auto-reconnection manager
-        self.auto_reconnector = AutoReconnectionManager()
-        self.auto_reconnector.reconnection_status_changed.connect(self.log_message.emit)
-        self.auto_reconnector.connection_restored.connect(self._on_connection_restored)
+        print(f"🔧 Market Data Worker initialized with heartbeat monitoring")
+        print(f"📊 Market: {'OPEN' if self.market_hours else 'CLOSED'}")
 
+    def start(self):
+        """Start the worker - called when thread starts (runs in worker thread)"""
+        # Check connection AFTER moving to thread
+        self._check_initial_connection()
+
+        # CRITICAL FIX: Create QTimers in the worker thread, not main thread
         # Data update timer (simulation)
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self._emit_data)
@@ -582,16 +439,10 @@ class ThreadSafeMarketDataWorker(QObject):
         self.heartbeat_warning_timer = QTimer()
         self.heartbeat_warning_timer.timeout.connect(self._heartbeat_warning)
 
-        self.last_data_update = {}
-        self._init_simulation_data()
-
-        print(
-            f"🔧 Market Data Worker initialized with enhanced logging and auto-reconnection"
-        )
+        print("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
         print(
             f"📡 Initial IB Connection: {'CONNECTED' if self.ib_connected else 'DISCONNECTED'}"
         )
-        print(f"📊 Market: {'OPEN' if self.market_hours else 'CLOSED'}")
 
     def _check_initial_connection(self):
         """Check actual IB Gateway connection on startup - ENHANCED WITH DEBUG"""
@@ -604,177 +455,16 @@ class ThreadSafeMarketDataWorker(QObject):
                 print(f"✅ IB Gateway detected: {mode}")
                 # Emit log message instead of error
                 self.log_message.emit(f"✅ IB Gateway detected at startup: {mode}")
-                if IB_CONNECTOR_AVAILABLE:
-                    self._start_real_data_connector()
             else:
-                print(f"⌐ No IB Gateway connection detected")
+                print(f"❌ No IB Gateway connection detected")
                 # Emit log message instead of error
-                self.log_message.emit("⌐ No IB Gateway connection detected at startup")
+                self.log_message.emit("❌ No IB Gateway connection detected at startup")
 
         except Exception as e:
             print(f"⚠️ Connection check error: {e}")
             # Emit log message instead of error
             self.log_message.emit(f"⚠️ Initial connection check error: {e}")
             self.ib_connected = False
-
-    def _on_connection_restored(self):
-        """Handle connection restoration"""
-        self.log_message.emit(
-            "🎉 Connection successfully restored via auto-reconnection"
-        )
-
-    def _start_simulation_updates(self):
-        """Ensure simulation timer is active"""
-        if not self.update_timer.isActive():
-            self.update_timer.start(2000)
-        self.simulation_active = True
-
-    def _stop_simulation_updates(self):
-        """Stop simulation updates when real data is active"""
-        if self.update_timer.isActive():
-            self.update_timer.stop()
-        self.simulation_active = False
-
-    def _schedule_connector_retry(self, delay_ms: int = 5000):
-        """Schedule a retry to start the real data connector"""
-        if self._shutting_down or not IB_CONNECTOR_AVAILABLE:
-            return
-
-        if self._connector_retry_timer and self._connector_retry_timer.isActive():
-            return
-
-        self._connector_retry_timer = QTimer(self)
-        self._connector_retry_timer.setSingleShot(True)
-        self._connector_retry_timer.timeout.connect(self._start_real_data_connector)
-        self._connector_retry_timer.start(delay_ms)
-
-    def _cleanup_real_data_connector(self):
-        """Disconnect and delete the current real data connector"""
-        if not self.real_data_connector:
-            return
-
-        connector = self.real_data_connector
-        try:
-            connector.data_received.disconnect(self._on_real_data_received)
-        except Exception:
-            pass
-        try:
-            connector.connection_status.disconnect(self._on_real_data_connection_status)
-        except Exception:
-            pass
-        try:
-            connector.error_occurred.disconnect(self._on_real_data_error)
-        except Exception:
-            pass
-
-        try:
-            connector.disconnect()
-        except Exception:
-            pass
-
-        connector.deleteLater()
-        self.real_data_connector = None
-
-    def _start_real_data_connector(self):
-        """Start the IB real data connector if available"""
-        if self._shutting_down or not IB_CONNECTOR_AVAILABLE:
-            return
-
-        if self._connector_retry_timer:
-            if self._connector_retry_timer.isActive():
-                self._connector_retry_timer.stop()
-            self._connector_retry_timer = None
-
-        if self.real_data_connector:
-            return
-
-        try:
-            connector = IBDataConnector()
-            connector.setParent(self)
-        except Exception as e:
-            self.log_message.emit(f"⚠️ Failed to initialize IB data connector: {e}")
-            return
-
-        connector.data_received.connect(self._on_real_data_received)
-        connector.connection_status.connect(self._on_real_data_connection_status)
-        connector.error_occurred.connect(self._on_real_data_error)
-
-        if connector.connect_to_ib():
-            self.real_data_connector = connector
-            self.log_message.emit("✅ IB data connector started - awaiting ticks")
-        else:
-            try:
-                connector.data_received.disconnect(self._on_real_data_received)
-                connector.connection_status.disconnect(
-                    self._on_real_data_connection_status
-                )
-                connector.error_occurred.disconnect(self._on_real_data_error)
-            except Exception:
-                pass
-            connector.deleteLater()
-            self.log_message.emit(
-                "⌐ IB data connector failed to connect - retry scheduled in 5s"
-            )
-            self._schedule_connector_retry()
-
-    @Slot(dict)
-    def _on_real_data_received(self, updates: dict):
-        """Consume real market data updates from IB connector"""
-        if not updates:
-            return
-
-        self.real_data_available = True
-        self._stop_simulation_updates()
-        self.market_data_status_changed.emit("LIVE")
-
-        now = datetime.now()
-        with QMutexLocker(self.data_mutex):
-            for symbol, info in updates.items():
-                last = info.get("last")
-                if last is None:
-                    continue
-
-                change = info.get("change", 0.0)
-                change_pct = info.get("change_pct", 0.0)
-
-                self.market_data[symbol] = {
-                    "symbol": symbol,
-                    "last": last,
-                    "change": change,
-                    "change_pct": change_pct,
-                    "timestamp": now,
-                }
-                self.last_data_update[symbol] = now
-
-        self.data_updated.emit(self.market_data.copy())
-
-    @Slot(bool, str)
-    def _on_real_data_connection_status(self, connected: bool, message: str):
-        """Handle connection status emitted by the real data connector"""
-        self.log_message.emit(message)
-
-        if connected:
-            self.ib_connected = True
-            self.connection_status_changed.emit(True, message)
-            self.market_data_status_changed.emit("LIVE")
-            if self._connector_retry_timer and self._connector_retry_timer.isActive():
-                self._connector_retry_timer.stop()
-        else:
-            if self._shutting_down:
-                return
-
-            self.real_data_available = False
-            self.ib_connected = False
-            self.connection_status_changed.emit(False, message)
-            self.market_data_status_changed.emit("NONE")
-            self._start_simulation_updates()
-            self._cleanup_real_data_connector()
-            self._schedule_connector_retry()
-
-    @Slot(str)
-    def _on_real_data_error(self, error: str):
-        """Log non-fatal errors from the real data connector"""
-        self.log_message.emit(f"⚠️ IB data connector error: {error}")
 
     def _heartbeat_check(self):
         """30-second heartbeat check for IB Gateway connection"""
@@ -784,21 +474,9 @@ class ThreadSafeMarketDataWorker(QObject):
             previous_status = self.ib_connected
             self.ib_connected = connected
 
-            # Log to enhanced logger
-            if connected:
-                self.reverse_logger.add_entry(
-                    f"💚 Heartbeat: IB Gateway healthy ({mode})"
-                )
-            else:
-                self.reverse_logger.add_entry(
-                    "💔 Heartbeat: IB Gateway connection lost"
-                )
-
             # Emit heartbeat status based on connection
             if connected:
                 self.heartbeat_status_changed.emit("connected")  # Green heart
-                if IB_CONNECTOR_AVAILABLE and self.real_data_connector is None:
-                    self._start_real_data_connector()
                 if not previous_status:
                     # Connection restored
                     self.connection_status_changed.emit(True, f"IB CONNECTED ({mode})")
@@ -809,48 +487,32 @@ class ThreadSafeMarketDataWorker(QObject):
                     self.heartbeat_received.emit(
                         f"💚 Heartbeat: IB Gateway healthy ({mode})"
                     )
-
-                # Stop auto-reconnection if it was running
-                if self.auto_reconnector.reconnection_active:
-                    self.auto_reconnector.stop_reconnection()
-
             else:
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
-                self.real_data_available = False
                 if previous_status:
-                    # Connection lost - start auto-reconnection
+                    # Connection lost
                     self.connection_status_changed.emit(False, "IB DISCONNECTED")
                     self.heartbeat_received.emit(
                         "💔 Heartbeat: IB Gateway connection lost"
                     )
-
-                    # Start auto-reconnection if during market hours
-                    if is_market_hours():
-                        self.auto_reconnector.start_reconnection(self)
-
-                    if IB_CONNECTOR_AVAILABLE:
-                        if self.real_data_connector:
-                            self._cleanup_real_data_connector()
-                        self._start_simulation_updates()
-                        self._schedule_connector_retry()
-
                 else:
                     self.heartbeat_received.emit(
                         "💔 Heartbeat: IB Gateway still disconnected"
                     )
 
             # Start warning timer for blue heart (10 seconds before next check)
-            self.heartbeat_warning_timer.start(HEARTBEAT_WARNING_TIME)
+            if self.heartbeat_warning_timer:
+                self.heartbeat_warning_timer.start(HEARTBEAT_WARNING_TIME)
 
         except Exception as e:
             self.heartbeat_status_changed.emit("error")  # Red heart
             self.heartbeat_received.emit(f"💔 Heartbeat error: {e}")
-            self.reverse_logger.add_entry(f"❌ Heartbeat error: {e}")
 
     def _heartbeat_warning(self):
         """Show blue heart 20 seconds before next heartbeat check"""
         self.heartbeat_status_changed.emit("warning")  # Blue heart
-        self.heartbeat_warning_timer.stop()
+        if self.heartbeat_warning_timer:
+            self.heartbeat_warning_timer.stop()
 
     def _init_simulation_data(self):
         """Initialize simulation data with all symbols"""
@@ -906,15 +568,13 @@ class ThreadSafeMarketDataWorker(QObject):
             )
 
             if not self.market_hours:
-                # Market closed - stop auto-reconnection
-                self.auto_reconnector.stop_reconnection()
                 if self.ib_connected:
                     self.market_data_status_changed.emit("NONE")
 
     @Slot()
     def start(self):
         """Start the worker - FIXED TO EMIT PROPER INITIAL STATUS"""
-        print("🚀 Starting Thread-Safe Market Data Worker with enhanced features...")
+        print("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
 
         # FIXED: Re-check connection at start and emit proper status
         try:
@@ -926,19 +586,11 @@ class ThreadSafeMarketDataWorker(QObject):
                 self.market_data_status_changed.emit("LIVE")
                 self.heartbeat_status_changed.emit("connected")  # Green heart
                 print(f"✅ IB Gateway connected at startup: {mode}")
-                self.reverse_logger.add_entry(
-                    f"✅ Worker started - IB Gateway connected ({mode})"
-                )
-                if IB_CONNECTOR_AVAILABLE:
-                    self._start_real_data_connector()
             else:
                 self.connection_status_changed.emit(False, "IB DISCONNECTED")
                 self.market_data_status_changed.emit("NONE")
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
-                print("⌐ IB Gateway disconnected at startup")
-                self.reverse_logger.add_entry(
-                    "⌐ Worker started - IB Gateway disconnected"
-                )
+                print("❌ IB Gateway disconnected at startup")
 
         except Exception as e:
             print(f"⚠️ Startup connection check error: {e}")
@@ -946,13 +598,9 @@ class ThreadSafeMarketDataWorker(QObject):
             self.connection_status_changed.emit(False, "IB DISCONNECTED")
             self.market_data_status_changed.emit("NONE")
             self.heartbeat_status_changed.emit("error")  # Red heart
-            self.reverse_logger.add_entry(f"❌ Worker startup error: {e}")
 
     def _emit_data(self):
         """Emit current market data"""
-        if not self.simulation_active:
-            return
-
         with QMutexLocker(self.data_mutex):
             data_copy = self.market_data.copy()
 
@@ -999,16 +647,10 @@ class ThreadSafeMarketDataWorker(QObject):
         if connected:
             self.connection_status_changed.emit(True, f"IB CONNECTED ({mode})")
             self.market_data_status_changed.emit("LIVE")
-            self.reverse_logger.add_entry(f"🔥 Manual connection successful ({mode})")
-            # Stop auto-reconnection if running
-            self.auto_reconnector.stop_reconnection()
-            if IB_CONNECTOR_AVAILABLE:
-                self._start_real_data_connector()
             return True
         else:
             self.connection_status_changed.emit(False, "IB DISCONNECTED")
             self.market_data_status_changed.emit("NONE")
-            self.reverse_logger.add_entry("❌ Manual connection failed")
             return False
 
     def force_disconnect(self):
@@ -1017,33 +659,22 @@ class ThreadSafeMarketDataWorker(QObject):
         self.ib_connected = False
         self.connection_status_changed.emit(False, "IB DISCONNECTED")
         self.market_data_status_changed.emit("NONE")
-        self.reverse_logger.add_entry("🔥 Manual disconnection")
-        self.real_data_available = False
-        if self.real_data_connector:
-            self._cleanup_real_data_connector()
-        self._start_simulation_updates()
-        # Stop auto-reconnection
-        self.auto_reconnector.stop_reconnection()
 
     def stop(self):
         """Stop worker and all timers"""
-        print("🛑 Stopping worker with enhanced logging and auto-reconnection...")
-        self._shutting_down = True
-        self.real_data_available = False
-        self.update_timer.stop()
-        self.market_hours_timer.stop()
-        self.heartbeat_timer.stop()
-        self.heartbeat_warning_timer.stop()
-        self.auto_reconnector.stop_reconnection()
-        if self._connector_retry_timer and self._connector_retry_timer.isActive():
-            self._connector_retry_timer.stop()
-        if self.real_data_connector:
-            self._cleanup_real_data_connector()
-        self.reverse_logger.add_entry("🛑 Market Data Worker stopped")
+        print("🛑 Stopping worker and heartbeat monitoring...")
+        if self.update_timer:
+            self.update_timer.stop()
+        if self.market_hours_timer:
+            self.market_hours_timer.stop()
+        if self.heartbeat_timer:
+            self.heartbeat_timer.stop()
+        if self.heartbeat_warning_timer:
+            self.heartbeat_warning_timer.stop()
 
 
 # ==============================================================================
-# WIDGET CLASSES
+# WIDGET CLASSES (UNCHANGED)
 # ==============================================================================
 class TrafficLightButton(QPushButton):
     """Custom button that looks like a traffic light with label"""
@@ -1054,7 +685,7 @@ class TrafficLightButton(QPushButton):
         self.status = "green"
         self.setFixedHeight(24)
         self.setMinimumWidth(120)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
             """
             QPushButton {
@@ -1091,7 +722,7 @@ class TrafficLightButton(QPushButton):
         super().paintEvent(event)
 
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         circle_rect = self.rect().adjusted(5, 5, -self.width() + 19, -5)
 
@@ -1123,8 +754,8 @@ class SignalMonitorPanel(QWidget):
         self.setStyleSheet(
             f"""
             QWidget {{
-                background-color: {COLORS['panel']};
-                border: 1px solid {COLORS['border']};
+                background-color: {COLORS["panel"]};
+                border: 1px solid {COLORS["border"]};
                 border-radius: 5px;
             }}
         """
@@ -1246,7 +877,7 @@ class SignalMonitorPanel(QWidget):
         """Generic method to show signal dialog with auto-close functionality"""
         self.close_current_dialog()
 
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available and SignalInfoDialog:
             self.current_dialog = SignalInfoDialog(signal_type, self)
             # Position the dialog to the right of the signal panel
             parent_pos = self.mapToGlobal(self.rect().topRight())
@@ -1259,7 +890,7 @@ class SignalMonitorPanel(QWidget):
 
     # Dialog show methods
     def show_vix_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("VIX MONITOR")
         else:
             QMessageBox.information(
@@ -1267,7 +898,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_ai_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("AI DECISION")
         else:
             QMessageBox.information(
@@ -1277,7 +908,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_gex_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("GEX")
         else:
             QMessageBox.information(
@@ -1287,7 +918,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_dix_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("DIX")
         else:
             QMessageBox.information(
@@ -1295,7 +926,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_rsi_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("RSI CONFLUENCE")
         else:
             QMessageBox.information(
@@ -1303,7 +934,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_risk_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("RISK TRIGGERS")
         else:
             QMessageBox.information(
@@ -1313,7 +944,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_ogl_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("OGL")
         else:
             QMessageBox.information(
@@ -1323,7 +954,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_div_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("DIVERGENCE")
         else:
             QMessageBox.information(
@@ -1333,7 +964,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_dex_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("DEX")
         else:
             QMessageBox.information(
@@ -1341,7 +972,7 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_swan_dialog(self):
-        if SIGNAL_DIALOG_AVAILABLE:
+        if signal_dialog_available:
             self.show_signal_dialog("BLACK SWAN")
         else:
             QMessageBox.information(
@@ -1351,12 +982,12 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_hmm_dialog(self):
-        if HMM_DIALOG_AVAILABLE:
+        if hmm_dialog_available and HMMMonitorDialog:
             self.close_current_dialog()
             self.current_dialog = HMMMonitorDialog(self)
             self.current_dialog.show()
-        elif SIGNAL_DIALOG_AVAILABLE:
-            self.show_signal_dialog("HMM")
+        elif signal_dialog_available:
+            self.show_signal_dialog("HMM REGIME")
         else:
             QMessageBox.information(
                 self,
@@ -1366,11 +997,11 @@ class SignalMonitorPanel(QWidget):
             )
 
     def show_skew_dialog(self):
-        if SKEW_DIALOG_AVAILABLE:
+        if skew_dialog_available and SkewMonitorDialog:
             self.close_current_dialog()
             self.current_dialog = SkewMonitorDialog(self)
             self.current_dialog.show()
-        elif SIGNAL_DIALOG_AVAILABLE:
+        elif signal_dialog_available:
             self.show_signal_dialog("SKEW")
         else:
             QMessageBox.information(
@@ -1404,15 +1035,15 @@ class MarketSymbolWidget(QWidget):
         self.price_label = QLabel("---.--")
         self.price_label.setStyleSheet(f"color: {COLORS['text']};")
         self.price_label.setFixedWidth(70)
-        self.price_label.setAlignment(Qt.AlignRight)
+        self.price_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.change_label = QLabel("+0.00")
         self.change_label.setFixedWidth(55)
-        self.change_label.setAlignment(Qt.AlignRight)
+        self.change_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.pct_label = QLabel("0.00%")
         self.pct_label.setFixedWidth(55)
-        self.pct_label.setAlignment(Qt.AlignRight)
+        self.pct_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         layout.addWidget(self.symbol_label)
         layout.addWidget(self.price_label)
@@ -1460,6 +1091,7 @@ class MarketSymbolWidget(QWidget):
 
     def _update_custom_indicator(self, last, change, change_pct):
         """Update custom indicators with special formatting"""
+        color = COLORS["neutral"]  # Default color
         if self.symbol == "GEX":
             value_b = last / 1_000_000_000
             self.price_label.setText(f"{value_b:.1f}B")
@@ -1520,7 +1152,7 @@ class GreekBar(QWidget):
     def paintEvent(self, event):
         """Custom paint for the Greek bar"""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         painter.fillRect(self.rect(), QColor(COLORS["background"]))
 
@@ -1552,16 +1184,16 @@ class GreekBar(QWidget):
         status_rect = QRect(self.width() - 190, 0, 180, 22)
         painter.drawText(
             status_rect,
-            Qt.AlignVCenter | Qt.AlignRight,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
             self.status,
         )
 
 
 # ==============================================================================
-# MAIN DASHBOARD CLASS - WITH ENHANCED LOGGING AND AUTO-RECONNECTION
+# MAIN DASHBOARD CLASS - WITH FIXED IB CONNECTION & HEARTBEAT
 # ==============================================================================
 class SpyderTradingDashboard(QMainWindow):
-    """Complete dashboard with enhanced logging and auto-reconnection features"""
+    """Complete dashboard with fixed IB connection detection and heartbeat monitoring"""
 
     def __init__(self):
         super().__init__()
@@ -1569,14 +1201,6 @@ class SpyderTradingDashboard(QMainWindow):
         # Initialize logging
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-
-        # Initialize enhanced logging
-        self.system_logger = ReverseOrderLogger(
-            max_entries=200, update_callback=self._update_system_log_display
-        )
-        self.automation_logger = ReverseOrderLogger(
-            max_entries=200, update_callback=self._update_automation_log_display
-        )
 
         # Connection info - FIXED: Start disconnected
         self.connection_info = ConnectionInfo(
@@ -1594,9 +1218,20 @@ class SpyderTradingDashboard(QMainWindow):
         self.positions = []
         self.greek_risks = GreekRisk(45.5, -2.3, -156.8, -245.2)
         self.system_logs = []
+
+        # CRITICAL: Add startup banner FIRST to show actual launch time
+        startup_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        startup_banner = (
+            f"{'=' * 60}\n🚀 SPYDER DASHBOARD STARTED: {startup_time}\n{'=' * 60}"
+        )
+        self.system_logs.append(startup_banner)
+
         self.automation_logs = []
         self.account_mode = "PAPER"
         self.ib_connected = False  # FIXED: Start disconnected
+        self.ib_client = (
+            None  # FIXED: Initialize IB client attribute before timer starts
+        )
         self.trading_active = False
         self.auto_connect_attempts = 0
 
@@ -1620,11 +1255,56 @@ class SpyderTradingDashboard(QMainWindow):
         self._check_timer = None
         self._error_count = 0
 
+        # Initialize UI elements that will be created in setup methods
+        self.connection_status_label = None
+        self.ib_status_container = None
+        self.ib_connection_dot = None
+        self.ib_connection_label = None
+        self.heartbeat_container = None
+        self.heartbeat_icon = None
+        self.data_status_container = None
+        self.data_status_dot = None
+        self.data_status_label = None
+        self.simulation_toggle = None
+        self.datetime_label = None
+        self.dji_value = None
+        self.dji_change = None
+        self.spx_value = None
+        self.spx_change = None
+        self.ndx_value = None
+        self.ndx_change = None
+        self.positions_table = None
+        self.system_log = None
+        self.signal_panel = None
+        self.start_btn = None
+        self.stop_btn = None
+        self.emergency_btn = None
+        self.risk_params_btn = None
+        self.settled_value = None
+        self.realized_value = None
+        self.buying_value = None
+        self.unrealized_value = None
+        self.pnl_table = None
+        self.greek_bars = None
+        self.auto_log = None
+        self.chart_widget = None
+        self.figure = None
+        self.canvas = None
+        self.internal_module_indicators = {}
+        self.datetime_timer = None
+        self.automation_timer = None
+        self.greek_timer = None
+        self.chart_timer = None
+        self.gateway_polling_timer = None
+        self.automation_activity_count = 0
+        self._last_gateway_search_log = ""
+
         # Try to connect to real Prometheus collector if available
-        if PROMETHEUS_AVAILABLE:
+        if prometheus_available:
             self.get_client_status = get_client_status
             self.get_system_metrics = get_system_metrics
         else:
+            # Use simulation functions
             self.get_client_status = None
             self.get_system_metrics = None
 
@@ -1634,42 +1314,139 @@ class SpyderTradingDashboard(QMainWindow):
         self.load_test_data()
         self.load_default_risk_parameters()
 
-        # Start market worker with enhanced features
+        # Start market worker with fixed connection detection
         self.start_market_worker()
 
         # Apply white tooltip styling
         self.setup_white_tooltips()
 
+        # Log the actual dashboard initialization time
+        init_time = datetime.now().strftime("%H:%M:%S")
+        self.add_system_log(f"🚀 Dashboard initialized at {init_time}")
+
         # Real data integration (after UI is ready)
         QTimer.singleShot(1000, self.apply_proven_real_data_pattern)
 
         self.logger.info(
-            "Enhanced Dashboard initialized with reverse logging and auto-reconnection"
+            "Enhanced Dashboard initialized with fixed IB connection detection and heartbeat monitoring"
         )
 
-    def _update_system_log_display(self):
-        """Update system log display from enhanced logger"""
-        if hasattr(self, "system_log"):
-            recent_entries = self.system_logger.get_recent_entries(20)
-            self.system_log.clear()
-            self.system_log.append("\n".join(recent_entries))
+    def create_new_ib_connection(self) -> bool:
+        """
+        Create a new IB connection for the dashboard using the EnhancedConnectionManager.
+        """
+        try:
+            self.logger.info(
+                "🔄 Attempting dashboard connection using EnhancedConnectionManager..."
+            )
 
-            # Scroll to top since entries are in reverse chronological order
-            cursor = self.system_log.textCursor()
-            cursor.movePosition(QTextCursor.Start)
-            self.system_log.setTextCursor(cursor)
+            # Create a specific configuration for the dashboard client
+            dashboard_config = ConnectionConfig(
+                port=4002,  # Use paper trading port
+                mode=TradingMode.PAPER,
+                client_id=0,  # Dedicated dashboard client ID
+            )
 
-    def _update_automation_log_display(self):
-        """Update automation log display from enhanced logger"""
-        if hasattr(self, "auto_log"):
-            recent_entries = self.automation_logger.get_recent_entries(15)
-            self.auto_log.clear()
-            self.auto_log.append("\n".join(recent_entries))
+            # Get the dedicated connection manager for the dashboard
+            conn_mgr = get_connection_manager(config=dashboard_config, client_id=0)
 
-            # Scroll to top since entries are in reverse chronological order
-            cursor = self.auto_log.textCursor()
-            cursor.movePosition(QTextCursor.Start)
-            self.auto_log.setTextCursor(cursor)
+            if conn_mgr.is_connected():
+                self.logger.info("Dashboard connection is already active.")
+                self.on_connection_status_changed(True)
+                return True
+
+            # Attempt to connect
+            if conn_mgr.connect():
+                self.logger.info(
+                    "✅ Successfully connected dashboard client (ID 0) to Gateway!"
+                )
+                self.ib_client = conn_mgr.ib_client  # Store the client instance
+                self.on_connection_status_changed(True)
+                return True
+            else:
+                self.logger.warning(
+                    "⚠️ Failed to establish dashboard connection (will retry)."
+                )
+                self.on_connection_status_changed(False)
+                return False
+
+        except Exception as e:
+            self.logger.error(
+                f"❌ Exception in create_new_ib_connection: {e}", exc_info=True
+            )
+            self.on_connection_status_changed(False)
+            return False
+
+    def check_and_connect_gateway(self):
+        """
+        Continuously poll for Gateway availability and auto-connect when found.
+        This runs every 5 seconds when not connected to ensure we always find Gateway.
+        """
+        # Check if we have a valid active connection
+        has_active_connection = False
+        if self.ib_client is not None:
+            if hasattr(self.ib_client, "is_connected"):
+                has_active_connection = self.ib_client.is_connected()
+
+        # If we have an active connection, no need to poll
+        if has_active_connection:
+            return
+
+        try:
+            # Quick socket check to see if Gateway is listening
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(("127.0.0.1", 4002))
+            sock.close()
+
+            if result == 0:
+                # Gateway is available!
+                self.logger.info("🔍 Gateway detected! Attempting connection...")
+                self.add_system_log("🔍 Gateway detected - connecting...")
+
+                # Update UI to show we're connecting
+                if hasattr(self, "connection_status_label"):
+                    self.connection_status_label.setText("🟡 CONNECTING...")
+                    self.connection_status_label.setStyleSheet(
+                        f"color: {COLORS['warning']}; font-weight: bold;"
+                    )
+
+                # Attempt to create connection
+                if self.create_new_ib_connection():
+                    self.add_system_log("✅ Auto-connected to Gateway!")
+                    # Update the flag to match reality
+                    self.ib_connected = True
+                else:
+                    self.add_system_log(
+                        "⚠️ Gateway found but connection failed - will retry"
+                    )
+                    # Ensure flag reflects disconnected state
+                    self.ib_connected = False
+            else:
+                # Gateway not available yet
+                if not hasattr(self, "_last_gateway_search_log"):
+                    self._last_gateway_search_log = 0
+
+                # Log search message every 30 seconds (6 checks * 5 seconds)
+                current_time = time.time()
+                if current_time - self._last_gateway_search_log > 30:
+                    self.add_system_log("🔍 Searching for Gateway...")
+                    self._last_gateway_search_log = current_time
+
+                    # Update UI
+                    if hasattr(self, "connection_status_label"):
+                        self.connection_status_label.setText("🔍 SEARCHING...")
+                        self.connection_status_label.setStyleSheet(
+                            f"color: {COLORS['warning']}; font-weight: bold;"
+                        )
+
+                # Ensure flag reflects disconnected state
+                self.ib_connected = False
+
+        except Exception as e:
+            # Silent fail for most errors, but ensure disconnected state
+            self.ib_connected = False
+            pass
 
     # ==========================================================================
     # REAL DATA INTEGRATION PATTERN (UNCHANGED)
@@ -1682,40 +1459,40 @@ class SpyderTradingDashboard(QMainWindow):
 
             if self.data_file.exists():
                 try:
-                    with open(self.data_file, "r", encoding="utf-8") as f:
+                    with open(self.data_file, "r") as f:
                         data = json.load(f)
                     spy_price = data.get("SPY", {}).get("last", "N/A")
-                    self.add_system_log(f"Real data detected - SPY: ${spy_price}")
+                    self.add_system_log(f"🔥 Real data detected - SPY: ${spy_price}")
                     real_data_available = True
                 except:
-                    self.add_system_log("Real data file exists but couldn't read it")
+                    self.add_system_log("⚠️ Real data file exists but couldn't read it")
             else:
                 self.add_system_log(
-                    "No real data detected - will monitor for availability"
+                    "📊 No real data detected - will monitor for availability"
                 )
 
             # Apply the appropriate pattern
             if real_data_available:
-                self.add_system_log("Applying proven real data patch...")
+                self.add_system_log("🔥 Applying proven real data patch...")
                 self.apply_real_data_patch()
             else:
                 self.add_system_log(
-                    "Starting with simulation - will switch to real data when available"
+                    "📊 Starting with simulation - will switch to real data when available"
                 )
                 self.setup_real_data_monitoring()
 
         except Exception as e:
-            self.add_system_log(f"Error applying real data pattern: {e}")
+            self.add_system_log(f"❌ Error applying real data pattern: {e}")
 
     def apply_real_data_patch(self):
         """Apply real data patch using the proven working pattern"""
         try:
             # Stop the original simulation timer
-            if hasattr(self, "market_worker"):
+            if hasattr(self, "market_worker") and self.market_worker:
                 worker = self.market_worker
                 if hasattr(worker, "update_timer") and worker.update_timer:
                     worker.update_timer.stop()
-                    self.add_system_log("Stopped simulation timer")
+                    self.add_system_log("✅ Stopped simulation timer")
 
             # Slow down automation for real data
             if hasattr(self, "automation_timer"):
@@ -1735,13 +1512,13 @@ class SpyderTradingDashboard(QMainWindow):
             self.update_status_for_real_data()
 
             # Log success
-            self.add_system_log("REAL MARKET DATA ACTIVE - IB Gateway prices")
+            self.add_system_log("🔥 REAL MARKET DATA ACTIVE - IB Gateway prices")
             self.add_automation_log("Real-time market data from Interactive Brokers")
 
-            self.add_system_log("Real data patch applied successfully!")
+            self.add_system_log("✅ Real data patch applied successfully!")
 
         except Exception as e:
-            self.add_system_log(f"Error applying real data patch: {e}")
+            self.add_system_log(f"❌ Error applying real data patch: {e}")
 
     def setup_real_data_monitoring(self):
         """Setup monitoring for real data to become available"""
@@ -1753,12 +1530,12 @@ class SpyderTradingDashboard(QMainWindow):
 
             if self.data_file.exists():
                 try:
-                    with open(self.data_file, "r", encoding="utf-8") as f:
+                    with open(self.data_file, "r") as f:
                         data = json.load(f)
 
                     if data:
                         self.add_system_log(
-                            "Real data detected - switching from simulation!"
+                            "🔥 Real data detected - switching from simulation!"
                         )
                         self._check_timer.stop()
                         self.apply_real_data_patch()
@@ -1776,7 +1553,7 @@ class SpyderTradingDashboard(QMainWindow):
             if not self.data_file.exists():
                 return
 
-            with open(self.data_file, "r", encoding="utf-8") as f:
+            with open(self.data_file, "r") as f:
                 live_data = json.load(f)
 
             if not live_data:
@@ -1817,7 +1594,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             self._error_count += 1
             if self._error_count <= 5:  # Only show first 5 errors
-                self.add_system_log(f"Real data update error: {e}")
+                self.add_system_log(f"⚠️ Real data update error: {e}")
 
     def update_toolbar_with_real_data(self, live_data):
         """Update toolbar indices with real data"""
@@ -1884,53 +1661,53 @@ class SpyderTradingDashboard(QMainWindow):
         """Enhanced refresh market data - callback for refresh icon click"""
         try:
             if self.real_data_active:
-                self.add_system_log("Refreshing real market data...")
+                self.add_system_log("🔥 Refreshing real market data...")
 
                 # Force immediate update
                 self.update_with_real_data()
 
-                self.add_system_log("Real market data refreshed")
+                self.add_system_log("✅ Real market data refreshed")
 
             elif self.market_worker:
-                self.add_system_log("Refreshing simulation data...")
+                self.add_system_log("🔥 Refreshing simulation data...")
 
                 if not self.ib_connected:
                     self.add_system_log(
-                        "Not connected to IB Gateway - using simulation data"
+                        "⚠️ Not connected to IB Gateway - using simulation data"
                     )
 
-                self.add_system_log("Market data refresh requested")
+                self.add_system_log("✅ Market data refresh requested")
             else:
-                self.add_system_log("Market worker not available")
+                self.add_system_log("❌ Market worker not available")
 
         except Exception as e:
             self.logger.error(f"Error refreshing market data: {e}")
-            self.add_system_log(f"Refresh error: {e}")
+            self.add_system_log(f"❌ Refresh error: {e}")
 
     # ==========================================================================
     # UI CREATION METHODS - FIXED TOOLBAR WITH HEARTBEAT
     # ==========================================================================
     def setup_ui(self):
         """Setup the complete UI"""
-        self.setWindowTitle("SPYDER - Autonomous Options Trading System")
+        self.setWindowTitle("SPYDER - Autonomous Options Trading System v1.0")
         self.setGeometry(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
 
         self.setStyleSheet(
             f"""
             QMainWindow {{
-                background-color: {COLORS['background']};
+                background-color: {COLORS["background"]};
             }}
             QLabel {{
-                color: {COLORS['text']};
+                color: {COLORS["text"]};
                 font-weight: normal;
             }}
             QGroupBox {{
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
                 border-radius: 5px;
                 margin-top: 10px;
                 padding-top: 10px;
-                background-color: {COLORS['background']};
+                background-color: {COLORS["background"]};
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -1938,9 +1715,9 @@ class SpyderTradingDashboard(QMainWindow):
                 padding: 0 5px 0 5px;
             }}
             QPushButton {{
-                background-color: {COLORS['panel']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
+                background-color: {COLORS["panel"]};
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
                 padding: 8px;
                 border-radius: 3px;
                 font-weight: normal;
@@ -1949,27 +1726,27 @@ class SpyderTradingDashboard(QMainWindow):
                 background-color: #2a2a2a;
             }}
             QTableWidget {{
-                background-color: {COLORS['panel']};
-                alternate-background-color: {COLORS['background']};
-                color: {COLORS['text']};
-                gridline-color: {COLORS['grid']};
-                border: 1px solid {COLORS['border']};
+                background-color: {COLORS["panel"]};
+                alternate-background-color: {COLORS["background"]};
+                color: {COLORS["text"]};
+                gridline-color: {COLORS["grid"]};
+                border: 1px solid {COLORS["border"]};
                 font-size: 11px;
             }}
             QTableWidgetItem {{
                 font-size: 11px;
             }}
             QHeaderView::section {{
-                background-color: {COLORS['background']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
+                background-color: {COLORS["background"]};
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
                 padding: 5px;
                 font-size: 10px;
             }}
             QTextEdit {{
-                background-color: {COLORS['panel']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
+                background-color: {COLORS["panel"]};
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
             }}
         """
         )
@@ -1984,7 +1761,7 @@ class SpyderTradingDashboard(QMainWindow):
         toolbar = self.create_toolbar()
         main_layout.addWidget(toolbar)
 
-        content_splitter = QSplitter(Qt.Horizontal)
+        content_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_panel = self.create_left_panel()
         content_splitter.addWidget(left_panel)
@@ -2013,9 +1790,9 @@ class SpyderTradingDashboard(QMainWindow):
         # SPYDER logo on left
         logo_label = QLabel("S P Y D E R")
         try:
-            logo_font = QFont("Michroma", 16, QFont.Normal)
+            logo_font = QFont("Michroma", 16, QFont.Weight.Normal)
         except:
-            logo_font = QFont("Arial", 16, QFont.Normal)
+            logo_font = QFont("Arial", 16, QFont.Weight.Normal)
         logo_label.setFont(logo_font)
         logo_label.setStyleSheet(f"color: {COLORS['text']}; letter-spacing: 5px;")
         layout.addWidget(logo_label)
@@ -2091,9 +1868,9 @@ class SpyderTradingDashboard(QMainWindow):
 
         # IB Connection Status (Left Box) - FIXED WIDTH
         self.ib_status_container = QWidget()
-        self.ib_status_container.setMinimumWidth(190)
-        self.ib_status_container.setMaximumWidth(190)
-        self.ib_status_container.setCursor(Qt.PointingHandCursor)
+        self.ib_status_container.setMinimumWidth(190)  # REDUCED from 200
+        self.ib_status_container.setMaximumWidth(190)  # REDUCED from 200
+        self.ib_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ib_status_container.setToolTip("Click to connect/disconnect IB Gateway")
         self.ib_status_container.setStyleSheet(
             """
@@ -2105,8 +1882,8 @@ class SpyderTradingDashboard(QMainWindow):
         """
         )
         ib_status_layout = QHBoxLayout()
-        ib_status_layout.setContentsMargins(10, 3, 8, 3)
-        ib_status_layout.setSpacing(6)
+        ib_status_layout.setContentsMargins(10, 3, 8, 3)  # REDUCED margins
+        ib_status_layout.setSpacing(6)  # REDUCED spacing
 
         self.ib_connection_dot = QLabel("●")
         self.ib_connection_dot.setStyleSheet(
@@ -2123,47 +1900,53 @@ class SpyderTradingDashboard(QMainWindow):
         self.ib_status_container.setLayout(ib_status_layout)
         self.ib_status_container.mousePressEvent = self.toggle_ib_connection
 
-        # HEARTBEAT MONITOR
+        # HEARTBEAT MONITOR - REDUCED WIDTH
         self.heartbeat_container = QWidget()
-        self.heartbeat_container.setMinimumWidth(40)
-        self.heartbeat_container.setMaximumWidth(40)
+        self.heartbeat_container.setMinimumWidth(40)  # REDUCED from 50
+        self.heartbeat_container.setMaximumWidth(40)  # REDUCED from 50
         self.heartbeat_container.setToolTip(
-            "Connection heartbeat monitor\nGreen Connected  Blue Checking  Red Disconnected"
+            "Connection heartbeat monitor\n🟢 Connected  🔵 Checking  🔴 Disconnected"
         )
         heartbeat_layout = QHBoxLayout()
-        heartbeat_layout.setContentsMargins(2, 3, 2, 3)
+        heartbeat_layout.setContentsMargins(2, 3, 2, 3)  # REDUCED margins
         heartbeat_layout.setSpacing(0)
 
         self.heartbeat_icon = QLabel("💔")  # Start with red broken heart (disconnected)
         self.heartbeat_icon.setStyleSheet(
             "color: " + COLORS["negative"] + f"; font-size: 16px;"
         )
-        self.heartbeat_icon.setAlignment(Qt.AlignCenter)
+        self.heartbeat_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heartbeat_layout.addWidget(self.heartbeat_icon)
 
         self.heartbeat_container.setLayout(heartbeat_layout)
 
-        # Data Status (Right Box with Simulation Toggle)
+        # Data Status (Right Box with Simulation Toggle) - INCREASED WIDTH
         self.data_status_container = QWidget()
-        self.data_status_container.setMinimumWidth(240)
-        self.data_status_container.setMaximumWidth(240)
+        self.data_status_container.setMinimumWidth(240)  # INCREASED from 220
+        self.data_status_container.setMaximumWidth(240)  # INCREASED from 220
         self.data_status_container.setToolTip("Current data source and status")
         data_status_layout = QHBoxLayout()
-        data_status_layout.setContentsMargins(10, 6, 8, 6)
-        data_status_layout.setSpacing(6)
+        data_status_layout.setContentsMargins(
+            10, 6, 8, 6
+        )  # ADJUSTED vertical margins for better alignment
+        data_status_layout.setSpacing(6)  # REDUCED spacing
 
         self.data_status_dot = QLabel("●")
         self.data_status_dot.setStyleSheet(
             "color: " + COLORS["warning"] + f"; font-size: 14px;"
         )
-        self.data_status_dot.setAlignment(Qt.AlignVCenter)
+        self.data_status_dot.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter
+        )  # ENSURE vertical center alignment
         data_status_layout.addWidget(self.data_status_dot)
 
         self.data_status_label = QLabel("END-OF-DAY DATA")
         self.data_status_label.setStyleSheet(
             "color: " + COLORS["warning"] + f"; font-size: 14px;"
         )
-        self.data_status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.data_status_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )  # LEFT + VERTICAL CENTER
         data_status_layout.addWidget(self.data_status_label)
 
         # Add stretch to push simulation button to the right
@@ -2171,12 +1954,16 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Simulation Toggle Button (Blue) - Only visible when IB disconnected
         self.simulation_toggle = QLabel("🔵")
-        self.simulation_toggle.setCursor(Qt.PointingHandCursor)
+        self.simulation_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.simulation_toggle.setToolTip(
             "CLICK TO DISPLAY SIMULATED DATA WHEN IB IS DISCONNECTED"
         )
-        self.simulation_toggle.setStyleSheet(f"font-size: 14px;")
-        self.simulation_toggle.setAlignment(Qt.AlignVCenter)
+        self.simulation_toggle.setStyleSheet(
+            f"font-size: 14px;"
+        )  # REMOVED padding-left
+        self.simulation_toggle.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter
+        )  # VERTICAL CENTER alignment
         self.simulation_toggle.mousePressEvent = self.toggle_simulation_mode
         self.simulation_toggle.setVisible(
             True
@@ -2185,12 +1972,19 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.data_status_container.setLayout(data_status_layout)
 
-        # Add all containers to right section
+        # RIGHT SECTION - OPTIMIZED SPACING WITH FIXED WIDTH CONTAINERS AND HEARTBEAT
+        right_section = QHBoxLayout()
+        right_section.setSpacing(6)  # REDUCED from 10 to save space
+
+        right_section.addSpacing(15)  # REDUCED from 20
+        right_section.addWidget(QLabel(" | "))
+
+        # Add all containers to right section with reduced spacing
         right_section.addStretch(1)
         right_section.addWidget(self.ib_status_container)
-        right_section.addSpacing(3)
-        right_section.addWidget(self.heartbeat_container)
-        right_section.addSpacing(3)
+        right_section.addSpacing(3)  # MINIMAL spacing between IB and heartbeat
+        right_section.addWidget(self.heartbeat_container)  # HEARTBEAT CONTAINER
+        right_section.addSpacing(3)  # MINIMAL spacing between heartbeat and data
         right_section.addWidget(self.data_status_container)
         right_section.addWidget(QLabel(" | "))
 
@@ -2222,17 +2016,17 @@ class SpyderTradingDashboard(QMainWindow):
 
         last_header = QLabel("LAST")
         last_header.setFixedWidth(70)
-        last_header.setAlignment(Qt.AlignRight)
+        last_header.setAlignment(Qt.AlignmentFlag.AlignRight)
         last_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         chg_header = QLabel("CHG")
         chg_header.setFixedWidth(55)
-        chg_header.setAlignment(Qt.AlignRight)
+        chg_header.setAlignment(Qt.AlignmentFlag.AlignRight)
         chg_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         chg_pct_header = QLabel("CHG%")
         chg_pct_header.setFixedWidth(55)
-        chg_pct_header.setAlignment(Qt.AlignRight)
+        chg_pct_header.setAlignment(Qt.AlignmentFlag.AlignRight)
         chg_pct_header.setStyleSheet(f"color: {COLORS['cyan']}; font-weight: normal;")
 
         header_layout.addWidget(symbol_header)
@@ -2244,14 +2038,14 @@ class SpyderTradingDashboard(QMainWindow):
         layout.addWidget(header)
 
         separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShape(QFrame.Shape.HLine)
         separator.setStyleSheet(f"color: {COLORS['border']};")
         layout.addWidget(separator)
 
         # Scroll area for symbols
         scroll_area = QScrollArea()
         scroll_area.setStyleSheet(f"background-color: {COLORS['background']};")
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_widget = QWidget()
         scroll_widget.setStyleSheet(f"background-color: {COLORS['background']};")
         scroll_layout = QVBoxLayout()
@@ -2282,7 +2076,7 @@ class SpyderTradingDashboard(QMainWindow):
         return panel
 
     def create_center_panel(self) -> QWidget:
-        """Create center panel"""
+        """Create center panel (UNCHANGED)"""
         panel = QWidget()
         layout = QVBoxLayout()
 
@@ -2338,7 +2132,7 @@ class SpyderTradingDashboard(QMainWindow):
         layout.addWidget(self.chart_widget, 2)
 
         # Positions table
-        positions_group = QGroupBox("ORDERS & POSITIONS")
+        positions_group = QGroupBox("ORDERS && POSITIONS")
         positions_layout = QVBoxLayout()
 
         self.positions_table = self.create_positions_table()
@@ -2362,7 +2156,18 @@ class SpyderTradingDashboard(QMainWindow):
         self.system_log = QTextEdit()
         self.system_log.setReadOnly(True)
         self.system_log.setMaximumHeight(150)
-        self.system_log.setStyleSheet(f"font-family: monospace; font-size: 13px;")
+        self.system_log.setStyleSheet(
+            f"""
+            QTextEdit {{
+                font-family: monospace;
+                font-size: 13px;
+            }}
+            QScrollBar:vertical {{
+                width: 8px;
+                background: {COLORS["panel"]};
+            }}
+        """
+        )
 
         logs_layout.addWidget(self.system_log)
         logs_group.setLayout(logs_layout)
@@ -2388,329 +2193,8 @@ class SpyderTradingDashboard(QMainWindow):
         panel.setLayout(layout)
         return panel
 
-    def create_chart(self):
-        """Create the SPY chart widget with Plotly to image approach"""
-        print("🎨 Creating Plotly chart with image fallback...")
-
-        try:
-            # Try Plotly with WebEngine first
-            import plotly.graph_objects as go
-            from plotly.subplots import make_subplots
-
-            # Create the main chart widget
-            self.chart_widget = QWidget()
-            self.chart_widget.setStyleSheet(
-                f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']};"
-            )
-
-            layout = QVBoxLayout()
-            layout.setContentsMargins(5, 5, 5, 5)
-
-            # Try WebEngine approach first
-            try:
-                from PySide6.QtWebEngineWidgets import QWebEngineView
-
-                # Create WebEngine view for Plotly
-                self.plotly_view = QWebEngineView()
-                self.plotly_view.setMinimumHeight(400)
-
-                # Create a sample SPY chart with Plotly
-                fig = make_subplots(
-                    rows=1, cols=1,
-                    subplot_titles=["SPY - Live Trading Data"],
-                    vertical_spacing=0.1
-                )
-
-                # Generate sample data
-                import numpy as np
-                dates = pd.date_range(start="2025-09-20", end="2025-09-29", freq="H")[:100]
-                prices = 580 + np.cumsum(np.random.randn(100) * 0.5)
-
-                # Add price line
-                fig.add_trace(go.Scatter(
-                    x=dates, y=prices, mode="lines", name="SPY Price",
-                    line=dict(color="#00E676", width=2),
-                    hovertemplate="<b>SPY</b><br>Price: $%{y:.2f}<br>Time: %{x}<extra></extra>"
-                ))
-
-                # Add moving average
-                ma_periods = 20
-                if len(prices) >= ma_periods:
-                    ma_values = np.convolve(prices, np.ones(ma_periods) / ma_periods, mode="valid")
-                    ma_dates = dates[ma_periods - 1:]
-
-                    fig.add_trace(go.Scatter(
-                        x=ma_dates, y=ma_values, mode="lines", name="MA(20)",
-                        line=dict(color="#FFB74D", width=1.5),
-                        hovertemplate="<b>MA(20)</b><br>Value: $%{y:.2f}<br>Time: %{x}<extra></extra>"
-                    ))
-
-                # Style the chart
-                fig.update_layout(
-                    title={"text": "📈 SPY Live Chart - Plotly Interactive", "x": 0.5, "xanchor": "center", "font": {"color": "#FFFFFF", "size": 16}},
-                    paper_bgcolor="rgba(45, 45, 45, 1)", plot_bgcolor="rgba(30, 30, 30, 1)", font=dict(color="#FFFFFF"),
-                    xaxis=dict(gridcolor="rgba(128, 128, 128, 0.2)", showgrid=True, zeroline=False),
-                    yaxis=dict(gridcolor="rgba(128, 128, 128, 0.2)", showgrid=True, zeroline=False, title="Price ($)"),
-                    hovermode="x unified", showlegend=True,
-                    legend=dict(x=0.02, y=0.98, bgcolor="rgba(45, 45, 45, 0.8)", bordercolor="rgba(128, 128, 128, 0.5)", borderwidth=1),
-                    margin=dict(l=60, r=20, t=60, b=60)
-                )
-
-                # Try to create a simple test first
-                simple_html = '''
-                <!DOCTYPE html>
-                <html><head><title>Test</title></head>
-                <body style="background:#2d2d2d;color:white;text-align:center;padding:50px;">
-                <h1>🚀 WebEngine Test</h1>
-                <p>If you see this, WebEngine works!</p>
-                <div style="background:#1e1e1e;border:2px solid #00E676;padding:20px;margin:20px;">
-                <h2>Chart Area</h2>
-                <p>Plotly chart should appear here</p>
-                </div>
-                </body></html>
-                '''
-
-                # Generate the actual Plotly HTML with data instead of test HTML
-                html_content = fig.to_html(include_plotlyjs=True, div_id="plotly-chart")
-                print(f"📊 Generated Plotly HTML with {len(prices)} data points")
-                print(f"📄 HTML content length: {len(html_content)} characters")
-                print(f"💹 Price range: ${min(prices):.2f} - ${max(prices):.2f}")
-
-                # Load the actual Plotly chart with simulated data
-                self.plotly_view.setHtml(html_content)
-                layout.addWidget(self.plotly_view)
-                self.chart_widget.setLayout(layout)
-
-                print("✅ WebEngine test HTML loaded")
-                print("� WebEngine approach active - check if you see the test content")
-                return
-
-            except ImportError:
-                print("⚠️ QWebEngineView not available, trying image approach...")
-                raise Exception("WebEngine not available")
-
-        except Exception as e:
-            print(f"⚠️ WebEngine approach failed: {e}")
-            print("🔄 Using static chart display approach...")
-
-            # Fallback: Create static chart display
-            self.chart_widget = QWidget()
-            self.chart_widget.setStyleSheet(
-                f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']};"
-            )
-
-            layout = QVBoxLayout()
-            layout.setContentsMargins(10, 10, 10, 10)
-
-            # Create a styled chart area with data
-            chart_display = QLabel()
-            chart_display.setStyleSheet(f"""
-                QLabel {{
-                    background-color: {COLORS['chart_bg']};
-                    border: 2px solid {COLORS['accent']};
-                    border-radius: 8px;
-                    color: {COLORS['text']};
-                    font-size: 14px;
-                    padding: 20px;
-                }}
-            """)
-
-            # Create chart content
-            chart_content = """
-📈 SPY LIVE CHART
-
-Current Price: $582.45 ▲ +2.15 (+0.37%)
-MA(20): $580.22
-Volume: 145.2M
-
-Recent Performance:
-├─ 5m:  +0.12%  │████████░░│
-├─ 15m: +0.28%  │██████████│
-├─ 1h:  +0.37%  │██████████│
-└─ 1d:  +1.24%  │██████████│
-
-Market Status: 🟢 OPEN
-Strategy: Iron Condor
-Regime: Low Volatility - Range Bound
-
-🎯 Key Levels:
-Support: $579.50, $577.25
-Resistance: $585.00, $587.75
-
-Chart rendering optimized for system compatibility
-Interactive Plotly features available in web mode
-            """
-
-            chart_display.setText(chart_content.strip())
-            chart_display.setWordWrap(True)
-            chart_display.setMinimumHeight(400)
-
-            layout.addWidget(chart_display)
-            self.chart_widget.setLayout(layout)
-
-            print("✅ Static chart display created with live data")
-            print("✅ Shows: Current price, moving average, volume, performance metrics")
-            print("✅ Optimized for system compatibility")
-
-    def update_chart(self):
-        """Update the SPY chart with live data"""
-        print("🔄 Updating chart with latest market data...")
-
-        # For Plotly charts, we regenerate the HTML content
-        if hasattr(self, "plotly_view"):
-            try:
-                # Import Plotly components
-                import plotly.graph_objects as go
-                from plotly.subplots import make_subplots
-                import numpy as np
-
-                # Create updated chart with latest data
-                fig = make_subplots(
-                    rows=1,
-                    cols=1,
-                    subplot_titles=["SPY - Live Trading Data (Updated)"],
-                    vertical_spacing=0.1,
-                )
-
-                # Generate fresh sample data
-                dates = pd.date_range(
-                    start="2025-09-29", periods=120, freq="T"
-                )  # Minute data
-                base_price = (
-                    self.market_data.get("SPY", {}).get("last", 582)
-                    if hasattr(self, "market_data")
-                    else 582
-                )
-
-                # Create more realistic price movements
-                returns = np.random.normal(0, 0.001, 120)
-                prices = [base_price]
-                for ret in returns:
-                    prices.append(prices[-1] * (1 + ret))
-
-                # Add main price line
-                fig.add_trace(
-                    go.Scatter(
-                        x=dates,
-                        y=prices,
-                        mode="lines",
-                        name="SPY Price",
-                        line=dict(color="#00E676", width=2),
-                        hovertemplate="<b>SPY</b><br>Price: $%{y:.2f}<br>Time: %{x}<extra></extra>",
-                    )
-                )
-
-                # Add moving average
-                ma_periods = 20
-                if len(prices) >= ma_periods:
-                    ma_values = np.convolve(
-                        prices, np.ones(ma_periods) / ma_periods, mode="valid"
-                    )
-                    ma_dates = dates[ma_periods - 1 :]
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=ma_dates,
-                            y=ma_values,
-                            mode="lines",
-                            name="MA(20)",
-                            line=dict(color="#FFB74D", width=1.5),
-                            hovertemplate="<b>MA(20)</b><br>Value: $%{y:.2f}<br>Time: %{x}<extra></extra>",
-                        )
-                    )
-
-                # Update layout
-                fig.update_layout(
-                    title={
-                        "text": f"📈 SPY Live Chart - Updated {datetime.now().strftime('%H:%M:%S')}",
-                        "x": 0.5,
-                        "xanchor": "center",
-                        "font": {"color": "#FFFFFF", "size": 16},
-                    },
-                    paper_bgcolor="rgba(45, 45, 45, 1)",
-                    plot_bgcolor="rgba(30, 30, 30, 1)",
-                    font=dict(color="#FFFFFF"),
-                    xaxis=dict(
-                        gridcolor="rgba(128, 128, 128, 0.2)",
-                        showgrid=True,
-                        zeroline=False,
-                    ),
-                    yaxis=dict(
-                        gridcolor="rgba(128, 128, 128, 0.2)",
-                        showgrid=True,
-                        zeroline=False,
-                        title="Price ($)",
-                    ),
-                    hovermode="x unified",
-                    showlegend=True,
-                    legend=dict(
-                        x=0.02,
-                        y=0.98,
-                        bgcolor="rgba(45, 45, 45, 0.8)",
-                        bordercolor="rgba(128, 128, 128, 0.5)",
-                        borderwidth=1,
-                    ),
-                    margin=dict(l=60, r=20, t=60, b=60),
-                )
-
-                # Update the WebEngine view with new chart
-                html_content = fig.to_html(include_plotlyjs=True, div_id="plotly-chart")
-                self.plotly_view.setHtml(html_content)
-
-                print("✅ Plotly chart updated successfully!")
-                return
-
-            except Exception as e:
-                print(f"⚠️ Chart update failed: {e}")
-
-        print("📊 Chart update completed")
-
-    def create_positions_table(self) -> QTableWidget:
-        """Create positions table"""
-        table = QTableWidget()
-
-        columns = [
-            "DATE",
-            "SYMBOL",
-            "CNTR",
-            "STRIKES",
-            "EXPIRY",
-            "STRATEGY",
-            "STATUS",
-            "COST",
-            "P&L",
-            "AUTO STATUS",
-        ]
-
-        table.setColumnCount(len(columns))
-        table.setHorizontalHeaderLabels(columns)
-        table.verticalHeader().setVisible(False)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setStyleSheet("font-size: 11px;")
-
-        # Set column widths
-        table.setColumnWidth(0, 75)  # DATE
-        table.setColumnWidth(1, 55)  # SYMBOL
-        table.setColumnWidth(2, 45)  # CNTR
-        table.setColumnWidth(3, 135)  # STRIKES
-        table.setColumnWidth(4, 65)  # EXPIRY
-        table.setColumnWidth(5, 150)  # STRATEGY
-        table.setColumnWidth(6, 70)  # STATUS
-        table.setColumnWidth(7, 95)  # COST
-        table.setColumnWidth(8, 95)  # P&L
-        table.setColumnWidth(9, 130)  # AUTO STATUS
-
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        table.verticalHeader().setDefaultSectionSize(22)
-        table.setMinimumHeight(190)
-        table.setMaximumHeight(190)
-
-        return table
-
     def create_right_panel(self) -> QWidget:
-        """Create right panel with controls and metrics"""
+        """Create right panel with controls and metrics (UNCHANGED EXCEPT BUTTON MESSAGES)"""
         panel = QWidget()
         layout = QVBoxLayout()
         layout.setSpacing(3)
@@ -2791,7 +2275,9 @@ Interactive Plotly features available in web mode
 
         self.settled_value = QLabel("$21,800,000.00")
         self.settled_value.setStyleSheet(cell_style + "text-align: right;")
-        self.settled_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.settled_value.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         table_layout.addWidget(self.settled_value, 2, 1)
 
         realized_label = QLabel("REALIZED P&L")
@@ -2802,7 +2288,9 @@ Interactive Plotly features available in web mode
         self.realized_value.setStyleSheet(
             cell_style + f"color: {COLORS['positive']}; text-align: right;"
         )
-        self.realized_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.realized_value.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         table_layout.addWidget(self.realized_value, 2, 3)
 
         buying_label = QLabel("BUYING POWER")
@@ -2811,7 +2299,9 @@ Interactive Plotly features available in web mode
 
         self.buying_value = QLabel("$20,450,000.00")
         self.buying_value.setStyleSheet(cell_style + "text-align: right;")
-        self.buying_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.buying_value.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         table_layout.addWidget(self.buying_value, 3, 1)
 
         unrealized_label = QLabel("UNREALIZED P&L")
@@ -2822,7 +2312,9 @@ Interactive Plotly features available in web mode
         self.unrealized_value.setStyleSheet(
             cell_style + f"color: {COLORS['positive']}; text-align: right;"
         )
-        self.unrealized_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.unrealized_value.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         table_layout.addWidget(self.unrealized_value, 3, 3)
 
         table_widget.setLayout(table_layout)
@@ -2831,7 +2323,7 @@ Interactive Plotly features available in web mode
         layout.addWidget(account_group)
 
         # P&L Performance
-        pnl_group = QGroupBox("P&L PERFORMANCE")
+        pnl_group = QGroupBox("P&&L PERFORMANCE")
         pnl_layout = QVBoxLayout()
         pnl_layout.setContentsMargins(5, 1, 5, 1)
         pnl_layout.setSpacing(1)
@@ -2866,12 +2358,12 @@ Interactive Plotly features available in web mode
         auto_group.setStyleSheet(
             f"""
             QGroupBox {{
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
                 border-radius: 5px;
                 margin-top: 12px;
                 padding-top: 5px;
-                background-color: {COLORS['background']};
+                background-color: {COLORS["background"]};
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -2893,16 +2385,22 @@ Interactive Plotly features available in web mode
             QTextEdit {{
                 font-family: monospace;
                 font-size: 13px;
-                color: {COLORS['cyan']};
+                color: {COLORS["cyan"]};
                 padding: 1px;
-                border: 1px solid {COLORS['border']};
-                background-color: {COLORS['panel']};
+                border: 1px solid {COLORS["border"]};
+                background-color: {COLORS["panel"]};
                 margin: 0px;
+            }}
+            QScrollBar:vertical {{
+                width: 8px;
+                background: {COLORS["panel"]};
             }}
         """
         )
-        self.auto_log.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.auto_log.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.auto_log.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.auto_log.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
 
         auto_layout.addWidget(self.auto_log)
         auto_group.setLayout(auto_layout)
@@ -2915,8 +2413,329 @@ Interactive Plotly features available in web mode
         panel.setLayout(layout)
         return panel
 
+    def create_chart(self):
+        """Create the SPY chart widget (UNCHANGED)"""
+        self.chart_widget = QWidget()
+        self.chart_widget.setStyleSheet(
+            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']};"
+        )
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create matplotlib figure
+        self.figure = Figure(figsize=(10, 6), dpi=100)
+        self.figure.patch.set_facecolor(COLORS["panel"])
+
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.setStyleSheet("background-color: transparent;")
+        layout.addWidget(self.canvas)
+
+        self.chart_widget.setLayout(layout)
+
+        # Draw initial chart
+        self.update_chart()
+
+    def update_chart(self):
+        """Update the SPY chart with candlesticks and indicators (UNCHANGED)"""
+        self.figure.clear()
+
+        # Create sample OHLC data
+        periods = 100
+        dates = pd.date_range(end=datetime.now(), periods=periods, freq="5min")
+
+        # Generate realistic OHLC data
+        spy_price = (
+            self.market_data["SPY"]["last"] if "SPY" in self.market_data else 585
+        )
+
+        opens = []
+        highs = []
+        lows = []
+        closes = []
+        volumes = []
+
+        current_price = spy_price - 2
+
+        for _ in range(periods):
+            # Random walk
+            change = random.random() * 0.5 - 0.25
+            current_price += change
+
+            # OHLC
+            open_price = current_price
+            high = current_price + random.random() * 0.3
+            low = current_price - random.random() * 0.3
+            close = low + random.random() * (high - low)
+            volume = random.randint(1000000, 5000000)
+
+            opens.append(open_price)
+            highs.append(high)
+            lows.append(low)
+            closes.append(close)
+            volumes.append(volume)
+
+            current_price = close
+
+        # Calculate indicators
+        prev_high = max(highs) + random.uniform(0.5, 1.5)
+        prev_low = min(lows) - random.uniform(0.5, 1.5)
+        prev_close = closes[-1] + random.uniform(-1, 1)
+
+        # Fibonacci Daily Pivot Points
+        pivot = (prev_high + prev_low + prev_close) / 3
+        r1 = (2 * pivot) - prev_low
+        r2 = pivot + (prev_high - prev_low)
+        r3 = prev_high + 2 * (pivot - prev_low)
+        s1 = (2 * pivot) - prev_high
+        s2 = pivot - (prev_high - prev_low)
+        s3 = prev_low - 2 * (pivot - prev_low)
+
+        # 20-period Moving Average
+        ma_20 = []
+        for i in range(len(closes)):
+            if i < 19:
+                ma_20.append(None)
+            else:
+                ma_20.append(sum(closes[i - 19 : i + 1]) / 20)
+
+        # VWAP
+        vwap = []
+        cumulative_pv = 0
+        cumulative_volume = 0
+        for i in range(len(closes)):
+            typical_price = (highs[i] + lows[i] + closes[i]) / 3
+            cumulative_pv += typical_price * volumes[i]
+            cumulative_volume += volumes[i]
+            vwap.append(cumulative_pv / cumulative_volume)
+
+        # Create plot
+        ax = self.figure.add_subplot(111)
+        ax.yaxis.tick_left()
+        ax.yaxis.set_label_position("left")
+
+        # Set background color
+        ax.set_facecolor(COLORS["panel"])
+
+        # Plot Fibonacci Daily Pivot Points
+        ax.axhline(
+            y=pivot,
+            color="#FFFF00",
+            linewidth=1.5,
+            linestyle="-",
+            alpha=0.7,
+            label="Pivot",
+            zorder=1,
+        )
+        ax.axhline(
+            y=r1,
+            color="#00FF41",
+            linewidth=1.5,
+            linestyle="-",
+            alpha=0.6,
+            label="R1",
+            zorder=1,
+        )
+        ax.axhline(
+            y=r2,
+            color="#00FF41",
+            linewidth=1.5,
+            linestyle="-",
+            alpha=0.6,
+            label="R2",
+            zorder=1,
+        )
+        ax.axhline(
+            y=r3,
+            color="#00FF41",
+            linewidth=1.5,
+            linestyle="-",
+            alpha=0.6,
+            label="R3",
+            zorder=1,
+        )
+        ax.axhline(
+            y=s1,
+            color="#FF1744",
+            linewidth=1.5,
+            linestyle="-",
+            alpha=0.6,
+            label="S1",
+            zorder=1,
+        )
+        ax.axhline(
+            y=s2,
+            color="#FF1744",
+            linewidth=1.5,
+            linestyle="-",
+            alpha=0.6,
+            label="S2",
+            zorder=1,
+        )
+        ax.axhline(
+            y=s3,
+            color="#FF1744",
+            linewidth=1.5,
+            linestyle="-",
+            alpha=0.6,
+            label="S3",
+            zorder=1,
+        )
+
+        # Plot 20-period Moving Average
+        ma_x = [i for i, val in enumerate(ma_20) if val is not None]
+        ma_y = [val for val in ma_20 if val is not None]
+        ax.plot(
+            ma_x,
+            ma_y,
+            color="#00B8D4",
+            linewidth=1.5,
+            alpha=0.8,
+            label="MA(20)",
+            zorder=2,
+        )
+
+        # Plot VWAP
+        ax.plot(
+            range(len(vwap)),
+            vwap,
+            color="#BF00FF",
+            linewidth=1.5,
+            alpha=0.9,
+            label="VWAP",
+            zorder=2,
+        )
+
+        # Plot candlesticks
+        for i in range(len(dates)):
+            color = COLORS["positive"] if closes[i] >= opens[i] else COLORS["negative"]
+
+            # High-Low line
+            ax.plot([i, i], [lows[i], highs[i]], color=color, linewidth=1, zorder=3)
+
+            # Open-Close box
+            height = abs(closes[i] - opens[i])
+            bottom = min(opens[i], closes[i])
+
+            rect = patches.Rectangle(
+                (i - 0.3, bottom),
+                0.6,
+                height,
+                facecolor=color,
+                edgecolor=color,
+                alpha=0.9,
+                zorder=3,
+            )
+            ax.add_patch(rect)
+
+        # Add pivot level labels on the right
+        ax.text(
+            len(dates),
+            pivot,
+            f" P: {pivot:.2f}",
+            color="#FFFF00",
+            fontsize=9,
+            va="center",
+        )
+        ax.text(
+            len(dates), r1, f" R1: {r1:.2f}", color="#00FF41", fontsize=8, va="center"
+        )
+        ax.text(
+            len(dates), r2, f" R2: {r2:.2f}", color="#00FF41", fontsize=8, va="center"
+        )
+        ax.text(
+            len(dates), r3, f" R3: {r3:.2f}", color="#00FF41", fontsize=8, va="center"
+        )
+        ax.text(
+            len(dates), s1, f" S1: {s1:.2f}", color="#FF1744", fontsize=8, va="center"
+        )
+        ax.text(
+            len(dates), s2, f" S2: {s2:.2f}", color="#FF1744", fontsize=8, va="center"
+        )
+        ax.text(
+            len(dates), s3, f" S3: {s3:.2f}", color="#FF1744", fontsize=8, va="center"
+        )
+
+        # Styling
+        ax.set_title("SPY - 5 min", color=COLORS["text"], fontsize=12, pad=10)
+        ax.set_xlim(-1, len(dates))
+        ax.grid(True, alpha=0.2, color=COLORS["grid"], zorder=0)
+
+        # Format x-axis with time labels
+        num_labels = 6
+        indices = np.linspace(0, len(dates) - 1, num_labels, dtype=int)
+        ax.set_xticks(indices)
+
+        time_labels = []
+        for idx in indices:
+            time_str = dates[idx].strftime("%H:%M")
+            time_labels.append(time_str)
+
+        ax.set_xticklabels(time_labels, fontsize=9)
+
+        # Style axes
+        ax.tick_params(colors="#FFFFFF")
+        for spine in ax.spines.values():
+            spine.set_color(COLORS["border"])
+
+        # Adjust layout
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+    def create_positions_table(self) -> QTableWidget:
+        """Create positions table (UNCHANGED)"""
+        table = QTableWidget()
+
+        columns = [
+            "DATE",
+            "SYMBOL",
+            "CNTR",
+            "STRIKES",
+            "EXPIRY",
+            "STRATEGY",
+            "STATUS",
+            "COST",
+            "P&L",
+        ]
+
+        table.setColumnCount(len(columns))
+        table.setHorizontalHeaderLabels(columns)
+        table.verticalHeader().setVisible(False)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setStyleSheet(
+            f"""
+            QTableWidget {{
+                font-size: 11px;
+            }}
+            QScrollBar:vertical {{
+                width: 8px;
+                background: {COLORS["panel"]};
+            }}
+        """
+        )
+
+        # Set column widths
+        table.setColumnWidth(0, 75)  # DATE
+        table.setColumnWidth(1, 55)  # SYMBOL
+        table.setColumnWidth(2, 45)  # CNTR
+        table.setColumnWidth(3, 140)  # STRIKES
+        table.setColumnWidth(4, 70)  # EXPIRY
+        table.setColumnWidth(5, 155)  # STRATEGY
+        table.setColumnWidth(6, 75)  # STATUS
+        table.setColumnWidth(7, 95)  # COST
+        table.setColumnWidth(8, 95)  # P&L
+
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        table.verticalHeader().setDefaultSectionSize(22)
+        table.setMinimumHeight(190)
+        table.setMaximumHeight(190)
+
+        return table
+
     def create_pnl_table(self) -> QTableWidget:
-        """Create P&L performance table"""
+        """Create P&L performance table (UNCHANGED)"""
         table = QTableWidget(4, 8)
 
         headers = [
@@ -2944,32 +2763,32 @@ Interactive Plotly features available in web mode
             table.setItem(row, 0, QTableWidgetItem(period))
 
             pnl_item = QTableWidgetItem(values[0])
-            pnl_item.setTextAlignment(Qt.AlignRight)
+            pnl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
             pnl_item.setForeground(QColor(COLORS["positive"]))
             table.setItem(row, 1, pnl_item)
 
             win_rate_item = QTableWidgetItem(values[1])
-            win_rate_item.setTextAlignment(Qt.AlignCenter)
+            win_rate_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 2, win_rate_item)
 
             avg_item = QTableWidgetItem(values[2])
-            avg_item.setTextAlignment(Qt.AlignCenter)
+            avg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 3, avg_item)
 
             profit_factor_item = QTableWidgetItem(values[3])
-            profit_factor_item.setTextAlignment(Qt.AlignCenter)
+            profit_factor_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 4, profit_factor_item)
 
             sharp_ratio_item = QTableWidgetItem(values[4])
-            sharp_ratio_item.setTextAlignment(Qt.AlignCenter)
+            sharp_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 5, sharp_ratio_item)
 
             sortino_ratio_item = QTableWidgetItem(values[5])
-            sortino_ratio_item.setTextAlignment(Qt.AlignCenter)
+            sortino_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 6, sortino_ratio_item)
 
             calmar_ratio_item = QTableWidgetItem(values[6])
-            calmar_ratio_item.setTextAlignment(Qt.AlignCenter)
+            calmar_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 7, calmar_ratio_item)
 
         table.setStyleSheet("font-size: 13px;")
@@ -2987,19 +2806,19 @@ Interactive Plotly features available in web mode
         table.setColumnWidth(7, 65)  # CALMAR
 
         table.setFixedWidth(610)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         return table
 
     def create_unified_prometheus_metrics(self) -> QWidget:
-        """Create the unified Prometheus Metrics table (6x4 grid)"""
+        """Create the unified Prometheus Metrics table (6x4 grid) - UNCHANGED"""
         container = QWidget()
         container.setStyleSheet(
             f"""
             QWidget {{
-                background-color: {COLORS['panel']};
-                border: 1px solid {COLORS['border']};
+                background-color: {COLORS["panel"]};
+                border: 1px solid {COLORS["border"]};
                 border-radius: 5px;
             }}
         """
@@ -3014,13 +2833,13 @@ Interactive Plotly features available in web mode
         title_label = QLabel("PROMETHEUS METRICS MONITOR")
         title_label.setStyleSheet(
             f"""
-            color: {COLORS['text']};
+            color: {COLORS["text"]};
             font-size: 14px;
             font-weight: normal;
             padding-bottom: 1px;
         """
         )
-        title_label.setAlignment(Qt.AlignLeft)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         main_layout.addWidget(title_label)
 
         main_layout.addSpacing(8)
@@ -3041,14 +2860,14 @@ Interactive Plotly features available in web mode
             header_label = QLabel(header)
             header_label.setStyleSheet(
                 f"""
-                color: {COLORS['cyan']};
+                color: {COLORS["cyan"]};
                 font-size: 13px;
                 font-weight: normal;
                 padding: 2px;
-                border-bottom: 1px solid {COLORS['border']};
+                border-bottom: 1px solid {COLORS["border"]};
             """
             )
-            header_label.setAlignment(Qt.AlignCenter)
+            header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             grid.addWidget(header_label, 0, col)
 
         # System Components (Column 1)
@@ -3095,7 +2914,7 @@ Interactive Plotly features available in web mode
             )
             client_layout.addWidget(indicator)
 
-            label = QLabel(f"CLIENT {row}: {client_1_5_types[row-1]}")
+            label = QLabel(f"CLIENT {row}: {client_1_5_types[row - 1]}")
             label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
             client_layout.addWidget(label)
             client_layout.addStretch()
@@ -3125,7 +2944,7 @@ Interactive Plotly features available in web mode
             )
             client_layout.addWidget(indicator)
 
-            label = QLabel(f"CLIENT {client_num}: {client_6_10_types[row-1]}")
+            label = QLabel(f"CLIENT {client_num}: {client_6_10_types[row - 1]}")
             label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
             client_layout.addWidget(label)
             client_layout.addStretch()
@@ -3186,11 +3005,11 @@ Interactive Plotly features available in web mode
         return container
 
     # ==========================================================================
-    # SIGNAL HANDLERS - ENHANCED WITH HEARTBEAT AND AUTO-RECONNECTION
+    # SIGNAL HANDLERS - ENHANCED WITH HEARTBEAT
     # ==========================================================================
     @Slot(bool, str)
     def on_connection_status_changed(self, connected: bool, status: str):
-        """Handle connection status change - ENHANCED WITH AUTO-RECONNECTION SUPPORT"""
+        """Handle connection status change - FIXED to prevent override"""
         self.connection_info.ib_connected = connected
         self.ib_connected = connected
 
@@ -3233,7 +3052,7 @@ Interactive Plotly features available in web mode
 
     @Slot(str)
     def on_heartbeat_status_changed(self, status: str):
-        """Handle heartbeat status changes - ENHANCED with bright green"""
+        """Handle heartbeat status changes - FIXED heart icons with bright green"""
         if status == "connected":
             self.heartbeat_icon.setText("💚")  # Bright green heart when connected
             self.heartbeat_icon.setStyleSheet(
@@ -3291,16 +3110,16 @@ Interactive Plotly features available in web mode
     @Slot(str)
     def on_market_error(self, error: str):
         """Handle market error"""
-        self.add_system_log(f"⌐ Market error: {error}")
+        self.add_system_log(f"❌ Market error: {error}")
 
     @Slot(str)
     def on_heartbeat_received(self, message: str):
-        """Handle heartbeat message - route to system log"""
+        """Handle heartbeat message - FIXED to route to system log"""
         # Route heartbeat messages to system log (not automation log)
         self.add_system_log(message)
 
     def toggle_ib_connection(self, event):
-        """Toggle IB connection when clicking on status"""
+        """Toggle IB connection when clicking on status - UNCHANGED"""
         if self.ib_connected:
             if self.trading_active:
                 reply = QMessageBox.warning(
@@ -3309,11 +3128,11 @@ Interactive Plotly features available in web mode
                     "Trading is currently active.\n\n"
                     "Disconnecting will stop all trading activities.\n"
                     "Do you want to continue?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
                 )
 
-                if reply != QMessageBox.Yes:
+                if reply != QMessageBox.StandardButton.Yes:
                     return
 
                 self.trading_active = False
@@ -3340,6 +3159,25 @@ Interactive Plotly features available in web mode
                 )
                 return
 
+            # Try to create a new API connection if we don't have a client
+            if not hasattr(self, "ib_client") or self.ib_client is None:
+                self.add_system_log("🔄 Creating new IB Gateway connection...")
+                if self.create_new_ib_connection():
+                    self.add_system_log("✅ Successfully connected to IB Gateway!")
+                    return
+                else:
+                    self.add_system_log(
+                        "❌ Failed to connect - check if Gateway is running"
+                    )
+                    QMessageBox.warning(
+                        self,
+                        "Connection Failed",
+                        "Could not connect to IB Gateway.\n\n"
+                        "Make sure Gateway is running and try again.",
+                    )
+                    return
+
+            # Otherwise use the market worker's force_connect (socket check)
             if self.market_worker and self.market_worker.force_connect():
                 self.ib_connected = True
                 self.add_system_log("Manually connected to IB")
@@ -3347,13 +3185,12 @@ Interactive Plotly features available in web mode
                 self.add_system_log("Failed to connect to IB")
 
     def start_trading(self):
-        """Handle start trading button click - ENHANCED WITH AUTO-RECONNECTION STATUS"""
+        """Handle start trading button click - FIXED MESSAGES"""
         if not self.ib_connected:
             QMessageBox.warning(
                 self,
                 "IB Disconnected",
-                "IB is disconnected - cannot start trading\n\n"
-                "Auto-reconnection will attempt to restore connection during market hours.",
+                "IB is disconnected - cannot start trading",
             )
             self.add_system_log("Cannot start trading - IB disconnected")
             return
@@ -3363,7 +3200,7 @@ Interactive Plotly features available in web mode
             QMessageBox.warning(
                 self,
                 "No Live Data",
-                "NO LIVE DATA\n\n" "Cannot start trading without live market data.",
+                "NO LIVE DATA\n\nCannot start trading without live market data.",
             )
             self.add_system_log("Cannot start trading - No live data")
             return
@@ -3389,7 +3226,7 @@ Interactive Plotly features available in web mode
             self.add_automation_log("Monitoring SPY options for trading opportunities")
 
     def stop_trading(self):
-        """Handle stop trading button click"""
+        """Handle stop trading button click - FIXED MESSAGES"""
         if not self.ib_connected:
             QMessageBox.information(
                 self,
@@ -3415,7 +3252,7 @@ Interactive Plotly features available in web mode
         self.add_automation_log("Autonomous AI Engine on standby")
 
     def emergency_close(self):
-        """Handle emergency close button click"""
+        """Handle emergency close button click - FIXED MESSAGES"""
         if not self.ib_connected:
             QMessageBox.critical(
                 self,
@@ -3434,11 +3271,11 @@ Interactive Plotly features available in web mode
             "• Stop automated trading\n"
             "• Disconnect from IB Gateway\n\n"
             "Are you sure?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.add_system_log(
                 "🚨 EMERGENCY CLOSE - All positions closed, system stopped"
             )
@@ -3501,18 +3338,19 @@ Interactive Plotly features available in web mode
             )
 
     def determine_data_status(self) -> str:
-        """Determine appropriate data status based on current conditions - ENHANCED SIMULATION DETECTION"""
+        """Determine appropriate data status based on current conditions - FIXED SIMULATION DETECTION"""
         market_hours = is_market_hours()
 
-        # Check for simulation mode first with better detection
+        # FIXED: Check for simulation mode first with better detection
         if (
             hasattr(self.connection_info, "simulation_mode")
             and self.connection_info.simulation_mode
         ) or (
             not self.ib_connected
             and hasattr(self, "market_worker")
-            and self.market_worker
+            and self.market_worker is not None
             and hasattr(self.market_worker, "update_timer")
+            and self.market_worker.update_timer is not None
             and self.market_worker.update_timer.isActive()
         ):
             return "SIMULATION"
@@ -3549,11 +3387,12 @@ Interactive Plotly features available in web mode
                 else:
                     return "EOD"
             else:
-                # If simulation data is updating, show SIMULATION instead of EOD
+                # FIXED: If simulation data is updating, show SIMULATION instead of EOD
                 if (
                     hasattr(self, "market_worker")
-                    and self.market_worker
+                    and self.market_worker is not None
                     and hasattr(self.market_worker, "update_timer")
+                    and self.market_worker.update_timer is not None
                     and self.market_worker.update_timer.isActive()
                 ):
                     return "SIMULATION"
@@ -3566,7 +3405,7 @@ Interactive Plotly features available in web mode
         self.update_data_status(data_status)
 
     def toggle_simulation_mode(self, event):
-        """Toggle simulation mode (only when IB disconnected) - ENHANCED STATUS UPDATE"""
+        """Toggle simulation mode (only when IB disconnected) - FIXED STATUS UPDATE"""
         if self.ib_connected:
             # Don't activate simulation when IB is connected
             self.add_system_log(
@@ -3591,10 +3430,10 @@ Interactive Plotly features available in web mode
             self.add_system_log("📊 Simulation mode deactivated")
             self.add_automation_log("Switched back to available real data")
 
-        # Force immediate status update to show SIMULATED DATA
+        # FIXED: Force immediate status update to show SIMULATED DATA
         self.update_status_indicators()
 
-        # Force immediate UI update
+        # ADDED: Force immediate UI update
         data_status = self.determine_data_status()
         self.update_data_status(data_status)
 
@@ -3609,18 +3448,17 @@ Interactive Plotly features available in web mode
             # Use default simulation data
             self.add_system_log("🎯 Using default simulation baseline")
 
-            # ==========================================================================
-
-    # UTILITY METHODS - ENHANCED WITH HEARTBEAT WORKER AND LOGGING
+    # ==========================================================================
+    # UTILITY METHODS - ENHANCED WITH HEARTBEAT WORKER
     # ==========================================================================
     def start_market_worker(self):
-        """Start the enhanced market worker with heartbeat monitoring and auto-reconnection"""
+        """Start the enhanced market worker with heartbeat monitoring"""
         try:
             self.market_thread = QThread()
             self.market_worker = ThreadSafeMarketDataWorker()
             self.market_worker.moveToThread(self.market_thread)
 
-            # Connect all signals including new enhanced signals
+            # Connect all signals including new heartbeat signal
             self.market_worker.data_updated.connect(self.on_market_data_updated)
             self.market_worker.connection_status_changed.connect(
                 self.on_connection_status_changed
@@ -3632,21 +3470,21 @@ Interactive Plotly features available in web mode
             self.market_worker.heartbeat_received.connect(self.on_heartbeat_received)
             self.market_worker.heartbeat_status_changed.connect(
                 self.on_heartbeat_status_changed
-            )
+            )  # NEW
             self.market_worker.log_message.connect(
                 self.add_system_log
-            )  # Direct log messages
+            )  # NEW: Direct log messages
 
             self.market_thread.started.connect(self.market_worker.start)
             self.market_thread.start()
 
             self.add_system_log(
-                "📈 Market data worker started with enhanced logging and auto-reconnection"
+                "🔈 Market data worker started with heartbeat monitoring"
             )
 
         except Exception as e:
             self.logger.error(f"Error starting market worker: {e}")
-            self.add_system_log(f"⌐ Market worker error: {e}")
+            self.add_system_log(f"❌ Market worker error: {e}")
 
     def setup_timers(self):
         """Setup various timers"""
@@ -3675,13 +3513,24 @@ Interactive Plotly features available in web mode
         self.prometheus_timer.timeout.connect(self.update_prometheus_metrics)
         self.prometheus_timer.start(8000)
 
+        # Gateway polling timer - TEMPORARILY DISABLED to stop connection loop
+        self.gateway_polling_timer = QTimer()
+        self.gateway_polling_timer.timeout.connect(self.check_and_connect_gateway)
+        # self.gateway_polling_timer.start(5000)  # DISABLED - Check every 5 seconds
+
+        # Log that polling is disabled
+        self.add_system_log("⏸️ Gateway polling temporarily disabled")
+        self.logger.info(
+            "⏸️ Gateway auto-polling disabled - start data clients script first"
+        )
+
     def update_datetime(self):
         """Update date/time display"""
         current_time = datetime.now().strftime("%Y-%m-%d   %H:%M:%S  ET")
         self.datetime_label.setText(current_time)
 
     def generate_automation_activity(self):
-        """Generate automation activity logs using enhanced logger"""
+        """Generate automation activity logs"""
         if not hasattr(self, "automation_activity_count"):
             self.automation_activity_count = 0
 
@@ -3855,7 +3704,7 @@ Interactive Plotly features available in web mode
 
     def show_risk_parameters(self):
         """Show risk parameters dialog"""
-        if RISK_DIALOG_AVAILABLE:
+        if risk_dialog_available and show_risk_parameters_dialog:
             show_risk_parameters_dialog(self)
         else:
             QMessageBox.information(
@@ -3871,32 +3720,50 @@ Interactive Plotly features available in web mode
             )
 
     def add_system_log(self, message: str):
-        """Add message to system log using enhanced logger"""
-        # Add to enhanced logger (which handles reverse chronological order)
-        self.system_logger.add_entry(message)
-
-        # Also add to traditional logs for compatibility
+        """Add message to system log"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] {message}"
+
         self.system_logs.append(formatted_message)
 
-        # Keep only last 100 entries in traditional log
+        # Keep only last 100 entries
         if len(self.system_logs) > 100:
             self.system_logs = self.system_logs[-100:]
 
-    def add_automation_log(self, message: str):
-        """Add message to automation log using enhanced logger"""
-        # Add to enhanced logger (which handles reverse chronological order)
-        self.automation_logger.add_entry(message)
+        # Update display - REVERSED to show newest at top (descending order)
+        self.system_log.clear()
+        reversed_logs = list(
+            reversed(self.system_logs[-20:])
+        )  # Show last 20, newest first
+        self.system_log.append("\n".join(reversed_logs))
 
-        # Also add to traditional logs for compatibility
+        # Scroll to top to see newest messages
+        cursor = self.system_log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.system_log.setTextCursor(cursor)
+
+    def add_automation_log(self, message: str):
+        """Add message to automation log"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] {message}"
+
         self.automation_logs.append(formatted_message)
 
-        # Keep only last 100 entries in traditional log
+        # Keep only last 100 entries
         if len(self.automation_logs) > 100:
             self.automation_logs = self.automation_logs[-100:]
+
+        # Update display - REVERSED to show newest at top (descending order)
+        self.auto_log.clear()
+        reversed_logs = list(
+            reversed(self.automation_logs[-15:])
+        )  # Show last 15, newest first
+        self.auto_log.append("\n".join(reversed_logs))
+
+        # Scroll to top to see newest messages
+        cursor = self.auto_log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.auto_log.setTextCursor(cursor)
 
     def setup_white_tooltips(self):
         """Setup white tooltips that are actually visible"""
@@ -3918,7 +3785,7 @@ Interactive Plotly features available in web mode
                 }
                 """
                 app.setStyleSheet(current_style + tooltip_style)
-                self.add_system_log("White tooltip styling applied")
+                self.add_system_log("🎨 White tooltip styling applied")
 
             # Method 2: Set widget-specific tooltip styling as backup
             widget_style = """
@@ -3938,12 +3805,8 @@ Interactive Plotly features available in web mode
             self.add_system_log(f"⚠️ Tooltip styling error: {e}")
 
     def closeEvent(self, event):
-        """Enhanced close event handler with enhanced logging cleanup"""
+        """Enhanced close event handler with real data cleanup and heartbeat monitoring"""
         try:
-            # Log shutdown using enhanced loggers
-            self.add_system_log("🔥 Enhanced Trading Dashboard shutting down...")
-            self.add_automation_log("Dashboard session ended with enhanced logging")
-
             # Stop real data timer if active
             if hasattr(self, "_real_data_timer") and self._real_data_timer:
                 self._real_data_timer.stop()
@@ -3952,8 +3815,8 @@ Interactive Plotly features available in web mode
             if hasattr(self, "_check_timer") and self._check_timer:
                 self._check_timer.stop()
 
-            # Stop market worker and enhanced features
-            if self.market_worker:
+            # Stop market worker and heartbeat monitoring
+            if self.market_worker and hasattr(self.market_worker, "stop"):
                 self.market_worker.stop()
 
             # Stop market thread
@@ -3973,9 +3836,317 @@ Interactive Plotly features available in web mode
             if hasattr(self, "prometheus_timer"):
                 self.prometheus_timer.stop()
 
+            # Log shutdown
+            self.add_system_log("🔥 Enhanced Trading Dashboard shutting down...")
+            self.add_automation_log("Dashboard session ended with heartbeat monitoring")
+
             # Accept close event
             event.accept()
 
         except Exception as e:
             print(f"Error during enhanced dashboard close: {e}")
             event.accept()
+
+
+# ==============================================================================
+# ENHANCED REAL DATA INTEGRATION FUNCTIONS (UNCHANGED FROM ORIGINAL)
+# ==============================================================================
+def apply_real_data_patch_to_dashboard(dashboard, data_file):
+    """Apply real data patch to existing dashboard using proven pattern"""
+
+    def update_with_real_data():
+        """Update dashboard with real market data"""
+        try:
+            if not data_file.exists():
+                return
+
+            with open(data_file, "r") as f:
+                live_data = json.load(f)
+
+            if not live_data:
+                return
+
+            # Update symbol widgets directly
+            for symbol, data in live_data.items():
+                if symbol in dashboard.symbol_widgets:
+                    widget = dashboard.symbol_widgets[symbol]
+
+                    # Update price
+                    if hasattr(widget, "price_label"):
+                        widget.price_label.setText(f"{data['last']:.2f}")
+
+                    # Update change with color
+                    if hasattr(widget, "change_label"):
+                        change = data["change"]
+                        sign = "+" if change >= 0 else ""
+                        widget.change_label.setText(f"{sign}{change:.2f}")
+                        color = "#00ff41" if change >= 0 else "#ff1744"
+                        widget.change_label.setStyleSheet(f"color: {color};")
+
+                    # Update percentage with color
+                    if hasattr(widget, "pct_label"):
+                        pct = data["change_pct"]
+                        sign = "+" if pct >= 0 else ""
+                        widget.pct_label.setText(f"{sign}{pct:.2f}%")
+                        color = "#00ff41" if pct >= 0 else "#ff1744"
+                        widget.pct_label.setStyleSheet(f"color: {color};")
+
+            # Update toolbar indices
+            update_toolbar_with_real_data_helper(dashboard, live_data)
+
+        except Exception as e:
+            print(f"❌ Error updating real data: {e}")
+
+    # Stop original simulation
+    try:
+        if hasattr(dashboard, "market_worker"):
+            worker = dashboard.market_worker
+            if hasattr(worker, "update_timer") and worker.update_timer:
+                worker.update_timer.stop()
+                print("✅ Stopped simulation timer")
+
+        if hasattr(dashboard, "automation_timer"):
+            dashboard.automation_timer.setInterval(20000)  # Slow down automation
+
+    except Exception as e:
+        print(f"⚠️ Could not stop simulation: {e}")
+
+    # Start real data updates
+    dashboard._real_data_timer = QTimer()
+    dashboard._real_data_timer.timeout.connect(update_with_real_data)
+    dashboard._real_data_timer.start(1000)  # Update every second
+
+    # Initial update
+    update_with_real_data()
+
+    # Add log entries
+    dashboard.add_system_log("🔥 REAL MARKET DATA ACTIVE - IB Gateway prices")
+    dashboard.add_automation_log("Real-time market data from Interactive Brokers")
+
+    print("✅ Real data patch applied successfully!")
+
+
+def setup_real_data_monitoring_for_dashboard(dashboard, data_file):
+    """Setup monitoring for real data to become available (proven pattern)"""
+
+    def check_for_real_data():
+        """Check if real data becomes available"""
+        if getattr(dashboard, "real_data_active", False):
+            return  # Already using real data
+
+        if data_file.exists():
+            try:
+                with open(data_file, "r") as f:
+                    data = json.load(f)
+
+                if data:
+                    print("🔥 Real data detected - switching from simulation!")
+                    dashboard.add_system_log(
+                        "🔥 Real data detected - switching from simulation!"
+                    )
+                    dashboard._check_timer.stop()
+                    apply_real_data_patch_to_dashboard(dashboard, data_file)
+                    dashboard.real_data_active = True
+            except:
+                pass
+
+    # Check every 5 seconds for real data
+    dashboard._check_timer = QTimer()
+    dashboard._check_timer.timeout.connect(check_for_real_data)
+    dashboard._check_timer.start(5000)
+
+
+def update_toolbar_with_real_data_helper(dashboard, live_data):
+    """Update toolbar indices with real data (proven pattern)"""
+    try:
+        # Update SPX from SPY (SPY * 10)
+        if "SPY" in live_data:
+            spy_data = live_data["SPY"]
+
+            if hasattr(dashboard, "spx_value"):
+                dashboard.spx_value.setText(f" {spy_data['last'] * 10:.0f}")
+
+            if hasattr(dashboard, "spx_change"):
+                change = spy_data["change"] * 10
+                pct = spy_data["change_pct"]
+                sign = "+" if change >= 0 else ""
+                dashboard.spx_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
+                color = "#00ff41" if change >= 0 else "#ff1744"
+                dashboard.spx_change.setStyleSheet(f"color: {color};")
+
+        # Update NDX from QQQ (QQQ * 35)
+        if "QQQ" in live_data:
+            qqq_data = live_data["QQQ"]
+
+            if hasattr(dashboard, "ndx_value"):
+                dashboard.ndx_value.setText(f" {qqq_data['last'] * 35:.0f}")
+
+            if hasattr(dashboard, "ndx_change"):
+                change = qqq_data["change"] * 35
+                pct = qqq_data["change_pct"]
+                sign = "+" if change >= 0 else ""
+                dashboard.ndx_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
+                color = "#00ff41" if change >= 0 else "#ff1744"
+                dashboard.ndx_change.setStyleSheet(f"color: {color};")
+
+        # Update DJI from DIA (DIA * 98)
+        if "DIA" in live_data:
+            dia_data = live_data["DIA"]
+
+            if hasattr(dashboard, "dji_value"):
+                dashboard.dji_value.setText(f" {dia_data['last'] * 98:.0f}")
+
+            if hasattr(dashboard, "dji_change"):
+                change = dia_data["change"] * 98
+                pct = dia_data["change_pct"]
+                sign = "+" if change >= 0 else ""
+                dashboard.dji_change.setText(f"  {sign}{change:.0f}  {sign}{pct:.1f}%")
+                color = "#00ff41" if change >= 0 else "#ff1744"
+                dashboard.dji_change.setStyleSheet(f"color: {color};")
+
+    except Exception as e:
+        pass  # Suppress toolbar update errors
+
+
+def update_status_for_real_data_helper(dashboard):
+    """Update status indicators for real data - FIXED to not override IB status"""
+    try:
+        # Real data integration should not change IB connection display
+        # IB status should always reflect actual IB Gateway connection
+        pass  # Don't override IB connection status
+
+    except Exception as e:
+        pass  # Not critical
+
+
+# ==============================================================================
+# STANDALONE FUNCTIONS FOR EXTERNAL USE
+# ==============================================================================
+def create_spyder_trading_dashboard():
+    """Factory function to create SpyderTradingDashboard instance"""
+    return SpyderTradingDashboard()
+
+
+def get_dashboard_with_real_data_integration():
+    """Create dashboard with real data integration pre-configured"""
+    dashboard = SpyderTradingDashboard()
+    return dashboard
+
+
+def apply_external_real_data_patch(dashboard, data_file_path=None):
+    """Apply real data patch from external module"""
+    if data_file_path is None:
+        data_file_path = Path.home() / "Projects/Spyder/market_data/live_data.json"
+
+    data_file = Path(data_file_path)
+
+    if data_file.exists():
+        try:
+            with open(data_file, "r") as f:
+                data = json.load(f)
+
+            if data:
+                apply_real_data_patch_to_dashboard(dashboard, data_file)
+                update_status_for_real_data_helper(dashboard)
+                dashboard.real_data_active = True
+                return True
+        except Exception as e:
+            print(f"❌ Error applying external real data patch: {e}")
+
+    return False
+
+
+# ==============================================================================
+# MAIN EXECUTION - FOR STANDALONE TESTING
+# ==============================================================================
+def main():
+    """Main function for standalone testing"""
+    print("=" * 70)
+    print("🔥 SPYDER G05 - FIXED IB CONNECTION & HEARTBEAT DASHBOARD")
+    print("=" * 70)
+    print("🔧 Fixed IB connection detection (starts disconnected)")
+    print("💔💚💙 30-second heartbeat: Red→Green→Blue (20s warning)")
+    print("📊 Clean 4-status data display: LIVE/EOD/FROZEN/SIMULATED")
+    print("🔵 Fixed blue simulation button visibility control")
+    print("📞 Fixed trading button messages with IBKR phone number")
+    print("🎯 Fixed-width containers prevent UI jumping")
+    print("🚫 Removed 'REAL DATA (FILE)' override issues")
+    print("=" * 70)
+
+    # Create Qt application
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+
+    # CRITICAL: Set desktop file name for Wayland/GNOME integration
+    # This MUST match the .desktop file name (without .desktop extension)
+    # so the window appears under the launcher icon instead of a separate gear icon
+    app.setDesktopFileName("spyder-trading-system")
+
+    # Set application identity
+    app.setApplicationName("spyder-trading-system")
+    app.setOrganizationName("Spyder Trading System")
+
+    try:
+        # Create fixed dashboard
+        print("🔧 Initializing fixed dashboard with heartbeat monitoring...")
+        dashboard = SpyderTradingDashboard()
+
+        # Show dashboard
+        dashboard.show()
+
+        # Check real data status
+        data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
+        if data_file.exists():
+            try:
+                with open(data_file, "r") as f:
+                    data = json.load(f)
+                spy_price = data.get("SPY", {}).get("last", "N/A")
+                print(f"✅ Real data detected - SPY: ${spy_price}")
+            except:
+                print("⚠️ Real data file exists but couldn't read it")
+        else:
+            print("📊 No real data detected - using simulation")
+            print("   Start injector: python temp_WorkingDataInjector.py")
+
+        print("\n💔💚💙 FIXED FEATURES:")
+        print("   • IB connection starts DISCONNECTED with proper status display")
+        print(
+            "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
+        )
+        print(
+            "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
+        )
+        print("   • Blue simulation button only visible when IB disconnected")
+        print("   • Fixed-width status containers (no UI jumping)")
+        print("   • Removed 'REAL DATA (FILE)' override - shows proper IB status")
+        print("   • Correct IBKR phone number in all trading button messages")
+
+        print("\n🔥 Enhanced Trading Dashboard is ready!")
+        print("   Heartbeat will check IB connection every 30 seconds")
+        print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+
+        # Run application
+        return app.exec()
+
+    except Exception as e:
+        print(f"\n❌ Startup error: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+        # Show error dialog if possible
+        try:
+            QMessageBox.critical(
+                None,
+                "Fixed Trading Dashboard Error",
+                f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
+                "Please check the console for detailed error information.",
+            )
+        except:
+            pass
+
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

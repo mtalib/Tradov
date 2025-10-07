@@ -6,9 +6,26 @@ Minimal, reliable heartbeat service
 
 import asyncio
 import logging
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from ib_async import IB
+
+# Add Spyder to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Import configuration
+try:
+    from config.config import IB_CONFIG
+except ImportError:
+    # Fallback configuration
+    IB_CONFIG = {
+        "gateway": {
+            "paper": {"host": "127.0.0.1", "port": 4002},
+            "live": {"host": "127.0.0.1", "port": 4001},
+        }
+    }
 
 # Configure logging
 logging.basicConfig(
@@ -21,7 +38,19 @@ logging.basicConfig(
 class IBGatewayWatchdog:
     def __init__(self, port=4002, client_id=999, heartbeat_interval=120):
         self.ib = IB()
+        # Use configured host and port if available
+        self.host = "127.0.0.1"  # Default fallback
         self.port = port
+
+        # Try to get host from configuration
+        if "gateway" in IB_CONFIG:
+            if port == 4002 and "paper" in IB_CONFIG["gateway"]:
+                self.host = IB_CONFIG["gateway"]["paper"]["host"]
+                self.port = IB_CONFIG["gateway"]["paper"]["port"]
+            elif port == 4001 and "live" in IB_CONFIG["gateway"]:
+                self.host = IB_CONFIG["gateway"]["live"]["host"]
+                self.port = IB_CONFIG["gateway"]["live"]["port"]
+
         self.client_id = client_id
         self.heartbeat_interval = heartbeat_interval
         self.running = True
@@ -53,11 +82,13 @@ class IBGatewayWatchdog:
     async def _connect(self):
         """Connect to IB Gateway"""
         try:
-            self.logger.info("Connecting to IB Gateway...")
-            await self.ib.connectAsync("127.0.0.1", self.port, clientId=self.client_id)
+            self.logger.info(f"Connecting to IB Gateway at {self.host}:{self.port}...")
+            await self.ib.connectAsync(self.host, self.port, clientId=self.client_id)
 
             if self.ib.isConnected():
-                self.logger.info(f"Connected successfully. Account: {self.ib.managedAccounts()}")
+                self.logger.info(
+                    f"Connected successfully. Account: {self.ib.managedAccounts()}"
+                )
             else:
                 self.logger.error("Connection failed")
 
@@ -88,7 +119,9 @@ class IBGatewayWatchdog:
 async def main():
     """Run as standalone service"""
     watchdog = IBGatewayWatchdog(
-        port=4002, client_id=999, heartbeat_interval=120  # Paper trading  # 2 minutes
+        port=4002,
+        client_id=999,
+        heartbeat_interval=120,  # Paper trading  # 2 minutes
     )
 
     try:

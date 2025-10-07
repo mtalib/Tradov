@@ -51,7 +51,17 @@ from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-MAX_HISTORICAL_REQUESTS_PER_SECOND = 6
+# ⚠️ HISTORICAL DATA DISABLED FOR PRODUCTION TRADING ⚠️
+# Historical data requests are disabled to prevent farm disconnections during live trading.
+# Real-time market data, account updates, and order management remain fully active.
+# To re-enable: Set ENABLE_HISTORICAL_DATA = True (only when needed for backtesting/analysis)
+ENABLE_HISTORICAL_DATA = False  # Set to True only when explicitly needed
+
+# Historical data pacing (IBKR limits: 60 requests per 10 minutes)
+MAX_HISTORICAL_REQUESTS_PER_SECOND = 0.1  # 1 request per 10 seconds (safe)
+MAX_HISTORICAL_REQUESTS_PER_10_MINUTES = 60  # IBKR hard limit
+HISTORICAL_REQUEST_WINDOW = 600.0  # 10 minutes in seconds
+
 CACHE_DIR = Path.home() / ".spyder" / "cache" / "historical"
 CACHE_EXPIRY_HOURS = 24
 
@@ -371,6 +381,16 @@ class HistoricalDataManager:
         Returns:
             Request ID for tracking
         """
+        # ⚠️ Historical data is disabled for production trading
+        if not ENABLE_HISTORICAL_DATA:
+            symbol = getattr(contract, "symbol", "UNKNOWN")
+            self.logger.warning(
+                f"Historical data request BLOCKED for {symbol}: "
+                f"ENABLE_HISTORICAL_DATA is False. "
+                f"To enable: Set ENABLE_HISTORICAL_DATA = True in SpyderC02_HistoricalData.py"
+            )
+            return -1  # Return invalid request ID
+
         try:
             # Validate inputs
             if duration not in IB_DURATIONS:
@@ -599,10 +619,19 @@ class HistoricalDataManager:
             )
 
             # Update rate limiting
-            self.last_request_time = time.time()
+            current_time = time.time()
+            self.last_request_time = current_time
             self.request_count += 1
 
-            self.logger.debug(f"Submitted historical data request {request.request_id}")
+            # Track in 10-minute history for IBKR pacing compliance
+            if not hasattr(self, "request_history"):
+                self.request_history = []
+            self.request_history.append(current_time)
+
+            self.logger.debug(
+                f"Submitted historical data request {request.request_id} "
+                f"({len(self.request_history)}/{MAX_HISTORICAL_REQUESTS_PER_10_MINUTES} in last 10min)"
+            )
 
         except Exception as e:
             self.logger.error(f"Error processing request {request.request_id}: {e}")
@@ -623,15 +652,40 @@ class HistoricalDataManager:
                     del self.active_requests[request.request_id]
 
     def _check_rate_limit(self) -> bool:
-        """Check if we can make another request based on rate limiting"""
+        """
+        Check if we can make another request based on IBKR rate limiting.
+
+        IBKR Limits: 60 requests per 10 minutes for historical data
+        Returns True if we can make a request, False if we need to wait
+        """
         current_time = time.time()
 
-        # Reset counter if window has passed
-        if current_time - self.last_request_time > self.rate_limit_window:
-            self.request_count = 0
+        # Initialize request history if needed
+        if not hasattr(self, "request_history"):
+            self.request_history = []
 
-        # Check if we can make another request
-        return self.request_count < MAX_HISTORICAL_REQUESTS_PER_SECOND
+        # Remove requests older than 10 minutes
+        cutoff_time = current_time - HISTORICAL_REQUEST_WINDOW
+        self.request_history = [
+            req_time for req_time in self.request_history if req_time > cutoff_time
+        ]
+
+        # Check if we're under the 10-minute limit
+        if len(self.request_history) >= MAX_HISTORICAL_REQUESTS_PER_10_MINUTES:
+            self.logger.warning(
+                f"Historical data rate limit: {len(self.request_history)}/{MAX_HISTORICAL_REQUESTS_PER_10_MINUTES} "
+                f"requests in last 10 minutes. Waiting..."
+            )
+            return False
+
+        # Also check per-second limit (additional safety - 1 request per 10 seconds)
+        if self.last_request_time > 0:
+            time_since_last = current_time - self.last_request_time
+            min_interval = 1.0 / MAX_HISTORICAL_REQUESTS_PER_SECOND
+            if time_since_last < min_interval:
+                return False
+
+        return True
 
     # ==========================================================================
     # PRIVATE METHODS - CACHING

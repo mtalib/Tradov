@@ -59,7 +59,7 @@ try:
     IB_ASYNC_AVAILABLE = True
 except ImportError:
     try:
-        from ib_insync import IB, ConnectionError as IBConnectionError
+        from ib_async import IB, ConnectionError as IBConnectionError
 
         IB_INSYNC_AVAILABLE = True
         IB_ASYNC_AVAILABLE = False
@@ -227,24 +227,15 @@ class EnhancedConnectionManager:
     - Event-driven callbacks
     """
 
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls, *args, **kwargs):
-        """Singleton pattern implementation."""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-            return cls._instance
-
-    def __init__(self, config: Optional[ConnectionConfig] = None):
+    def __init__(
+        self, config: Optional[ConnectionConfig] = None, client_id: Optional[int] = None
+    ):
         """Initialize the enhanced connection manager."""
-        # Prevent re-initialization of singleton
-        if hasattr(self, "_initialized"):
-            return
 
         # Configuration
         self.config = config or ConnectionConfig()
+        if client_id is not None:
+            self.config.client_id = client_id
 
         # Setup logging and error handling
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
@@ -884,76 +875,76 @@ class EnhancedConnectionManager:
                 except Exception as e:
                     self.error_handler.handle_error(e, "State callback error")
 
-        # ==========================================================================
-        # GATEWAY PORT DETECTION
-        # ==========================================================================
-        def _ensure_gateway_port(self) -> bool:
-            """Ensure that a reachable IB Gateway/TWS port is selected."""
-            detected_port = self._detect_gateway_port()
-            if detected_port is None:
-                return False
+    # ==========================================================================
+    # GATEWAY PORT DETECTION
+    # ==========================================================================
+    def _ensure_gateway_port(self) -> bool:
+        """Ensure that a reachable IB Gateway/TWS port is selected."""
+        detected_port = self._detect_gateway_port()
+        if detected_port is None:
+            return False
 
-            if detected_port != self.config.port:
-                old_port = self.config.port
-                self.config.port = detected_port
-                self.logger.info(
-                    "Auto-detected IB API port %s (replacing %s)",
-                    detected_port,
-                    old_port,
-                )
+        if detected_port != self.config.port:
+            old_port = self.config.port
+            self.config.port = detected_port
+            self.logger.info(
+                "Auto-detected IB API port %s (replacing %s)",
+                detected_port,
+                old_port,
+            )
 
-            return True
+        return True
 
-        async def _ensure_gateway_port_async(self) -> bool:
-            """Async wrapper to keep event loop responsive during port probing."""
-            return await asyncio.to_thread(self._ensure_gateway_port)
+    async def _ensure_gateway_port_async(self) -> bool:
+        """Async wrapper to keep event loop responsive during port probing."""
+        return await asyncio.to_thread(self._ensure_gateway_port)
 
-        def _detect_gateway_port(self) -> Optional[int]:
-            """Detect an open IB Gateway/TWS API port from configured candidates."""
-            candidate_ports = self._build_port_priority_list()
+    def _detect_gateway_port(self) -> Optional[int]:
+        """Detect an open IB Gateway/TWS API port from configured candidates."""
+        candidate_ports = self._build_port_priority_list()
 
-            for port in candidate_ports:
-                if self._is_port_open(self.config.host, port):
-                    return port
+        for port in candidate_ports:
+            if self._is_port_open(self.config.host, port):
+                return port
 
-            return None
+        return None
 
-        def _build_port_priority_list(self) -> List[int]:
-            """Build ordered list of ports to probe based on mode and configuration."""
-            mode_priority = {
-                TradingMode.PAPER: [4002, 7497],
-                TradingMode.LIVE: [4001, 7496],
-            }
+    def _build_port_priority_list(self) -> List[int]:
+        """Build ordered list of ports to probe based on mode and configuration."""
+        mode_priority = {
+            TradingMode.PAPER: [4002, 7497],
+            TradingMode.LIVE: [4001, 7496],
+        }
 
-            priority = [self.config.port]
-            priority.extend(mode_priority.get(self.config.mode, []))
-            if self.config.alternate_ports:
-                priority.extend(self.config.alternate_ports)
+        priority = [self.config.port]
+        priority.extend(mode_priority.get(self.config.mode, []))
+        if self.config.alternate_ports:
+            priority.extend(self.config.alternate_ports)
 
-            unique_ports: List[int] = []
-            seen = set()
-            for port in priority:
-                if port and port not in seen:
-                    unique_ports.append(port)
-                    seen.add(port)
+        unique_ports: List[int] = []
+        seen = set()
+        for port in priority:
+            if port and port not in seen:
+                unique_ports.append(port)
+                seen.add(port)
 
-            return unique_ports
+        return unique_ports
 
-        @staticmethod
-        def _is_port_open(host: str, port: int, timeout: float = 2.0) -> bool:
-            """Return True if the given host:port is reachable."""
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(timeout)
+    @staticmethod
+    def _is_port_open(host: str, port: int, timeout: float = 2.0) -> bool:
+        """Return True if the given host:port is reachable."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            result = sock.connect_ex((host, port))
+            return result == 0
+        except Exception:
+            return False
+        finally:
             try:
-                result = sock.connect_ex((host, port))
-                return result == 0
+                sock.close()
             except Exception:
-                return False
-            finally:
-                try:
-                    sock.close()
-                except Exception:
-                    pass
+                pass
 
     # ==========================================================================
     # CALLBACK MANAGEMENT
@@ -1154,24 +1145,49 @@ class EnhancedConnectionManager:
 # ==============================================================================
 # GLOBAL ACCESS FUNCTIONS
 # ==============================================================================
+# Dictionary to hold client-specific connection manager instances
+_manager_instances: Dict[int, "EnhancedConnectionManager"] = {}
+_manager_lock = threading.Lock()
+
+
 def get_connection_manager(
-    config: Optional[ConnectionConfig] = None,
-) -> EnhancedConnectionManager:
+    config: Optional[ConnectionConfig] = None, client_id: Optional[int] = None
+) -> "EnhancedConnectionManager":
     """
-    Get the singleton enhanced connection manager instance.
-
-    Args:
-        config: Connection configuration (used only on first call)
-
-    Returns:
-        EnhancedConnectionManager instance
+    Get the connection manager instance for a specific client ID (multi-ton pattern).
+    This function acts as a factory, ensuring one instance per client ID.
     """
-    return EnhancedConnectionManager(config)
+    # Determine the client ID to use. Default to the one in config or the class default.
+    cid = (
+        client_id
+        if client_id is not None
+        else (config.client_id if config else ConnectionConfig.client_id)
+    )
+
+    with _manager_lock:
+        if cid not in _manager_instances:
+            # Create a new instance if one doesn't exist for this client ID
+            _manager_instances[cid] = EnhancedConnectionManager(
+                config=config, client_id=cid
+            )
+        return _manager_instances[cid]
 
 
-def reset_connection_manager():
-    """Reset the singleton instance (for testing/debugging)."""
-    EnhancedConnectionManager._instance = None
+def reset_connection_manager(client_id: Optional[int] = None):
+    """
+    Reset connection manager instance(s).
+    If a client_id is given, resets only that instance. Otherwise, resets all.
+    """
+    with _manager_lock:
+        if client_id is not None:
+            if client_id in _manager_instances:
+                manager = _manager_instances.pop(client_id)
+                manager.shutdown()
+        else:
+            # Shutdown and remove all instances
+            for manager in list(_manager_instances.values()):
+                manager.shutdown()
+            _manager_instances.clear()
 
 
 # ==============================================================================

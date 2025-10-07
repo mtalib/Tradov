@@ -42,15 +42,39 @@ def _safe_int(value: Any) -> int:
 
 
 class IBDataConnector(QObject):
-    """Handles real-time market data from IB Gateway"""
+    """
+    Real-time IB Gateway data connector with singleton pattern.
+    Ensures only ONE connection to IB Gateway for market data.
+
+    IMPORTANT: This is a singleton managed by the dashboard.
+    DO NOT call __init__ directly - use get_instance() class method.
+    """
+
+    _instance = None  # Singleton instance
+    _initialized = False  # Track initialization state
 
     data_received = Signal(dict)
     connection_status = Signal(bool, str)
     error_occurred = Signal(str)
 
+    def __new__(cls):
+        """Singleton pattern - only one instance allowed"""
+        if cls._instance is None:
+            cls._instance = super(IBDataConnector, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        # Only initialize once (prevent re-initialization)
+        if IBDataConnector._initialized:
+            return
+
         super().__init__()
-        self.ib: Optional[IB] = None
+
+        # Mark class as initialized (not instance, to survive Qt deletion)
+        IBDataConnector._initialized = True
+
+        # Initialize instance variables
+        self.ib = None
         self.connected = False
         self.subscriptions: Dict[str, Ticker] = {}
         self.logger = logging.getLogger(__name__)
@@ -58,19 +82,73 @@ class IBDataConnector(QObject):
         self.timer = None
         self.last_prices = {}
 
+        print("🔒 IBDataConnector singleton instance created")
+
+    @classmethod
+    def get_instance(cls):
+        """Get or create the singleton instance"""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls):
+        """Reset singleton for testing or restart scenarios"""
+        if cls._instance is not None:
+            try:
+                if hasattr(cls._instance, "ib") and cls._instance.ib:
+                    cls._instance.ib.disconnect()
+            except:
+                pass
+        cls._instance = None
+        cls._initialized = False
+        print("🔓 IBDataConnector singleton reset")
+
     def connect_to_ib(self):
-        """Connect to native IB Gateway with unique client ID"""
+        """Connect to native IB Gateway with minimal production client ID"""
+        # GUARD: Prevent reconnection if already connected
+        if self.connected and self.ib and self.ib.isConnected():
+            print(
+                f"⚠️  IBDataConnector already connected (Client 3) - skipping reconnection"
+            )
+            return True
+
         try:
-            # Use random client ID to avoid conflicts
-            client_id = random.randint(10, 999)
+            # PRODUCTION MODE: Use dedicated client ID 3 for market data worker
+            # Official client IDs: 1-10 reserved for production use
+            client_id = 3
 
             self.ib = IB()
-            self.ib.connect("127.0.0.1", 4002, clientId=client_id)
+
+            # SUPPRESS INFORMATIONAL MESSAGES
+            # Override error handler to filter farm data and connection messages
+            # Based on IBKR API best practices for reducing terminal noise
+            def error_handler(reqId, errorCode, errorString, contract):
+                """Filter out informational messages that flood the API"""
+                # Suppress farm connection and other informational messages
+                # (IBKR sends these automatically - cannot be disabled at Gateway)
+                ignored_codes = {2104, 2106, 2107, 2108, 2119, 2158, 2103}
+
+                if errorCode not in ignored_codes:
+                    # Log other messages at appropriate level
+                    if errorCode >= 2000:  # Informational/warning range
+                        self.logger.debug(f"IB Info [{errorCode}]: {errorString}")
+                    elif errorCode < 1000:  # Error range
+                        self.logger.error(f"IB Error [{errorCode}]: {errorString}")
+                        self.error_occurred.emit(f"IB Error {errorCode}: {errorString}")
+
+            # Attach error handler to suppress message flooding
+            self.ib.errorEvent += error_handler
+
+            # PRODUCTION: Minimize initial message flooding
+            # Connect without requesting account data (readonly mode + no account)
+            # Increased timeout to 20s to handle Gateway load from Client 2
+            self.ib.connect(
+                "127.0.0.1", 4002, clientId=client_id, readonly=True, timeout=20
+            )
 
             self.connected = True
-            print(
-                f"✅ Connected with client ID {client_id}! Server: {self.ib.client.serverVersion()}"
-            )
+            print(f"✅ Market data client {client_id} connected (readonly mode)")
             self.connection_status.emit(True, f"IB CONNECTED (client {client_id})")
 
             # Subscribe immediately
@@ -168,8 +246,9 @@ class IBDataConnector(QObject):
             self._write_to_file(updates)
             self.data_received.emit(updates)
 
-            for symbol, data in updates.items():
-                print(f"📊 {symbol}: ${data['last']:.2f}")
+            # PRODUCTION MODE: Suppress debug market data print statements
+            # for symbol, data in updates.items():
+            #     print(f"📊 {symbol}: ${data['last']:.2f}")
 
         except Exception as e:
             print(f"Update error: {e}")

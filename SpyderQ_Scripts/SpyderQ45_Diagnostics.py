@@ -36,6 +36,18 @@ import psutil
 # Add Spyder to path
 sys.path.insert(0, str(Path("/home/adam/Projects/Spyder")))
 
+# Import configuration
+try:
+    from config.config import IB_CONFIG
+except ImportError:
+    # Fallback configuration
+    IB_CONFIG = {
+        "gateway": {
+            "paper": {"host": "127.0.0.1", "port": 4002},
+            "live": {"host": "127.0.0.1", "port": 4001},
+        }
+    }
+
 # ===============================================================================
 # CONFIGURATION
 # ===============================================================================
@@ -120,9 +132,9 @@ class SpyderDiagnostics:
 
     def run_full_diagnostics(self) -> DiagnosticResult:
         """Run complete system diagnostics"""
-        print(f"{Colors.BLUE}{'='*60}{Colors.RESET}")
+        print(f"{Colors.BLUE}{'=' * 60}{Colors.RESET}")
         print(f"{Colors.BLUE}  SPYDER DIAGNOSTICS TOOL{Colors.RESET}")
-        print(f"{Colors.BLUE}{'='*60}{Colors.RESET}\n")
+        print(f"{Colors.BLUE}{'=' * 60}{Colors.RESET}\n")
 
         # Collect system info
         self._collect_system_info()
@@ -191,7 +203,9 @@ class SpyderDiagnostics:
                 "Upgrade Python to 3.8 or higher",
             )
         else:
-            self._print_ok(f"Python {python_version.major}.{python_version.minor}.{python_version.micro}")
+            self._print_ok(
+                f"Python {python_version.major}.{python_version.minor}.{python_version.micro}"
+            )
 
         # Check virtual environment
         if hasattr(sys, "real_prefix") or (
@@ -281,7 +295,15 @@ class SpyderDiagnostics:
         for port, service in ports_to_check:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1)
-            result = sock.connect_ex(("127.0.0.1", port))
+            # Use configured host if available, otherwise localhost
+            host = "127.0.0.1"
+            if port in [4002, 4001] and "gateway" in IB_CONFIG:
+                if port == 4002 and "paper" in IB_CONFIG["gateway"]:
+                    host = IB_CONFIG["gateway"]["paper"]["host"]
+                elif port == 4001 and "live" in IB_CONFIG["gateway"]:
+                    host = IB_CONFIG["gateway"]["live"]["host"]
+
+            result = sock.connect_ex((host, port))
             sock.close()
 
             if result == 0:
@@ -325,22 +347,35 @@ class SpyderDiagnostics:
         try:
             # Import ib_async for connection test
             from ib_async import IB
-            
+
             ib = IB()
             connected = False
-            
+
             # Try paper trading port first
+            paper_host = (
+                IB_CONFIG.get("gateway", {}).get("paper", {}).get("host", "127.0.0.1")
+            )
+            paper_port = IB_CONFIG.get("gateway", {}).get("paper", {}).get("port", 4002)
+            live_host = (
+                IB_CONFIG.get("gateway", {}).get("live", {}).get("host", "127.0.0.1")
+            )
+            live_port = IB_CONFIG.get("gateway", {}).get("live", {}).get("port", 4001)
+
             try:
-                ib.connect("127.0.0.1", 4002, clientId=999)
+                ib.connect(paper_host, paper_port, clientId=999)
                 connected = True
-                self._print_ok("Connected to IB Gateway (Paper)")
+                self._print_ok(
+                    f"Connected to IB Gateway (Paper) at {paper_host}:{paper_port}"
+                )
                 ib.disconnect()
             except Exception:
                 # Try live port
                 try:
-                    ib.connect("127.0.0.1", 4001, clientId=999)
+                    ib.connect(live_host, live_port, clientId=999)
                     connected = True
-                    self._print_ok("Connected to IB Gateway (Live)")
+                    self._print_ok(
+                        f"Connected to IB Gateway (Live) at {live_host}:{live_port}"
+                    )
                     ib.disconnect()
                 except Exception as e:
                     self._add_issue(
@@ -484,7 +519,9 @@ class SpyderDiagnostics:
 
         # Memory usage
         memory = psutil.virtual_memory()
-        self._print_info(f"Memory usage: {memory.percent}% ({memory.used // (1024**3)}GB used)")
+        self._print_info(
+            f"Memory usage: {memory.percent}% ({memory.used // (1024**3)}GB used)"
+        )
 
         # Disk usage
         disk = psutil.disk_usage(str(SPYDER_HOME))
@@ -494,7 +531,9 @@ class SpyderDiagnostics:
         # Load average (Unix only)
         try:
             load = os.getloadavg()
-            self._print_info(f"Load average: {load[0]:.2f}, {load[1]:.2f}, {load[2]:.2f}")
+            self._print_info(
+                f"Load average: {load[0]:.2f}, {load[1]:.2f}, {load[2]:.2f}"
+            )
         except OSError:
             pass  # Windows doesn't support load average
 
@@ -605,7 +644,9 @@ class SpyderDiagnostics:
             self.recommendations.append("Install missing dependencies with pip")
 
         if "IB Gateway" in categories:
-            self.recommendations.append("Ensure IB Gateway/TWS is running and accessible")
+            self.recommendations.append(
+                "Ensure IB Gateway/TWS is running and accessible"
+            )
 
         if "Modules" in categories:
             self.recommendations.append("Check Spyder module imports and syntax")
@@ -633,9 +674,9 @@ class SpyderDiagnostics:
 
     def _print_summary(self, result: DiagnosticResult):
         """Print diagnostic summary"""
-        print(f"\n{Colors.BLUE}{'='*60}{Colors.RESET}")
+        print(f"\n{Colors.BLUE}{'=' * 60}{Colors.RESET}")
         print(f"{Colors.BLUE}  DIAGNOSTIC SUMMARY{Colors.RESET}")
-        print(f"{Colors.BLUE}{'='*60}{Colors.RESET}")
+        print(f"{Colors.BLUE}{'=' * 60}{Colors.RESET}")
 
         # Health score
         if result.health_score >= 90:
@@ -645,7 +686,9 @@ class SpyderDiagnostics:
         else:
             score_color = Colors.RED
 
-        print(f"\n{Colors.BOLD}Health Score: {score_color}{result.health_score}/100{Colors.RESET}")
+        print(
+            f"\n{Colors.BOLD}Health Score: {score_color}{result.health_score}/100{Colors.RESET}"
+        )
 
         # Issue counts
         if result.issues:
@@ -671,7 +714,7 @@ class SpyderDiagnostics:
             for i, rec in enumerate(result.recommendations, 1):
                 print(f"  {i}. {rec}")
 
-        print(f"\n{Colors.BLUE}{'='*60}{Colors.RESET}")
+        print(f"\n{Colors.BLUE}{'=' * 60}{Colors.RESET}")
 
 
 # ===============================================================================
@@ -726,15 +769,11 @@ class AutoFix:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="Spyder System Diagnostics")
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Verbose output"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument(
         "--auto-fix", "-f", action="store_true", help="Attempt automatic fixes"
     )
-    parser.add_argument(
-        "--output", "-o", help="Save results to JSON file"
-    )
+    parser.add_argument("--output", "-o", help="Save results to JSON file")
     parser.add_argument(
         "--health-check", action="store_true", help="Quick health check only"
     )

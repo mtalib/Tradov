@@ -198,9 +198,7 @@ class PlotlyChartWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Create control panel (matches dashboard style)
-        control_panel = self.create_control_panel()
-        layout.addWidget(control_panel)
+        # No control panel - clean chart display like Perfect version
 
         # Create web engine view for Plotly
         if WEBENGINE_AVAILABLE:
@@ -398,6 +396,37 @@ class PlotlyChartWidget(QWidget):
             "volume"
         ].cumsum()
 
+    def calculate_fibonacci_pivots(self):
+        """Calculate Classic Fibonacci Daily Pivot Points (Standard Pivots)."""
+        if self.df is None or len(self.df) == 0:
+            return {}
+
+        # Use data for pivot calculations
+        high = self.df["high"].max()
+        low = self.df["low"].min()
+        close = self.df["close"].iloc[-1]
+
+        # Calculate Classic Pivot Point
+        pivot = (high + low + close) / 3
+
+        # Classic Pivot Point Resistances and Supports
+        r1 = (2 * pivot) - low
+        r2 = pivot + (high - low)
+        r3 = high + 2 * (pivot - low)
+        s1 = (2 * pivot) - high
+        s2 = pivot - (high - low)
+        s3 = low - 2 * (pivot - low)
+
+        return {
+            "Pivot": pivot,
+            "R1": r1,
+            "R2": r2,
+            "R3": r3,
+            "S1": s1,
+            "S2": s2,
+            "S3": s3,
+        }
+
     def create_initial_chart(self):
         """Create the initial Plotly chart - single pane for price only."""
         if not PLOTLY_AVAILABLE or self.df is None:
@@ -458,13 +487,78 @@ class PlotlyChartWidget(QWidget):
                 )
             )
 
+        # Add Fibonacci Pivot Points as horizontal lines (Classic Pivot Points)
+        pivots = self.calculate_fibonacci_pivots()
+        if pivots:
+            # Get the last datetime for annotation positioning
+            last_date = self.df["datetime"].iloc[-1]
+
+            # Pivot line (yellow - same as Perfect)
+            fig.add_hline(
+                y=pivots["Pivot"],
+                line_dash="solid",
+                line_color="#FFFF00",  # Yellow
+                line_width=1.5,
+                opacity=0.7,
+            )
+            # Add label as text annotation
+            fig.add_annotation(
+                x=last_date,
+                y=pivots["Pivot"],
+                text=f" P: {pivots['Pivot']:.2f}",
+                showarrow=False,
+                font=dict(color="#FFFF00", size=9),
+                xanchor="left",
+                yanchor="middle",
+            )
+
+            # Resistance levels (green - same as Perfect #00FF41)
+            for level in ["R1", "R2", "R3"]:
+                fig.add_hline(
+                    y=pivots[level],
+                    line_dash="solid",
+                    line_color="#00FF41",  # Green
+                    line_width=1.5,
+                    opacity=0.6,
+                )
+                # Add label as text annotation
+                fig.add_annotation(
+                    x=last_date,
+                    y=pivots[level],
+                    text=f" {level}: {pivots[level]:.2f}",
+                    showarrow=False,
+                    font=dict(color="#00FF41", size=8),
+                    xanchor="left",
+                    yanchor="middle",
+                )
+
+            # Support levels (red - same as Perfect #FF1744)
+            for level in ["S1", "S2", "S3"]:
+                fig.add_hline(
+                    y=pivots[level],
+                    line_dash="solid",
+                    line_color="#FF1744",  # Red
+                    line_width=1.5,
+                    opacity=0.6,
+                )
+                # Add label as text annotation
+                fig.add_annotation(
+                    x=last_date,
+                    y=pivots[level],
+                    text=f" {level}: {pivots[level]:.2f}",
+                    showarrow=False,
+                    font=dict(color="#FF1744", size=8),
+                    xanchor="left",
+                    yanchor="middle",
+                )
+
         # Volume chart removed - single pane layout
 
         # Update layout with theme - fixed height, single pane
         fig.update_layout(
             **PLOTLY_THEME["layout"],
             height=480,  # Fixed height to eliminate scrollbars
-            margin=dict(l=60, r=60, t=40, b=40),  # Compact margins
+            # margin already defined in PLOTLY_THEME["layout"]
             showlegend=True,
             legend=dict(
                 orientation="h",
@@ -478,8 +572,8 @@ class PlotlyChartWidget(QWidget):
             xaxis_rangeslider_visible=False,  # Disable range slider
             hovermode="x unified",
             title=dict(
-                text=f"{self.symbol} Price Chart",
-                font=dict(color=COLOR_TEXT, size=14),
+                text=f"{self.symbol} - 5 min",  # Match Good version format
+                font=dict(color=COLOR_TEXT, size=12),  # Match Good version size
                 x=0.5,
                 y=0.95,
             ),

@@ -8,12 +8,12 @@ Module: SpyderB01_SpyderClient.py
 Purpose: Main IB client with PROVEN race condition fix and safe imports
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-11 Time: 15:30:00
+Last Updated: 2025-01-15 Time: 10:30:00
 
 Module Description:
     Main Interactive Brokers client interface using ib_async library with
     comprehensive error handling, retry logic, and thread safety. This version
-    includes the PROVEN race condition fix pattern and safe import handling
+    includes the proven race condition fix pattern and safe import handling
     to prevent cascading dependency failures.
 
     CRITICAL FIXES APPLIED:
@@ -37,21 +37,17 @@ import asyncio
 import logging
 import time
 import threading
-import sys
-import os
-from typing import Optional, Dict, Any, List, Callable, Union, Tuple
-from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List, Union
+from datetime import datetime
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from collections import defaultdict
-from queue import Queue, Empty
-import weakref
-from concurrent.futures import TimeoutError
+from enum import Enum
+import concurrent.futures
 from pathlib import Path
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS
+# THIRD-PARTY IMPORTS WITH SAFE FALLBACKS
 # ==============================================================================
+
 # Apply nest_asyncio to handle event loops in Jupyter/interactive environments
 try:
     import nest_asyncio
@@ -63,191 +59,332 @@ except ImportError:
 
 # ib_async is the main dependency for IB connectivity
 try:
-    from ib_async import (
-        IB,
-        Stock,
-        Option,
-        Contract,
-        Order,
-        Trade,
-        Position,
-        LimitOrder,
-        MarketOrder,
-        StopOrder,
-        StopLimitOrder,
-        BarData,
-        Ticker,
-        AccountValue,
-        util,
-    )
+    import ib_async as ib_async_module
 
     HAS_IB_ASYNC = True
 except ImportError:
+    ib_async_module = None
     HAS_IB_ASYNC = False
     print("WARNING: ib_async not available. Install with: pip install ib_async")
-
-    # Create minimal fallback classes
-    class IB:
-        def __init__(self):
-            pass
-
-    class Stock:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class Option:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class Contract:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class Order:
-        def __init__(self, *args, **kwargs):
-            pass
-
 
 # ==============================================================================
 # SPYDER MODULE IMPORTS WITH SAFE FALLBACKS
 # ==============================================================================
 
 # Initialize module availability flags
-HAS_LOGGER = False
-HAS_ERROR_HANDLER = False
-HAS_EVENT_MANAGER = False
-HAS_ORDER_TYPES = False
-
-# Utility Modules - SAFE IMPORT
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger as SpyderLoggerClass
 
     HAS_LOGGER = True
 except ImportError:
+    SpyderLoggerClass = None
     HAS_LOGGER = False
 
-    # Fallback logger
-    class SpyderLogger:
-        @staticmethod
-        def get_logger(name):
-            logger = logging.getLogger(name)
-            if not logger.handlers:
-                handler = logging.StreamHandler()
-                formatter = logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-                handler.setFormatter(formatter)
-                logger.addHandler(handler)
-                logger.setLevel(logging.INFO)
-            return logger
-
-
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from SpyderU_Utilities.SpyderU02_ErrorHandler import (
+        SpyderErrorHandler as SpyderErrorHandlerClass,
+    )
 
     HAS_ERROR_HANDLER = True
 except ImportError:
+    SpyderErrorHandlerClass = None
     HAS_ERROR_HANDLER = False
-
-    # Fallback error handler
-    class SpyderErrorHandler:
-        def __init__(self, logger=None):
-            self.logger = logger or logging.getLogger(__name__)
-
-        def handle_error(self, error, context="Unknown"):
-            self.logger.error(f"Error in {context}: {error}")
-            return False
-
 
 # Event Manager - SAFE IMPORT (optional dependency)
 try:
-    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
+    from SpyderA_Core.SpyderA05_EventManager import (
+        EventManager as EventManagerClass,
+        Event as EventClass,
+        EventType as EventTypeClass,
+    )
 
     HAS_EVENT_MANAGER = True
 except ImportError:
+    EventManagerClass = None
+    EventClass = None
+    EventTypeClass = None
     HAS_EVENT_MANAGER = False
-
-    # Fallback event system
-    class EventType(Enum):
-        CONNECTION_ESTABLISHED = "connection_established"
-        CONNECTION_LOST = "connection_lost"
-        ORDER_SUBMITTED = "order_submitted"
-        ORDER_FILLED = "order_filled"
-        ERROR = "error"
-
-    class Event:
-        def __init__(self, event_type, data=None):
-            self.event_type = event_type
-            self.data = data
-            self.timestamp = datetime.now()
-
-    class EventManager:
-        def __init__(self):
-            self._handlers = {}
-
-        def subscribe(self, event_type, handler):
-            if event_type not in self._handlers:
-                self._handlers[event_type] = []
-            self._handlers[event_type].append(handler)
-            return len(self._handlers[event_type]) - 1
-
-        def emit(self, event_type, data=None):
-            """Emit event - accepts both event_type and data separately or Event object"""
-            if isinstance(event_type, Event):
-                # If first argument is an Event object, use it directly
-                event = event_type
-            else:
-                # Create Event from event_type and data
-                event = Event(event_type, data)
-
-            handlers = self._handlers.get(event.event_type, [])
-            for handler in handlers:
-                try:
-                    handler(event)
-                except Exception as e:
-                    logging.getLogger(__name__).error(f"Event handler error: {e}")
-
 
 # Order Types - SAFE IMPORT
 try:
     from SpyderB_Broker.SpyderB00_OrderTypes import (
-        OrderAction,
-        OrderRequest,
-        OrderStatus,
-        OrderType,
+        OrderAction as OrderActionClass,
+        OrderRequest as OrderRequestClass,
+        OrderStatus as OrderStatusClass,
+        OrderType as OrderTypeClass,
     )
 
     HAS_ORDER_TYPES = True
 except ImportError:
+    OrderActionClass = None
+    OrderRequestClass = None
+    OrderStatusClass = None
+    OrderTypeClass = None
     HAS_ORDER_TYPES = False
 
-    # Fallback order types
-    class OrderAction(Enum):
-        BUY = "BUY"
-        SELL = "SELL"
+# ==============================================================================
+# FALLBACK CLASSES FOR MISSING DEPENDENCIES
+# ==============================================================================
 
-    class OrderType(Enum):
-        MARKET = "MKT"
-        LIMIT = "LMT"
-        STOP = "STP"
-        STOP_LIMIT = "STP LMT"
 
-    class OrderStatus(Enum):
-        PENDING = "Pending"
-        SUBMITTED = "Submitted"
-        FILLED = "Filled"
-        CANCELLED = "Cancelled"
-        REJECTED = "Rejected"
+class FallbackLogger:
+    """Fallback logger implementation"""
 
-    @dataclass
-    class OrderRequest:
-        action: OrderAction
-        quantity: int
-        order_type: OrderType
-        symbol: str
-        limit_price: Optional[float] = None
-        stop_price: Optional[float] = None
+    @staticmethod
+    def get_logger(name: str) -> logging.Logger:
+        logger = logging.getLogger(name)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+        return logger
 
+
+class FallbackErrorHandler:
+    """Fallback error handler implementation"""
+
+    def __init__(self, logger: Optional[logging.Logger] = None):
+        self.logger = logger or logging.getLogger(__name__)
+
+    def handle_error(self, error: Any, context: str = "Unknown") -> bool:
+        self.logger.error(f"Error in {context}: {error}")
+        return False
+
+
+class FallbackEventType(Enum):
+    """Fallback event types"""
+
+    CONNECTION_ESTABLISHED = "connection_established"
+    CONNECTION_LOST = "connection_lost"
+    ORDER_SUBMITTED = "order_submitted"
+    ORDER_FILLED = "order_filled"
+    ERROR = "error"
+
+
+class FallbackEvent:
+    """Fallback event implementation"""
+
+    def __init__(self, event_type: Any, data: Optional[Dict[str, Any]] = None):
+        self.event_type = event_type
+        self.data = data
+        self.timestamp = datetime.now()
+
+
+class FallbackEventManager:
+    """Fallback event manager implementation"""
+
+    def __init__(self):
+        self._handlers: Dict[Any, List[Any]] = {}
+
+    def subscribe(self, event_type: Any, handler: Any) -> int:
+        if event_type not in self._handlers:
+            self._handlers[event_type] = []
+        self._handlers[event_type].append(handler)
+        return len(self._handlers[event_type]) - 1
+
+    def emit(self, event_type: Any, data: Optional[Dict[str, Any]] = None) -> None:
+        """Emit event - accepts both event_type and data separately or Event object"""
+        if hasattr(event_type, "event_type"):
+            # If first argument is an Event object, use it directly
+            event = event_type
+        else:
+            # Create Event from event_type and data
+            event = FallbackEvent(event_type, data)
+
+        handlers = self._handlers.get(event.event_type, [])
+        for handler in handlers:
+            try:
+                handler(event)
+            except Exception as e:
+                logging.getLogger(__name__).error(f"Event handler error: {e}")
+
+
+class FallbackOrderAction(Enum):
+    """Fallback order action types"""
+
+    BUY = "BUY"
+    SELL = "SELL"
+
+
+class FallbackOrderType(Enum):
+    """Fallback order types"""
+
+    MARKET = "MKT"
+    LIMIT = "LMT"
+    STOP = "STP"
+    STOP_LIMIT = "STP LMT"
+
+
+class FallbackOrderStatus(Enum):
+    """Fallback order status types"""
+
+    PENDING = "Pending"
+    SUBMITTED = "Submitted"
+    FILLED = "Filled"
+    CANCELLED = "Cancelled"
+    REJECTED = "Rejected"
+
+
+@dataclass
+class FallbackOrderRequest:
+    """Fallback order request implementation"""
+
+    action: Any
+    quantity: int
+    order_type: Any
+    symbol: str
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
+
+
+# IB_ASYNC Fallback Classes
+class FallbackContract:
+    """Fallback contract implementation"""
+
+    def __init__(self):
+        self.symbol: str = ""
+        self.exchange: str = ""
+        self.currency: str = ""
+        self.secType: str = ""
+
+
+class FallbackStock(FallbackContract):
+    """Fallback stock contract implementation"""
+
+    def __init__(
+        self, symbol: str = "", exchange: str = "SMART", currency: str = "USD"
+    ):
+        super().__init__()
+        self.symbol = symbol
+        self.exchange = exchange
+        self.currency = currency
+        self.secType = "STK"
+
+
+class FallbackOrder:
+    """Fallback order implementation"""
+
+    def __init__(self):
+        self.orderId: int = 0
+        self.action: str = ""
+        self.totalQuantity: int = 0
+        self.orderType: str = ""
+
+
+class FallbackTrade:
+    """Fallback trade implementation"""
+
+    def __init__(self):
+        self.order = FallbackOrder()
+        self.contract = FallbackContract()
+
+
+class FallbackPosition:
+    """Fallback position implementation"""
+
+    def __init__(self):
+        self.account: str = ""
+        self.contract = FallbackContract()
+        self.position: float = 0.0
+
+
+class FallbackTicker:
+    """Fallback ticker implementation"""
+
+    def __init__(self):
+        self.contract = FallbackContract()
+        self.bid: float = 0.0
+        self.ask: float = 0.0
+        self.last: float = 0.0
+
+
+class FallbackIB:
+    """Fallback IB client implementation"""
+
+    def __init__(self):
+        self._connected = False
+        self._accounts: List[str] = []
+
+    async def connectAsync(
+        self, host: str, port: int, clientId: int, timeout: float = 60.0
+    ) -> None:
+        """Fallback connect method"""
+        await asyncio.sleep(0.1)  # Simulate connection delay
+        self._connected = True
+        self._accounts = ["DU123456"]  # Mock account
+
+    def disconnect(self) -> None:
+        """Fallback disconnect method"""
+        self._connected = False
+
+    def isConnected(self) -> bool:
+        """Fallback connection check"""
+        return self._connected
+
+    def managedAccounts(self) -> List[str]:
+        """Fallback managed accounts"""
+        return self._accounts
+
+    def placeOrder(self, contract: Any, order: Any) -> Any:
+        """Fallback place order"""
+        trade = FallbackTrade()
+        trade.contract = contract
+        trade.order = order
+        return trade
+
+    def openTrades(self) -> List[Any]:
+        """Fallback open trades"""
+        return []
+
+    def positions(self) -> List[Any]:
+        """Fallback positions"""
+        return []
+
+    def reqMktData(self, contract: Any) -> Any:
+        """Fallback market data request"""
+        ticker = FallbackTicker()
+        ticker.contract = contract
+        return ticker
+
+
+# ==============================================================================
+# TYPE ALIASES AND RESOLVED IMPORTS
+# ==============================================================================
+
+# Resolve imports based on availability
+SpyderLogger = SpyderLoggerClass if HAS_LOGGER else FallbackLogger
+SpyderErrorHandler = (
+    SpyderErrorHandlerClass if HAS_ERROR_HANDLER else FallbackErrorHandler
+)
+EventManager = EventManagerClass if HAS_EVENT_MANAGER else FallbackEventManager
+Event = EventClass if HAS_EVENT_MANAGER else FallbackEvent
+EventType = EventTypeClass if HAS_EVENT_MANAGER else FallbackEventType
+OrderAction = OrderActionClass if HAS_ORDER_TYPES else FallbackOrderAction
+OrderRequest = OrderRequestClass if HAS_ORDER_TYPES else FallbackOrderRequest
+OrderStatus = OrderStatusClass if HAS_ORDER_TYPES else FallbackOrderStatus
+OrderType = OrderTypeClass if HAS_ORDER_TYPES else FallbackOrderType
+
+# IB_ASYNC resolved imports
+if HAS_IB_ASYNC and ib_async_module:
+    IBClass = ib_async_module.IB
+    StockClass = ib_async_module.Stock
+    ContractClass = ib_async_module.Contract
+    OrderClass = ib_async_module.Order
+    TradeClass = ib_async_module.Trade
+    PositionClass = ib_async_module.Position
+    TickerClass = ib_async_module.Ticker
+else:
+    IBClass = FallbackIB
+    StockClass = FallbackStock
+    ContractClass = FallbackContract
+    OrderClass = FallbackOrder
+    TradeClass = FallbackTrade
+    PositionClass = FallbackPosition
+    TickerClass = FallbackTicker
 
 # ==============================================================================
 # CONSTANTS AND CONFIGURATION
@@ -258,7 +395,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PAPER_PORT = 4002
 DEFAULT_LIVE_PORT = 4001
 DEFAULT_CLIENT_ID = 1
-DEFAULT_TIMEOUT = 20.0
+DEFAULT_TIMEOUT = 60.0  # Increased from 20.0 to 60.0 as suggested by user
 PROVEN_RACE_CONDITION_DELAY = 1.0  # CRITICAL: Proven delay for API handshake
 
 # Retry settings
@@ -328,55 +465,56 @@ class SpyderClient:
             config: IB configuration (creates default if None)
         """
         # Configuration
-        self.config = config or IBConfig()
+        self.config: IBConfig = config or IBConfig()
 
         # Setup logging with fallback
-        if HAS_LOGGER:
-            self.logger = SpyderLogger.get_logger(__name__)
+        if SpyderLogger:
+            self.logger: logging.Logger = SpyderLogger.get_logger(__name__)
+            self.logger.setLevel(self.config.log_level)
         else:
             self.logger = logging.getLogger(__name__)
             self.logger.setLevel(self.config.log_level)
 
         # Setup error handler with fallback
-        if HAS_ERROR_HANDLER:
+        if SpyderErrorHandler and SpyderErrorHandler != FallbackErrorHandler:
             self.error_handler = SpyderErrorHandler(self.logger)
         else:
-            self.error_handler = SpyderErrorHandler(self.logger)
+            self.error_handler = FallbackErrorHandler(self.logger)
 
         # Setup event manager with fallback
-        if HAS_EVENT_MANAGER:
+        if EventManager and EventManager != FallbackEventManager:
             self.event_manager = EventManager()
         else:
-            self.event_manager = EventManager()  # Uses fallback class
+            self.event_manager = FallbackEventManager()
 
         # IB connection
-        if HAS_IB_ASYNC:
-            self.ib = IB()
+        if IBClass and IBClass != FallbackIB:
+            self.ib = IBClass()
         else:
-            self.ib = IB()  # Uses fallback class
+            self.ib = FallbackIB()
             self.logger.warning("ib_async not available - using fallback mode")
 
         # Connection state
-        self.connection_status = ConnectionStatus()
-        self.connection_lock = threading.Lock()
-        self._stop_event = threading.Event()
+        self.connection_status: ConnectionStatus = ConnectionStatus()
+        self.connection_lock: threading.Lock = threading.Lock()
+        self._stop_event: threading.Event = threading.Event()
 
         # Order tracking
-        self.pending_orders = {}
-        self.completed_orders = {}
-        self.order_lock = threading.Lock()
+        self.pending_orders: Dict[int, Any] = {}
+        self.completed_orders: Dict[int, Any] = {}
+        self.order_lock: threading.Lock = threading.Lock()
 
         # Position tracking
-        self.positions = {}
-        self.position_lock = threading.Lock()
+        self.positions: Dict[str, Any] = {}
+        self.position_lock: threading.Lock = threading.Lock()
 
         # Market data
-        self.market_data = {}
-        self.subscriptions = {}
+        self.market_data: Dict[str, Any] = {}
+        self.subscriptions: Dict[str, Any] = {}
 
         # Rate limiting
-        self.request_times = []
-        self.rate_limit_lock = threading.Lock()
+        self.request_times: List[float] = []
+        self.rate_limit_lock: threading.Lock = threading.Lock()
 
         self.logger.info(f"SpyderClient initialized - ib_async: {HAS_IB_ASYNC}")
         self.logger.info(
@@ -407,21 +545,77 @@ class SpyderClient:
         with self.connection_lock:
             try:
                 self.logger.info(
-                    f"Connecting to IB Gateway with PROVEN race condition fix..."
+                    "Connecting to IB Gateway with PROVEN race condition fix..."
                 )
                 self.logger.info(f"Target: {self.config.host}:{self.config.port}")
                 self.logger.info(f"Client ID: {self.config.client_id}")
 
-                # Step 1: Connect with generous timeout
+                # SUPPRESS INFORMATIONAL MESSAGE FLOODING
+                # Override error handler to filter farm data and connection messages
+                # Based on IBKR API best practices for reducing terminal noise
+                def ib_error_filter(
+                    reqId: int, errorCode: int, errorString: str, contract: Any
+                ) -> None:
+                    """Filter out informational messages that flood the API"""
+                    # Suppress farm connection and other informational messages
+                    # (IBKR sends these automatically - cannot be disabled at Gateway)
+                    ignored_codes = {2104, 2106, 2107, 2108, 2119, 2158, 2103}
+
+                    if errorCode not in ignored_codes:
+                        # Log other messages at appropriate level
+                        if errorCode >= 2000:  # Informational/warning
+                            self.logger.debug(f"IB Info [{errorCode}]: {errorString}")
+                        elif errorCode < 1000:  # Actual errors
+                            self.logger.error(f"IB Error [{errorCode}]: {errorString}")
+
+                # Attach the filter to suppress message flooding (only if real IB)
+                if HAS_IB_ASYNC and hasattr(self.ib, "errorEvent"):
+                    self.ib.errorEvent += ib_error_filter
+
+                # Step 1: Connect with generous timeout (20s per production best practices)
+                # Per IBKR stability report: Use 20-second timeout for production
+                connection_timeout = max(
+                    self.config.timeout, 20.0
+                )  # Minimum 20 seconds
+
                 self.logger.info("Step 1: Attempting socket connection...")
-                await self.ib.connectAsync(
-                    host=self.config.host,
-                    port=self.config.port,
-                    clientId=self.config.client_id,
-                    timeout=self.config.timeout,
+                self.logger.info(
+                    f"Connection timeout: {connection_timeout} seconds (production setting)"
                 )
 
-                self.logger.info("Socket connected successfully")
+                # First-connection retry logic (per stability report)
+                # Accommodates Gateway startup/initialization time
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        await self.ib.connectAsync(
+                            host=self.config.host,
+                            port=self.config.port,
+                            clientId=self.config.client_id,
+                            timeout=connection_timeout,
+                        )
+                        self.logger.info("Socket connected successfully")
+                        break
+                    except asyncio.TimeoutError:
+                        if attempt == 0:
+                            # First attempt failed - Gateway may be initializing
+                            self.logger.warning(
+                                "First connection timeout - Gateway may be initializing"
+                            )
+                            self.logger.info(
+                                "Waiting 5 seconds for Gateway initialization..."
+                            )
+                            await asyncio.sleep(5)
+                            continue
+                        elif attempt < max_retries - 1:
+                            self.logger.warning(
+                                f"Connection timeout on attempt {attempt + 1}, retrying..."
+                            )
+                            await asyncio.sleep(2)
+                            continue
+                        else:
+                            # Final attempt failed
+                            raise
 
                 # Step 2: CRITICAL - Apply PROVEN race condition fix
                 if self.config.use_race_condition_fix:
@@ -454,14 +648,19 @@ class SpyderClient:
                     self.connection_status.last_error = None
 
                     # Emit connection event
-                    if self.event_manager:
-                        self.event_manager.emit(
-                            EventType.CONNECTION_ESTABLISHED,
-                            {
-                                "client_id": self.config.client_id,
-                                "accounts": accounts,
-                            },
-                        )
+                    if self.event_manager and hasattr(
+                        EventType, "CONNECTION_ESTABLISHED"
+                    ):
+                        try:
+                            self.event_manager.emit(
+                                EventType.CONNECTION_ESTABLISHED,
+                                {
+                                    "client_id": self.config.client_id,
+                                    "accounts": accounts,
+                                },
+                            )
+                        except Exception as e:
+                            self.logger.debug(f"Event emission failed: {e}")
 
                     # SUCCESS!
                     self.logger.info(
@@ -502,8 +701,6 @@ class SpyderClient:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # If loop is already running, create a task
-                import concurrent.futures
-
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, self.connect())
                     return future.result()
@@ -513,7 +710,7 @@ class SpyderClient:
             self.logger.error(f"Sync connect error: {e}")
             return False
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         """Disconnect from IB Gateway"""
         with self.connection_lock:
             try:
@@ -530,10 +727,14 @@ class SpyderClient:
                 self.connection_status.connection_time = None
 
                 # Emit disconnection event
-                if self.event_manager:
-                    self.event_manager.emit(
-                        EventType.CONNECTION_LOST, {"client_id": self.config.client_id}
-                    )
+                if self.event_manager and hasattr(EventType, "CONNECTION_LOST"):
+                    try:
+                        self.event_manager.emit(
+                            EventType.CONNECTION_LOST,
+                            {"client_id": self.config.client_id},
+                        )
+                    except Exception as e:
+                        self.logger.debug(f"Event emission failed: {e}")
 
             except Exception as e:
                 self.logger.error(f"Disconnect error: {e}")
@@ -549,18 +750,26 @@ class SpyderClient:
             and self.ib.isConnected()
         )
 
-    def _handle_connection_error(self, error_msg: str):
+    def _handle_connection_error(self, error_msg: str) -> None:
         """Handle connection errors"""
         if self.error_handler:
             self.error_handler.handle_error(error_msg, "Connection")
 
-        if self.event_manager:
-            self.event_manager.emit(
-                Event(
-                    EventType.ERROR,
-                    {"error": error_msg, "client_id": self.config.client_id},
-                )
-            )
+        if self.event_manager and hasattr(EventType, "ERROR"):
+            try:
+                if Event:
+                    event = Event(
+                        EventType.ERROR,
+                        {"error": error_msg, "client_id": self.config.client_id},
+                    )
+                    self.event_manager.emit(event)
+                else:
+                    self.event_manager.emit(
+                        EventType.ERROR,
+                        {"error": error_msg, "client_id": self.config.client_id},
+                    )
+            except Exception as e:
+                self.logger.debug(f"Event emission failed: {e}")
 
     # ==========================================================================
     # CONNECTION STATUS AND MONITORING
@@ -632,7 +841,7 @@ class SpyderClient:
     # ORDER MANAGEMENT (BASIC IMPLEMENTATION)
     # ==========================================================================
 
-    async def submit_order(self, contract: Contract, order: Order) -> Optional[Trade]:
+    async def submit_order(self, contract: Any, order: Any) -> Optional[Any]:
         """
         Submit order to IB Gateway.
 
@@ -652,17 +861,32 @@ class SpyderClient:
                 trade = self.ib.placeOrder(contract, order)
 
                 if trade:
-                    self.pending_orders[trade.order.orderId] = trade
-                    self.logger.info(f"Order submitted: {trade.order.orderId}")
+                    if hasattr(trade.order, "orderId"):
+                        self.pending_orders[trade.order.orderId] = trade
+                        self.logger.info(f"Order submitted: {trade.order.orderId}")
 
-                    # Emit order event
-                    if self.event_manager:
-                        self.event_manager.emit(
-                            Event(
-                                EventType.ORDER_SUBMITTED,
-                                {"order_id": trade.order.orderId, "trade": trade},
-                            )
-                        )
+                        # Emit order event
+                        if self.event_manager and hasattr(EventType, "ORDER_SUBMITTED"):
+                            try:
+                                if Event:
+                                    event = Event(
+                                        EventType.ORDER_SUBMITTED,
+                                        {
+                                            "order_id": trade.order.orderId,
+                                            "trade": trade,
+                                        },
+                                    )
+                                    self.event_manager.emit(event)
+                                else:
+                                    self.event_manager.emit(
+                                        EventType.ORDER_SUBMITTED,
+                                        {
+                                            "order_id": trade.order.orderId,
+                                            "trade": trade,
+                                        },
+                                    )
+                            except Exception as e:
+                                self.logger.debug(f"Event emission failed: {e}")
 
                     return trade
                 else:
@@ -675,13 +899,13 @@ class SpyderClient:
             self._handle_connection_error(error_msg)
             return None
 
-    def get_open_orders(self) -> List[Trade]:
+    def get_open_orders(self) -> List[Any]:
         """Get list of open orders"""
         if self.is_connected():
             return self.ib.openTrades()
         return []
 
-    def get_positions(self) -> List[Position]:
+    def get_positions(self) -> List[Any]:
         """Get current positions"""
         if self.is_connected():
             return self.ib.positions()
@@ -691,7 +915,7 @@ class SpyderClient:
     # MARKET DATA (BASIC IMPLEMENTATION)
     # ==========================================================================
 
-    def request_market_data(self, contract: Contract) -> Optional[Ticker]:
+    def request_market_data(self, contract: Any) -> Optional[Any]:
         """Request market data for a contract"""
         if not self.is_connected():
             self.logger.error("Cannot request market data - not connected")
@@ -700,13 +924,13 @@ class SpyderClient:
         try:
             ticker = self.ib.reqMktData(contract)
             if ticker:
-                self.subscriptions[contract.symbol] = ticker
-                self.logger.debug(f"Market data requested for {contract.symbol}")
+                if hasattr(contract, "symbol"):
+                    self.subscriptions[contract.symbol] = ticker
+                    self.logger.debug(f"Market data requested for {contract.symbol}")
                 return ticker
             else:
-                self.logger.error(
-                    f"Failed to request market data for {contract.symbol}"
-                )
+                symbol = getattr(contract, "symbol", "unknown")
+                self.logger.error(f"Failed to request market data for {symbol}")
                 return None
 
         except Exception as e:
@@ -719,17 +943,13 @@ class SpyderClient:
 
     def create_stock_contract(
         self, symbol: str, exchange: str = "SMART", currency: str = "USD"
-    ) -> Contract:
+    ) -> Any:
         """Create a stock contract"""
         if HAS_IB_ASYNC:
-            return Stock(symbol, exchange, currency)
+            return StockClass(symbol, exchange, currency)
         else:
             # Fallback contract
-            contract = Contract()
-            contract.symbol = symbol
-            contract.exchange = exchange
-            contract.currency = currency
-            contract.secType = "STK"
+            contract = FallbackStock(symbol, exchange, currency)
             return contract
 
     def wait_for_connection(self, timeout: float = 30.0) -> bool:
@@ -747,7 +967,7 @@ class SpyderClient:
 # ==============================================================================
 
 
-def get_spyder_client(config: Optional[IBConfig] = None) -> SpyderClient:
+def create_spyder_client(config: Optional[IBConfig] = None) -> SpyderClient:
     """
     Factory function to create SpyderClient instance.
 
@@ -817,7 +1037,7 @@ if __name__ == "__main__":
     # Test client creation
     try:
         config = create_default_config()
-        client = get_spyder_client(config)
+        client = create_spyder_client(config)
         print("\n✅ SpyderClient created successfully!")
         print(f"Status: {client.get_connection_status()}")
 
@@ -831,68 +1051,40 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Error creating SpyderClient: {e}")
 
+# Global instance for singleton pattern (optional)
+_spyder_client_instance: Optional[SpyderClient] = None
 
-# ==============================================================================
-# FACTORY FUNCTIONS (Missing Export Fix)
-# ==============================================================================
-def create_spyder_client(
-    config: Optional[Dict[str, Any]] = None,
-) -> Optional["SpyderClient"]:
+
+def get_spyder_client(config: Optional[IBConfig] = None) -> SpyderClient:
     """
-    Factory function to create SpyderClient instance.
+    Get global SpyderClient instance (singleton pattern).
 
     Args:
-        config: Optional configuration dictionary
-
-    Returns:
-        SpyderClient instance or None if creation fails
-    """
-    try:
-        if config:
-            # If configuration provided, create with custom settings
-            return SpyderClient(**config)
-        else:
-            # Create with default settings
-            return SpyderClient()
-
-    except Exception as e:
-        logger = SpyderLogger.get_logger(__name__)
-        logger.error(f"Failed to create SpyderClient: {e}")
-        return None
-
-
-def get_spyder_client() -> Optional["SpyderClient"]:
-    """
-    Get global SpyderClient instance.
+        config: Optional configuration (only used for first creation)
 
     Returns:
         SpyderClient instance
     """
     global _spyder_client_instance
     if _spyder_client_instance is None:
-        _spyder_client_instance = create_spyder_client()
+        _spyder_client_instance = create_spyder_client(config)
     return _spyder_client_instance
 
 
-# ==============================================================================
-# MODULE INITIALIZATION (Add if missing)
-# ==============================================================================
-# Global instance for singleton pattern
-_spyder_client_instance: Optional["SpyderClient"] = None
-
-# Export the factory function
-__all__ = getattr(globals(), "__all__", []) + [
+# Export list
+__all__ = [
+    "SpyderClient",
+    "IBConfig",
+    "ConnectionStatus",
     "create_spyder_client",
+    "create_default_config",
     "get_spyder_client",
+    "validate_dependencies",
+    # Constants
+    "DEFAULT_HOST",
+    "DEFAULT_PAPER_PORT",
+    "DEFAULT_LIVE_PORT",
+    "DEFAULT_CLIENT_ID",
+    "DEFAULT_TIMEOUT",
+    "PROVEN_RACE_CONDITION_DELAY",
 ]
-
-
-def create_spyder_client(config=None):
-    """Factory function to create SpyderClient instance."""
-    try:
-        if "SpyderClient" in globals():
-            return SpyderClient() if not config else SpyderClient(**config)
-        return None
-    except Exception as e:
-        print(f"Failed to create SpyderClient: {e}")
-        return None

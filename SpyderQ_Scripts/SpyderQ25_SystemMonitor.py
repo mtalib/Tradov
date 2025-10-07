@@ -19,15 +19,30 @@ import argparse
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import psutil
+
+# Add Spyder to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Import configuration
+try:
+    from config.config import IB_CONFIG
+except ImportError:
+    # Fallback configuration
+    IB_CONFIG = {
+        "gateway": {
+            "paper": {"host": "127.0.0.1", "port": 4002},
+            "live": {"host": "127.0.0.1", "port": 4001},
+        }
+    }
 
 # Add Spyder to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -40,8 +55,11 @@ SPYDER_HOME = Path("/home/adam/Projects/Spyder")
 LOG_DIR = SPYDER_HOME / "logs"
 DATA_DIR = SPYDER_HOME / "data"
 METRICS_PORT = 8000
-IB_PAPER_PORT = 4002
-IB_LIVE_PORT = 4001
+# Get IB ports from configuration
+IB_PAPER_PORT = IB_CONFIG.get("gateway", {}).get("paper", {}).get("port", 4002)
+IB_LIVE_PORT = IB_CONFIG.get("gateway", {}).get("live", {}).get("port", 4001)
+IB_PAPER_HOST = IB_CONFIG.get("gateway", {}).get("paper", {}).get("host", "127.0.0.1")
+IB_LIVE_HOST = IB_CONFIG.get("gateway", {}).get("live", {}).get("host", "127.0.0.1")
 
 
 class ComponentStatus(Enum):
@@ -259,7 +277,15 @@ class SpyderSystemMonitor:
         """Check if port is accessible"""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
-        result = sock.connect_ex(("127.0.0.1", port))
+
+        # Determine host based on port
+        host = "127.0.0.1"  # Default for non-IB ports
+        if port == IB_PAPER_PORT:
+            host = IB_PAPER_HOST
+        elif port == IB_LIVE_PORT:
+            host = IB_LIVE_HOST
+
+        result = sock.connect_ex((host, port))
         sock.close()
         return result == 0
 
@@ -275,7 +301,9 @@ class SpyderSystemMonitor:
             # Check Prometheus metrics endpoint
             import requests
 
-            response = requests.get(f"http://localhost:{METRICS_PORT}/metrics", timeout=2)
+            response = requests.get(
+                f"http://localhost:{METRICS_PORT}/metrics", timeout=2
+            )
 
             if response.status_code == 200:
                 metrics = response.text
@@ -293,7 +321,9 @@ class SpyderSystemMonitor:
                                 connected = bool(int(match.group(2)))
                                 client_status[client_id] = {
                                     "connected": connected,
-                                    "status": "✅ Connected" if connected else "❌ Disconnected",
+                                    "status": "✅ Connected"
+                                    if connected
+                                    else "❌ Disconnected",
                                 }
 
         except Exception as e:
@@ -383,15 +413,12 @@ class SpyderSystemMonitor:
         metrics = data["system_metrics"]
         lines.append(f"  CPU: {metrics['cpu_percent']:.1f}%")
         lines.append(
-            f"  Memory: {
-                metrics['memory_used_gb']:.1f}/{
-                metrics['memory_total_gb']:.1f} GB ({
-                metrics['memory_percent']:.1f}%)"
+            f"  Memory: {metrics['memory_used_gb']:.1f}/{
+                metrics['memory_total_gb']:.1f} GB ({metrics['memory_percent']:.1f}%)"
         )
         lines.append(f"  Disk: {metrics['disk_usage_percent']:.1f}%")
         lines.append(
-            f"  Network: ↑{
-                metrics['network_sent_mb']:.1f} MB ↓{
+            f"  Network: ↑{metrics['network_sent_mb']:.1f} MB ↓{
                 metrics['network_recv_mb']:.1f} MB"
         )
         lines.append("")
@@ -403,11 +430,9 @@ class SpyderSystemMonitor:
             lines.append(f"  {critical} {name}: {info['status']}")
             if info["pid"]:
                 lines.append(
-                    f"      PID: {
-                        info['pid']} | CPU: {
+                    f"      PID: {info['pid']} | CPU: {
                         info['cpu_percent']:.1f}% | Mem: {
-                        info['memory_mb']:.1f} MB | Up: {
-                        info['uptime']}"
+                        info['memory_mb']:.1f} MB | Up: {info['uptime']}"
                 )
             if info["error"]:
                 lines.append(f"      ERROR: {info['error']}")
@@ -476,8 +501,7 @@ class SpyderSystemMonitor:
                     self.alerts.append(f"Critical component '{name}' is not running")
                 elif health.status == ComponentStatus.ERROR:
                     self.alerts.append(
-                        f"Critical component '{name}' has errors: {
-                            health.last_error}"
+                        f"Critical component '{name}' has errors: {health.last_error}"
                     )
 
         # Check resources
@@ -487,7 +511,9 @@ class SpyderSystemMonitor:
         if metrics.memory_percent > 90:
             self.alerts.append(f"High memory usage: {metrics.memory_percent:.1f}%")
         if metrics.disk_usage_percent > 95:
-            self.alerts.append(f"Low disk space: {metrics.disk_usage_percent:.1f}% used")
+            self.alerts.append(
+                f"Low disk space: {metrics.disk_usage_percent:.1f}% used"
+            )
 
 
 # ===============================================================================
@@ -499,13 +525,18 @@ def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="Spyder System Monitor")
     parser.add_argument(
-        "--interval", type=int, default=5, help="Update interval in seconds (default: 5)"
+        "--interval",
+        type=int,
+        default=5,
+        help="Update interval in seconds (default: 5)",
     )
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--json", action="store_true", help="Output in JSON format")
     parser.add_argument("--export", type=str, help="Export report to file")
     parser.add_argument(
-        "--dashboard", action="store_true", help="Run in dashboard mode (no screen clear)"
+        "--dashboard",
+        action="store_true",
+        help="Run in dashboard mode (no screen clear)",
     )
 
     args = parser.parse_args()
