@@ -1,1 +1,0 @@
-/home/adam/Projects/Spyder/SpyderI_Integration/SpyderI01_IBAutomaterFixed.py

@@ -260,20 +260,43 @@ class SpyderLauncher:
             return False
     
     def _create_qt_app(self):
-        """Create Qt application if possible"""
+        """Create Qt application if possible with dock icon fix"""
         try:
             from PySide6.QtWidgets import QApplication
+            from PySide6.QtCore import QCoreApplication
+            
+            # DOCK ICON FIX: Set properties BEFORE creating QApplication
+            QCoreApplication.setApplicationName("spyder-trading-system")
+            QCoreApplication.setOrganizationName("SpyderTrading")
+            QCoreApplication.setApplicationVersion("1.0.0")
+            
             app = QApplication.instance()
             if app is None:
                 app = QApplication(sys.argv)
+                
+            # Set additional properties for dock icon matching
+            app.setApplicationName("spyder-trading-system")
+            app.setApplicationDisplayName("Spyder Options Trading System")
+            app.setDesktopFileName("spyder-trading-system")
+            
+            print("✅ Qt application created with dock icon fix")
             return app
+            
         except ImportError:
             try:
                 from PyQt5.QtWidgets import QApplication
+                from PyQt5.QtCore import QCoreApplication
+                
+                QCoreApplication.setApplicationName("spyder-trading-system")
+                
                 app = QApplication.instance()
                 if app is None:
                     app = QApplication(sys.argv)
+                    
+                app.setApplicationName("spyder-trading-system")
+                print("✅ Qt5 application created with dock icon fix")
                 return app
+                
             except ImportError:
                 self.log_error("❌ No Qt libraries available")
                 return None
