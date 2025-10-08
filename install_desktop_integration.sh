@@ -96,13 +96,14 @@ create_desktop_files() {
     log "${BLUE}📄 Creating desktop entry files...${NC}"
 
     # Main comprehensive desktop file with all options
+[ -n "$SCRIPT_DIR/spyder_dock_launcher.sh" ] || true
     cat > "$SCRIPT_DIR/desktop/spyder-trading-system-complete.desktop" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=SPYDER Trading System
 Comment=Professional Algorithmic Trading Platform - Choose Connection & Mode
-Exec=$SCRIPT_DIR/launch_connection_selector.py
+Exec=$SCRIPT_DIR/spyder_dock_launcher.sh
 Icon=$SCRIPT_DIR/assets/spyder_icon.png
 Terminal=false
 Categories=Office;Finance;Development;Trading;

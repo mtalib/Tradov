@@ -501,34 +501,79 @@ class SpyderLauncherGUI:
     def launch_full_system(self):
         """Launch Gateway + SPYDER system"""
         try:
-            # Start Gateway manually (user needs to login)
-            gateway_exe = Path.home() / "Jts" / "ibgateway" / "1039" / "ibgateway"
+            # Prefer credential-aware wrapper to attempt auto-login via IBC
+            wrapper = SPYDER_HOME / "launch_gateway_with_credentials.sh"
+            trading_mode = os.environ.get(
+                "TRADING_MODE", os.environ.get("IB_TRADING_MODE", "paper")
+            )
 
-            if gateway_exe.exists():
-                # Launch Gateway in background
+            if wrapper.exists() and os.access(str(wrapper), os.X_OK):
+                # Launch wrapper which will use IBC if available or fall back to launching Gateway
                 subprocess.Popen(
-                    [str(gateway_exe)],
+                    [str(wrapper), trading_mode],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     start_new_session=True,
                 )
 
-                # Wait for user to login and API to be ready
+                # Inform the user that auto-login was attempted
                 self.root.after(
                     0,
                     lambda: messagebox.showinfo(
                         "Gateway Starting",
-                        "🔑 IB Gateway is starting...\n\nPlease:\n1. Login with your credentials\n2. Wait for Gateway to be fully loaded\n3. Click OK when ready",
+                        "🔑 IB Gateway is starting (auto-login attempted).\n\n"
+                        "If IBC (IBController) and credentials are configured, the Gateway should log in automatically.\n"
+                        "Otherwise, the Gateway GUI will require manual login. Click OK to continue and wait for the API.",
                     ),
                 )
 
-                # Check API every 5 seconds for up to 2 minutes
-                for i in range(24):  # 2 minutes
+                # Poll API for readiness (5s interval, up to 2 minutes)
+                for i in range(24):
                     time.sleep(5)
                     if self.check_api_working():
                         break
                 else:
-                    return False  # Timeout
+                    return False
+
+            else:
+                # Fallback to previous manual flow using gateway executable
+                gateway_exe = Path.home() / "Jts" / "ibgateway" / "1039" / "ibgateway"
+
+                if gateway_exe.exists():
+                    # Launch Gateway in background
+                    subprocess.Popen(
+                        [str(gateway_exe)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+
+                    # Wait for user to login and API to be ready
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Gateway Starting",
+                            "🔑 IB Gateway is starting...\n\nPlease:\n1. Login with your credentials\n2. Wait for Gateway to be fully loaded\n3. Click OK when ready",
+                        ),
+                    )
+
+                    # Check API every 5 seconds for up to 2 minutes
+                    for i in range(24):  # 2 minutes
+                        time.sleep(5)
+                        if self.check_api_working():
+                            break
+                    else:
+                        return False  # Timeout
+                else:
+                    # No launcher available
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Gateway Missing",
+                            "IB Gateway executable and wrapper not found. Please install IB Gateway or configure IBC.",
+                        ),
+                    )
+                    return False
 
             # Launch SPYDER Dashboard
             return self.launch_spyder_dashboard()

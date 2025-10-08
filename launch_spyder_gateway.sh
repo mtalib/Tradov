@@ -92,8 +92,12 @@ start_gateway_if_needed() {
 
     log "${BLUE}🚀 Starting IB Gateway...${NC}"
 
-    # Check if gateway launcher exists
-    if [[ -f "./launch_spyder_with_gateway.sh" ]]; then
+    # Prefer credential-enabled wrapper if present
+    if [[ -x "$SCRIPT_DIR/launch_gateway_with_credentials.sh" ]]; then
+        log "${BLUE}   Using launch_gateway_with_credentials.sh (credential-aware)${NC}"
+        bash "$SCRIPT_DIR/launch_gateway_with_credentials.sh" "$trading_mode" &
+        GATEWAY_PID=$!
+    elif [[ -f "./launch_spyder_with_gateway.sh" ]]; then
         log "${BLUE}   Using launch_spyder_with_gateway.sh${NC}"
         bash ./launch_spyder_with_gateway.sh &
         GATEWAY_PID=$!
@@ -102,8 +106,8 @@ start_gateway_if_needed() {
         bash ./launch_balanced_gateway.sh &
         GATEWAY_PID=$!
     else
-        log "${RED}❌ No Gateway launcher script found${NC}"
-        log "${RED}   Please ensure launch_spyder_with_gateway.sh exists${NC}"
+        log "${RED} No Gateway launcher script found${NC}"
+        log "${RED}   Please ensure launch_spyder_with_gateway.sh or launch_gateway_with_credentials.sh exists${NC}"
         exit 1
     fi
 
@@ -281,7 +285,7 @@ main() {
 # Handle command line arguments
 case "${1:-}" in
     --test-only|--test-only=*)
-        local trading_mode=$(get_trading_mode "$@")
+        trading_mode=$(get_trading_mode "$@")
         log "${BLUE}🔍 Running connection test only (${trading_mode} mode)...${NC}"
         switch_to_gateway_config "$trading_mode"
         start_gateway_if_needed
@@ -289,7 +293,7 @@ case "${1:-}" in
         exit $?
         ;;
     --config-only|--config-only=*)
-        local trading_mode=$(get_trading_mode "$@")
+        trading_mode=$(get_trading_mode "$@")
         log "${BLUE}🔄 Switching configuration only (${trading_mode} mode)...${NC}"
         switch_to_gateway_config "$trading_mode"
         exit 0

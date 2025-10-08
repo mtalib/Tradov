@@ -21,11 +21,13 @@ from pathlib import Path
 from datetime import datetime
 import threading
 import configparser
+import re
 
 # Paths and Configuration
 SPYDER_HOME = Path.home() / "Projects" / "Spyder"
 JTS_PATH = Path.home() / "Jts"
 CONFIG_FILE = SPYDER_HOME / "spyder_launcher_config.ini"
+VENV_PYTHON = SPYDER_HOME / ".venv" / "bin" / "python3"
 
 # Default Configuration
 DEFAULT_CONFIG = {
@@ -40,8 +42,52 @@ DEFAULT_CONFIG = {
 }
 
 
+def load_bashrc_credentials():
+    """Load IB credentials from bashrc file"""
+    bashrc_path = Path.home() / ".bashrc"
+    credentials = {}
+
+    if not bashrc_path.exists():
+        print("Warning: .bashrc not found")
+        return credentials
+
+    try:
+        with open(bashrc_path, "r") as f:
+            content = f.read()
+
+        # Extract credentials using regex
+        patterns = {
+            "IB_PAPER_USERNAME": r'export\s+IB_PAPER_USERNAME=["\']([^"\']+)["\']',
+            "IB_PAPER_PASSWORD": r'export\s+IB_PAPER_PASSWORD=["\']([^"\']+)["\']',
+            "IB_LIVE_USERNAME": r'export\s+IB_LIVE_USERNAME=["\']([^"\']+)["\']',
+            "IB_LIVE_PASSWORD": r'export\s+IB_LIVE_PASSWORD=["\']([^"\']+)["\']',
+        }
+
+        for key, pattern in patterns.items():
+            match = re.search(pattern, content)
+            if match:
+                credentials[key] = match.group(1)
+                # Also set in current environment
+                os.environ[key] = match.group(1)
+
+        if credentials:
+            print(
+                f"✅ Loaded credentials from .bashrc: {', '.join(credentials.keys())}"
+            )
+        else:
+            print("⚠️ No IB credentials found in .bashrc")
+
+    except Exception as e:
+        print(f"Error loading .bashrc credentials: {e}")
+
+    return credentials
+
+
 class SpyderEnhancedLauncher:
     def __init__(self):
+        # Load credentials from bashrc first
+        self.credentials = load_bashrc_credentials()
+
         self.config = self.load_config()
         self.root = tk.Tk()
         self.setup_window()
@@ -653,8 +699,20 @@ class SpyderEnhancedLauncher:
         threading.Thread(target=dashboard_process, daemon=True).start()
 
     def launch_local_system(self):
-        """Launch local Gateway + SPYDER with credential support"""
+        """Launch Dashboard first, then Gateway (better UX)"""
         try:
+            # Launch dashboard immediately in disconnected mode
+            print("📊 Launching dashboard first...")
+            dashboard_launched = self.launch_spyder_dashboard()
+
+            if not dashboard_launched:
+                print("❌ Dashboard launch failed")
+                return False
+
+            # Give dashboard time to initialize
+            time.sleep(2)
+
+            # Now launch Gateway
             gateway_exe = Path.home() / "Jts" / "ibgateway" / "1039" / "ibgateway"
 
             if gateway_exe.exists():
@@ -672,27 +730,73 @@ class SpyderEnhancedLauncher:
                     username = env.get("IB_PAPER_USERNAME", env.get("IB_USERNAME", ""))
                     password = env.get("IB_PAPER_PASSWORD", env.get("IB_PASSWORD", ""))
 
+                # Debug: Show credential status
+                print(f"🔍 Credential Check:")
+                print(f"   Mode: {mode}")
+                print(f"   Username: {username if username else 'NOT SET'}")
+                print(f"   Password: {'SET' if password else 'NOT SET'}")
+
                 # Try to use IBC for auto-login if available
-                ibc_script = Path.home() / "ibc" / "scripts" / "ibcstart.sh"
+                ibc_script = Path.home() / "ibc" / "gatewaystart.sh"
+                print(f"   IBC script exists: {ibc_script.exists()}")
 
                 if ibc_script.exists() and username and password:
                     # Use IBC for auto-login
-                    print(f"Using IBC auto-login for {mode} mode...")
+                    print(
+                        f"✅ Using IBC auto-login for {mode} mode with user: {username}"
+                    )
+
+                    # Set IBC environment variables for credentials
+                    ibc_env = env.copy()
+                    ibc_env["TWSUSERID"] = username
+                    ibc_env["TWSPASSWORD"] = password
+                    ibc_env["TRADING_MODE"] = mode
+
+                    print(f"🚀 Launching IBC with:")
+                    print(f"   Script: {ibc_script}")
+                    print(f"   TWSUSERID: {username}")
+                    print(f"   TRADING_MODE: {mode}")
+
+                    # Launch IBC with credentials as environment variables
+                    # IBC gatewaystart.sh will read TWSUSERID and TWSPASSWORD
                     subprocess.Popen(
-                        [
-                            str(ibc_script),
-                            "gateway",
-                            mode.upper(),
-                            username,
-                            password
-                        ],
+                        [str(ibc_script)],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         start_new_session=True,
-                        env=env,
+                        env=ibc_env,
+                    )
+
+                    # Show auto-login message
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Gateway Starting",
+                            f"✅ Dashboard is running!\n\n"
+                            f"🔑 Gateway is starting...\n\n"
+                            f"Mode: {mode.upper()} Trading\n"
+                            f"User: {username}\n\n"
+                            f"NOTE: IBC auto-login may not work with Gateway 1039.\n"
+                            f"If login fields are empty, enter credentials manually:\n"
+                            f"  Username: {username}\n"
+                            f"  Password: (from your config)\n\n"
+                            f"Dashboard will auto-connect when Gateway is ready.",
+                        ),
                     )
                 else:
                     # Standard Gateway launch - manual login required
+                    print(f"⚠️ Auto-login not available - using manual Gateway launch")
+                    if not ibc_script.exists():
+                        print(f"   Reason: IBC script not found at {ibc_script}")
+                    if not username:
+                        print(
+                            f"   Reason: Username not set (check .bashrc for IB_PAPER_USERNAME or IB_LIVE_USERNAME)"
+                        )
+                    if not password:
+                        print(
+                            f"   Reason: Password not set (check .bashrc for IB_PAPER_PASSWORD or IB_LIVE_PASSWORD)"
+                        )
+
                     subprocess.Popen(
                         [str(gateway_exe)],
                         stdout=subprocess.DEVNULL,
@@ -701,35 +805,27 @@ class SpyderEnhancedLauncher:
                         env=env,
                     )
 
-                # Wait for login
-                mode = "PAPER" if self.trading_mode.get() == "paper" else "LIVE"
-                port = self.get_config_value(
-                    f"local_gateway_{self.trading_mode.get()}_port"
-                )
+                    # Wait for login
+                    mode_display = (
+                        "PAPER" if self.trading_mode.get() == "paper" else "LIVE"
+                    )
 
-                self.root.after(
-                    0,
-                    lambda: messagebox.showinfo(
-                        "Gateway Starting",
-                        f"🔑 IB Gateway is starting...\n\n"
-                        f"Please:\n"
-                        f"1. Login with your credentials\n"
-                        f"2. Select {mode} Trading mode\n"
-                        f"3. Wait for Gateway to be ready\n\n"
-                        f"Click OK when ready",
-                    ),
-                )
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Gateway Starting",
+                            f"✅ Dashboard is running!\n\n"
+                            f"🔑 Gateway is starting...\n\n"
+                            f"Please login to Gateway:\n"
+                            f"1. Enter your credentials\n"
+                            f"2. Select {mode_display} Trading mode\n"
+                            f"3. Dashboard will auto-connect when ready",
+                        ),
+                    )
 
-                # Wait for API to be ready
-                for i in range(24):  # 2 minutes
-                    time.sleep(5)
-                    if self.test_api_connection_sync("127.0.0.1", int(port)):
-                        break
-                else:
-                    return False
-
-            return self.launch_spyder_dashboard()
-        except:
+            return True
+        except Exception as e:
+            print(f"Error launching local system: {e}")
             return False
 
     def launch_spyder_dashboard(self):
@@ -750,25 +846,32 @@ class SpyderEnhancedLauncher:
             # Set PYTHONPATH environment variable
             python_path = env.get("PYTHONPATH", "")
             if spyder_path not in python_path:
-                env["PYTHONPATH"] = f"{spyder_path}:{python_path}" if python_path else spyder_path
+                env["PYTHONPATH"] = (
+                    f"{spyder_path}:{python_path}" if python_path else spyder_path
+                )
 
-            # Try different entry points
+            # Try different entry points (prioritize production launcher)
             dashboard_scripts = [
-                SPYDER_HOME / "SpyderG_GUI" / "SpyderG02_GUIEntry.py",
-                SPYDER_HOME / "SpyderA_Core" / "SpyderA01_Main.py",
                 SPYDER_HOME / "launch_dashboard_production.py",
+                SPYDER_HOME / "SpyderA_Core" / "SpyderA01_Main.py",
+                SPYDER_HOME / "SpyderG_GUI" / "SpyderG02_GUIEntry.py",
             ]
+
+            # Use venv Python if available, otherwise use sys.executable
+            python_exe = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
+            print(f"Using Python: {python_exe}")
 
             for script in dashboard_scripts:
                 if script.exists():
+                    print(f"✅ Launching dashboard: {script.name}")
                     os.chdir(SPYDER_HOME)
 
-                    # Launch with proper environment
+                    # Launch with proper environment and venv python
                     subprocess.Popen(
-                        [sys.executable, str(script)],
+                        [python_exe, str(script)],
                         start_new_session=True,
                         env=env,
-                        cwd=str(SPYDER_HOME)
+                        cwd=str(SPYDER_HOME),
                     )
                     return True
 
@@ -780,14 +883,14 @@ class SpyderEnhancedLauncher:
                 f"• SpyderG_GUI/SpyderG02_GUIEntry.py\n"
                 f"• SpyderA_Core/SpyderA01_Main.py\n"
                 f"• launch_dashboard_production.py\n\n"
-                f"Please check your SPYDER installation at:\n{SPYDER_HOME}"
+                f"Please check your SPYDER installation at:\n{SPYDER_HOME}",
             )
             return False
         except Exception as e:
             messagebox.showerror(
                 "Dashboard Launch Error",
                 f"Error launching dashboard:\n{str(e)}\n\n"
-                f"Please check SPYDER installation."
+                f"Please check SPYDER installation.",
             )
             return False
 
