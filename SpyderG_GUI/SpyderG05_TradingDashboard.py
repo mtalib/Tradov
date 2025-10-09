@@ -27,6 +27,17 @@ FEATURES:
     • Enhanced P&L tracking and risk monitoring
     • Professional dark theme with traffic light indicators
     • 30-second heartbeat connection monitoring with visual indicator
+    • 🔧 GATEWAY CONTROL: Integrated control panel for Gateway and 8 clients
+    • 🔗 CLIENT MANAGEMENT: Sequential connection with proper delays
+    • ✅ STATUS UPDATES: Real-time client status in Prometheus table
+
+NEW GATEWAY FEATURES:
+    • Dockable Gateway Control Panel (🔧 button in Prometheus header)
+    • Automated Gateway launch and client connection
+    • 8-client sequential connection with proper delays
+    • Client status indicators in Prometheus table (clickable to reconnect)
+    • Real-time connection progress tracking
+    • Individual client health monitoring
 
 REAL DATA INTEGRATION:
     • Data Source: ~/Projects/Spyder/market_data/live_data.json
@@ -217,6 +228,37 @@ except ImportError:
     print("⚠️ Prometheus metrics collector not available - using simulation")
 
 # ==============================================================================
+# NEW IMPORTS FOR GATEWAY AUTOMATION
+# ==============================================================================
+try:
+    from SpyderG_GUI.SpyderG14_GatewayControlPanel import (
+        create_gateway_dock_widget,
+        GatewayControlPanel,
+    )
+
+    gateway_panel_available = True
+    print("✅ Gateway Control Panel available")
+except ImportError:
+    create_gateway_dock_widget = None  # type: ignore
+    GatewayControlPanel = None  # type: ignore
+    gateway_panel_available = False
+    print("⚠️ Gateway Control Panel not available")
+
+try:
+    from SpyderG_GUI.SpyderG15_ClientConnectionManager import (
+        ClientConnectionManager,
+        ClientStatus,
+    )
+
+    client_manager_available = True
+    print("✅ Client Connection Manager available")
+except ImportError:
+    ClientConnectionManager = None  # type: ignore
+    ClientStatus = None  # type: ignore
+    client_manager_available = False
+    print("⚠️ Client Connection Manager not available")
+
+# ==============================================================================
 # CONSTANTS
 # ==============================================================================
 WINDOW_WIDTH = 1920
@@ -292,6 +334,7 @@ COLORS = {
     "neutral": "#ffd700",
     "warning": "#ff9800",
     "automation_active": "#00b8d4",
+    "connecting": "#00b8d4",
     "grid": "#2a2a2a",
     "orange": "#ff9800",
     "red": "#ff0000",
@@ -1298,6 +1341,13 @@ class SpyderTradingDashboard(QMainWindow):
         self.gateway_polling_timer = None
         self.automation_activity_count = 0
         self._last_gateway_search_log = ""
+
+        # NEW: Gateway control integration
+        self.gateway_dock = None
+        self.gateway_panel = None
+        self.client_manager = None
+        self.gateway_control_enabled = False  # User can toggle this
+        self.gateway_control_btn = None  # NEW: Gateway control button
 
         # Try to connect to real Prometheus collector if available
         if prometheus_available:
@@ -2812,7 +2862,7 @@ class SpyderTradingDashboard(QMainWindow):
         return table
 
     def create_unified_prometheus_metrics(self) -> QWidget:
-        """Create the unified Prometheus Metrics table (6x4 grid) - UNCHANGED"""
+        """Create the unified Prometheus Metrics table (8 clients in 4x2 grid + 2 empty rows)"""
         container = QWidget()
         container.setStyleSheet(
             f"""
@@ -2829,7 +2879,9 @@ class SpyderTradingDashboard(QMainWindow):
         main_layout.setContentsMargins(10, 8, 10, 8)
         main_layout.setSpacing(2)
 
-        # Title
+        # Title with Gateway button
+        title_layout = QHBoxLayout()
+
         title_label = QLabel("PROMETHEUS METRICS MONITOR")
         title_label.setStyleSheet(
             f"""
@@ -2840,11 +2892,21 @@ class SpyderTradingDashboard(QMainWindow):
         """
         )
         title_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        main_layout.addWidget(title_label)
+        title_layout.addWidget(title_label)
 
+        title_layout.addStretch()
+
+        # Gateway Control Button
+        self.gateway_control_btn = QPushButton("🔧")
+        self.gateway_control_btn.setFixedSize(30, 30)
+        self.gateway_control_btn.setToolTip("Show/Hide Gateway Control Panel")
+        self.gateway_control_btn.clicked.connect(self.toggle_gateway_control)
+        title_layout.addWidget(self.gateway_control_btn)
+
+        main_layout.addLayout(title_layout)
         main_layout.addSpacing(8)
 
-        # Create the 6x4 grid
+        # Create the 6x4 grid (5 data rows + 1 header row)
         grid = QGridLayout()
         grid.setSpacing(2)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -2852,8 +2914,8 @@ class SpyderTradingDashboard(QMainWindow):
         # Column headers
         headers = [
             "SYSTEM HEALTH",
-            "IB CLIENTS 1-5",
-            "IB CLIENTS 6-10",
+            "IB CLIENTS 1-4",
+            "IB CLIENTS 5-8",
             "INTERNAL MODULES",
         ]
         for col, header in enumerate(headers):
@@ -2900,60 +2962,84 @@ class SpyderTradingDashboard(QMainWindow):
             self.system_components[name] = indicator
             grid.addWidget(component_widget, row, 0)
 
-        # IB Clients 1-5 (Column 2)
-        client_1_5_types = ["Orders", "Admin", "Core", "Options", "Volatility"]
-        for row in range(1, 6):
-            client_widget = QWidget()
-            client_layout = QHBoxLayout()
-            client_layout.setContentsMargins(5, 1, 5, 1)
-            client_layout.setSpacing(3)
+        # IB Clients 1-4 (Column 2) - UPDATED TO 4 CLIENTS + 1 EMPTY
+        client_1_4_types = ["Orders", "Admin", "Core", "Options"]
+        for row in range(1, 6):  # 5 rows total
+            if row <= 4:  # First 4 rows are clients
+                client_widget = QWidget()
+                client_layout = QHBoxLayout()
+                client_layout.setContentsMargins(5, 1, 5, 1)
+                client_layout.setSpacing(3)
 
-            indicator = QLabel("●")
-            indicator.setStyleSheet(
-                "color: " + COLORS["positive"] + f"; font-size: 14px;"
-            )
-            client_layout.addWidget(indicator)
+                indicator = QLabel("●")
+                indicator.setStyleSheet(
+                    "color: " + COLORS["neutral"] + f"; font-size: 14px;"
+                )
+                indicator.setCursor(Qt.CursorShape.PointingHandCursor)
+                indicator.setToolTip(f"Click to connect Client {row}")
+                client_layout.addWidget(indicator)
 
-            label = QLabel(f"CLIENT {row}: {client_1_5_types[row - 1]}")
-            label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
-            client_layout.addWidget(label)
-            client_layout.addStretch()
+                label = QLabel(f"CLIENT {row}: {client_1_4_types[row - 1]}")
+                label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
+                client_layout.addWidget(label)
+                client_layout.addStretch()
 
-            client_widget.setLayout(client_layout)
-            self.client_indicators[f"CLIENT {row}"] = indicator
-            grid.addWidget(client_widget, row, 1)
+                client_widget.setLayout(client_layout)
 
-        # IB Clients 6-10 (Column 3)
-        client_6_10_types = [
-            "Internals",
-            "Major ETFs",
-            "Extended",
-            "Sector ETFs",
-            "International",
-        ]
-        for row in range(1, 6):
-            client_num = row + 5
-            client_widget = QWidget()
-            client_layout = QHBoxLayout()
-            client_layout.setContentsMargins(5, 1, 5, 1)
-            client_layout.setSpacing(3)
+                # Store indicator for status updates
+                self.client_indicators[f"CLIENT {row}"] = indicator
 
-            indicator = QLabel("●")
-            indicator.setStyleSheet(
-                "color: " + COLORS["positive"] + f"; font-size: 14px;"
-            )
-            client_layout.addWidget(indicator)
+                # Make clickable for reconnection
+                indicator.mousePressEvent = lambda e, cid=row: self.reconnect_client(
+                    cid
+                )
 
-            label = QLabel(f"CLIENT {client_num}: {client_6_10_types[row - 1]}")
-            label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
-            client_layout.addWidget(label)
-            client_layout.addStretch()
+                grid.addWidget(client_widget, row, 1)
+            else:
+                # Row 5 is empty
+                empty_widget = QWidget()
+                grid.addWidget(empty_widget, row, 1)
 
-            client_widget.setLayout(client_layout)
-            self.client_indicators[f"CLIENT {client_num}"] = indicator
-            grid.addWidget(client_widget, row, 2)
+        # IB Clients 5-8 (Column 3) - UPDATED TO 4 CLIENTS + 1 EMPTY
+        client_5_8_types = ["Volatility", "Major ETFs", "Extended", "International"]
+        for row in range(1, 6):  # 5 rows total
+            if row <= 4:  # First 4 rows are clients
+                client_num = row + 4  # Client 5, 6, 7, 8
+                client_widget = QWidget()
+                client_layout = QHBoxLayout()
+                client_layout.setContentsMargins(5, 1, 5, 1)
+                client_layout.setSpacing(3)
 
-        # Internal Modules (Column 4)
+                indicator = QLabel("●")
+                indicator.setStyleSheet(
+                    "color: " + COLORS["neutral"] + f"; font-size: 14px;"
+                )
+                indicator.setCursor(Qt.CursorShape.PointingHandCursor)
+                indicator.setToolTip(f"Click to connect Client {client_num}")
+                client_layout.addWidget(indicator)
+
+                label = QLabel(f"CLIENT {client_num}: {client_5_8_types[row - 1]}")
+                label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
+                client_layout.addWidget(label)
+                client_layout.addStretch()
+
+                client_widget.setLayout(client_layout)
+
+                # Store indicator for status updates
+                self.client_indicators[f"CLIENT {client_num}"] = indicator
+
+                # Make clickable for reconnection
+                indicator.mousePressEvent = (
+                    lambda e, cid=client_num: self.reconnect_client(cid)
+                )
+
+                grid.addWidget(client_widget, row, 2)
+            else:
+                # Row 5 is empty
+                empty_widget = QWidget()
+                grid.addWidget(empty_widget, row, 2)
+
+        # Internal Modules (Column 4) - UNCHANGED
         internal_modules = [
             ("Custom Metrics", "custom_metrics"),
             ("Risk Calculator", "risk_calc"),
@@ -3804,9 +3890,137 @@ class SpyderTradingDashboard(QMainWindow):
         except Exception as e:
             self.add_system_log(f"⚠️ Tooltip styling error: {e}")
 
+    # ==========================================================================
+    # GATEWAY CONTROL INTEGRATION
+    # ==========================================================================
+    def toggle_gateway_control(self):
+        """Toggle Gateway Control Panel visibility"""
+        if not gateway_panel_available:
+            QMessageBox.information(
+                self,
+                "Gateway Control",
+                "Gateway Control Panel is not available.\n\n"
+                "This feature requires SpyderG14_GatewayControlPanel module.",
+            )
+            return
+
+        if self.gateway_dock is None:
+            # Create dock widget
+            self.gateway_dock = create_gateway_dock_widget(self)
+            self.gateway_panel = self.gateway_dock.widget()
+
+            # Connect signals
+            self.gateway_panel.clients_connected.connect(
+                self.on_gateway_clients_connected
+            )
+
+            # Add to main window
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.gateway_dock)
+
+            self.add_system_log("🔧 Gateway Control Panel opened")
+        else:
+            # Toggle visibility
+            if self.gateway_dock.isVisible():
+                self.gateway_dock.hide()
+                self.add_system_log("🔧 Gateway Control Panel hidden")
+            else:
+                self.gateway_dock.show()
+                self.add_system_log("🔧 Gateway Control Panel shown")
+
+    @Slot(int)
+    def on_gateway_clients_connected(self, count: int):
+        """Handle clients connected signal from Gateway panel"""
+        self.add_system_log(f"✅ {count}/8 clients connected via Gateway panel")
+
+        # Update client indicators in Prometheus table
+        if self.gateway_panel and self.gateway_panel.client_thread:
+            manager = self.gateway_panel.client_thread.manager
+            if manager:
+                for client_id in range(1, 9):
+                    status = manager.get_client_status(client_id)
+                    if status:
+                        self.update_client_indicator(client_id, status.status)
+
+    def update_client_indicator(self, client_id: int, status):
+        """Update client indicator in Prometheus table"""
+        indicator_key = f"CLIENT {client_id}"
+
+        if indicator_key in self.client_indicators:
+            indicator = self.client_indicators[indicator_key]
+
+            if status == ClientStatus.CONNECTED:
+                indicator.setStyleSheet(
+                    f"color: {COLORS['positive']}; font-size: 14px;"
+                )
+                indicator.setToolTip(f"Client {client_id}: Connected")
+            elif status == ClientStatus.CONNECTING:
+                indicator.setStyleSheet(
+                    f"color: {COLORS['connecting']}; font-size: 14px;"
+                )
+                indicator.setToolTip(f"Client {client_id}: Connecting...")
+            elif status == ClientStatus.ERROR:
+                indicator.setStyleSheet(
+                    f"color: {COLORS['negative']}; font-size: 14px;"
+                )
+                indicator.setToolTip(f"Client {client_id}: Error")
+            else:  # DISCONNECTED
+                indicator.setStyleSheet(f"color: {COLORS['neutral']}; font-size: 14px;")
+                indicator.setToolTip(f"Client {client_id}: Click to connect")
+
+    def reconnect_client(self, client_id: int):
+        """Reconnect a specific client when indicator is clicked"""
+        if not gateway_panel_available or not self.gateway_panel:
+            self.add_system_log(
+                f"⚠️ Gateway panel not available to reconnect Client {client_id}"
+            )
+            return
+
+        if not self.gateway_panel.gateway_running:
+            QMessageBox.warning(
+                self,
+                "Gateway Not Running",
+                "Please start Gateway first before connecting clients.",
+            )
+            return
+
+        self.add_system_log(f"🔄 Reconnecting Client {client_id}...")
+
+        # Use the client manager from gateway panel
+        if (
+            self.gateway_panel.client_thread
+            and self.gateway_panel.client_thread.manager
+        ):
+            manager = self.gateway_panel.client_thread.manager
+
+            # Update indicator to connecting
+            self.update_client_indicator(client_id, ClientStatus.CONNECTING)
+
+            # Reconnect in background
+            import threading
+
+            def reconnect_thread():
+                success = manager.reconnect_client(client_id)
+                if success:
+                    self.add_system_log(f"✅ Client {client_id} reconnected")
+                else:
+                    self.add_system_log(f"❌ Client {client_id} reconnection failed")
+
+            thread = threading.Thread(target=reconnect_thread, daemon=True)
+            thread.start()
+
     def closeEvent(self, event):
-        """Enhanced close event handler with real data cleanup and heartbeat monitoring"""
+        """Enhanced close event handler with real data cleanup, heartbeat monitoring, and Gateway control"""
         try:
+            # NEW: Cleanup Gateway control
+            if self.gateway_panel:
+                if self.gateway_panel.client_thread:
+                    self.gateway_panel.client_thread.stop()
+                    self.gateway_panel.client_thread.wait(2000)
+
+                if self.gateway_panel.gateway_thread:
+                    self.gateway_panel.gateway_thread.stop()
+                    self.gateway_panel.gateway_thread.wait(2000)
+
             # Stop real data timer if active
             if hasattr(self, "_real_data_timer") and self._real_data_timer:
                 self._real_data_timer.stop()
@@ -4062,15 +4276,13 @@ def apply_external_real_data_patch(dashboard, data_file_path=None):
 def main():
     """Main function for standalone testing"""
     print("=" * 70)
-    print("🔥 SPYDER G05 - FIXED IB CONNECTION & HEARTBEAT DASHBOARD")
+    print("🔥 SPYDER G05 - ENHANCED DASHBOARD WITH GATEWAY CONTROL")
     print("=" * 70)
-    print("🔧 Fixed IB connection detection (starts disconnected)")
-    print("💔💚💙 30-second heartbeat: Red→Green→Blue (20s warning)")
-    print("📊 Clean 4-status data display: LIVE/EOD/FROZEN/SIMULATED")
-    print("🔵 Fixed blue simulation button visibility control")
-    print("📞 Fixed trading button messages with IBKR phone number")
-    print("🎯 Fixed-width containers prevent UI jumping")
-    print("🚫 Removed 'REAL DATA (FILE)' override issues")
+    print("🔧 Gateway Control Panel integration")
+    print("🔗 8-client connection management")
+    print("💔💚💙 30-second heartbeat monitoring")
+    print("📊 Clean 4-status data display")
+    print("🎯 Clickable client indicators for reconnection")
     print("=" * 70)
 
     # Create Qt application
