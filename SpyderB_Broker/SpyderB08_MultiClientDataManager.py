@@ -1,49 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Enhanced Multi-Client Data Manager with TWS/Gateway Dual Compatibility
+SPYDER - Universal 8-Client Data Manager
 
 Author: SPYDER AI System
 Created: 2025-01-07
-Enhanced from: SpyderB08_MultiClientDataManager.py
+Module: SpyderB08_MultiClientDataManager_Universal.py
 
-MAJOR ENHANCEMENTS:
-- TWS/Gateway dual compatibility (8 vs 11+ client modes)
-- Dedicated News Client (Client 11)
-- Smart client consolidation for TWS mode
-- Dynamic connection type detection
-- Enhanced error handling and failover
-- Modern async/await patterns
-- Comprehensive logging and monitoring
+UNIVERSAL 8-CLIENT ARCHITECTURE:
+===============================
+Simplified design that works consistently with both IB Gateway and TWS API.
+No dual-mode complexity - single configuration for maximum reliability.
 
-CONNECTION MODES:
-- TWS MODE: 8 clients max (automatic consolidation)
-- GATEWAY MODE: 11+ clients (full separation)
-- AUTO-DETECT: Automatically selects optimal mode
+CLIENT ALLOCATION:
+- Client 1: Order Execution (CRITICAL) - Trading only
+- Client 2: Administrative + News (SYSTEM) - System control + news feeds
+- Client 3: Core Data (HIGH) - SPY, SPX, /ES, VIX - 1s updates
+- Client 4: SPY Options (HIGH) - Options chains - 1s updates
+- Client 5: Volatility + Market Internals (NORMAL) - 5s updates
+- Client 6: Major Indices (NORMAL) - DIA, QQQ, IWM - 5s updates
+- Client 7: Extended Assets + Sectors (LOW) - Bonds, ETFs - 30s updates
+- Client 8: International (BATCH) - Global markets - 60s updates
 
-CLIENT ALLOCATION STRATEGY:
-TWS Mode (8 clients):
-1. Order Execution (CRITICAL)
-2. Administrative + News (SYSTEM)
-3. Core Data (HIGH)
-4. SPY Options (HIGH)
-5. Volatility + Market Internals (NORMAL)
-6. Major Indices (NORMAL)
-7. Extended Assets + Sectors (LOW)
-8. International + Batch (BATCH)
-
-Gateway Mode (11 clients):
-1. Order Execution (CRITICAL)
-2. Administrative (SYSTEM)
-3. Core Data (HIGH)
-4. SPY Options (HIGH)
-5. Volatility Data (NORMAL)
-6. Market Internals (NORMAL)
-7. Major Indices (NORMAL)
-8. Extended Assets (LOW)
-9. Sector ETFs (LOW)
-10. International (BATCH)
-11. News & Alerts (NEWS)
+BENEFITS:
+- 100% symbol coverage (47 instruments)
+- Single configuration to maintain
+- Consistent behavior across all connections
+- Simplified testing and debugging
+- Future-proof architecture
 """
 
 import asyncio
@@ -83,43 +67,28 @@ except ImportError:
 # ================================================================================
 
 
-class ConnectionMode(Enum):
-    """Connection mode for client management"""
-
-    AUTO_DETECT = "auto_detect"
-    TWS_MODE = "tws_mode"  # 8 clients max
-    GATEWAY_MODE = "gateway_mode"  # 11+ clients
-    SIMULATION = "simulation"
-
-
 class ClientPurpose(Enum):
-    """Enhanced client purposes with news support"""
+    """Client purposes for universal 8-client architecture"""
 
     ORDER_EXECUTION = "order_execution"
-    ADMINISTRATIVE = "administrative"
+    ADMIN_NEWS = "admin_news"  # Administrative + News consolidated
     CORE_DATA = "core_data"
     OPTIONS_DATA = "options_data"
-    VOLATILITY_DATA = "volatility_data"
-    MARKET_INTERNALS = "market_internals"
+    VOLATILITY_INTERNALS = "volatility_internals"  # Volatility + Market Internals
     MAJOR_INDICES = "major_indices"
-    EXTENDED_ASSETS = "extended_assets"
-    SECTOR_ETFS = "sector_etfs"
+    EXTENDED_SECTORS = "extended_sectors"  # Extended Assets + Sectors
     INTERNATIONAL = "international"
-    NEWS_ALERTS = "news_alerts"  # NEW: Dedicated news client
-    CONSOLIDATED_LOW = "consolidated_low"  # NEW: For TWS mode consolidation
-    CONSOLIDATED_BATCH = "consolidated_batch"  # NEW: For TWS mode consolidation
 
 
 class DataPriority(Enum):
     """Data request priority levels"""
 
     CRITICAL = 1  # Order execution
-    SYSTEM = 2  # Administrative
+    SYSTEM = 2  # Administrative + News
     HIGH = 3  # Real-time trading data
     NORMAL = 4  # Important market data
     LOW = 5  # Background data
     BATCH = 6  # Bulk operations
-    NEWS = 7  # News and alerts
 
 
 class NewsType(Enum):
@@ -140,7 +109,7 @@ class NewsType(Enum):
 
 @dataclass
 class ClientInfo:
-    """Enhanced client information with news support"""
+    """Universal client information"""
 
     client_id: int
     purpose: ClientPurpose
@@ -153,10 +122,7 @@ class ClientInfo:
     client_instance: Optional[Any] = None
     priority: DataPriority = DataPriority.NORMAL
     description: str = ""
-    consolidated_purposes: List[ClientPurpose] = field(
-        default_factory=list
-    )  # For TWS mode
-    news_types: List[NewsType] = field(default_factory=list)  # For news client
+    news_types: List[NewsType] = field(default_factory=list)
 
 
 @dataclass
@@ -170,7 +136,7 @@ class NewsData:
     summary: str
     source: str
     symbols: List[str] = field(default_factory=list)
-    urgency: str = "normal"  # low, normal, high, critical
+    urgency: str = "normal"
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -190,51 +156,51 @@ class MarketDataTick:
 
 
 @dataclass
-class ConnectionConfig:
-    """Connection configuration for different modes"""
+class OrderRequest:
+    """Order request structure"""
 
-    mode: ConnectionMode
-    max_clients: int
-    port: int
-    host: str = "127.0.0.1"
-    readonly: bool = True
-    timeout: float = 15.0
-    race_condition_delay: float = 1.0  # MAESTRO fix
+    order_id: int
+    symbol: str
+    action: str
+    quantity: int
+    order_type: str
+    limit_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    status: str = "pending"
 
 
 # ================================================================================
-# ENHANCED MULTI-CLIENT DATA MANAGER
+# UNIVERSAL 8-CLIENT DATA MANAGER
 # ================================================================================
 
 
-class EnhancedMultiClientDataManager:
+class Universal8ClientDataManager:
     """
-    Enhanced Multi-Client Data Manager with TWS/Gateway Dual Compatibility
+    Universal 8-Client Data Manager
 
-    Features:
-    - Auto-detection of TWS vs Gateway
-    - Smart client consolidation for TWS mode
-    - Dedicated news client support
-    - Modern async/await patterns
-    - Comprehensive error handling
-    - Performance monitoring
+    Simplified, consistent architecture that works identically with both
+    IB Gateway and TWS API. No dual-mode complexity - single configuration
+    for maximum reliability and maintainability.
     """
 
-    def __init__(self, connection_mode: ConnectionMode = ConnectionMode.AUTO_DETECT):
-        """Initialize enhanced multi-client manager"""
+    def __init__(self, host: str = "127.0.0.1", port: int = 4002):
+        """Initialize universal 8-client manager"""
 
         # Core components
         if UTILITIES_AVAILABLE:
-            self.logger = SpyderLogger.get_logger("SpyderB08.Enhanced")
+            self.logger = SpyderLogger.get_logger("SpyderB08.Universal")
             self.error_handler = SpyderErrorHandler()
         else:
-            self.logger = logging.getLogger("SpyderB08.Enhanced")
+            self.logger = logging.getLogger("SpyderB08.Universal")
             self.error_handler = None
 
-        # Connection management
-        self.connection_mode = connection_mode
-        self.detected_mode: Optional[ConnectionMode] = None
-        self.connection_config: Optional[ConnectionConfig] = None
+        # Connection settings
+        self.host = host
+        self.port = port
+        self.readonly = True  # MAESTRO fix for stability
+        self.timeout = 15.0
+        self.race_condition_delay = 1.0  # MAESTRO proven delay
 
         # Client management
         self.clients: Dict[int, ClientInfo] = {}
@@ -247,161 +213,99 @@ class EnhancedMultiClientDataManager:
         self.data_callbacks: Dict[str, List[Callable]] = {}
         self.news_callbacks: List[Callable] = []
 
+        # Order management
+        self.order_queue = queue.Queue()
+        self.active_orders: Dict[int, OrderRequest] = {}
+        self.order_callbacks: List[Callable] = []
+
         # Threading and synchronization
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self.executor = ThreadPoolExecutor(
-            max_workers=15, thread_name_prefix="EnhancedMultiClient"
+            max_workers=10, thread_name_prefix="Universal8Client"
         )
 
         # Performance tracking
         self.performance_metrics = {
             "total_messages": 0,
             "total_errors": 0,
-            "connection_attempts": 0,
             "successful_connections": 0,
             "news_items_processed": 0,
+            "orders_processed": 0,
             "start_time": None,
             "last_heartbeat": None,
         }
 
-        self.logger.info("🚀 Enhanced Multi-Client Data Manager initialized")
+        # Initialize client allocation
+        self._initialize_universal_client_allocation()
 
-    # ================================================================================
-    # CONNECTION MODE DETECTION AND CONFIGURATION
-    # ================================================================================
+        self.logger.info("🚀 Universal 8-Client Data Manager initialized")
 
-    async def detect_connection_mode(self) -> ConnectionMode:
-        """Auto-detect optimal connection mode (TWS vs Gateway)"""
+    def _initialize_universal_client_allocation(self):
+        """Initialize universal 8-client allocation"""
 
-        self.logger.info("🔍 Auto-detecting connection mode...")
+        self.logger.info("🔧 Initializing Universal 8-Client Architecture")
 
-        # Test ports to determine available service
-        test_configs = [
-            (4002, ConnectionMode.GATEWAY_MODE, "IB Gateway Paper"),
-            (4001, ConnectionMode.GATEWAY_MODE, "IB Gateway Live"),
-            (7497, ConnectionMode.TWS_MODE, "TWS Paper"),
-            (7496, ConnectionMode.TWS_MODE, "TWS Live"),
-        ]
-
-        for port, mode, description in test_configs:
-            try:
-                # Quick connection test
-                import socket
-
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(3)
-                result = sock.connect_ex(("127.0.0.1", port))
-                sock.close()
-
-                if result == 0:
-                    self.logger.info(f"✅ Detected {description} on port {port}")
-                    self.detected_mode = mode
-                    self.connection_config = ConnectionConfig(
-                        mode=mode,
-                        max_clients=8 if mode == ConnectionMode.TWS_MODE else 11,
-                        port=port,
-                    )
-                    return mode
-
-            except Exception as e:
-                self.logger.debug(f"Port {port} test failed: {e}")
-                continue
-
-        # Fallback to simulation
-        self.logger.warning("No IB service detected - using simulation mode")
-        self.detected_mode = ConnectionMode.SIMULATION
-        self.connection_config = ConnectionConfig(
-            mode=ConnectionMode.SIMULATION, max_clients=11, port=0
-        )
-        return ConnectionMode.SIMULATION
-
-    def _initialize_client_allocation(self):
-        """Initialize client allocation based on detected mode"""
-
-        if not self.connection_config:
-            raise RuntimeError("Connection config not initialized")
-
-        mode = self.connection_config.mode
-        max_clients = self.connection_config.max_clients
-
-        self.logger.info(
-            f"🔧 Initializing client allocation for {mode.value} ({max_clients} clients)"
-        )
-
-        if mode == ConnectionMode.TWS_MODE:
-            self._initialize_tws_allocation()
-        elif mode in [ConnectionMode.GATEWAY_MODE, ConnectionMode.SIMULATION]:
-            self._initialize_gateway_allocation()
-        else:
-            raise ValueError(f"Unsupported connection mode: {mode}")
-
-    def _initialize_tws_allocation(self):
-        """Initialize TWS mode allocation (8 clients with consolidation)"""
-
+        # Universal 8-client configuration
         self.client_configs = {
             1: {
                 "purpose": ClientPurpose.ORDER_EXECUTION,
                 "symbols": [],
                 "frequency": 0.0,
-                "description": "Order execution - CRITICAL PRIORITY",
+                "description": "Order Execution - CRITICAL PRIORITY",
                 "priority": DataPriority.CRITICAL,
-                "consolidated_purposes": [],
+                "news_types": [],
             },
             2: {
-                "purpose": ClientPurpose.ADMINISTRATIVE,
+                "purpose": ClientPurpose.ADMIN_NEWS,
                 "symbols": [],
                 "frequency": 0.0,
-                "description": "Administrative + News (CONSOLIDATED)",
+                "description": "Administrative + News - SYSTEM CONTROL",
                 "priority": DataPriority.SYSTEM,
-                "consolidated_purposes": [
-                    ClientPurpose.ADMINISTRATIVE,
-                    ClientPurpose.NEWS_ALERTS,
-                ],
                 "news_types": [
                     NewsType.BREAKING_NEWS,
                     NewsType.MARKET_NEWS,
                     NewsType.EARNINGS,
+                    NewsType.ECONOMIC_DATA,
+                    NewsType.CORPORATE_ACTIONS,
+                    NewsType.ANALYST_UPGRADES,
                 ],
             },
             3: {
                 "purpose": ClientPurpose.CORE_DATA,
                 "symbols": ["SPY", "SPX", "/ES", "VIX", "TICK-NYSE"],
                 "frequency": 1.0,
-                "description": "Core market data - 1s updates",
+                "description": "Core Market Data - 1s updates",
                 "priority": DataPriority.HIGH,
-                "consolidated_purposes": [],
+                "news_types": [],
             },
             4: {
                 "purpose": ClientPurpose.OPTIONS_DATA,
                 "symbols": ["SPY_OPTIONS_0DTE", "SPY_OPTIONS_1DTE"],
                 "frequency": 1.0,
-                "description": "SPY options chains - 1s updates",
+                "description": "SPY Options Chains - 1s updates",
                 "priority": DataPriority.HIGH,
-                "consolidated_purposes": [],
+                "news_types": [],
             },
             5: {
-                "purpose": ClientPurpose.CONSOLIDATED_LOW,
+                "purpose": ClientPurpose.VOLATILITY_INTERNALS,
                 "symbols": [
                     "VXV",
                     "VXMT",
                     "VVIX",
                     "UVXY",
-                    "VIX9D",
+                    "VIX9D",  # Volatility
                     "VUD",
                     "TRIN",
                     "ADD",
                     "CPC",
                     "PCALL",
-                    "SKEW",
+                    "SKEW",  # Market Internals
                 ],
                 "frequency": 5.0,
-                "description": "Volatility + Market Internals (CONSOLIDATED)",
+                "description": "Volatility + Market Internals - 5s updates",
                 "priority": DataPriority.NORMAL,
-                "consolidated_purposes": [
-                    ClientPurpose.VOLATILITY_DATA,
-                    ClientPurpose.MARKET_INTERNALS,
-                ],
+                "news_types": [],
             },
             6: {
                 "purpose": ClientPurpose.MAJOR_INDICES,
@@ -413,18 +317,20 @@ class EnhancedMultiClientDataManager:
                     "QQQ_OPTIONS_1DTE",
                 ],
                 "frequency": 5.0,
-                "description": "Major indices - 5s updates",
+                "description": "Major Indices - 5s updates",
                 "priority": DataPriority.NORMAL,
-                "consolidated_purposes": [],
+                "news_types": [],
             },
             7: {
-                "purpose": ClientPurpose.CONSOLIDATED_LOW,
+                "purpose": ClientPurpose.EXTENDED_SECTORS,
                 "symbols": [
+                    # Extended Assets
                     "TLT",
                     "LQD",
                     "DXY",
                     "GLD",
                     "SPY_OPTIONS_WEEKLY",
+                    # Sector ETFs
                     "XLF",
                     "XLK",
                     "XLE",
@@ -438,132 +344,11 @@ class EnhancedMultiClientDataManager:
                     "XLB",
                 ],
                 "frequency": 30.0,
-                "description": "Extended Assets + Sectors (CONSOLIDATED)",
+                "description": "Extended Assets + Sector ETFs - 30s updates",
                 "priority": DataPriority.LOW,
-                "consolidated_purposes": [
-                    ClientPurpose.EXTENDED_ASSETS,
-                    ClientPurpose.SECTOR_ETFS,
-                ],
+                "news_types": [],
             },
             8: {
-                "purpose": ClientPurpose.CONSOLIDATED_BATCH,
-                "symbols": [
-                    "FTLC",
-                    "AUD.JPY",
-                    "DAX",
-                    "HSI",
-                    "EWJ",
-                    "EWG",
-                    "EWU",
-                    "EWC",
-                ],
-                "frequency": 60.0,
-                "description": "International + Batch (CONSOLIDATED)",
-                "priority": DataPriority.BATCH,
-                "consolidated_purposes": [ClientPurpose.INTERNATIONAL],
-            },
-        }
-
-        self._create_client_instances()
-        self.logger.info(
-            "✅ TWS mode client allocation initialized (8 clients with consolidation)"
-        )
-
-    def _initialize_gateway_allocation(self):
-        """Initialize Gateway mode allocation (11 clients with dedicated news)"""
-
-        self.client_configs = {
-            1: {
-                "purpose": ClientPurpose.ORDER_EXECUTION,
-                "symbols": [],
-                "frequency": 0.0,
-                "description": "Order execution - CRITICAL PRIORITY",
-                "priority": DataPriority.CRITICAL,
-                "consolidated_purposes": [],
-            },
-            2: {
-                "purpose": ClientPurpose.ADMINISTRATIVE,
-                "symbols": [],
-                "frequency": 0.0,
-                "description": "Administrative operations",
-                "priority": DataPriority.SYSTEM,
-                "consolidated_purposes": [],
-            },
-            3: {
-                "purpose": ClientPurpose.CORE_DATA,
-                "symbols": ["SPY", "SPX", "/ES", "VIX", "TICK-NYSE"],
-                "frequency": 1.0,
-                "description": "Core market data - 1s updates",
-                "priority": DataPriority.HIGH,
-                "consolidated_purposes": [],
-            },
-            4: {
-                "purpose": ClientPurpose.OPTIONS_DATA,
-                "symbols": ["SPY_OPTIONS_0DTE", "SPY_OPTIONS_1DTE"],
-                "frequency": 1.0,
-                "description": "SPY options chains - 1s updates",
-                "priority": DataPriority.HIGH,
-                "consolidated_purposes": [],
-            },
-            5: {
-                "purpose": ClientPurpose.VOLATILITY_DATA,
-                "symbols": ["VXV", "VXMT", "VVIX", "UVXY", "VIX9D"],
-                "frequency": 5.0,
-                "description": "Volatility indicators - 5s updates",
-                "priority": DataPriority.NORMAL,
-                "consolidated_purposes": [],
-            },
-            6: {
-                "purpose": ClientPurpose.MARKET_INTERNALS,
-                "symbols": ["VUD", "TRIN", "ADD", "CPC", "PCALL", "SKEW"],
-                "frequency": 5.0,
-                "description": "Market internals - 5s updates",
-                "priority": DataPriority.NORMAL,
-                "consolidated_purposes": [],
-            },
-            7: {
-                "purpose": ClientPurpose.MAJOR_INDICES,
-                "symbols": [
-                    "DIA",
-                    "QQQ",
-                    "IWM",
-                    "DIA_OPTIONS_1DTE",
-                    "QQQ_OPTIONS_1DTE",
-                ],
-                "frequency": 5.0,
-                "description": "Major indices - 5s updates",
-                "priority": DataPriority.NORMAL,
-                "consolidated_purposes": [],
-            },
-            8: {
-                "purpose": ClientPurpose.EXTENDED_ASSETS,
-                "symbols": ["TLT", "LQD", "DXY", "GLD", "SPY_OPTIONS_WEEKLY"],
-                "frequency": 15.0,
-                "description": "Extended assets - 15s updates",
-                "priority": DataPriority.LOW,
-                "consolidated_purposes": [],
-            },
-            9: {
-                "purpose": ClientPurpose.SECTOR_ETFS,
-                "symbols": [
-                    "XLF",
-                    "XLK",
-                    "XLE",
-                    "XLV",
-                    "XLI",
-                    "XLY",
-                    "XLP",
-                    "XLU",
-                    "XLRE",
-                    "XLC",
-                    "XLB",
-                ],
-                "frequency": 30.0,
-                "description": "Sector ETFs - 30s updates",
-                "priority": DataPriority.LOW,
-                "consolidated_purposes": [],
-            },
-            10: {
                 "purpose": ClientPurpose.INTERNATIONAL,
                 "symbols": [
                     "FTLC",
@@ -576,36 +361,13 @@ class EnhancedMultiClientDataManager:
                     "EWC",
                 ],
                 "frequency": 60.0,
-                "description": "International markets - 60s updates",
+                "description": "International Markets - 60s updates",
                 "priority": DataPriority.BATCH,
-                "consolidated_purposes": [],
-            },
-            11: {
-                "purpose": ClientPurpose.NEWS_ALERTS,
-                "symbols": [],
-                "frequency": 0.0,
-                "description": "News & Alerts - DEDICATED NEWS CLIENT",
-                "priority": DataPriority.NEWS,
-                "consolidated_purposes": [],
-                "news_types": [
-                    NewsType.BREAKING_NEWS,
-                    NewsType.MARKET_NEWS,
-                    NewsType.EARNINGS,
-                    NewsType.ECONOMIC_DATA,
-                    NewsType.CORPORATE_ACTIONS,
-                    NewsType.ANALYST_UPGRADES,
-                ],
+                "news_types": [],
             },
         }
 
-        self._create_client_instances()
-        self.logger.info(
-            "✅ Gateway mode client allocation initialized (11 clients with dedicated news)"
-        )
-
-    def _create_client_instances(self):
-        """Create ClientInfo instances from configuration"""
-
+        # Create client instances
         for client_id, config in self.client_configs.items():
             client_info = ClientInfo(
                 client_id=client_id,
@@ -614,44 +376,47 @@ class EnhancedMultiClientDataManager:
                 update_frequency=config["frequency"],
                 priority=config["priority"],
                 description=config["description"],
-                consolidated_purposes=config.get("consolidated_purposes", []),
-                news_types=config.get("news_types", []),
+                news_types=config["news_types"].copy(),
             )
             self.clients[client_id] = client_info
+
+        self.logger.info("✅ Universal 8-Client allocation initialized")
+        self.logger.info(
+            f"   Total symbols: {sum(len(c.symbols) for c in self.clients.values())}"
+        )
+        self.logger.info(
+            f"   News client: Client 2 ({len(self.clients[2].news_types)} news types)"
+        )
 
     # ================================================================================
     # CONNECTION MANAGEMENT
     # ================================================================================
 
     async def start(self):
-        """Start the enhanced multi-client manager"""
+        """Start the universal 8-client manager"""
 
         if self.is_running:
             self.logger.warning("Manager already running")
             return
 
-        self.logger.info("🚀 Starting Enhanced Multi-Client Data Manager...")
+        self.logger.info("🚀 Starting Universal 8-Client Data Manager...")
 
         try:
-            # Auto-detect connection mode if needed
-            if self.connection_mode == ConnectionMode.AUTO_DETECT:
-                await self.detect_connection_mode()
-
-            # Initialize client allocation
-            self._initialize_client_allocation()
-
             # Start performance tracking
             self.performance_metrics["start_time"] = datetime.now()
             self.performance_metrics["last_heartbeat"] = datetime.now()
 
-            # Start clients based on mode
-            if self.connection_config.mode != ConnectionMode.SIMULATION:
+            # Start clients if IB API is available
+            if IB_ASYNC_AVAILABLE:
                 await self._start_all_clients()
             else:
                 self.logger.info("📊 Running in simulation mode")
+                # Simulate connections for testing
+                for client_id in self.clients:
+                    self.clients[client_id].is_connected = True
 
             self.is_running = True
-            self.logger.info("✅ Enhanced Multi-Client Manager started successfully")
+            self.logger.info("✅ Universal 8-Client Manager started successfully")
 
         except Exception as e:
             self.logger.error(f"❌ Failed to start manager: {e}")
@@ -660,12 +425,12 @@ class EnhancedMultiClientDataManager:
             raise
 
     async def stop(self):
-        """Stop the enhanced multi-client manager"""
+        """Stop the universal 8-client manager"""
 
         if not self.is_running:
             return
 
-        self.logger.info("🛑 Stopping Enhanced Multi-Client Data Manager...")
+        self.logger.info("🛑 Stopping Universal 8-Client Data Manager...")
 
         try:
             # Signal stop
@@ -678,7 +443,7 @@ class EnhancedMultiClientDataManager:
             self.executor.shutdown(wait=True)
 
             self.is_running = False
-            self.logger.info("✅ Enhanced Multi-Client Manager stopped")
+            self.logger.info("✅ Universal 8-Client Manager stopped")
 
         except Exception as e:
             self.logger.error(f"❌ Error during shutdown: {e}")
@@ -686,20 +451,19 @@ class EnhancedMultiClientDataManager:
                 self.error_handler.handle_error("SHUTDOWN_ERROR", e)
 
     async def _start_all_clients(self):
-        """Start all configured clients"""
+        """Start all 8 clients in priority order"""
 
-        self.logger.info(f"🔌 Starting {len(self.clients)} clients...")
+        self.logger.info("🔌 Starting 8 clients in priority order...")
 
-        # Start clients in priority order
+        # Sort by priority for optimal startup
         sorted_clients = sorted(self.clients.items(), key=lambda x: x[1].priority.value)
 
         for client_id, client_info in sorted_clients:
             try:
                 await self._start_single_client(client_id)
 
-                # Add delay between connections (MAESTRO fix)
-                if self.connection_config:
-                    await asyncio.sleep(self.connection_config.race_condition_delay)
+                # MAESTRO race condition delay
+                await asyncio.sleep(self.race_condition_delay)
 
             except Exception as e:
                 self.logger.error(f"❌ Failed to start client {client_id}: {e}")
@@ -711,40 +475,24 @@ class EnhancedMultiClientDataManager:
     async def _start_single_client(self, client_id: int):
         """Start a single client connection"""
 
-        if not IB_ASYNC_AVAILABLE:
-            self.logger.warning(
-                f"⚠️ ib_async not available - simulating client {client_id}"
-            )
-            self.clients[client_id].is_connected = True
-            return
-
         client_info = self.clients[client_id]
 
         try:
             self.logger.info(
-                f"🔌 Starting client {client_id}: {client_info.description}"
+                f"🔌 Starting Client {client_id}: {client_info.description}"
             )
 
-            # Create IB instance
+            # Create and configure IB instance
             ib = IB()
+            ib.RequestTimeout = self.timeout
 
-            # Configure timeouts
-            if self.connection_config:
-                ib.RequestTimeout = self.connection_config.timeout
-
-            # Connect with MAESTRO fixes
+            # Connect with MAESTRO proven settings
             await ib.connectAsync(
-                host=self.connection_config.host
-                if self.connection_config
-                else "127.0.0.1",
-                port=self.connection_config.port if self.connection_config else 4002,
+                host=self.host,
+                port=self.port,
                 clientId=client_id,
-                timeout=self.connection_config.timeout
-                if self.connection_config
-                else 15.0,
-                readonly=self.connection_config.readonly
-                if self.connection_config
-                else True,
+                timeout=self.timeout,
+                readonly=self.readonly,  # MAESTRO fix: prevents reqExecutions timeout
             )
 
             # Store connection
@@ -760,18 +508,14 @@ class EnhancedMultiClientDataManager:
             if client_info.symbols:
                 await self._subscribe_client_data(client_id)
 
-            # Set up news subscriptions for news clients
-            if (
-                client_info.purpose == ClientPurpose.NEWS_ALERTS
-                or ClientPurpose.NEWS_ALERTS in client_info.consolidated_purposes
-            ):
+            # Set up news subscriptions for admin+news client
+            if client_info.purpose == ClientPurpose.ADMIN_NEWS:
                 await self._setup_news_subscriptions(client_id)
 
             self.performance_metrics["successful_connections"] += 1
             self.logger.info(f"✅ Client {client_id} connected successfully")
 
         except Exception as e:
-            self.performance_metrics["connection_attempts"] += 1
             self.logger.error(f"❌ Failed to connect client {client_id}: {e}")
             if self.error_handler:
                 self.error_handler.handle_error(f"CLIENT_{client_id}_CONNECT_ERROR", e)
@@ -791,16 +535,13 @@ class EnhancedMultiClientDataManager:
         def on_news_tick(news):
             self._handle_news_data(client_id, news)
 
-        # Connect handlers
+        # Connect standard handlers
         ib.pendingTickersEvent += on_pending_tickers
         ib.errorEvent += on_error
 
-        # News handler for news clients
+        # News handler for admin+news client
         client_info = self.clients[client_id]
-        if (
-            client_info.purpose == ClientPurpose.NEWS_ALERTS
-            or ClientPurpose.NEWS_ALERTS in client_info.consolidated_purposes
-        ):
+        if client_info.purpose == ClientPurpose.ADMIN_NEWS:
             ib.newsBulletinEvent += on_news_tick
 
     async def _stop_all_clients(self):
@@ -845,11 +586,11 @@ class EnhancedMultiClientDataManager:
 
         try:
             self.logger.info(
-                f"📊 Subscribing client {client_id} to {len(client_info.symbols)} symbols"
+                f"📊 Subscribing Client {client_id} to {len(client_info.symbols)} symbols"
             )
 
             for symbol in client_info.symbols:
-                # Create contract (simplified - would need proper contract creation)
+                # Create contract (simplified for demo - needs proper contract creation)
                 contract = Contract()
                 contract.symbol = symbol
                 contract.secType = "STK"
@@ -871,7 +612,7 @@ class EnhancedMultiClientDataManager:
                 )
 
     async def _setup_news_subscriptions(self, client_id: int):
-        """Set up news subscriptions for news clients"""
+        """Set up news subscriptions for admin+news client"""
 
         client_info = self.clients[client_id]
         ib = self.active_connections.get(client_id)
@@ -880,15 +621,12 @@ class EnhancedMultiClientDataManager:
             return
 
         try:
-            self.logger.info(f"📰 Setting up news subscriptions for client {client_id}")
+            self.logger.info(f"📰 Setting up news subscriptions for Client {client_id}")
 
             # Subscribe to news bulletins
             ib.reqNewsBulletins(allMsgs=True)
 
-            # Subscribe to specific news providers if available
-            # This would depend on your IB account capabilities
-
-            self.logger.info(f"✅ News subscriptions set up for client {client_id}")
+            self.logger.info(f"✅ News subscriptions active for Client {client_id}")
 
         except Exception as e:
             self.logger.error(f"❌ Failed to set up news for client {client_id}: {e}")
@@ -989,6 +727,97 @@ class EnhancedMultiClientDataManager:
             )
 
     # ================================================================================
+    # ORDER MANAGEMENT
+    # ================================================================================
+
+    async def place_order(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        order_type: str = "MKT",
+        limit_price: float = None,
+    ) -> int:
+        """Place order through Client 1 (Order Execution)"""
+
+        if not self.is_running:
+            raise RuntimeError("Manager not running")
+
+        # Generate order ID
+        order_id = int(time.time() * 1000) % 1000000
+
+        # Create order request
+        order_request = OrderRequest(
+            order_id=order_id,
+            symbol=symbol,
+            action=action,
+            quantity=quantity,
+            order_type=order_type,
+            limit_price=limit_price,
+        )
+
+        try:
+            # Use Client 1 for order execution
+            client_1 = self.active_connections.get(1)
+            if not client_1:
+                raise RuntimeError("Order execution client not available")
+
+            # Store order
+            self.active_orders[order_id] = order_request
+
+            # Create IB contract and order (simplified)
+            contract = Contract()
+            contract.symbol = symbol
+            contract.secType = "STK"
+            contract.exchange = "SMART"
+            contract.currency = "USD"
+
+            order = Order()
+            order.action = action
+            order.totalQuantity = quantity
+            order.orderType = order_type
+            if limit_price:
+                order.lmtPrice = limit_price
+
+            # Place order
+            client_1.placeOrder(order_id, contract, order)
+
+            order_request.status = "submitted"
+            self.performance_metrics["orders_processed"] += 1
+
+            self.logger.info(
+                f"📋 Order {order_id} placed: {action} {quantity} {symbol}"
+            )
+
+            return order_id
+
+        except Exception as e:
+            order_request.status = "failed"
+            self.logger.error(f"❌ Failed to place order {order_id}: {e}")
+            if self.error_handler:
+                self.error_handler.handle_error("ORDER_PLACEMENT_ERROR", e)
+            raise
+
+    async def cancel_order(self, order_id: int):
+        """Cancel order through Client 1"""
+
+        try:
+            client_1 = self.active_connections.get(1)
+            if not client_1:
+                raise RuntimeError("Order execution client not available")
+
+            client_1.cancelOrder(order_id)
+
+            if order_id in self.active_orders:
+                self.active_orders[order_id].status = "cancelled"
+
+            self.logger.info(f"🚫 Order {order_id} cancelled")
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to cancel order {order_id}: {e}")
+            raise
+
+    # ================================================================================
     # PUBLIC API
     # ================================================================================
 
@@ -1006,6 +835,12 @@ class EnhancedMultiClientDataManager:
 
         self.news_callbacks.append(callback)
         self.logger.info("📰 News callback registered")
+
+    def add_order_callback(self, callback: Callable):
+        """Add order status callback"""
+
+        self.order_callbacks.append(callback)
+        self.logger.info("📋 Order callback registered")
 
     def get_market_data(self, symbol: str) -> Optional[MarketDataTick]:
         """Get latest market data for a symbol"""
@@ -1038,10 +873,7 @@ class EnhancedMultiClientDataManager:
             "last_update": client_info.last_update.isoformat()
             if client_info.last_update
             else None,
-            "priority": client_info.priority.value,
-            "consolidated_purposes": [
-                p.value for p in client_info.consolidated_purposes
-            ],
+            "priority": client_info.priority.name,
             "news_types": [nt.value for nt in client_info.news_types],
         }
 
@@ -1060,20 +892,25 @@ class EnhancedMultiClientDataManager:
 
         return {
             "is_running": self.is_running,
-            "connection_mode": self.detected_mode.value
-            if self.detected_mode
-            else "unknown",
-            "max_clients": self.connection_config.max_clients
-            if self.connection_config
-            else 0,
+            "architecture": "universal_8_client",
             "connected_clients": connected_clients,
             "total_clients": len(self.clients),
+            "total_symbols": sum(len(c.symbols) for c in self.clients.values()),
             "total_messages": total_messages,
             "total_errors": total_errors,
             "news_items": len(self.news_data),
+            "active_orders": len(self.active_orders),
             "uptime_seconds": uptime,
             "performance_metrics": self.performance_metrics.copy(),
         }
+
+    def get_all_symbols(self) -> List[str]:
+        """Get all symbols across all clients"""
+
+        all_symbols = set()
+        for client_info in self.clients.values():
+            all_symbols.update(client_info.symbols)
+        return sorted(list(all_symbols))
 
     # ================================================================================
     # UTILITY METHODS
@@ -1083,15 +920,14 @@ class EnhancedMultiClientDataManager:
         """Export current configuration for backup/analysis"""
 
         return {
-            "connection_mode": self.detected_mode.value if self.detected_mode else None,
-            "connection_config": {
-                "mode": self.connection_config.mode.value,
-                "max_clients": self.connection_config.max_clients,
-                "port": self.connection_config.port,
-                "host": self.connection_config.host,
-            }
-            if self.connection_config
-            else None,
+            "architecture": "universal_8_client",
+            "connection_settings": {
+                "host": self.host,
+                "port": self.port,
+                "readonly": self.readonly,
+                "timeout": self.timeout,
+                "race_condition_delay": self.race_condition_delay,
+            },
             "client_configs": {
                 str(client_id): {
                     "purpose": info.purpose.value,
@@ -1099,12 +935,22 @@ class EnhancedMultiClientDataManager:
                     "symbols": info.symbols,
                     "frequency": info.update_frequency,
                     "priority": info.priority.value,
-                    "consolidated_purposes": [
-                        p.value for p in info.consolidated_purposes
-                    ],
                     "news_types": [nt.value for nt in info.news_types],
                 }
                 for client_id, info in self.clients.items()
+            },
+            "performance_summary": {
+                "total_symbols": sum(len(c.symbols) for c in self.clients.values()),
+                "news_enabled": any(c.news_types for c in self.clients.values()),
+                "client_load_distribution": {
+                    "low": sum(1 for c in self.clients.values() if len(c.symbols) <= 5),
+                    "medium": sum(
+                        1 for c in self.clients.values() if 5 < len(c.symbols) <= 10
+                    ),
+                    "high": sum(
+                        1 for c in self.clients.values() if len(c.symbols) > 10
+                    ),
+                },
             },
             "timestamp": datetime.now().isoformat(),
         }
@@ -1114,18 +960,18 @@ class EnhancedMultiClientDataManager:
 # SINGLETON PATTERN
 # ================================================================================
 
-_manager_instance: Optional[EnhancedMultiClientDataManager] = None
+_manager_instance: Optional[Universal8ClientDataManager] = None
 
 
-def get_enhanced_manager_instance() -> EnhancedMultiClientDataManager:
+def get_universal_manager_instance() -> Universal8ClientDataManager:
     """Get the singleton manager instance"""
     global _manager_instance
     if _manager_instance is None:
-        _manager_instance = EnhancedMultiClientDataManager()
+        _manager_instance = Universal8ClientDataManager()
     return _manager_instance
 
 
-def reset_enhanced_manager_instance():
+def reset_universal_manager_instance():
     """Reset the singleton manager instance"""
     global _manager_instance
     if _manager_instance and _manager_instance.is_running:
@@ -1139,13 +985,13 @@ def reset_enhanced_manager_instance():
 
 
 async def main():
-    """Test the enhanced multi-client manager"""
+    """Test the universal 8-client manager"""
 
-    print("🚀 Testing Enhanced Multi-Client Data Manager")
+    print("🚀 Testing Universal 8-Client Data Manager")
     print("=" * 60)
 
     # Create manager
-    manager = EnhancedMultiClientDataManager(ConnectionMode.AUTO_DETECT)
+    manager = Universal8ClientDataManager()
 
     try:
         # Start manager
@@ -1158,21 +1004,27 @@ async def main():
         def test_news_callback(news: NewsData):
             print(f"📰 News: {news.headline}")
 
+        def test_order_callback(order_status):
+            print(f"📋 Order: {order_status}")
+
         # Subscribe to test data
         manager.subscribe_to_data("SPY", test_data_callback)
         manager.subscribe_to_news(test_news_callback)
+        manager.add_order_callback(test_order_callback)
 
         # Show system status
         status = manager.get_system_status()
         print(f"\n📊 System Status:")
-        print(f"   Mode: {status['connection_mode']}")
+        print(f"   Architecture: {status['architecture']}")
         print(f"   Clients: {status['connected_clients']}/{status['total_clients']}")
+        print(f"   Total Symbols: {status['total_symbols']}")
         print(f"   Messages: {status['total_messages']}")
         print(f"   Errors: {status['total_errors']}")
         print(f"   News Items: {status['news_items']}")
+        print(f"   Active Orders: {status['active_orders']}")
 
         # Show client details
-        print(f"\n🔌 Client Status:")
+        print(f"\n🔌 Universal 8-Client Status:")
         for client_id in sorted(manager.clients.keys()):
             client_status = manager.get_client_status(client_id)
             if client_status:
@@ -1180,16 +1032,22 @@ async def main():
                 print(
                     f"   {status_icon} Client {client_id}: {client_status['description']}"
                 )
-                if client_status["consolidated_purposes"]:
-                    print(
-                        f"      Consolidated: {', '.join(client_status['consolidated_purposes'])}"
-                    )
+                print(
+                    f"      └─ {client_status['symbols_count']} symbols, Priority: {client_status['priority']}"
+                )
                 if client_status["news_types"]:
-                    print(f"      News Types: {', '.join(client_status['news_types'])}")
+                    print(f"      └─ News: {', '.join(client_status['news_types'])}")
+
+        # Show all symbols
+        all_symbols = manager.get_all_symbols()
+        print(f"\n📈 All Symbols ({len(all_symbols)}):")
+        print(
+            f"   {', '.join(all_symbols[:10])}{'...' if len(all_symbols) > 10 else ''}"
+        )
 
         # Export configuration
         config = manager.export_configuration()
-        config_file = Path("enhanced_client_config.json")
+        config_file = Path("universal_8client_config.json")
         with open(config_file, "w") as f:
             json.dump(config, f, indent=2)
         print(f"\n💾 Configuration exported to: {config_file}")
