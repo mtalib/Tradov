@@ -26,13 +26,18 @@ def main():
         # Try to import and launch the dashboard
         from PySide6.QtWidgets import QApplication
 
-        from SpyderG_GUI.SpyderG05_TradingDashboard import TradingDashboard
+        from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 
         app = QApplication(sys.argv)
         app.setApplicationName("Spyder Trading System")
 
+        # CRITICAL: Desktop Integration for GNOME/Wayland
+        desktop_file_name = os.environ.get("SPYDER_DESKTOP_FILE_NAME", "spyder-trading")
+        app.setDesktopFileName(desktop_file_name)
+        print(f"✅ Desktop integration: {desktop_file_name}")
+
         # Create and show dashboard
-        dashboard = TradingDashboard()
+        dashboard = SpyderTradingDashboard()
         dashboard.show()
 
         return app.exec()
@@ -45,8 +50,14 @@ def main():
         # Try a basic PyQt window
         try:
             from PySide6.QtCore import Qt
-            from PySide6.QtWidgets import (QApplication, QLabel, QMainWindow,
-                                        QPushButton, QVBoxLayout, QWidget)
+            from PySide6.QtWidgets import (
+                QApplication,
+                QLabel,
+                QMainWindow,
+                QPushButton,
+                QVBoxLayout,
+                QWidget,
+            )
 
             app = QApplication(sys.argv)
 

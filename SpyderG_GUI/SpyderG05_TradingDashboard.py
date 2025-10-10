@@ -1377,6 +1377,9 @@ class SpyderTradingDashboard(QMainWindow):
         # Real data integration (after UI is ready)
         QTimer.singleShot(1000, self.apply_proven_real_data_pattern)
 
+        # Auto-connect to Gateway and spawn clients if Gateway is running
+        QTimer.singleShot(2000, self.auto_connect_to_gateway)
+
         self.logger.info(
             "Enhanced Dashboard initialized with fixed IB connection detection and heartbeat monitoring"
         )
@@ -3894,7 +3897,7 @@ class SpyderTradingDashboard(QMainWindow):
     # GATEWAY CONTROL INTEGRATION
     # ==========================================================================
     def toggle_gateway_control(self):
-        """Toggle Gateway Control Panel visibility"""
+        """Toggle Gateway Control Panel visibility - opens as floating window"""
         if not gateway_panel_available:
             QMessageBox.information(
                 self,
@@ -3904,28 +3907,92 @@ class SpyderTradingDashboard(QMainWindow):
             )
             return
 
-        if self.gateway_dock is None:
-            # Create dock widget
-            self.gateway_dock = create_gateway_dock_widget(self)
-            self.gateway_panel = self.gateway_dock.widget()
+        if self.gateway_panel is None:
+            # Create floating window (not docked)
+            self.gateway_panel = GatewayControlPanel()
+            self.gateway_panel.setWindowTitle("🔧 SPYDER - IB Gateway Control")
+
+            # Make it a standalone window that can be closed
+            self.gateway_panel.setWindowFlags(
+                Qt.WindowType.Window
+                | Qt.WindowType.WindowCloseButtonHint
+                | Qt.WindowType.WindowMinimizeButtonHint
+            )
+
+            # Set size and position
+            self.gateway_panel.resize(450, 750)
+
+            # Position relative to dashboard (center-right)
+            dashboard_geometry = self.geometry()
+            panel_x = dashboard_geometry.x() + dashboard_geometry.width() - 500
+            panel_y = dashboard_geometry.y() + 50
+            self.gateway_panel.move(panel_x, panel_y)
 
             # Connect signals
             self.gateway_panel.clients_connected.connect(
                 self.on_gateway_clients_connected
             )
 
-            # Add to main window
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.gateway_dock)
-
-            self.add_system_log("🔧 Gateway Control Panel opened")
+            # Show the window
+            self.gateway_panel.show()
+            self.add_system_log("🔧 Gateway Control Panel opened (floating window)")
         else:
             # Toggle visibility
-            if self.gateway_dock.isVisible():
-                self.gateway_dock.hide()
+            if self.gateway_panel.isVisible():
+                self.gateway_panel.hide()
                 self.add_system_log("🔧 Gateway Control Panel hidden")
             else:
-                self.gateway_dock.show()
+                self.gateway_panel.show()
                 self.add_system_log("🔧 Gateway Control Panel shown")
+
+    def auto_connect_to_gateway(self):
+        """Auto-detect Gateway and connect clients on dashboard startup"""
+        if not gateway_panel_available:
+            self.add_system_log(
+                "⚠️ Gateway Control Panel not available - skipping auto-connect"
+            )
+            return
+
+        # Check if Gateway is running on port 4002 (paper trading)
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(("127.0.0.1", 4002))
+            sock.close()
+
+            if result == 0:
+                # Gateway is running!
+                self.add_system_log(
+                    "✅ Gateway detected on port 4002 - auto-connecting clients..."
+                )
+
+                # Open Gateway Control Panel (floating window)
+                self.toggle_gateway_control()
+
+                # Give the panel time to initialize
+                QTimer.singleShot(1000, self.auto_start_clients)
+            else:
+                self.add_system_log(
+                    "⚠️ Gateway not detected - start Gateway first or use Nuclear Restart"
+                )
+        except Exception as e:
+            self.logger.warning(f"Gateway auto-detect failed: {e}")
+            self.add_system_log(
+                "⚠️ Gateway auto-detect failed - manual connection required"
+            )
+
+    def auto_start_clients(self):
+        """Automatically start client connections after Gateway panel is ready"""
+        if self.gateway_panel and gateway_panel_available:
+            # Mark Gateway as running since we detected it
+            self.gateway_panel.gateway_running = True
+            self.gateway_panel.update_gateway_ui()
+
+            # Auto-connect all 8 clients
+            self.add_system_log("🔗 Auto-connecting 8 clients to Gateway...")
+            self.gateway_panel.connect_clients()
+        else:
+            self.add_system_log("⚠️ Gateway panel not ready for auto-connect")
 
     @Slot(int)
     def on_gateway_clients_connected(self, count: int):
@@ -4013,13 +4080,22 @@ class SpyderTradingDashboard(QMainWindow):
         try:
             # NEW: Cleanup Gateway control
             if self.gateway_panel:
-                if self.gateway_panel.client_thread:
+                if (
+                    hasattr(self.gateway_panel, "client_thread")
+                    and self.gateway_panel.client_thread
+                ):
                     self.gateway_panel.client_thread.stop()
                     self.gateway_panel.client_thread.wait(2000)
 
-                if self.gateway_panel.gateway_thread:
+                if (
+                    hasattr(self.gateway_panel, "gateway_thread")
+                    and self.gateway_panel.gateway_thread
+                ):
                     self.gateway_panel.gateway_thread.stop()
                     self.gateway_panel.gateway_thread.wait(2000)
+
+                # Close the floating window
+                self.gateway_panel.close()
 
             # Stop real data timer if active
             if hasattr(self, "_real_data_timer") and self._real_data_timer:
