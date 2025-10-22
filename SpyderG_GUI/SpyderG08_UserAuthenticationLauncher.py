@@ -104,7 +104,9 @@ LOCK_FILE = Path("/tmp/spyder_auth_launcher.lock")  # Singleton lock file
 # Default Configuration
 DEFAULT_CONFIG = {
     "last_username": "",
+    "last_password": "",  # Stored password (if remember_password is enabled)
     "remember_login": "false",
+    "remember_password": "false",
     "auto_launch_dashboard": "true",
     "session_timeout": str(SESSION_TIMEOUT),
     "default_role": "trader",
@@ -484,9 +486,12 @@ class SpyderAuthLauncher:
 
         # Setup variables
         self.username = tk.StringVar(value=self.config.get("SPYDER", "last_username"))
-        self.password = tk.StringVar()
+        self.password = tk.StringVar(value=self.config.get("SPYDER", "last_password"))
         self.remember_login = tk.BooleanVar(
             value=self.config.get("SPYDER", "remember_login") == "true"
+        )
+        self.remember_password = tk.BooleanVar(
+            value=self.config.get("SPYDER", "remember_password") == "true"
         )
 
         # Setup UI
@@ -644,14 +649,22 @@ class SpyderAuthLauncher:
         password_entry.pack(padx=10, pady=(0, 10), fill=tk.X)
         password_entry.bind('<Return>', lambda event: self.login())
 
-        # Remember login
+        # Remember login checkboxes
         remember_check = ttk.Checkbutton(
             login_frame,
             text="Remember username",
             variable=self.remember_login,
             command=self.on_remember_change,
         )
-        remember_check.pack(anchor=tk.W, padx=10, pady=(0, 10))
+        remember_check.pack(anchor=tk.W, padx=10, pady=(0, 5))
+        
+        remember_pass_check = ttk.Checkbutton(
+            login_frame,
+            text="Remember password",
+            variable=self.remember_password,
+            command=self.on_remember_change,
+        )
+        remember_pass_check.pack(anchor=tk.W, padx=10, pady=(0, 10))
 
         # Login button
         self.login_btn = ttk.Button(
@@ -819,8 +832,9 @@ class SpyderAuthLauncher:
         footer.pack(pady=(10, 0))
 
     def on_remember_change(self) -> None:
-        """Handle remember login checkbox change"""
+        """Handle remember login checkbox changes"""
         self.config["SPYDER"]["remember_login"] = "true" if self.remember_login.get() else "false"
+        self.config["SPYDER"]["remember_password"] = "true" if self.remember_password.get() else "false"
         self._save_configuration()
 
     def login(self) -> None:
@@ -836,18 +850,22 @@ class SpyderAuthLauncher:
         success, message = self.user_manager.authenticate_user(username, password)
 
         if success:
-            # Save configuration
+            # Save configuration based on remember preferences
             if self.remember_login.get():
                 self.config["SPYDER"]["last_username"] = username
             else:
                 self.config["SPYDER"]["last_username"] = ""
+            
+            if self.remember_password.get():
+                self.config["SPYDER"]["last_password"] = password
+            else:
+                self.config["SPYDER"]["last_password"] = ""
+            
             self._save_configuration()
 
-            # Show success message
-            messagebox.showinfo("Login Successful", f"Welcome, {self.user_manager.get_user_full_name()}!")
-
-            # Clear password field
-            self.password.set("")
+            # Clear password field if not remembering
+            if not self.remember_password.get():
+                self.password.set("")
 
             # Update status before switching
             self.status_label.configure(text="✅ Authentication System: Active")
@@ -858,7 +876,7 @@ class SpyderAuthLauncher:
 
             # Auto-launch dashboard if enabled
             if self.config.get("SPYDER", "auto_launch_dashboard") == "true":
-                self.root.after(1000, self.launch_dashboard)
+                self.root.after(100, self.launch_dashboard)
         else:
             # Show error message
             messagebox.showerror("Login Failed", message)
@@ -920,7 +938,10 @@ class SpyderAuthLauncher:
                     )
 
                     self.logger.info("✅ Dashboard launched")
-                    messagebox.showinfo("Success", "SPYDER Dashboard launched successfully!")
+                    
+                    # Close the authentication window immediately after launch
+                    # No messagebox needed - clean, seamless transition
+                    self.root.after(100, self._close_launcher)
                     return
 
             messagebox.showerror("Error", "Dashboard executable not found")
@@ -1040,6 +1061,35 @@ TROUBLESHOOTING:
 For assistance, contact your system administrator.
 """
         messagebox.showinfo("Help", help_text)
+
+    def _close_launcher(self) -> None:
+        """
+        Safely close the launcher window after dashboard launch.
+        
+        This method is called with a delay after successful dashboard launch
+        to ensure clean shutdown and prevent the "grab" error.
+        """
+        try:
+            self.logger.info("Closing authentication launcher after dashboard launch")
+            
+            # Note: We don't logout here because the dashboard is now running
+            # and may need the session information
+            
+            # Release singleton lock
+            if hasattr(self, 'singleton_lock') and self.singleton_lock:
+                self.singleton_lock.release()
+            
+            # Quit the mainloop and destroy the window
+            self.root.quit()
+            self.root.destroy()
+            
+        except Exception as e:
+            self.logger.error(f"Error closing launcher: {e}")
+            # Force destroy even if error occurs
+            try:
+                self.root.destroy()
+            except:
+                pass
 
     def on_closing(self) -> None:
         """Handle window close event"""
