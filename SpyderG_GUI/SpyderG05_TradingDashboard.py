@@ -4374,66 +4374,154 @@ def main():
     app.setApplicationName("spyder-trading-system")
     app.setOrganizationName("Spyder Trading System")
 
+    # Implement qasync event loop integration for proper asyncio/Qt compatibility
     try:
-        # Create fixed dashboard
-        print("🔧 Initializing fixed dashboard with heartbeat monitoring...")
-        dashboard = SpyderTradingDashboard()
+        import asyncio
+        import qasync
 
-        # Show dashboard
-        dashboard.show()
+        # Create QEventLoop for asyncio integration
+        loop = qasync.QEventLoop(app)
+        asyncio.set_event_loop(loop)
 
-        # Check real data status
-        data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
-        if data_file.exists():
-            try:
-                with open(data_file, "r") as f:
-                    data = json.load(f)
-                spy_price = data.get("SPY", {}).get("last", "N/A")
-                print(f"✅ Real data detected - SPY: ${spy_price}")
-            except:
-                print("⚠️ Real data file exists but couldn't read it")
-        else:
-            print("📊 No real data detected - using simulation")
-            print("   Start injector: python temp_WorkingDataInjector.py")
+        print("✅ qasync event loop integration enabled - preventing asyncio errors")
+        print("🔗 Qt and asyncio event loops properly synchronized")
 
-        print("\n💔💚💙 FIXED FEATURES:")
-        print("   • IB connection starts DISCONNECTED with proper status display")
-        print(
-            "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
-        )
-        print(
-            "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
-        )
-        print("   • Blue simulation button only visible when IB disconnected")
-        print("   • Fixed-width status containers (no UI jumping)")
-        print("   • Removed 'REAL DATA (FILE)' override - shows proper IB status")
-        print("   • Correct IBKR phone number in all trading button messages")
+        # Create a simple event to signal when the app should close
+        app_close_event = asyncio.Event()
 
-        print("\n🔥 Enhanced Trading Dashboard is ready!")
-        print("   Heartbeat will check IB connection every 30 seconds")
-        print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+        # Connect app aboutToQuit signal to our event
+        app.aboutToQuit.connect(app_close_event.set)
 
-        # Run application
-        return app.exec()
-
-    except Exception as e:
-        print(f"\n❌ Startup error: {e}")
-        import traceback
-
-        traceback.print_exc()
-
-        # Show error dialog if possible
         try:
-            QMessageBox.critical(
-                None,
-                "Fixed Trading Dashboard Error",
-                f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
-                "Please check the console for detailed error information.",
-            )
-        except:
-            pass
+            # Create fixed dashboard
+            print("🔧 Initializing fixed dashboard with heartbeat monitoring...")
+            dashboard = SpyderTradingDashboard()
 
-        return 1
+            # Show dashboard
+            dashboard.show()
+
+            # Check real data status
+            data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
+            if data_file.exists():
+                try:
+                    with open(data_file, "r") as f:
+                        data = json.load(f)
+                    spy_price = data.get("SPY", {}).get("last", "N/A")
+                    print(f"✅ Real data detected - SPY: ${spy_price}")
+                except:
+                    print("⚠️ Real data file exists but couldn't read it")
+            else:
+                print("📊 No real data detected - using simulation")
+                print("   Start injector: python temp_WorkingDataInjector.py")
+
+            print("\n💔💚💙 FIXED FEATURES:")
+            print("   • IB connection starts DISCONNECTED with proper status display")
+            print(
+                "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
+            )
+            print(
+                "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
+            )
+            print("   • Blue simulation button only visible when IB disconnected")
+            print("   • Fixed-width status containers (no UI jumping)")
+            print("   • Removed 'REAL DATA (FILE)' override - shows proper IB status")
+            print("   • Correct IBKR phone number in all trading button messages")
+
+            print("\n🔥 Enhanced Trading Dashboard is ready!")
+            print("   Heartbeat will check IB connection every 30 seconds")
+            print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+            print("🔄 Running with qasync event loop integration...")
+
+            # Run the event loop until the app closes
+            with loop:
+                loop.run_until_complete(app_close_event.wait())
+
+            return 0
+
+        except Exception as e:
+            print(f"\n❌ Startup error: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+            # Show error dialog if possible
+            try:
+                QMessageBox.critical(
+                    None,
+                    "Fixed Trading Dashboard Error",
+                    f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
+                    "Please check the console for detailed error information.",
+                )
+            except:
+                pass
+
+            return 1
+
+    except ImportError:
+        # Fallback to standard event loop if qasync is not available
+        print("⚠️ qasync not available - using standard event loop (may have asyncio issues)")
+        print("   Install with: pip install qasync")
+
+        try:
+            # Create fixed dashboard
+            print("🔧 Initializing fixed dashboard with heartbeat monitoring...")
+            dashboard = SpyderTradingDashboard()
+
+            # Show dashboard
+            dashboard.show()
+
+            # Check real data status
+            data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
+            if data_file.exists():
+                try:
+                    with open(data_file, "r") as f:
+                        data = json.load(f)
+                    spy_price = data.get("SPY", {}).get("last", "N/A")
+                    print(f"✅ Real data detected - SPY: ${spy_price}")
+                except:
+                    print("⚠️ Real data file exists but couldn't read it")
+            else:
+                print("📊 No real data detected - using simulation")
+                print("   Start injector: python temp_WorkingDataInjector.py")
+
+            print("\n💔💚💙 FIXED FEATURES:")
+            print("   • IB connection starts DISCONNECTED with proper status display")
+            print(
+                "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
+            )
+            print(
+                "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
+            )
+            print("   • Blue simulation button only visible when IB disconnected")
+            print("   • Fixed-width status containers (no UI jumping)")
+            print("   • Removed 'REAL DATA (FILE)' override - shows proper IB status")
+            print("   • Correct IBKR phone number in all trading button messages")
+
+            print("\n🔥 Enhanced Trading Dashboard is ready!")
+            print("   Heartbeat will check IB connection every 30 seconds")
+            print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+
+            # Run application with standard event loop
+            return app.exec()
+
+        except Exception as e:
+            print(f"\n❌ Startup error: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+            # Show error dialog if possible
+            try:
+                QMessageBox.critical(
+                    None,
+                    "Fixed Trading Dashboard Error",
+                    f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
+                    "Please check the console for detailed error information.",
+                )
+            except:
+                pass
+
+            return 1
 
 
 if __name__ == "__main__":

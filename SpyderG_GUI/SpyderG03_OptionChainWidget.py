@@ -3,7 +3,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderG04_OptionChainWidget.py
+Module: SpyderG03_OptionChainWidget.py
 Group: G (GUI)
 Purpose: Option chain display widget
 
@@ -82,12 +82,12 @@ class OptionData:
     theta: float = 0.0
     vega: float = 0.0
     implied_volatility: float = 0.0
-    
+
     @property
     def mid_price(self) -> float:
         """Calculate mid price"""
         return (self.bid + self.ask) / 2 if self.bid > 0 and self.ask > 0 else 0.0
-    
+
     @property
     def spread(self) -> float:
         """Calculate bid-ask spread"""
@@ -100,41 +100,41 @@ class OptionData:
 class OptionChainWidget(QWidget):
     """
     Advanced option chain display widget.
-    
+
     Features:
     - Real-time option prices and Greeks
     - Strike selection tools
     - Volume and open interest display
     - Quick trade entry buttons
     """
-    
+
     # Signals
     strike_selected = Signal(float, str, date)  # strike, type, expiration
     trade_requested = Signal(dict)  # trade parameters
-    
+
     def __init__(self, event_manager: EventManager, parent=None):
         super().__init__(parent)
     self.event_manager = event_manager
         self.logger = SpyderLogger.get_logger(__name__)
-    
+
         # Data storage
         self.option_chains: Dict[date, Dict[float, Dict[str, OptionData]]] = {}
         self.current_expiration: Optional[date] = None
         self.underlying_price = 0.0
         self.selected_strikes: List[Tuple[float, str]] = []
-        
+
         # UI components
         self.expiration_combo: Optional[QComboBox] = None
         self.chain_table: Optional[QTableWidget] = None
         self.strike_filter: Optional[QSpinBox] = None
         self.update_timer: Optional[QTimer] = None
-        
+
         # Setup UI
         self.setup_ui()
-    
+
         # Register event handlers
         self._register_event_handlers()
-    
+
         # Start update timer
         self.start_updates()
 
@@ -142,25 +142,25 @@ class OptionChainWidget(QWidget):
         """Setup the user interface"""
         layout = QVBoxLayout()
     layout.setSpacing(5)
-    
+
         # Control panel
         control_panel = self._create_control_panel()
     layout.addWidget(control_panel)
-    
+
         # Option chain display
         self.chain_table = self._create_chain_table()
     layout.addWidget(self.chain_table)
-    
+
         # Summary panel
         summary_panel = self._create_summary_panel()
     layout.addWidget(summary_panel)
-    
+
         self.setLayout(layout)
 
     def _create_chain_table(self) -> QTableWidget:
         """Create the option chain table"""
         table = QTableWidget()
-    
+
         # Define columns
         columns = [
             "Strike",
@@ -169,16 +169,16 @@ class OptionChainWidget(QWidget):
             # Puts
             "P IV", "P Delta", "P Last", "P Ask", "P Bid", "P OI", "P Vol"
         ]
-        
+
         table.setColumnCount(len(columns))
     table.setHorizontalHeaderLabels(columns)
-    
+
         # Configure table
         table.setAlternatingRowColors(True)
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.horizontalHeader().setStretchLastSection(False)
     table.verticalHeader().setVisible(False)
-    
+
         # Set column widths
         for i in range(len(columns)):
             if "Strike" in columns[i]:
@@ -187,36 +187,36 @@ class OptionChainWidget(QWidget):
                 table.setColumnWidth(i, 60)
         else:
                 table.setColumnWidth(i, 70)
-    
+
         # Connect selection signal
         table.itemSelectionChanged.connect(self._on_selection_changed)
-    
+
         return table
-    
+
     def _create_control_panel(self) -> QWidget:
         """Create control panel for option chain"""
         panel = QGroupBox("Option Chain Controls")
     layout = QHBoxLayout()
-    
+
         # Add controls here
-        
+
         panel.setLayout(layout)
     return panel
-    
+
     def _create_summary_panel(self) -> QWidget:
         """Create summary information panel"""
         panel = QGroupBox("Summary")
     layout = QHBoxLayout()
-    
+
         # Add summary widgets here
-        
+
         panel.setLayout(layout)
     return panel
-    
+
     def _register_event_handlers(self):
         """Register event handlers"""
         pass
-    
+
     def start_updates(self):
         """Start periodic updates"""
         self.update_timer = QTimer()
@@ -226,7 +226,7 @@ class OptionChainWidget(QWidget):
     def _update_display(self):
         """Update the option chain display"""
         pass
-    
+
     def _on_selection_changed(self):
         """Handle strike selection"""
         pass

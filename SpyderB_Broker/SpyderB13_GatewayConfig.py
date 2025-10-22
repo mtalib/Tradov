@@ -11,10 +11,11 @@ Year Created: 2025
 Last Updated: 2025-09-11 Time: 17:00:00
 
 Module Description:
-    Comprehensive IB Gateway 10.39 configuration manager that merges the best
+    Comprehensive IB Gateway configuration manager that merges the best
     features from SpyderB13_GatewayConfig and SpyderB19_GatewayConfiguration.
     Provides production-ready gateway configuration, automated setup, version
     validation, and advanced connection stability features for autonomous trading.
+    IB Gateway 10.39 specific features have been removed.
 
 Key Features (Merged from B13 + B19):
     - Complete client allocation strategy (Clients 1-10) from B13
@@ -84,7 +85,7 @@ except ImportError:
 # ==============================================================================
 # CONSTANTS - ENHANCED FROM B19
 # ==============================================================================
-# IB Gateway 10.37 Configuration
+# IB Gateway Configuration
 IB_GATEWAY_VERSION = "10.37"
 TWS_MAJOR_VRSN = "1037"  # Internal version for 10.37
 TWS_BUILD_VERSION = "10.37.1l"  # Latest stable build
@@ -115,7 +116,7 @@ CONNECTION_PARAMS = {
     "health_check_interval": 60,
 }
 
-# JVM Configuration - OPTIMIZED FOR GATEWAY 10.39 (from B19)
+# JVM Configuration - OPTIMIZED FOR IB Gateway (from B19)
 JVM_CONFIG = {
     "heap_min": "1024m",
     "heap_max": "4096m",  # 4GB recommended
@@ -584,7 +585,7 @@ class GatewayManager:
 
     def validate_installation(self) -> ValidationResult:
         """
-        Validate IB Gateway 10.39 installation (enhanced from B19).
+        Validate IB Gateway installation (enhanced from B19).
 
         Returns:
             ValidationResult with detailed status

@@ -25,6 +25,9 @@ Modules Overview:
     • SpyderG06_ClientMonitorPanel: Client connection monitoring
     • SpyderG07_PrometheusMetricsDisplay: Metrics visualization
     • SpyderG13_EnhancedWidgets: Custom enhanced UI widgets
+    • SpyderG29_ChartWidgetPlotly: Plotly-based chart widget
+    • SpyderG30_PlotlyDataBridge: Data bridge for Plotly charts
+    • SpyderG31_PlotlyTemplates: Templates for Plotly charts
 
 Key Features:
     • Modern PySide6-based interface

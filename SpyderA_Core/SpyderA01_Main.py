@@ -127,10 +127,15 @@ try:
         ConnectionConfig,
     )
 
+    # IB Gateway 10.39 specialized connection manager removed
+    HAS_1039_MANAGER = False
+    print("ℹ️ IB Gateway 10.39 specialized connection manager has been removed")
+
     has_broker_modules = True
     print("✅ Broker modules loaded successfully!")
 except ImportError as e:
     print(f"Warning: Broker modules not available: {e}")
+    HAS_1039_MANAGER = False
 
 # Real Trading Dashboard (SpyderG05)
 has_trading_dashboard = False
@@ -143,6 +148,28 @@ try:
     print("✅ Real Trading Dashboard (G05) loaded successfully!")
 except ImportError as e:
     print(f"Warning: Trading Dashboard not available: {e}")
+
+# Working Trading Dashboard (fallback)
+has_working_dashboard = False
+WorkingSpyderDashboard: type | None = None
+
+try:
+    # Try to import our working dashboard
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "launch_spyder_working_dashboard",
+        project_root / "launch_spyder_working_dashboard.py"
+    )
+    if spec and spec.loader:
+        working_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(working_module)
+        WorkingSpyderDashboard = working_module.WorkingSpyderDashboard
+        has_working_dashboard = True
+        print("✅ Working Trading Dashboard loaded successfully!")
+except ImportError as e:
+    print(f"Warning: Working Trading Dashboard not available: {e}")
+except Exception as e:
+    print(f"Warning: Error loading Working Trading Dashboard: {e}")
 
 # ==============================================================================
 # CONFIGURATION
@@ -493,15 +520,15 @@ class SpyderApplication:
                     "ℹ️ Event manager not available - continuing without it"
                 )
 
-            # CRITICAL FIX: Skip blocking broker connection at startup
-            # The Dashboard has a Gateway polling timer that will connect automatically
-            # when Gateway becomes available (check_and_connect_gateway every 5 seconds)
+            # IB Gateway 10.39 specialized connection manager removed
+            # Using standard connection approach
             self.logger.info(
                 "⚡ Skipping blocking Gateway connection at startup for fast launch"
             )
             self.logger.info(
                 "🔄 Dashboard will auto-connect via polling timer when Gateway is available"
             )
+
             self.client = None  # Will be set by set_ib_client() when available
 
             self.logger.info("✅ Core systems initialized successfully!")
@@ -571,6 +598,20 @@ class SpyderApplication:
 
                 self.main_window.show()
                 self.logger.info("✅ Real Trading Dashboard launched successfully!")
+            elif has_working_dashboard and WorkingSpyderDashboard:
+                self.logger.info("🚀 Starting Working Trading Dashboard (fallback)...")
+
+                try:
+                    self.main_window = WorkingSpyderDashboard()
+                except Exception as e:
+                    self.logger.error(f"❌ Failed to create working dashboard: {e}")
+                    import traceback
+
+                    self.logger.debug(traceback.format_exc())
+                    raise
+
+                self.main_window.show()
+                self.logger.info("✅ Working Trading Dashboard launched successfully!")
             else:
                 self.logger.info(
                     "⚠️ Trading Dashboard not available, using test window..."
@@ -658,7 +699,11 @@ class SpyderApplication:
                 except Exception as e:
                     self.logger.warning(f"GUI cleanup error: {e}")
 
+            # IB Gateway 10.39 specialized connection manager removed
+
             self.logger.info("✅ Shutdown complete")
+
+    # IB Gateway 10.39 specialized connection manager method removed
 
 
 def main() -> int:

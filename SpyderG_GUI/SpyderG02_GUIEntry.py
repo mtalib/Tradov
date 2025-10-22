@@ -23,10 +23,24 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def main():
     """Main entry point"""
     try:
-        # Try to import and launch the dashboard
-        from PySide6.QtWidgets import QApplication
+        # Try to import PySide6 first
+        try:
+            from PySide6.QtWidgets import QApplication
+            PYSIDE6_AVAILABLE = True
+        except ImportError as e:
+            print(f"PySide6 import error: {e}")
+            PYSIDE6_AVAILABLE = False
+            # Fall back to basic window
+            raise ImportError("PySide6 not available")
 
-        from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
+        # Then try to import the dashboard
+        try:
+            from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
+        except ImportError as e:
+            print(f"Dashboard import error: {e}")
+            print("This might be due to missing dependencies in the dashboard modules.")
+            # Fall back to basic window
+            raise ImportError("Dashboard modules not found")
 
         app = QApplication(sys.argv)
         app.setApplicationName("Spyder Trading System")

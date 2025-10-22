@@ -3,16 +3,17 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderB_Broker
 Module: SpyderB23_BashrcConfiguration.py
-Purpose: Automated Bashrc Configuration for IB Gateway 10.39
+Purpose: Automated Bashrc Configuration for IB Gateway
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-26 Time: 11:00:00
 
 Module Description:
     Automated configuration management for .bashrc environment setup specific
-    to IB Gateway 10.39 and the Spyder trading system. Handles environment
+    to IB Gateway and the Spyder trading system. Handles environment
     variables, paths, aliases, and system optimizations required for stable
     Gateway operation on Ubuntu 25.04 with Wayland/Xvfb support.
+    IB Gateway 10.39 specific features have been removed.
 """
 
 import os
@@ -98,7 +99,7 @@ SHELL_FUNCTIONS = """
 
 # Function to start IB Gateway with monitoring
 spyder_gateway_start() {
-    echo "🚀 Starting IB Gateway 10.39..."
+    echo "🚀 Starting IB Gateway..."
 
     # Check if already running
     if pgrep -f ibgateway > /dev/null; then
@@ -651,12 +652,12 @@ class BashrcConfigurationManager:
 
     def migrate_from_1037(self) -> bool:
         """
-        Migrate configuration from Gateway 10.37 to 10.39.
+        Migrate configuration from Gateway 10.37.
 
         Returns:
             bool: True if migrated successfully
         """
-        self.logger.info("🔄 Migrating from Gateway 10.37 to 10.39...")
+        self.logger.info("🔄 Migrating from Gateway 10.37...")
 
         content = self.read_bashrc()
 
@@ -669,14 +670,8 @@ class BashrcConfigurationManager:
             backup_path = self.backup_bashrc()
             self.logger.info(f"Pre-migration backup: {backup_path}")
 
-        # Replace version numbers
-        replacements = [
-            ('TWS_MAJOR_VRSN="1037"', 'TWS_MAJOR_VRSN="1039"'),
-            ('TWS_MAJOR_VRSN="1012"', 'TWS_MAJOR_VRSN="1039"'),  # Old version
-            ('IB_GATEWAY_VERSION="10.37"', 'IB_GATEWAY_VERSION="10.39"'),
-            ("/ibgateway/1037", "/ibgateway/1039"),
-            ("/ibgateway/1012", "/ibgateway/1039"),
-        ]
+        # IB Gateway 10.39 migration removed - no longer needed
+        replacements = []
 
         modified = False
         for old, new in replacements:
@@ -751,7 +746,7 @@ fi
 
 # Create directories
 echo "Creating directories..."
-mkdir -p ~/Jts/ibgateway/1039
+mkdir -p ~/Jts/ibgateway/1037
 mkdir -p ~/ibc
 mkdir -p ~/spyder
 mkdir -p ~/spyder_logs

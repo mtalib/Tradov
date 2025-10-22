@@ -1,0 +1,145 @@
+# IBKR Client Portal Web API Wrapper Configuration Template
+# Copy this file to ibkr_config.yaml and modify as needed
+
+# Gateway Configuration
+gateway:
+  # Base URL for the IBKR Client Portal Gateway
+  base_url: "https://localhost:5000"
+
+  # API version
+  api_version: "v1"
+
+  # Request timeout in seconds
+  timeout: 30
+
+  # SSL certificate verification (set to false for self-signed certs)
+  verify_ssl: false
+
+  # Maximum number of retry attempts
+  max_retries: 3
+
+  # Delay between retries in seconds
+  retry_delay: 1.0
+
+# Session Management Configuration
+session:
+  # How often to check authentication status (seconds)
+  auth_check_interval: 5
+
+  # How often to send tickle requests (seconds)
+  tickle_interval: 60
+
+  # Maximum time to wait for authentication (seconds)
+  max_auth_wait: 300
+
+  # Session refresh interval (seconds)
+  session_refresh_interval: 3600
+
+  # Enable automatic session refresh
+  auto_refresh: true
+
+# Order Management Configuration
+orders:
+  # Default timeout for order operations (seconds)
+  default_timeout: 10
+
+  # Number of retry attempts for order operations
+  retry_attempts: 3
+
+  # Delay between retries (seconds)
+  retry_delay: 1.0
+
+  # Validate orders before submission
+  validate_orders: true
+
+  # Order cache duration (seconds)
+  order_cache_duration: 300
+
+  # Maximum number of orders to keep in history
+  max_order_history: 1000
+
+  # Default time in force for orders
+  default_tif: "DAY"
+
+# Market Data Configuration
+market_data:
+  # Default timeout for market data requests (seconds)
+  default_timeout: 10
+
+  # Number of retry attempts for market data requests
+  retry_attempts: 3
+
+  # Delay between retries (seconds)
+  retry_delay: 1.0
+
+  # How long to cache market data (seconds)
+  cache_duration: 5
+
+  # Maximum number of items to keep in cache
+  max_cache_size: 1000
+
+  # Minimum delay between requests (seconds) - rate limiting
+  rate_limit_delay: 0.1
+
+  # Default market data fields to request
+  default_fields:
+    - "31"  # Last price
+    - "84"  # Bid
+    - "86"  # Ask
+
+# Logging Configuration
+logging:
+  # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  level: "INFO"
+
+  # Log file path (null for console only)
+  file: "ibkr_wrapper.log"
+
+  # Maximum log file size
+  max_size: "10MB"
+
+  # Number of backup log files to keep
+  backup_count: 5
+
+  # Log message format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Account Configuration
+# Replace with your actual account IDs
+accounts:
+  # Default account for trading operations
+  default_account: "DU1234567"
+
+  # Paper trading account
+  paper_account: "DU7654321"
+
+# Feature Flags
+features:
+  # Enable IBKR wrapper (set to false to use fallback)
+  use_ibkr_wrapper: true
+
+  # Enable real-time market data
+  enable_realtime_data: true
+
+  # Enable historical data
+  enable_historical_data: true
+
+  # Enable order operations
+  enable_orders: true
+
+  # Enable position tracking
+  enable_positions: true
+
+  # Enable account information
+  enable_accounts: true
+
+# Environment Settings
+environment:
+  # Environment type (production, certification, paper)
+  type: "production"
+
+  # Enable debug mode
+  debug: false
+
+  # Enable performance monitoring
+  monitor_performance: true

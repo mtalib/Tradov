@@ -39,9 +39,12 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, TYPE_CHECKING
 from enum import Enum
 from dataclasses import dataclass, field
+
+if TYPE_CHECKING:
+    from ib_async import IB
 
 from PySide6.QtCore import QThread, Signal, QObject, QMutex, QMutexLocker
 
@@ -49,9 +52,10 @@ try:
     from ib_async import IB, util
 
     IB_AVAILABLE = True
+    IB_CLASS = IB
 except ImportError:
     IB_AVAILABLE = False
-    IB = None
+    IB_CLASS = None
 
 
 # ==============================================================================
@@ -109,7 +113,7 @@ class ClientState:
 
     client_id: int
     status: ClientStatus
-    ib_instance: Optional[IB]
+    ib_instance: Optional[object]  # Will be IB instance if available
     accounts: List[str]
     last_activity: Optional[datetime]
     error_message: Optional[str]
@@ -216,17 +220,33 @@ class ClientConnectionManager(QObject):
         )
         self._stop_requested = False
 
-        # Create single event loop for all clients
-        util.patchAsyncio()
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        # Run the async connection process
+        # Use the current event loop instead of creating a new one
+        # This prevents the "Task got Future attached to a different loop" error
         try:
-            success_count = loop.run_until_complete(self._connect_all_async(loop))
-        finally:
-            # Close the event loop after all clients are processed
-            loop.close()
+            # Try to get the current event loop
+            loop = asyncio.get_running_loop()
+            self.log_message.emit("📡 Using existing event loop")
+        except RuntimeError:
+            # No running loop, create one
+            util.patchAsyncio()
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self.log_message.emit("📡 Created new event loop")
+
+            # We'll run the loop synchronously since we created it
+            try:
+                success_count = loop.run_until_complete(self._connect_all_async(loop))
+            finally:
+                # Close the event loop after all clients are processed
+                loop.close()
+        else:
+            # We have a running loop, create a task to run our connection
+            import concurrent.futures
+
+            # Create a new thread to run the async connection
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(self._run_connection_in_thread)
+                success_count = future.result()
 
         # Summary
         self.log_message.emit(f"\n{'=' * 60}")
@@ -238,6 +258,17 @@ class ClientConnectionManager(QObject):
         self.all_clients_ready.emit(success_count, self.num_clients)
 
         return success_count >= (self.num_clients / 2)
+
+    def _run_connection_in_thread(self) -> int:
+        """Run the connection process in a separate thread with its own event loop"""
+        util.patchAsyncio()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            return loop.run_until_complete(self._connect_all_async(loop))
+        finally:
+            loop.close()
 
     async def _connect_all_async(self, loop: asyncio.AbstractEventLoop) -> int:
         """
@@ -268,7 +299,11 @@ class ClientConnectionManager(QObject):
             self.connection_progress.emit(i + 1, self.num_clients)
 
             # Create IB instance
-            ib = IB()
+            if IB_AVAILABLE and IB_CLASS:
+                ib = IB_CLASS()
+            else:
+                self.log_message.emit("❌ ib_async not available")
+                return False
 
             # Create connection task
             task = self._connect_single_client_async(ib, client_id, config)
@@ -288,7 +323,7 @@ class ClientConnectionManager(QObject):
         return success_count
 
     async def _connect_single_client_async(
-        self, ib: IB, client_id: int, config: ClientConfig
+        self, ib, client_id: int, config: ClientConfig
     ) -> bool:
         """
         Async method to connect a single client with proper handshake delay.
@@ -423,7 +458,11 @@ class ClientConnectionManager(QObject):
 
         try:
             # Create new IB instance
-            ib = IB()
+            if IB_AVAILABLE and IB_CLASS:
+                ib = IB_CLASS()
+            else:
+                self.log_message.emit("❌ ib_async not available")
+                return False
             config = self.client_configs[client_id]
 
             # Reconnect with event loop
@@ -444,7 +483,10 @@ class ClientConnectionManager(QObject):
             state = self.client_states.get(client_id)
             if state and state.ib_instance:
                 try:
-                    state.ib_instance.disconnect()
+                    # Use getattr to safely call disconnect method
+                    disconnect_method = getattr(state.ib_instance, 'disconnect', None)
+                    if disconnect_method and callable(disconnect_method):
+                        disconnect_method()
                     self.log_message.emit(f"🔌 Client {client_id} disconnected")
                 except Exception as e:
                     self.log_message.emit(
