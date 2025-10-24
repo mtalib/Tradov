@@ -293,7 +293,10 @@ class StreamlinedSpyderLauncher:
         )
         self.info_label.pack(fill='both')
 
-        # Launch button (create BEFORE calling _on_mode_change)
+        # Update info based on initial mode
+        self._on_mode_change()
+
+        # Launch button
         self.launch_btn = tk.Button(
             main_frame,
             text="🚀 CONNECT & LAUNCH",
@@ -310,9 +313,6 @@ class StreamlinedSpyderLauncher:
             pady=15
         )
         self.launch_btn.pack(pady=20)
-
-        # Update info based on initial mode (after button is created)
-        self._on_mode_change()
 
         # Status bar
         status_frame = tk.Frame(main_frame, bg=self.colors['status_bg'], height=40)
@@ -385,26 +385,22 @@ class StreamlinedSpyderLauncher:
             self.launch_btn.config(text="🚀 LAUNCH DASHBOARD")
             
         elif mode == "paper_trading":
-            info_text = ("ℹ️  Browser Login Required\n\n"
+            info_text = ("ℹ️  Browser Authentication Required\n\n"
                         "When you click the button:\n"
-                        "1. Browser opens to IBKR login page\n"
-                        "2. Log in manually with your credentials\n"
-                        "3. Complete any 2FA if prompted\n"
-                        "4. Dashboard launches automatically\n\n"
-                        "⚠️ You have 5 minutes to complete login\n"
-                        "📍 Gateway must be running on port 5000")
+                        "1. Browser opens automatically\n"
+                        "2. Log in to IBKR Paper Trading\n"
+                        "3. Dashboard launches on success\n\n"
+                        "Port 5000: App ↔ Client Portal Gateway")
             self.launch_btn.config(text="🚀 CONNECT & LAUNCH")
             self.trading_mode.set("paper")
             
         elif mode == "live_trading":
-            info_text = ("⚠️  Live Trading - Manual Browser Login\n\n"
+            info_text = ("⚠️  Live Trading - Browser Authentication\n\n"
                         "When you click the button:\n"
-                        "1. Browser opens to IBKR login page\n"
-                        "2. Log in with your LIVE credentials\n"
-                        "3. Complete 2FA authentication\n"
-                        "4. Dashboard launches automatically\n\n"
-                        "⚠️  REAL MONEY TRADING - Be Careful!\n"
-                        "⏱️  You have 5 minutes to complete login")
+                        "1. Browser opens automatically\n"
+                        "2. Log in to IBKR with 2FA\n"
+                        "3. Dashboard launches on success\n\n"
+                        "⚠️  REAL MONEY - Be careful!")
             self.launch_btn.config(text="🚀 CONNECT & LAUNCH (LIVE)")
             self.trading_mode.set("live")
         
@@ -451,111 +447,56 @@ class StreamlinedSpyderLauncher:
 
     def _authenticate_and_launch(self, trading_mode: str):
         """Authenticate with IBKR and launch dashboard"""
-        import webbrowser
-        
         try:
             self.logger.info(f"Starting authentication for {trading_mode} mode")
             
-            # Import requests for direct API calls
+            # Import IBKR components
             try:
-                import requests
-                import urllib3
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            except ImportError:
-                raise Exception("requests module not available - install with: pip install requests")
+                from SpyderB_Broker.SpyderB09_IBClientPortal import IBClientPortal
+                from SpyderB_Broker.SpyderB32_IBKRSessionManager import SessionManager
+            except ImportError as e:
+                raise Exception(f"IBKR modules not available: {e}")
             
-            # IBKR Client Portal URL
-            base_url = "https://localhost:5000"
-            login_url = f"{base_url}/sso/Login?forwardTo=22&RL=1&ip2loc=on"
-            
-            # Update status and open browser
+            # Update status
             self.root.after(0, lambda: self.update_status(
-                "Opening browser for IBKR authentication..."
+                "Initializing IBKR connection..."
             ))
             
-            # Open browser to IBKR login page
-            time.sleep(0.5)
-            webbrowser.open(login_url)
-            self.logger.info(f"Opened browser to: {login_url}")
+            # Configure session
+            config = {
+                'base_url': 'https://localhost:5000',
+                'trading_mode': trading_mode,
+                'verify_ssl': False
+            }
             
+            session_mgr = SessionManager(config)
+            
+            # Authenticate (opens browser)
             self.root.after(0, lambda: self.update_status(
-                "Waiting for IBKR login... (check your browser)"
+                "Browser opened - please complete IBKR authentication..."
             ))
             
-            # Poll for authentication status
-            max_wait_time = 300  # 5 minutes
-            poll_interval = 3  # Check every 3 seconds
-            elapsed_time = 0
-            
-            session = requests.Session()
-            session.verify = False
-            
-            while elapsed_time < max_wait_time:
-                try:
-                    # Check authentication status
-                    response = session.get(
-                        f"{base_url}/v1/api/iserver/auth/status",
-                        timeout=5
-                    )
-                    
-                    if response.status_code == 200:
-                        status = response.json()
-                        
-                        if status.get('authenticated', False):
-                            # Successfully authenticated!
-                            self.logger.info("IBKR authentication successful")
-                            self.root.after(0, lambda: self.update_status(
-                                "✅ Authentication successful! Launching dashboard..."
-                            ))
-                            
-                            time.sleep(1)
-                            
-                            # Launch dashboard
-                            self.root.after(0, lambda: self.launch_dashboard(
-                                with_ibkr=True,
-                                use_web_api=True
-                            ))
-                            
-                            # Close launcher
-                            time.sleep(0.5)
-                            self.root.after(0, self.close_launcher)
-                            return
-                        
-                        elif status.get('competing', False):
-                            raise Exception(
-                                "Another session is active. Please log out of TWS/IB Gateway "
-                                "and other IBKR applications first."
-                            )
-                
-                except requests.exceptions.ConnectionError:
-                    # Gateway not running
-                    if elapsed_time == 0:  # Only raise on first check
-                        raise Exception(
-                            "Cannot connect to Client Portal Gateway.\n\n"
-                            "Please ensure:\n"
-                            "1. Client Portal Gateway is running\n"
-                            "2. It's listening on port 5000\n"
-                            "3. You started it with the correct config"
-                        )
-                
-                except Exception as e:
-                    self.logger.warning(f"Auth check error: {e}")
-                
-                # Wait and update status
-                time.sleep(poll_interval)
-                elapsed_time += poll_interval
-                
-                # Update status with countdown
-                remaining = max_wait_time - elapsed_time
-                self.root.after(0, lambda r=remaining: self.update_status(
-                    f"Waiting for IBKR login... ({r}s remaining)"
+            if session_mgr.authenticate():
+                # Success!
+                self.root.after(0, lambda: self.update_status(
+                    "✅ Authentication successful! Launching dashboard..."
                 ))
-            
-            # Timeout
-            raise Exception(
-                "Authentication timeout. Please try again and complete the "
-                "IBKR login within 5 minutes."
-            )
+                
+                time.sleep(1)  # Brief pause
+                
+                # Launch dashboard
+                self.root.after(0, lambda: self.launch_dashboard(
+                    with_ibkr=True,
+                    use_web_api=True
+                ))
+                
+                # Close launcher
+                time.sleep(0.5)
+                self.root.after(0, self.close_launcher)
+                
+            else:
+                # Authentication failed
+                raise Exception("Authentication was not completed or failed")
                 
         except Exception as e:
             self.logger.error(f"Authentication error: {e}")
