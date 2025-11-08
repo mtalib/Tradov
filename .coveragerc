@@ -1,0 +1,110 @@
+# Coverage Configuration for Spyder Trading System
+
+[run]
+# Source code to measure
+source =
+    SpyderB_Broker/ClientPortalAPI
+    SpyderU_Utilities
+    SpyderA_Core
+    SpyderC_MarketData
+    SpyderD_Strategies
+    SpyderE_Risk
+
+# Omit these files/directories
+omit =
+    */tests/*
+    */test_*.py
+    */*_test.py
+    */SpyderT_Testing/*
+    */__init__.py
+    */venv/*
+    */.venv/*
+    */site-packages/*
+    */conftest.py
+    # Archive and deprecated
+    archive/*
+    */deprecated/*
+    *_Old.py
+    *_Fixed.py
+    # Scripts and utilities
+    SpyderQ_Scripts/*
+    setup.py
+    # GUI (complex to test, low priority)
+    SpyderG_GUI/*
+
+# Branch coverage
+branch = True
+
+# Parallel mode
+parallel = True
+
+# Data file
+data_file = .coverage
+
+[report]
+# Precision for coverage percentage
+precision = 2
+
+# Show missing lines
+show_missing = True
+
+# Skip covered files in output
+skip_covered = False
+
+# Skip empty files
+skip_empty = True
+
+# Sort by coverage percentage
+sort = Cover
+
+# Exclude lines from coverage
+exclude_lines =
+    # Standard pragmas
+    pragma: no cover
+
+    # Debug code
+    def __repr__
+    def __str__
+
+    # Defensive programming
+    raise AssertionError
+    raise NotImplementedError
+
+    # Non-runnable code
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
+
+    # Platform-specific code
+    if sys.platform
+    if platform.system
+
+    # Type checking
+    if TYPE_CHECKING:
+    @overload
+
+    # Ellipsis
+    \.\.\.
+    pass
+
+# Ignore errors for missing source files
+ignore_errors = True
+
+[html]
+# HTML report output directory
+directory = htmlcov
+
+# Title for HTML report
+title = Spyder Trading System - Test Coverage Report
+
+[xml]
+# XML report output file
+output = coverage.xml
+
+[paths]
+# Map paths for coverage combination
+source =
+    SpyderB_Broker/ClientPortalAPI
+    */SpyderB_Broker/ClientPortalAPI
