@@ -10,7 +10,7 @@ Purpose: Streamlined GUI launcher with dashboard-first workflow
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-10-24 Time: 12:00:00
-Version: 3.0.0
+Version: 3.0.1
 
 Module Description:
     Revolutionary launcher design where the dashboard launches FIRST, then IBKR
@@ -26,14 +26,26 @@ Module Description:
     2. Launch Dashboard & IBKR Web API Login (dashboard opens, then browser for login)
 
 Module Constants:
-    VERSION (str): Current module version (default: "3.0.0")
+    VERSION (str): Current module version (default: "3.0.1")
     BUILD_DATE (str): Build date in YYYY-MM-DD format (default: "2025-10-24")
     SPYDER_HOME (Path): Main Spyder project directory (default: ~/Projects/Spyder)
     CONFIG_DIR (Path): Configuration directory (default: ~/Projects/Spyder/config)
     CONFIG_FILE (Path): Launcher configuration file (default: launcher_config_v3.ini)
     LOG_DIR (Path): Log directory (default: ~/spyder_logs)
+    GATEWAY_URL (str): IBKR Gateway URL (default: https://localhost:5000)
+    GATEWAY_CHECK_INTERVAL (int): Gateway status check interval in seconds (default: 2)
+    GATEWAY_TIMEOUT (int): Maximum wait time for gateway startup in seconds (default: 30)
 
 Change Log:
+    2025-10-24 (v3.0.1):
+        - Fixed: Moved requests import to top of file per GLM-Specs
+        - Fixed: Added proper error handling for missing requests library
+        - Fixed: Improved gateway status checking with better error messages
+        - Fixed: Added urllib3 warnings suppression at module level
+        - Fixed: Enhanced Docker container detection and status reporting
+        - Improved: Better user feedback during gateway startup
+        - Improved: Graceful degradation when requests library unavailable
+
     2025-10-24 (v3.0.0):
         - Revolutionary workflow: Dashboard launches FIRST, then IBKR login
         - Simplified to 2 options: "Dashboard Only" or "Dashboard & IBKR"
@@ -58,6 +70,8 @@ Change Log:
 Dependencies:
     - tkinter for GUI
     - SpyderU_Utilities for logging
+    - requests for HTTP gateway status checks (optional)
+    - urllib3 for SSL warnings suppression (optional)
 """
 
 # ==============================================================================
@@ -79,12 +93,23 @@ from datetime import datetime
 try:
     import tkinter as tk
     from tkinter import ttk, messagebox
-
     HAS_TK = True
 except ImportError:
     HAS_TK = False
     print("ERROR: tkinter is required for GUI launcher")
     sys.exit(1)
+
+# Import requests for gateway status checking
+try:
+    import requests
+    import urllib3
+    # Disable SSL warnings for localhost self-signed certificates
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+    print("WARNING: requests library not installed - gateway status checking disabled")
+    print("Install with: pip install requests")
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -94,18 +119,16 @@ sys.path.insert(0, str(project_root))
 
 try:
     from SpyderU_Utilities.SpyderU01_Logger import get_logger
-
     HAS_LOGGER = True
 except ImportError:
     HAS_LOGGER = False
     import logging
-
     get_logger = logging.getLogger
 
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 BUILD_DATE = "2025-10-24"
 
 SPYDER_HOME = Path.home() / "Projects" / "Spyder"
@@ -113,20 +136,25 @@ CONFIG_DIR = SPYDER_HOME / "config"
 CONFIG_FILE = CONFIG_DIR / "launcher_config_v3.ini"
 LOG_DIR = Path.home() / "spyder_logs"
 
+# Gateway configuration
+GATEWAY_URL = "https://localhost:5000"
+GATEWAY_CHECK_INTERVAL = 2  # seconds
+GATEWAY_TIMEOUT = 30  # seconds
+
 # Tooltips with clear messaging
 TOOLTIPS = {
     "dashboard_only": "Launch dashboard in simulation mode.\n"
-    "• No IBKR connection\n"
-    "• Uses simulated market data\n"
-    "• Safe for learning and testing\n"
-    "• Immediate launch",
+                     "• No IBKR connection\n"
+                     "• Uses simulated market data\n"
+                     "• Safe for learning and testing\n"
+                     "• Immediate launch",
     "dashboard_ibkr": "Launch dashboard, then open IBKR login.\n"
-    "• Dashboard opens IMMEDIATELY\n"
-    "• Browser opens for IBKR authentication\n"
-    "• Dashboard shows connection status in real-time\n"
-    "• You choose Paper or Live on IBKR login page\n"
-    "• Dashboard automatically switches to live data when connected\n\n"
-    "Flow: Click LAUNCH → Dashboard opens → Browser opens → Login → Connected!",
+                     "• Dashboard opens IMMEDIATELY\n"
+                     "• Browser opens for IBKR authentication\n"
+                     "• Dashboard shows connection status in real-time\n"
+                     "• You choose Paper or Live on IBKR login page\n"
+                     "• Dashboard automatically switches to live data when connected\n\n"
+                     "Flow: Click LAUNCH → Dashboard opens → Browser opens → Login → Connected!",
 }
 
 
@@ -160,13 +188,13 @@ class StreamlinedSpyderLauncher:
     def __init__(self):
         """Initialize the streamlined launcher."""
         self.root = tk.Tk()
-        self.root.title("SPYDER Launcher v3.0")
+        self.root.title(f"SPYDER Launcher v{VERSION}")
         self.root.geometry("600x450")
         self.root.resizable(False, False)
 
         # Setup logging
         self.logger = get_logger(__name__)
-        self.logger.info("Initializing StreamlinedSpyderLauncher v3.0")
+        self.logger.info(f"Initializing StreamlinedSpyderLauncher v{VERSION}")
 
         # Load configuration
         self.config = configparser.ConfigParser()
@@ -287,7 +315,7 @@ class StreamlinedSpyderLauncher:
         # Button 2: Launch Dashboard & IBKR
         dashboard_ibkr_btn = tk.Button(
             buttons_frame,
-            text="� LAUNCH DASHBOARD & IBKR LOGIN",
+            text="💼 LAUNCH DASHBOARD & IBKR LOGIN",
             font=("Arial", 12, "bold"),
             bg=self.colors["green"],
             fg="#000",
@@ -378,24 +406,74 @@ class StreamlinedSpyderLauncher:
         """
         Check if IBKR Client Portal Gateway is running.
 
+        Uses HTTP request to gateway health endpoint. Requires requests library.
+
         Returns:
             bool: True if gateway detected, False otherwise
         """
+        if not HAS_REQUESTS:
+            self.logger.warning("requests library not available - cannot check gateway status")
+            return False
+
         try:
-            import requests
-            import urllib3
-
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
             response = requests.get(
-                "https://localhost:5000/v1/api/one/user", verify=False, timeout=2
+                f"{GATEWAY_URL}/v1/api/one/user",
+                verify=False,
+                timeout=2
             )
-            return response.status_code in [
-                200,
-                401,
-            ]  # 401 means gateway running but not authenticated
+            # 200 = authenticated, 401 = gateway running but not authenticated
+            is_running = response.status_code in [200, 401]
+            
+            if is_running:
+                self.logger.info(f"Gateway detected (status code: {response.status_code})")
+            
+            return is_running
 
-        except Exception:
+        except requests.exceptions.ConnectionError:
+            self.logger.debug("Gateway not reachable - connection refused")
+            return False
+        except requests.exceptions.Timeout:
+            self.logger.debug("Gateway health check timed out")
+            return False
+        except Exception as e:
+            self.logger.debug(f"Gateway status check failed: {e}")
+            return False
+
+    def _check_docker_container(self, container_name: str) -> bool:
+        """
+        Check if Docker container exists and is running.
+
+        Args:
+            container_name: Name of Docker container to check
+
+        Returns:
+            bool: True if container is running, False otherwise
+        """
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            is_running = container_name in result.stdout
+            
+            if is_running:
+                self.logger.info(f"Docker container '{container_name}' is running")
+            else:
+                self.logger.debug(f"Docker container '{container_name}' not found")
+            
+            return is_running
+
+        except subprocess.TimeoutExpired:
+            self.logger.warning("Docker command timed out")
+            return False
+        except FileNotFoundError:
+            self.logger.debug("Docker not installed or not in PATH")
+            return False
+        except Exception as e:
+            self.logger.debug(f"Docker check failed: {e}")
             return False
 
     # ==========================================================================
@@ -531,10 +609,18 @@ class StreamlinedSpyderLauncher:
         try:
             # First check if gateway is already running
             self.logger.info("Checking if gateway is already running...")
-            if self._check_gateway_status():
+            
+            # Check both HTTP endpoint and Docker container
+            gateway_running = self._check_gateway_status()
+            container_running = self._check_docker_container("ibkr-gateway-paper") or \
+                              self._check_docker_container("ibkr-gateway-live")
+            
+            if gateway_running or container_running:
                 self.logger.info("✅ Gateway already running!")
+                self.update_status("Gateway already running - opening browser...")
+                
                 # Just open the browser
-                login_url = "https://localhost:5000"
+                login_url = f"{GATEWAY_URL}"
                 self.logger.info(f"Opening browser to {login_url}")
                 webbrowser.open(login_url)
                 return
@@ -569,13 +655,11 @@ class StreamlinedSpyderLauncher:
 
             # Wait for gateway to be ready (with timeout)
             self.logger.info("Waiting for gateway to be ready...")
-            max_wait = 30  # 30 seconds max
-            check_interval = 2  # Check every 2 seconds
             waited = 0
 
-            while waited < max_wait:
-                time.sleep(check_interval)
-                waited += check_interval
+            while waited < GATEWAY_TIMEOUT:
+                time.sleep(GATEWAY_CHECK_INTERVAL)
+                waited += GATEWAY_CHECK_INTERVAL
 
                 self.update_status(f"Waiting for gateway... ({waited}s)")
 
@@ -584,20 +668,20 @@ class StreamlinedSpyderLauncher:
                     self.update_status("Gateway ready! Opening browser...")
 
                     # Gateway is ready - open browser
-                    login_url = "https://localhost:5000"
+                    login_url = f"{GATEWAY_URL}"
                     self.logger.info(f"Opening browser to {login_url}")
                     webbrowser.open(login_url)
                     self.logger.info("✅ Browser opened for IBKR authentication")
                     return
 
             # Timeout reached
-            self.logger.warning(f"Gateway did not start within {max_wait} seconds")
+            self.logger.warning(f"Gateway did not start within {GATEWAY_TIMEOUT} seconds")
             messagebox.showwarning(
                 "Gateway Startup Slow",
                 f"Gateway is taking longer than expected to start.\n\n"
                 f"The browser will not open automatically.\n"
                 f"Please wait a moment and then manually visit:\n"
-                f"https://localhost:5000\n\n"
+                f"{GATEWAY_URL}\n\n"
                 f"To check gateway status:\n"
                 f"  docker logs -f ibkr-gateway-paper"
             )
