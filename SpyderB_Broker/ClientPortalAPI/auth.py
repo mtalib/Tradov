@@ -3,31 +3,70 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderB_Broker/ClientPortalAPI/auth.py
-Purpose: Authentication for Client Portal Web API
+Series: SpyderB_Broker
+Module: SpyderB09_ClientPortalAPI_Auth.py
+Purpose: Authentication for IBKR Client Portal Web API
+
 Author: Mohamed Talib
-Last Updated: 2025-11-08
+Year Created: 2025
+Last Updated: 2025-11-08 Time: 21:50:00
 
 Module Description:
-    Handles authentication for IBKR Client Portal Web API using:
-    - OAuth 2.0 with private_key_jwt (production/institutional)
-    - CP Gateway authentication (development/paper trading)
+    Provides comprehensive authentication support for Interactive Brokers Client Portal Web API.
+    Implements two authentication methods:
+    1. OAuth 2.0 with private_key_jwt (RFC 7521/7523) for production/institutional accounts
+    2. CP Gateway authentication for development and paper trading
+
+    The OAuth 2.0 implementation uses JWT assertions signed with RSA private keys,
+    providing institutional-grade security. The CP Gateway method provides simpler
+    browser-based authentication suitable for development and testing.
+
+    Both methods integrate seamlessly with the Session Manager for automatic
+    session lifecycle management and tickle keepalive functionality.
+
+Module Constants:
+    DEFAULT_TOKEN_URL (str): Default IBKR OAuth 2.0 token endpoint
+    DEFAULT_GATEWAY_HOST (str): Default CP Gateway host (localhost)
+    DEFAULT_GATEWAY_PORT (int): Default CP Gateway port (5000)
+    TOKEN_EXPIRY_BUFFER (int): Token refresh buffer in seconds (60)
+    JWT_EXPIRY_SECONDS (int): JWT assertion expiry time (300)
+    GATEWAY_TIMEOUT (int): Default Gateway timeout in seconds (30)
+
+Change Log:
+    2025-11-08 (v1.0.0):
+        - Initial implementation with OAuth 2.0 and CP Gateway support
+        - Added automatic token refresh with expiry buffer
+        - Implemented factory functions for environment-based configuration
+        - Added SSL/TLS support for CP Gateway with self-signed certificates
+        - Integrated comprehensive logging and error handling
+
+    2025-11-08 (v0.9.0):
+        - Beta version for testing
+        - Core OAuth and Gateway authentication implemented
 
 References:
     - CLIENT_PORTAL_WEB_API_BEST_PRACTICES.md
     - https://www.interactivebrokers.com/campus/ibkr-api-page/cpapi-v1/
+    - RFC 7521: JWT Profile for OAuth 2.0 Client Authentication
+    - RFC 7523: JWT Profile for OAuth 2.0 Authorization Grants
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import time
-import logging
-import requests
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from pathlib import Path
 from dataclasses import dataclass, field
 
-# JWT for OAuth 2.0
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import requests
+
+# JWT for OAuth 2.0 (optional dependency)
 try:
     import jwt
     from cryptography.hazmat.primitives import serialization
@@ -35,10 +74,34 @@ try:
     HAS_JWT = True
 except ImportError:
     HAS_JWT = False
-    logging.warning("JWT libraries not available. Install with: pip install pyjwt cryptography")
 
-logger = logging.getLogger(__name__)
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+DEFAULT_TOKEN_URL = "https://api.ibkr.com/v1/oauth2/token"
+DEFAULT_GATEWAY_HOST = "localhost"
+DEFAULT_GATEWAY_PORT = 5000
+TOKEN_EXPIRY_BUFFER = 60  # Refresh token 60 seconds before expiry
+JWT_EXPIRY_SECONDS = 300  # JWT assertion valid for 5 minutes
+GATEWAY_TIMEOUT = 30  # Default timeout for Gateway requests
+
+# ==============================================================================
+# MODULE LOGGER
+# ==============================================================================
+logger = SpyderLogger.get_logger(__name__)
+
+# ==============================================================================
+# CUSTOM EXCEPTIONS
+# ==============================================================================
+
+class AuthenticationError(Exception):
+    """Raised when authentication fails"""
+    pass
 
 # ==============================================================================
 # CONFIGURATION CLASSES
@@ -46,12 +109,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class OAuthConfig:
-    """OAuth 2.0 configuration"""
+    """
+    OAuth 2.0 configuration for IBKR Client Portal API
+
+    Attributes:
+        consumer_key: OAuth consumer key from IBKR
+        private_key_path: Path to RSA private key file (PEM format)
+        token_url: OAuth 2.0 token endpoint URL
+        algorithm: JWT signing algorithm (RS256)
+        token_expiry_buffer: Time before expiry to refresh token (seconds)
+    """
     consumer_key: str
     private_key_path: str
-    token_url: str = "https://api.ibkr.com/v1/oauth2/token"
+    token_url: str = DEFAULT_TOKEN_URL
     algorithm: str = "RS256"
-    token_expiry_buffer: int = 60  # Refresh token 60 seconds before expiry
+    token_expiry_buffer: int = TOKEN_EXPIRY_BUFFER
 
     def __post_init__(self):
         """Validate configuration"""
@@ -65,12 +137,21 @@ class OAuthConfig:
 
 @dataclass
 class CPGatewayConfig:
-    """CP Gateway configuration"""
-    host: str = "localhost"
-    port: int = 5000
+    """
+    CP Gateway configuration for IBKR Client Portal API
+
+    Attributes:
+        host: Gateway host address
+        port: Gateway port number
+        ssl: Whether to use HTTPS
+        cacert: Path to CA certificate (optional)
+        timeout: Request timeout in seconds
+    """
+    host: str = DEFAULT_GATEWAY_HOST
+    port: int = DEFAULT_GATEWAY_PORT
     ssl: bool = True
     cacert: Optional[str] = None
-    timeout: int = 30
+    timeout: int = GATEWAY_TIMEOUT
 
     @property
     def base_url(self) -> str:
@@ -85,10 +166,21 @@ class CPGatewayConfig:
 
 class OAuthClient:
     """
-    OAuth 2.0 authentication client using private_key_jwt
+    OAuth 2.0 authentication client using private_key_jwt (RFC 7521/7523)
 
-    This is the RECOMMENDED authentication method for production/institutional accounts.
-    It's more secure than client_secret as the secret never leaves your server.
+    This is the RECOMMENDED authentication method for production and institutional accounts.
+    It provides enhanced security by using JWT assertions signed with RSA private keys,
+    ensuring that secrets never leave your server.
+
+    The client automatically manages token lifecycle, including refresh before expiry
+    with a configurable buffer period.
+
+    Attributes:
+        config: OAuth configuration
+        private_key: Loaded RSA private key
+        access_token: Current access token (or None)
+        token_expiry: Token expiration timestamp (or None)
+        session: HTTP session for requests
 
     Usage:
         >>> config = OAuthConfig(
@@ -97,12 +189,8 @@ class OAuthClient:
         ... )
         >>> client = OAuthClient(config)
         >>> token = client.get_access_token()
-        >>> # Use token in Authorization header
-        >>> headers = {'Authorization': f'Bearer {token}'}
-
-    References:
-        - RFC 7521: JWT Profile for OAuth 2.0 Client Authentication
-        - RFC 7523: JWT Profile for OAuth 2.0 Authorization Grants
+        >>> headers = client.get_authorization_header()
+        >>> response = requests.get(url, headers=headers)
     """
 
     def __init__(self, config: OAuthConfig):
@@ -115,6 +203,7 @@ class OAuthClient:
         Raises:
             ValueError: If JWT libraries not available
             FileNotFoundError: If private key file not found
+            AuthenticationError: If configuration is invalid
         """
         if not HAS_JWT:
             raise ValueError(
@@ -129,6 +218,10 @@ class OAuthClient:
         self.session = requests.Session()
 
         logger.info(f"OAuth client initialized for consumer: {config.consumer_key[:10]}...")
+
+    # ==========================================================================
+    # PRIVATE METHODS
+    # ==========================================================================
 
     def _load_private_key(self):
         """
@@ -173,9 +266,6 @@ class OAuthClient:
 
         Returns:
             Signed JWT string
-
-        References:
-            - https://www.interactivebrokers.com/campus/ibkr-api-page/cpapi-v1/#oauth
         """
         now = int(time.time())
 
@@ -183,7 +273,7 @@ class OAuthClient:
             'iss': self.config.consumer_key,  # Issuer
             'sub': self.config.consumer_key,  # Subject
             'aud': self.config.token_url,     # Audience
-            'exp': now + 300,                  # Expiration (5 minutes)
+            'exp': now + JWT_EXPIRY_SECONDS,  # Expiration (5 minutes)
             'iat': now,                        # Issued at
             'jti': f"{self.config.consumer_key}-{now}"  # Unique ID
         }
@@ -196,8 +286,28 @@ class OAuthClient:
             headers={'kid': self.config.consumer_key}
         )
 
-        logger.debug(f"JWT assertion created, expires at: {datetime.fromtimestamp(now + 300)}")
+        logger.debug(f"JWT assertion created, expires at: {datetime.fromtimestamp(now + JWT_EXPIRY_SECONDS)}")
         return token
+
+    def _is_token_valid(self) -> bool:
+        """
+        Check if current access token is valid
+
+        Returns:
+            True if token exists and hasn't expired (with buffer)
+        """
+        if not self.access_token or not self.token_expiry:
+            return False
+
+        # Check if token expires soon (within buffer time)
+        now = datetime.now()
+        expiry_with_buffer = self.token_expiry - timedelta(seconds=self.config.token_expiry_buffer)
+
+        return now < expiry_with_buffer
+
+    # ==========================================================================
+    # PUBLIC METHODS
+    # ==========================================================================
 
     def get_access_token(self, force_refresh: bool = False) -> str:
         """
@@ -210,7 +320,7 @@ class OAuthClient:
             Valid access token
 
         Raises:
-            requests.HTTPError: If token request fails
+            AuthenticationError: If token request fails
         """
         # Check if current token is still valid
         if not force_refresh and self._is_token_valid():
@@ -246,27 +356,13 @@ class OAuthClient:
             return self.access_token
 
         except requests.HTTPError as e:
-            logger.error(f"Token request failed: {e.response.status_code} - {e.response.text}")
-            raise
+            error_msg = f"Token request failed: {e.response.status_code} - {e.response.text}"
+            logger.error(error_msg)
+            raise AuthenticationError(error_msg)
         except Exception as e:
-            logger.error(f"Unexpected error getting token: {e}")
-            raise
-
-    def _is_token_valid(self) -> bool:
-        """
-        Check if current access token is valid
-
-        Returns:
-            True if token exists and hasn't expired (with buffer)
-        """
-        if not self.access_token or not self.token_expiry:
-            return False
-
-        # Check if token expires soon (within buffer time)
-        now = datetime.now()
-        expiry_with_buffer = self.token_expiry - timedelta(seconds=self.config.token_expiry_buffer)
-
-        return now < expiry_with_buffer
+            error_msg = f"Unexpected error getting token: {e}"
+            logger.error(error_msg)
+            raise AuthenticationError(error_msg)
 
     def refresh_token(self) -> str:
         """
@@ -299,32 +395,28 @@ class OAuthClient:
 
 class CPGatewayAuth:
     """
-    CP Gateway authentication
+    CP Gateway authentication for IBKR Client Portal API
 
-    This is the simpler authentication method for:
+    This authentication method is recommended for:
     - Development and testing
     - Individual/retail accounts
     - Paper trading
 
-    The CP Gateway is a Java application that handles authentication
-    and routes API requests. You must:
-    1. Download and run CP Gateway
-    2. Authenticate via browser (username/password + 2FA)
-    3. Use this class to communicate with the Gateway
+    The CP Gateway is a Java application that handles browser-based authentication
+    and routes API requests. Session management:
+    - Session lasts up to 24 hours
+    - Times out after 6 minutes without activity
+    - Requires /tickle every 4-5 minutes to keep alive
+
+    Attributes:
+        config: Gateway configuration
+        session: HTTP session with auth cookies
 
     Usage:
         >>> config = CPGatewayConfig(host='localhost', port=5000)
         >>> auth = CPGatewayAuth(config)
         >>> if auth.is_authenticated():
         ...     print("Gateway is ready!")
-
-    Important:
-        - Session lasts up to 24 hours
-        - Times out after 6 minutes without activity
-        - Must send /tickle every 4-5 minutes to keep alive
-
-    References:
-        - https://www.interactivebrokers.com/campus/trading-lessons/launching-and-authenticating-the-gateway/
     """
 
     def __init__(self, config: CPGatewayConfig):
@@ -348,6 +440,10 @@ class CPGatewayAuth:
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         logger.info(f"CP Gateway auth initialized: {config.base_url}")
+
+    # ==========================================================================
+    # PUBLIC METHODS
+    # ==========================================================================
 
     def is_authenticated(self) -> bool:
         """
@@ -451,17 +547,13 @@ def create_oauth_client_from_env() -> OAuthClient:
         ValueError: If required environment variables not set
 
     Usage:
-        >>> # Set environment variables first
         >>> os.environ['IBKR_CONSUMER_KEY'] = 'your_key'
         >>> os.environ['IBKR_PRIVATE_KEY_PATH'] = '/path/to/key.pem'
         >>> client = create_oauth_client_from_env()
     """
     consumer_key = os.getenv('IBKR_CONSUMER_KEY')
     private_key_path = os.getenv('IBKR_PRIVATE_KEY_PATH')
-    token_url = os.getenv(
-        'IBKR_OAUTH_TOKEN_URL',
-        'https://api.ibkr.com/v1/oauth2/token'
-    )
+    token_url = os.getenv('IBKR_OAUTH_TOKEN_URL', DEFAULT_TOKEN_URL)
 
     if not consumer_key:
         raise ValueError("IBKR_CONSUMER_KEY environment variable not set")
@@ -496,8 +588,8 @@ def create_gateway_auth_from_env() -> CPGatewayAuth:
         ...     print("Ready to trade!")
     """
     config = CPGatewayConfig(
-        host=os.getenv('CP_GATEWAY_HOST', 'localhost'),
-        port=int(os.getenv('CP_GATEWAY_PORT', '5000')),
+        host=os.getenv('CP_GATEWAY_HOST', DEFAULT_GATEWAY_HOST),
+        port=int(os.getenv('CP_GATEWAY_PORT', str(DEFAULT_GATEWAY_PORT))),
         ssl=os.getenv('CP_GATEWAY_SSL', 'true').lower() == 'true',
         cacert=os.getenv('CP_GATEWAY_CACERT')
     )
@@ -506,27 +598,40 @@ def create_gateway_auth_from_env() -> CPGatewayAuth:
 
 
 # ==============================================================================
-# EXAMPLE USAGE
+# MODULE INITIALIZATION
+# ==============================================================================
+
+# Export public API
+__all__ = [
+    'OAuthClient',
+    'OAuthConfig',
+    'CPGatewayAuth',
+    'CPGatewayConfig',
+    'AuthenticationError',
+    'create_oauth_client_from_env',
+    'create_gateway_auth_from_env',
+    'HAS_JWT'
+]
+
+
+# ==============================================================================
+# MAIN EXECUTION
 # ==============================================================================
 
 if __name__ == '__main__':
-    """
-    Example usage of authentication clients
-    """
+    """Example usage of authentication clients"""
     import sys
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(name)s - %(message)s'
-    )
+    # Initialize logging
+    SpyderLogger.initialize_logging(log_level="INFO")
 
-    print("=" * 60)
-    print("IBKR Client Portal API - Authentication Examples")
-    print("=" * 60)
+    print("=" * 80)
+    print("SPYDER - IBKR Client Portal API Authentication")
+    print("=" * 80)
 
     # Example 1: CP Gateway Auth (for development)
     print("\n1. CP Gateway Authentication (Development)")
-    print("-" * 60)
+    print("-" * 80)
 
     try:
         gateway_config = CPGatewayConfig(host='localhost', port=5000)
@@ -544,7 +649,7 @@ if __name__ == '__main__':
 
     # Example 2: OAuth 2.0 (for production)
     print("\n2. OAuth 2.0 Authentication (Production)")
-    print("-" * 60)
+    print("-" * 80)
 
     if HAS_JWT:
         print("✅ JWT libraries available")
@@ -566,8 +671,8 @@ if __name__ == '__main__':
         print("❌ JWT libraries not installed")
         print("   Install with: pip install pyjwt cryptography")
 
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 80)
     print("For more information, see:")
     print("  - CLIENT_PORTAL_WEB_API_BEST_PRACTICES.md")
     print("  - https://www.interactivebrokers.com/campus/ibkr-api-page/cpapi-v1/")
-    print("=" * 60)
+    print("=" * 80)
