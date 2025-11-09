@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - IB Gateway Configuration (Local)
-Backup configuration for IB Gateway connection method
-Compatible with IB Gateway 10.37+ with connection pooling optimizations
+SPYDER - IBKR Web API Configuration
+OAuth 2.0 authentication with private_key_jwt (RFC 7521/7523)
+See: https://www.interactivebrokers.com/campus/ibkr-api-page/web-api/
 """
 
 import os
@@ -14,69 +14,58 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==============================================================================
-# IB GATEWAY CONFIGURATION (LOCAL)
+# IBKR WEB API CONFIGURATION (OAuth 2.0)
 # ==============================================================================
-IB_CONFIG = {
-    "use_gateway": True,  # Using IB Gateway instead of TWS
-    "connection_type": "local_gateway",  # Track connection type
-    "gateway_computer": {
-        "ip_address": "127.0.0.1",
-        "hostname": "localhost",
-        "setup_date": "Local Gateway Configuration",
+IBKR_WEB_API_CONFIG = {
+    "connection_type": "web_api",  # REST + WebSocket
+    "api_base_url": os.environ.get("IBKR_API_BASE_URL", "https://api.ibkr.com/v1/api"),
+    "auth_method": os.environ.get("IBKR_AUTH_METHOD", "oauth2"),  # OAuth 2.0 only
+
+    # OAuth 2.0 Configuration (private_key_jwt)
+    "oauth": {
+        "token_url": os.environ.get("IBKR_OAUTH_TOKEN_URL", "https://api.ibkr.com/v1/oauth2/token"),
+        "consumer_key": os.environ.get("IBKR_OAUTH_CONSUMER_KEY", ""),
+        "private_key_path": os.environ.get("IBKR_OAUTH_PRIVATE_KEY_PATH", ""),
+        "algorithm": "RS256",  # JWT signing algorithm
+        "token_expiry_buffer": 60,  # Refresh 60s before expiry
     },
-    "gateway": {
-        "paper": {
-            "host": "127.0.0.1",  # Local IB Gateway
-            "port": 4002,  # IB Gateway Paper port (default 4002)
-            "clientId": 1,
-        },
-        "live": {
-            "host": "127.0.0.1",  # Local IB Gateway
-            "port": 4001,  # IB Gateway Live port (default 4001)
-            "clientId": 2,
-        },
+
+    # Session Management
+    "session": {
+        "tickle_interval": 240,  # Tickle every 4 minutes
+        "max_session_duration": 86400,  # 24 hours
+        "auto_reconnect": True,
+        "reconnect_delay": 5,
+        "max_reconnect_attempts": 3,
+    },
+
+    # Rate Limiting
+    "rate_limit": {
+        "requests_per_second": 50,  # OAuth 2.0 limit
+        "adaptive_backoff": True,
+        "backoff_multiplier": 0.8,  # Reduce rate on 429 errors
+        "recovery_multiplier": 1.05,  # Increase rate on success
+    },
+
+    # Connection Settings
+    "connection": {
+        "timeout": 30,
+        "verify_ssl": True,
+        "max_connections": 10,
+        "max_connections_per_host": 20,
     },
 }
 
 # ==============================================================================
-# GATEWAY CONNECTION SETTINGS (OPTIMIZED)
+# TRADING MODE CONFIGURATION
 # ==============================================================================
-LOCAL_CONNECTION_CONFIG = {
-    "connection_timeout": 15,  # Shorter timeout for local connection
-    "reconnection_attempts": 3,  # Fewer attempts needed locally
-    "reconnection_delay": 5,  # Shorter delay between attempts
-    "heartbeat_interval": 60,  # Monitor connection health
-    "network_timeout": 20,  # Local network operation timeout
-    "enable_connection_pooling": True,  # Your proven pooling system
-    "gateway_startup_delay": 10,  # Wait for Gateway to fully initialize
-}
+TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # Default: paper
+
+# Explicit live trading confirmation (SAFETY FEATURE)
+REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
 
 # ==============================================================================
-# GATEWAY STARTUP CONFIGURATION
-# ==============================================================================
-GATEWAY_STARTUP_CONFIG = {
-    "auto_start_gateway": True,
-    "gateway_executable_path": "/opt/ibc/scripts/ibgateway.sh",
-    "jvm_max_heap": "768m",
-    "jvm_gc_type": "G1GC",
-    "startup_timeout": 60,
-    "health_check_retries": 5,
-}
-
-# ==============================================================================
-# CONNECTION RELIABILITY SETTINGS
-# ==============================================================================
-GATEWAY_RELIABILITY_CONFIG = {
-    "first_connection_retry": True,  # Gateway startup connection retry
-    "client_id_rotation": True,  # Use client ID rotation
-    "client_id_pool_size": 10,  # Pool of client IDs
-    "cleanup_delay_seconds": 2.0,  # Cleanup delay between connections
-    "max_concurrent_connections": 3,  # Limit concurrent connections
-    "connection_validation": True,  # Validate connection before use
-}
-
-# ==============================================================================
-# TRADING CONFIGURATION (same as remote TWS)
+# TRADING CONFIGURATION
 # ==============================================================================
 TRADING_CONFIG = {
     # Position Limits
@@ -142,13 +131,13 @@ TRADING_CONFIG = {
         "alert_on_daily_summary": True,
         "alert_on_errors": True,
         "alert_on_large_moves": True,
-        "alert_on_gateway_issues": True,  # Gateway-specific
-        "alert_on_gateway_restart": True,  # Gateway restart notifications
+        "alert_on_api_rate_limit": True,  # Web API specific
+        "alert_on_session_expiry": True,  # Session management
     },
 }
 
 # ==============================================================================
-# STRATEGY CONFIGURATIONS (same as remote TWS)
+# STRATEGY CONFIGURATIONS
 # ==============================================================================
 STRATEGY_CONFIG = {
     "iron_condor": {
@@ -197,10 +186,10 @@ DATABASE_CONFIG = {
 LOGGING_CONFIG = {
     "log_level": os.environ.get("LOG_LEVEL", "INFO"),
     "log_to_file": True,
-    "log_file_path": "logs/spyder_gateway.log",  # Gateway-specific log file
+    "log_file_path": "logs/spyder_webapi.log",
     "log_rotation": "daily",
     "log_retention_days": 30,
-    "log_format": "%(asctime)s - %(name)s - %(levelname)s - [GATEWAY] %(message)s",
+    "log_format": "%(asctime)s - %(name)s - %(levelname)s - [WEB_API] %(message)s",
 }
 
 SYSTEM_CONFIG = {
@@ -212,140 +201,104 @@ SYSTEM_CONFIG = {
     "debug": os.environ.get("DEBUG_MODE", "False").lower() == "true",
     "performance_monitoring": True,
     "health_check_interval": 300,
-    "auto_restart_on_error": True,  # Gateway can auto-restart
-    "max_memory_usage_mb": 1024,  # Lower memory usage for Gateway
-    "gateway_monitoring": True,  # Monitor Gateway process
+    "auto_restart_on_error": True,
+    "max_memory_usage_mb": 1024,
 }
 
 
 # ==============================================================================
-# HELPER FUNCTIONS FOR GATEWAY
+# HELPER FUNCTIONS FOR WEB API
 # ==============================================================================
 def get_active_config():
-    """Get configuration for active trading mode with Gateway settings"""
-    paper_config = IB_CONFIG["gateway"]["paper"]
-    live_config = IB_CONFIG["gateway"]["live"]
-
-    # Default to paper for initial setup
+    """Get configuration for active trading mode with Web API settings"""
     mode = os.environ.get("TRADING_MODE", "paper")
 
-    if mode == "paper":
-        return {
-            "host": paper_config["host"],
-            "port": paper_config["port"],
-            "clientId": paper_config["clientId"],
-            "mode": "paper",
-            "connection_type": "local_gateway",
-            "local_host": "127.0.0.1",
-        }
-    else:
-        return {
-            "host": live_config["host"],
-            "port": live_config["port"],
-            "clientId": live_config["clientId"],
-            "mode": "live",
-            "connection_type": "local_gateway",
-            "local_host": "127.0.0.1",
-        }
-
-
-def validate_gateway_connection():
-    """Validate local Gateway connection"""
-    import socket
-    import subprocess
-
-    config = get_active_config()
-    host = config["host"]
-    port = config["port"]
-
-    try:
-        # First check if IB Gateway process is running
-        try:
-            result = subprocess.run(
-                ["pgrep", "-f", "ibgateway"], capture_output=True, text=True, timeout=5
+    # Safety check for live trading
+    if mode == "live" and REQUIRE_LIVE_CONFIRMATION:
+        live_confirmed = os.environ.get("LIVE_TRADING_CONFIRMED", "false").lower() == "true"
+        if not live_confirmed:
+            raise ValueError(
+                "LIVE TRADING BLOCKED: Set LIVE_TRADING_CONFIRMED=true in .env "
+                "after verifying you want to trade with real money."
             )
-            gateway_running = bool(result.stdout.strip())
-        except:
-            gateway_running = False
 
-        # Test TCP connectivity
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        result = sock.connect_ex((host, port))
-        sock.close()
-
-        if result == 0:
-            status = "running" if gateway_running else "port accessible"
-            return True, f"Gateway connection to {host}:{port} successful ({status})"
-        else:
-            if not gateway_running:
-                return (
-                    False,
-                    f"IB Gateway not running - start with launch_spyder_with_gateway.sh",
-                )
-            else:
-                return (
-                    False,
-                    f"Gateway running but port {port} not accessible (error: {result})",
-                )
-
-    except Exception as e:
-        return False, f"Gateway connection test failed: {str(e)}"
+    return {
+        "mode": mode,
+        "connection_type": "web_api",
+        "api_base_url": IBKR_WEB_API_CONFIG["api_base_url"],
+        "auth_method": "oauth2",
+        "consumer_key": IBKR_WEB_API_CONFIG["oauth"]["consumer_key"],
+        "requires_confirmation": REQUIRE_LIVE_CONFIRMATION if mode == "live" else False,
+    }
 
 
-def check_gateway_status():
-    """Check if IB Gateway is running and healthy"""
-    import subprocess
-    import time
+def validate_web_api_config():
+    """Validate Web API configuration"""
+    config = IBKR_WEB_API_CONFIG["oauth"]
 
+    errors = []
+
+    # Check consumer key
+    if not config["consumer_key"]:
+        errors.append("IBKR_OAUTH_CONSUMER_KEY not set in .env")
+
+    # Check private key path
+    if not config["private_key_path"]:
+        errors.append("IBKR_OAUTH_PRIVATE_KEY_PATH not set in .env")
+    elif not Path(config["private_key_path"]).exists():
+        errors.append(f"Private key file not found: {config['private_key_path']}")
+
+    # Check trading mode
+    mode = os.environ.get("TRADING_MODE", "")
+    if mode not in ["paper", "live"]:
+        errors.append(f"Invalid TRADING_MODE: {mode}. Must be 'paper' or 'live'")
+
+    if errors:
+        return False, "\n".join(["Configuration errors:"] + [f"  - {e}" for e in errors])
+
+    return True, f"Web API configuration valid (mode: {mode})"
+
+
+def check_api_authentication():
+    """Check if API authentication is properly configured"""
     try:
-        # Check if Gateway process exists
-        result = subprocess.run(
-            ["pgrep", "-f", "ibgateway"], capture_output=True, text=True, timeout=5
-        )
+        config = get_active_config()
+        is_valid, message = validate_web_api_config()
 
-        if result.stdout.strip():
-            # Process exists, check connection
-            success, message = validate_gateway_connection()
-            return {
-                "process_running": True,
-                "connection_available": success,
-                "status": "healthy" if success else "process_running_no_connection",
-                "message": message,
-            }
-        else:
-            return {
-                "process_running": False,
-                "connection_available": False,
-                "status": "not_running",
-                "message": "IB Gateway process not found",
-            }
+        return {
+            "authenticated": is_valid,
+            "mode": config["mode"],
+            "connection_type": "web_api",
+            "status": "ready" if is_valid else "configuration_error",
+            "message": message,
+        }
     except Exception as e:
         return {
-            "process_running": False,
-            "connection_available": False,
+            "authenticated": False,
+            "mode": "unknown",
+            "connection_type": "web_api",
             "status": "error",
-            "message": f"Status check failed: {str(e)}",
+            "message": f"Configuration check failed: {str(e)}",
         }
 
 
 # Print configuration status on import
 if __name__ != "__main__":
-    print("🏪 SPYDER IB Gateway Configuration Loaded")
-    print(f"   Local Gateway: 127.0.0.1")
-    print(f"   Paper Port: 4002 | Live Port: 4001")
-    print(f"   Connection Type: local_gateway")
+    print("🌐 SPYDER IBKR Web API Configuration Loaded")
+    print(f"   API URL: {IBKR_WEB_API_CONFIG['api_base_url']}")
+    print(f"   Auth Method: OAuth 2.0 (private_key_jwt)")
+    print(f"   Trading Mode: {TRADING_MODE}")
 
 if __name__ == "__main__":
     # Test the configuration when run directly
-    print("🔍 Testing Gateway Configuration...")
+    print("🔍 Testing Web API Configuration...")
 
-    status = check_gateway_status()
-    print(f"Gateway Status: {status['status']}")
+    status = check_api_authentication()
+    print(f"Authentication Status: {status['status']}")
+    print(f"Mode: {status['mode']}")
     print(f"Message: {status['message']}")
 
-    if status["process_running"]:
-        success, message = validate_gateway_connection()
-        print(f"Connection Test: {'✅' if success else '❌'} {message}")
+    if status["authenticated"]:
+        print("✅ Configuration is valid and ready for use")
     else:
-        print("❌ Gateway not running - use launch_spyder_with_gateway.sh to start")
+        print("❌ Configuration errors found - check .env file")
