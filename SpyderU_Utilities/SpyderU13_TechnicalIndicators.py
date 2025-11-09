@@ -191,9 +191,7 @@ class TechnicalIndicators:
         try:
             if len(prices) < period + 1:
                 self.logger.warning(
-                    f"Insufficient data for RSI calculation: {
-                        len(prices)} < {
-                        period + 1}"
+                    f"Insufficient data for RSI calculation: {len(prices)} < {period + 1}"
                 )
                 return pd.Series(dtype=float, index=prices.index)
 
