@@ -19,6 +19,9 @@ Components:
     - SpyderB09_ClientPortal_Session: Session lifecycle and tickle keepalive
     - SpyderB09_ClientPortal_RateLimiter: Request rate limiting and throttling
     - SpyderB09_ClientPortal_RESTClient: Synchronous REST API client
+    - SpyderB09_ClientPortal_WebSocket: WebSocket client for real-time streaming
+    - SpyderB09_ClientPortal_MarketData: Unified market data manager
+    - SpyderB09_ClientPortal_OrderManagement: Complete order management system
     - SpyderB09_ClientPortal_Examples: Usage examples and demonstrations
 
 API Documentation:
@@ -59,6 +62,33 @@ from .SpyderB09_ClientPortal_RESTClient import (
     ValidationError
 )
 
+from .SpyderB09_ClientPortal_WebSocket import (
+    ClientPortalWebSocket,
+    WebSocketConfig,
+    SubscriptionType,
+    ConnectionState,
+    WS_PROD_URL,
+    WS_PAPER_URL
+)
+
+from .SpyderB09_ClientPortal_MarketData import (
+    MarketDataManager,
+    MarketDataConfig,
+    Quote,
+    Bar
+)
+
+from .SpyderB09_ClientPortal_OrderManagement import (
+    OrderManager,
+    OrderTicket,
+    Order,
+    Position,
+    OrderType,
+    OrderSide,
+    TimeInForce,
+    OrderStatus
+)
+
 __all__ = [
     # Rate limiting
     'RateLimiter',
@@ -82,4 +112,25 @@ __all__ = [
     'AuthenticationError',
     'RateLimitError',
     'ValidationError',
+    # WebSocket
+    'ClientPortalWebSocket',
+    'WebSocketConfig',
+    'SubscriptionType',
+    'ConnectionState',
+    'WS_PROD_URL',
+    'WS_PAPER_URL',
+    # Market Data
+    'MarketDataManager',
+    'MarketDataConfig',
+    'Quote',
+    'Bar',
+    # Order Management
+    'OrderManager',
+    'OrderTicket',
+    'Order',
+    'Position',
+    'OrderType',
+    'OrderSide',
+    'TimeInForce',
+    'OrderStatus',
 ]
