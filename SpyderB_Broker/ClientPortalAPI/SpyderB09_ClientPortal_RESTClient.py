@@ -3,37 +3,114 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderB_Broker/ClientPortalAPI/rest_client.py
-Purpose: REST API client for Client Portal Web API
+Series: SpyderB_Broker
+Module: SpyderB09_ClientPortal_RESTClient.py
+Purpose: Complete REST API client with rate limiting and retry logic for Client Portal API
+
 Author: Mohamed Talib
-Last Updated: 2025-11-08
+Year Created: 2025
+Last Updated: 2025-11-09 Time: 12:30:00
 
 Module Description:
-    Complete REST API client for IBKR Client Portal Web API with:
-    - Automatic rate limiting
-    - Retry logic with exponential backoff
-    - Connection pooling
-    - Error handling and recovery
+    Complete REST API client for IBKR Client Portal Web API with production-grade features:
+
+    CORE FEATURES:
+    - Automatic rate limiting with adaptive backoff
+    - Retry logic with exponential backoff (2^n seconds)
+    - Connection pooling for efficient socket reuse
+    - Comprehensive error handling and recovery
     - Session management integration
+    - Thread-safe operations
+
+    HTTP METHODS SUPPORTED:
+    - GET, POST, PUT, DELETE with consistent error handling
+    - Custom timeout configuration per request
+    - Request/response logging for debugging
+
+    ERROR HANDLING:
+    - APIError: Base exception for all API errors
+    - AuthenticationError: 401/403 authentication failures
+    - RateLimitError: 429 rate limit exceeded
+    - ValidationError: 400/422 request validation failures
+    - ConnectionError: Network/connection failures
+
+    RETRY STRATEGY:
+    - Default: 3 retries with 2^n backoff (1s, 2s, 4s)
+    - Configurable retry on status codes: [429, 500, 502, 503, 504]
+    - Connection pool: 10 connections, max 20
+    - Timeouts: 10s connect, 30s read (configurable)
+
+Module Constants:
+    None - All configuration is managed through ClientConfig dataclass with defaults:
+        - max_retries: 3
+        - backoff_factor: 2.0 (exponential backoff)
+        - retry_on_status: [429, 500, 502, 503, 504]
+        - pool_connections: 10
+        - pool_maxsize: 20
+        - connect_timeout: 10 seconds
+        - read_timeout: 30 seconds
+        - use_rate_limiter: True
+        - rate_limit: 10 req/sec (overridden by auth method)
+
+Change Log:
+    2025-11-08 (v1.0.0):
+        - Initial implementation with OAuth 2.0 and CP Gateway support
+        - Complete HTTP method coverage (GET, POST, PUT, DELETE)
+        - Retry logic with exponential backoff
+        - Connection pooling with requests.Session
+        - Rate limiter integration
+        - Custom exception hierarchy
+    2025-11-09 (v1.0.1):
+        - Refactored to follow 1-SPECS format standard
+        - Integrated SpyderLogger replacing standard logging
+        - Updated module header with Series, Purpose, and Constants sections
 
 References:
     - CLIENT_PORTAL_WEB_API_BEST_PRACTICES.md
     - https://interactivebrokers.github.io/cpwebapi/
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import time
-import logging
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .session import SessionManager
-from .rate_limiter import AdaptiveRateLimiter
-from .auth import OAuthClient, CPGatewayAuth
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from .SpyderB09_ClientPortal_Session import SessionManager
+from .SpyderB09_ClientPortal_RateLimiter import AdaptiveRateLimiter
+from .SpyderB09_ClientPortal_Auth import OAuthClient, CPGatewayAuth
+from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
-logger = logging.getLogger(__name__)
+logger = SpyderLogger.get_logger(__name__)
+
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+
+__all__ = [
+    # Exceptions
+    'APIError',
+    'AuthenticationError',
+    'RateLimitError',
+    'ValidationError',
+    'ConnectionError',
+    # Configuration
+    'ClientConfig',
+    # Client
+    'ClientPortalRESTClient',
+]
 
 
 # ==============================================================================
@@ -576,18 +653,16 @@ if __name__ == '__main__':
     """Example usage of REST client"""
     import sys
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(name)s - %(message)s'
-    )
+    # Initialize SpyderLogger for main execution
+    SpyderLogger.initialize(log_level='INFO')
 
     print("=" * 60)
     print("IBKR Client Portal API - REST Client Example")
     print("=" * 60)
 
     try:
-        from .auth import CPGatewayAuth, CPGatewayConfig
-        from .session import SessionManager
+        from .SpyderB09_ClientPortal_Auth import CPGatewayAuth, CPGatewayConfig
+        from .SpyderB09_ClientPortal_Session import SessionManager
 
         # Setup authentication
         gateway_config = CPGatewayConfig(host='localhost', port=5000)
