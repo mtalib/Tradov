@@ -21,6 +21,7 @@ Components:
     - SpyderB09_ClientPortal_RESTClient: Synchronous REST API client
     - SpyderB09_ClientPortal_WebSocket: WebSocket client for real-time streaming
     - SpyderB09_ClientPortal_MarketData: Unified market data manager
+    - SpyderB09_ClientPortal_OrderManagement: Complete order management system
     - SpyderB09_ClientPortal_Examples: Usage examples and demonstrations
 
 API Documentation:
@@ -77,6 +78,17 @@ from .SpyderB09_ClientPortal_MarketData import (
     Bar
 )
 
+from .SpyderB09_ClientPortal_OrderManagement import (
+    OrderManager,
+    OrderTicket,
+    Order,
+    Position,
+    OrderType,
+    OrderSide,
+    TimeInForce,
+    OrderStatus
+)
+
 __all__ = [
     # Rate limiting
     'RateLimiter',
@@ -112,4 +124,13 @@ __all__ = [
     'MarketDataConfig',
     'Quote',
     'Bar',
+    # Order Management
+    'OrderManager',
+    'OrderTicket',
+    'Order',
+    'Position',
+    'OrderType',
+    'OrderSide',
+    'TimeInForce',
+    'OrderStatus',
 ]
