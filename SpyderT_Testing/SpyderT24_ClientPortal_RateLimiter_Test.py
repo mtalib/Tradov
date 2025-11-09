@@ -12,7 +12,7 @@ Last Updated: 2025-11-08
 import pytest
 import time
 import asyncio
-from SpyderB_Broker.ClientPortalAPI.rate_limiter import (
+from SpyderB_Broker.ClientPortalAPI.SpyderB09_ClientPortal_RateLimiter import (
     RateLimiter,
     AdaptiveRateLimiter,
     create_cp_gateway_limiter,

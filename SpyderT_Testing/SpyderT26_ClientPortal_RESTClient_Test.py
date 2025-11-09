@@ -13,7 +13,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch, PropertyMock
 from requests.exceptions import RequestException, Timeout, ConnectionError
 
-from SpyderB_Broker.ClientPortalAPI.rest_client import (
+from SpyderB_Broker.ClientPortalAPI.SpyderB09_ClientPortal_RESTClient import (
     ClientPortalRESTClient,
     ClientConfig,
     APIError,

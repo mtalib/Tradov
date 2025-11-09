@@ -15,15 +15,11 @@ Module Description:
     REST + WebSocket architecture.
 
 Components:
-    - auth: Authentication and session management (OAuth 2.0, CP Gateway)
-    - session: Session lifecycle and tickle keepalive
-    - rate_limiter: Request rate limiting and throttling
-    - rest_client: Synchronous REST API client
-    - websocket_client: Asynchronous WebSocket client for real-time data
-    - market_data: Market data subscription manager
-    - order_manager: Order placement, modification, cancellation
-    - position_tracker: Position and portfolio tracking
-    - account_manager: Account information and management
+    - SpyderB09_ClientPortal_Auth: Authentication (OAuth 2.0, CP Gateway)
+    - SpyderB09_ClientPortal_Session: Session lifecycle and tickle keepalive
+    - SpyderB09_ClientPortal_RateLimiter: Request rate limiting and throttling
+    - SpyderB09_ClientPortal_RESTClient: Synchronous REST API client
+    - SpyderB09_ClientPortal_Examples: Usage examples and demonstrations
 
 API Documentation:
     https://interactivebrokers.github.io/cpwebapi/
@@ -33,17 +29,35 @@ __version__ = "1.0.0"
 __author__ = "Mohamed Talib"
 
 # Import available components
-from .rate_limiter import RateLimiter, AdaptiveRateLimiter, create_cp_gateway_limiter, create_oauth_limiter
-from .auth import OAuthClient, CPGatewayAuth, OAuthConfig, CPGatewayConfig, create_oauth_client_from_env, create_gateway_auth_from_env
+from .SpyderB09_ClientPortal_RateLimiter import (
+    RateLimiter,
+    AdaptiveRateLimiter,
+    create_cp_gateway_limiter,
+    create_oauth_limiter
+)
 
-# These will be imported as they're implemented
-# from .session import SessionManager
-# from .rest_client import ClientPortalRESTClient
-# from .websocket_client import ClientPortalWebSocket
-# from .market_data import MarketDataManager
-# from .order_manager import OrderManager, Order, OrderSide, OrderType
-# from .position_tracker import PositionTracker
-# from .account_manager import AccountManager
+from .SpyderB09_ClientPortal_Auth import (
+    OAuthClient,
+    CPGatewayAuth,
+    OAuthConfig,
+    CPGatewayConfig,
+    create_oauth_client_from_env,
+    create_gateway_auth_from_env
+)
+
+from .SpyderB09_ClientPortal_Session import (
+    SessionManager,
+    SessionConfig
+)
+
+from .SpyderB09_ClientPortal_RESTClient import (
+    ClientPortalRESTClient,
+    ClientConfig,
+    APIError,
+    AuthenticationError,
+    RateLimitError,
+    ValidationError
+)
 
 __all__ = [
     # Rate limiting
@@ -58,15 +72,14 @@ __all__ = [
     'CPGatewayConfig',
     'create_oauth_client_from_env',
     'create_gateway_auth_from_env',
-    # To be added as implemented:
-    # 'SessionManager',
-    # 'ClientPortalRESTClient',
-    # 'ClientPortalWebSocket',
-    # 'MarketDataManager',
-    # 'OrderManager',
-    # 'Order',
-    # 'OrderSide',
-    # 'OrderType',
-    # 'PositionTracker',
-    # 'AccountManager',
+    # Session Management
+    'SessionManager',
+    'SessionConfig',
+    # REST Client
+    'ClientPortalRESTClient',
+    'ClientConfig',
+    'APIError',
+    'AuthenticationError',
+    'RateLimitError',
+    'ValidationError',
 ]

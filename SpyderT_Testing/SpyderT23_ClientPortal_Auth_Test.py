@@ -16,7 +16,7 @@ from unittest.mock import Mock, MagicMock, patch, mock_open
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from SpyderB_Broker.ClientPortalAPI.auth import (
+from SpyderB_Broker.ClientPortalAPI.SpyderB09_ClientPortal_Auth import (
     OAuthClient,
     OAuthConfig,
     CPGatewayAuth,

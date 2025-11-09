@@ -15,7 +15,7 @@ from unittest.mock import Mock, MagicMock, patch, call
 from datetime import datetime, timedelta
 from threading import Event
 
-from SpyderB_Broker.ClientPortalAPI.session import (
+from SpyderB_Broker.ClientPortalAPI.SpyderB09_ClientPortal_Session import (
     SessionManager,
     SessionConfig,
     SessionError,
