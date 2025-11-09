@@ -3,10 +3,13 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderB_Broker/ClientPortalAPI/session.py
-Purpose: Session management for Client Portal Web API
+Series: SpyderB_Broker
+Module: SpyderB09_ClientPortal_Session.py
+Purpose: Session management with automatic tickle keepalive for Client Portal API
+
 Author: Mohamed Talib
-Last Updated: 2025-11-08
+Year Created: 2025
+Last Updated: 2025-11-09 Time: 12:00:00
 
 Module Description:
     Manages Client Portal API session lifecycle including:
@@ -14,29 +17,78 @@ Module Description:
     - Automatic tickle keepalive (prevents 6-minute timeout)
     - 24-hour session limit handling
     - Connection health monitoring
-    - Automatic re-authentication
+    - Automatic re-authentication with exponential backoff
+    - Thread-safe operations with Lock and Event primitives
 
-    CRITICAL: Client Portal sessions timeout after 6 minutes without activity.
-    This module automatically sends /tickle requests every 4-5 minutes to
-    keep the session alive.
+    CRITICAL BEHAVIOR:
+    Client Portal sessions timeout after 6 minutes without activity.
+    This module automatically sends /tickle requests every 4 minutes to
+    maintain the session. Sessions also have a 24-hour absolute limit
+    that resets at midnight (ET/Zurich/HK timezone).
+
+    The SessionManager runs a background thread that:
+    1. Sends /tickle requests at configurable intervals (default: 240s)
+    2. Monitors session age against 24-hour limit
+    3. Executes optional health checks
+    4. Provides callbacks for session events (start, stop, error, renewal)
+
+Module Constants:
+    None - All configuration is managed through SessionConfig dataclass with defaults:
+        - tickle_interval: 240 seconds (4 minutes)
+        - session_max_duration: 86400 seconds (24 hours)
+        - health_check_interval: 60 seconds
+        - auto_reconnect: True
+        - max_reconnect_attempts: 3
+        - reconnect_delay: 5 seconds
+
+Change Log:
+    2025-11-08 (v1.0.0):
+        - Initial implementation with OAuth 2.0 and CP Gateway support
+        - Automatic tickle keepalive mechanism
+        - 24-hour session tracking
+        - Thread-safe session management
+    2025-11-09 (v1.0.1):
+        - Refactored to follow 1-SPECS format standard
+        - Integrated SpyderLogger replacing standard logging
+        - Updated module header with Series, Purpose, and Constants sections
 
 References:
     - CLIENT_PORTAL_WEB_API_BEST_PRACTICES.md
     - https://www.interactivebrokers.com/campus/ibkr-api-page/cpapi-v1/
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import time
 import threading
-import logging
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
-import requests
 from threading import Lock, Event
 
-from .auth import OAuthClient, CPGatewayAuth
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import requests
 
-logger = logging.getLogger(__name__)
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from .SpyderB09_ClientPortal_Auth import OAuthClient, CPGatewayAuth
+from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+
+logger = SpyderLogger.get_logger(__name__)
+
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+
+__all__ = [
+    'SessionConfig',
+    'SessionManager',
+]
 
 
 # ==============================================================================
@@ -546,10 +598,8 @@ if __name__ == '__main__':
     """Example usage of SessionManager"""
     import sys
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(name)s - %(message)s'
-    )
+    # Initialize SpyderLogger for main execution
+    SpyderLogger.initialize(log_level='INFO')
 
     print("=" * 60)
     print("IBKR Client Portal API - Session Manager Example")
@@ -560,7 +610,7 @@ if __name__ == '__main__':
     print("-" * 60)
 
     try:
-        from .auth import CPGatewayAuth, CPGatewayConfig
+        from .SpyderB09_ClientPortal_Auth import CPGatewayAuth, CPGatewayConfig
 
         config = CPGatewayConfig(host='localhost', port=5000)
         auth = CPGatewayAuth(config)
