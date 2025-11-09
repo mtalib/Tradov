@@ -3,26 +3,99 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderB_Broker/ClientPortalAPI/example_usage.py
-Purpose: Complete usage examples for Client Portal API
-Author: Mohamed Talib
-Last Updated: 2025-11-08
+Series: SpyderB_Broker
+Module: SpyderB09_ClientPortal_Examples.py
+Purpose: Complete usage examples demonstrating Client Portal API components
 
-This file demonstrates how to use the Client Portal API components together.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2025-11-09 Time: 12:45:00
+
+Module Description:
+    Comprehensive usage examples for the Client Portal API, demonstrating:
+
+    EXAMPLE 1: CP Gateway Basic Usage (Development/Paper Trading)
+    - Setting up CP Gateway authentication
+    - Creating session manager with automatic tickle
+    - Making basic API requests
+    - Proper session cleanup
+
+    EXAMPLE 2: OAuth 2.0 Production Usage
+    - OAuth 2.0 authentication with consumer key
+    - Production-ready configuration
+    - Higher rate limits (50 req/sec)
+    - Access token management
+
+    EXAMPLE 3: Context Manager Pattern
+    - Using SessionManager as context manager
+    - Automatic resource cleanup with 'with' statement
+    - Exception handling within context
+
+    EXAMPLE 4: Error Handling & Retry Logic
+    - Comprehensive error handling patterns
+    - Retry strategies with exponential backoff
+    - Rate limit error recovery
+    - Authentication error handling
+
+    Prerequisites:
+    - CP Gateway: Download from IBKR, run locally on port 5000
+    - OAuth 2.0: Obtain consumer key from IBKR portal
+    - Paper/Live Account: IBKR account with API access enabled
+
+Module Constants:
+    None - This is an examples/demonstration module
+
+Change Log:
+    2025-11-08 (v1.0.0):
+        - Initial examples for OAuth 2.0 and CP Gateway
+        - Context manager usage pattern
+        - Error handling demonstrations
+    2025-11-09 (v1.0.1):
+        - Refactored to follow 1-SPECS format standard
+        - Integrated SpyderLogger replacing standard logging
+        - Updated module header with Series, Purpose, and description
+
+References:
+    - CLIENT_PORTAL_WEB_API_BEST_PRACTICES.md
+    - https://interactivebrokers.github.io/cpwebapi/
 """
 
-import logging
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 from pathlib import Path
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s - %(message)s'
-)
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+# (None required)
 
-logger = logging.getLogger(__name__)
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
+# Initialize logger
+logger = SpyderLogger.get_logger(__name__)
+
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+
+__all__ = [
+    'example_1_cp_gateway_basic',
+    'example_2_oauth_production',
+    'example_3_with_context_manager',
+    'example_4_error_handling',
+    'main',
+]
+
+
+# ==============================================================================
+# EXAMPLE FUNCTIONS
+# ==============================================================================
 
 def example_1_cp_gateway_basic():
     """
@@ -350,4 +423,6 @@ def main():
 
 
 if __name__ == '__main__':
+    # Initialize SpyderLogger for main execution
+    SpyderLogger.initialize(log_level='INFO')
     main()
