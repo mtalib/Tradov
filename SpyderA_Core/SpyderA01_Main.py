@@ -462,20 +462,9 @@ class SpyderApplication:
                 )
 
             # CRITICAL: Suppress excessive IB API logging to prevent Gateway flooding
-            if self.config.reduce_ib_logging:
-                # Disable ib_async console output (farm messages, etc.)
-                try:
-                    from ib_async import util
-
-                    util.logToConsole(level=logging.ERROR)  # Only errors to console
-                    print("✅ ib_async console logging suppressed (ERROR level only)")
-                except Exception as e:
-                    print(f"⚠️ Could not configure ib_async logging: {e}")
-
-                # Reduce ib_async logging to only errors
-                logging.getLogger("ib_async.client").setLevel(logging.ERROR)
-                logging.getLogger("ib_async.wrapper").setLevel(logging.ERROR)
-                logging.getLogger("ib_async.ib").setLevel(logging.ERROR)
+            # ib_async logging configuration removed - now using Web API
+            # Legacy ib_async modules have been migrated to IBKR Client Portal Web API
+            # No logging configuration needed for Web API (uses standard Python logging)
 
                 # Reduce dashboard worker logging (but allow chart creation messages)
                 logging.getLogger("SpyderG_GUI.SpyderG05_TradingDashboard").setLevel(
