@@ -2,11 +2,26 @@
 """
 Pooled Multi-Client Data Manager using IB Connection Pool
 
-This module provides a connection pool-based implementation of the multi-client
+⚠️ DEPRECATED - MIGRATION TO WEB API IN PROGRESS ⚠️
+
+This module provided pooled multi-client management for IB Gateway/TWS via ib_async.
+It is being DEPRECATED as part of the migration to IBKR Web API (OAuth 2.0).
+
+The Web API does not require multi-client pools:
+- Single session with OAuth 2.0 authentication
+- Rate limiting handles request distribution
+- WebSocket for streaming data
+- REST API for operations
+
+MIGRATION STATUS: This file should NOT be used in new code.
+Use ClientPortalAPI session and rate limiting instead.
+
+Legacy Purpose (IB Gateway/TWS):
+This module provided a connection pool-based implementation of the multi-client
 data manager, designed to solve IB Gateway connection issues by using a shared
 pool of persistent connections instead of individual client connections.
 
-Key Features:
+Legacy Key Features:
 - Uses IBConnectionPool for efficient connection management
 - Thread-safe connection borrowing and returning
 - Maintains existing MultiClientDataManager interface
@@ -15,7 +30,7 @@ Key Features:
 - Graceful startup and shutdown
 
 Author: Spyder Trading System
-Version: 1.0.0
+Version: 1.0.0 (DEPRECATED)
 """
 
 import asyncio
@@ -29,10 +44,13 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, Callable
 import weakref
 
+# DEPRECATED: ib_async import for multi-client pooling
+# This module is being phased out in favor of Web API
 try:
     from ib_async import IB, Contract, Stock, Option
 
     IB_ASYNC_AVAILABLE = True
+    print("⚠️ WARNING: PooledMultiClientManager is DEPRECATED. Use ClientPortalAPI instead.")
 except ImportError:
     IB_ASYNC_AVAILABLE = False
     IB = None

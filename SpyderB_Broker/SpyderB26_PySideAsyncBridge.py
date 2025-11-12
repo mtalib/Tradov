@@ -11,11 +11,25 @@ Year Created: 2025
 Last Updated: 2025-01-22 Time: 10:45:00
 
 Module Description:
+    ⚠️ DEPRECATED - MIGRATION TO WEB API IN PROGRESS ⚠️
+
+    This module provided PySide6 QtAsyncio integration for IB Gateway/TWS via ib_async.
+    It is being DEPRECATED as part of the migration to IBKR Web API (OAuth 2.0).
+
+    The Web API integrates naturally with Qt applications:
+    - Use QNetworkAccessManager for REST API calls
+    - Use QTimer for periodic updates
+    - Use Qt signals/slots for data updates
+    - No special bridge required for Web API
+
+    MIGRATION STATUS: This file should NOT be used in new code.
+    Use ClientPortalAPI with standard Qt networking patterns.
+
+    Legacy Purpose (IB Gateway/TWS):
     Advanced asynchronous bridge for Interactive Brokers Gateway using PySide6's
-    native QtAsyncio integration. This module provides robust connection management,
+    native QtAsyncio integration. This module provided robust connection management,
     automatic reconnection, proper timeout handling, and seamless integration with
-    Qt's event loop. Designed to eliminate timeout errors and connection instability
-    issues experienced with traditional threading approaches.
+    Qt's event loop.
 """
 
 # ==============================================================================
@@ -67,13 +81,16 @@ except ImportError:
             pass
 
 
+# DEPRECATED: ib_async import for IB Gateway/TWS PySide6 bridge
+# This module is being phased out in favor of Web API with Qt networking
 try:
     from ib_async import IB, Contract, Order, MarketOrder, LimitOrder, util
     from ib_async import IB as IBAsync
 
     IB_ASYNC_AVAILABLE = True
+    print("⚠️ WARNING: PySideAsyncBridge is DEPRECATED. Use ClientPortalAPI with Qt networking instead.")
 except ImportError:
-    print("❌ ib_async not installed. Please install: pip install ib_async")
+    print("❌ ib_async not installed (DEPRECATED - use Web API)")
     IB_ASYNC_AVAILABLE = False
 
     # Create fallback classes
