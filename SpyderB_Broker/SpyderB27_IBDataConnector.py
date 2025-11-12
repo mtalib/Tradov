@@ -5,10 +5,12 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderB_Broker
 Module: SpyderB27_IBDataConnector.py
-Purpose: Real-time IB Gateway market data integration for dashboard
+Purpose: Real-time IBKR Web API market data integration for dashboard
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-12 Time: 21:30:00
+Last Updated: 2025-11-12 Time: 18:00:00
+
+Migration Status: Migrated from ib_async (IB Gateway/TWS) to IBKR Web API (OAuth 2.0)
 """
 
 import json
@@ -19,7 +21,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from ib_async import IB, Stock, Ticker
+# Migrated from ib_async to IBKR Web API (OAuth 2.0)
+from SpyderB_Broker.ClientPortalAPI.SpyderB09_ClientPortal_MarketData import (
+    MarketDataManager,
+    MarketDataConfig,
+    Quote
+)
+from SpyderB_Broker.ClientPortalAPI.SpyderB09_ClientPortal_RESTClient import ClientPortalRESTClient
+from SpyderB_Broker.ClientPortalAPI.SpyderB09_ClientPortal_Session import SessionManager
 from PySide6.QtCore import QObject, Signal, QTimer
 
 
@@ -43,8 +52,10 @@ def _safe_int(value: Any) -> int:
 
 class IBDataConnector(QObject):
     """
-    Real-time IB Gateway data connector with singleton pattern.
-    Ensures only ONE connection to IB Gateway for market data.
+    Real-time IBKR Web API data connector with singleton pattern.
+
+    MIGRATION NOTE: Migrated from IB Gateway/TWS (ib_async) to IBKR Web API (OAuth 2.0).
+    Uses ClientPortal MarketDataManager for real-time quotes instead of IB Gateway connection.
 
     IMPORTANT: This is a singleton managed by the dashboard.
     DO NOT call __init__ directly - use get_instance() class method.
@@ -73,16 +84,18 @@ class IBDataConnector(QObject):
         # Mark class as initialized (not instance, to survive Qt deletion)
         IBDataConnector._initialized = True
 
-        # Initialize instance variables
-        self.ib = None
+        # Initialize instance variables for Web API
+        self.market_data_manager = None
+        self.rest_client = None
+        self.session_manager = None
         self.connected = False
-        self.subscriptions: Dict[str, Ticker] = {}
+        self.subscriptions: Dict[str, Any] = {}  # Symbol -> conid mapping
         self.logger = logging.getLogger(__name__)
         self.data_file = Path.home() / "Projects/Spyder/market_data/live_data.json"
         self.timer = None
         self.last_prices = {}
 
-        print("🔒 IBDataConnector singleton instance created")
+        print("🔒 IBDataConnector singleton instance created (Web API mode)")
 
     @classmethod
     def get_instance(cls):
@@ -96,60 +109,55 @@ class IBDataConnector(QObject):
         """Reset singleton for testing or restart scenarios"""
         if cls._instance is not None:
             try:
-                if hasattr(cls._instance, "ib") and cls._instance.ib:
-                    cls._instance.ib.disconnect()
+                if hasattr(cls._instance, "market_data_manager") and cls._instance.market_data_manager:
+                    cls._instance.market_data_manager.stop()
             except:
                 pass
         cls._instance = None
         cls._initialized = False
-        print("🔓 IBDataConnector singleton reset")
+        print("🔓 IBDataConnector singleton reset (Web API)")
 
     def connect_to_ib(self):
-        """Connect to native IB Gateway with minimal production client ID"""
+        """Connect to IBKR Web API for market data (migrated from IB Gateway)"""
         # GUARD: Prevent reconnection if already connected
-        if self.connected and self.ib and self.ib.isConnected():
-            print(
-                f"⚠️  IBDataConnector already connected (Client 3) - skipping reconnection"
-            )
+        if self.connected and self.market_data_manager:
+            print("⚠️  IBDataConnector already connected to Web API - skipping reconnection")
             return True
 
         try:
-            # PRODUCTION MODE: Use dedicated client ID 3 for market data worker
-            # Official client IDs: 1-10 reserved for production use
-            client_id = 3
+            # Initialize Web API components
+            from config.config import get_config
+            config = get_config()
 
-            self.ib = IB()
+            # Create session manager
+            self.session_manager = SessionManager(
+                consumer_key=config.consumer_key,
+                private_key_path=config.private_key_path,
+                account_id=config.account_id
+            )
 
-            # SUPPRESS INFORMATIONAL MESSAGES
-            # Override error handler to filter farm data and connection messages
-            # Based on IBKR API best practices for reducing terminal noise
-            def error_handler(reqId, errorCode, errorString, contract):
-                """Filter out informational messages that flood the API"""
-                # Suppress farm connection and other informational messages
-                # (IBKR sends these automatically - cannot be disabled at Gateway)
-                ignored_codes = {2104, 2106, 2107, 2108, 2119, 2158, 2103}
+            # Create REST client
+            self.rest_client = ClientPortalRESTClient(
+                base_url=config.api_base_url,
+                session_manager=self.session_manager
+            )
 
-                if errorCode not in ignored_codes:
-                    # Log other messages at appropriate level
-                    if errorCode >= 2000:  # Informational/warning range
-                        self.logger.debug(f"IB Info [{errorCode}]: {errorString}")
-                    elif errorCode < 1000:  # Error range
-                        self.logger.error(f"IB Error [{errorCode}]: {errorString}")
-                        self.error_occurred.emit(f"IB Error {errorCode}: {errorString}")
+            # Create market data manager
+            md_config = MarketDataConfig(
+                enable_websocket=True,
+                enable_rest=True,
+                cache_quotes=True,
+                max_cache_size=1000
+            )
 
-            # Attach error handler to suppress message flooding
-            self.ib.errorEvent += error_handler
-
-            # PRODUCTION: Minimize initial message flooding
-            # Connect without requesting account data (readonly mode + no account)
-            # Increased timeout to 20s to handle Gateway load from Client 2
-            self.ib.connect(
-                "127.0.0.1", 4002, clientId=client_id, readonly=True, timeout=20
+            self.market_data_manager = MarketDataManager(
+                rest_client=self.rest_client,
+                config=md_config
             )
 
             self.connected = True
-            print(f"✅ Market data client {client_id} connected (readonly mode)")
-            self.connection_status.emit(True, f"IB CONNECTED (client {client_id})")
+            print("✅ Web API market data connector initialized")
+            self.connection_status.emit(True, "Web API CONNECTED")
 
             # Subscribe immediately
             self.subscribe_symbols()
@@ -162,69 +170,87 @@ class IBDataConnector(QObject):
             return True
 
         except Exception as e:
-            print(f"❌ Connection failed: {e}")
+            print(f"❌ Web API connection failed: {e}")
+            self.logger.error(f"Failed to connect to Web API: {e}")
             self.connection_status.emit(False, f"Connection failed: {e}")
             return False
 
     def subscribe_symbols(self):
-        """Subscribe to market data"""
-        symbols = {
-            "SPY": Stock("SPY", "SMART", "USD"),
-            "QQQ": Stock("QQQ", "SMART", "USD"),
-            "IWM": Stock("IWM", "SMART", "USD"),
-            "DIA": Stock("DIA", "SMART", "USD"),
-            "TLT": Stock("TLT", "SMART", "USD"),
-            "GLD": Stock("GLD", "SMART", "USD"),
-        }
+        """Subscribe to market data via Web API"""
+        # Common symbols to track
+        symbols = ["SPY", "QQQ", "IWM", "DIA", "TLT", "GLD"]
 
-        if not self.ib:
-            self.error_occurred.emit("IB client not connected")
+        if not self.market_data_manager:
+            self.error_occurred.emit("Web API client not connected")
             return
 
-        for symbol, contract in symbols.items():
+        for symbol in symbols:
             try:
-                self.ib.qualifyContracts(contract)
-                ticker = self.ib.reqMktData(contract, "", False, False)
-                self.subscriptions[symbol] = ticker
-                print(f"✅ Subscribed to {symbol}")
+                # Search for contract to get conid
+                search_result = self.rest_client.search_contracts(symbol)
+                if not search_result or len(search_result) == 0:
+                    print(f"⚠️  No contract found for {symbol}")
+                    continue
+
+                # Get first stock contract (usually the primary listing)
+                contract = None
+                for result in search_result:
+                    if result.get('assetClass') == 'STK':
+                        contract = result
+                        break
+
+                if not contract:
+                    print(f"⚠️  No stock contract found for {symbol}")
+                    continue
+
+                conid = contract.get('conid')
+                if not conid:
+                    print(f"⚠️  No conid for {symbol}")
+                    continue
+
+                # Subscribe to market data for this conid
+                self.market_data_manager.subscribe_quote(conid)
+                self.subscriptions[symbol] = conid
+                print(f"✅ Subscribed to {symbol} (conid: {conid})")
+
             except Exception as e:
-                print(f"❌ Failed {symbol}: {e}")
+                print(f"❌ Failed to subscribe to {symbol}: {e}")
+                self.logger.error(f"Subscription failed for {symbol}: {e}")
                 self.error_occurred.emit(f"Subscription failed for {symbol}: {e}")
 
     def update_prices(self):
-        """Update prices from IB"""
+        """Update prices from Web API"""
         try:
-            if not self.ib:
+            if not self.market_data_manager:
                 return
 
-            self.ib.sleep(0)  # Process IB events
-
             updates = {}
-            for symbol, ticker in self.subscriptions.items():
-                price = _safe_float(getattr(ticker, "last", None))
-                if price is None:
-                    price = _safe_float(getattr(ticker, "close", None))
-                if price is None:
-                    market_price = getattr(ticker, "marketPrice", None)
-                    if callable(market_price):
-                        price = _safe_float(market_price())
-                if price is None:
+            for symbol, conid in self.subscriptions.items():
+                # Get latest quote from market data manager
+                quote = self.market_data_manager.get_quote(conid)
+                if not quote:
                     continue
 
-                bid = _safe_float(getattr(ticker, "bid", None)) or price
-                ask = _safe_float(getattr(ticker, "ask", None)) or price
-                volume = _safe_int(getattr(ticker, "volume", None))
+                # Extract price data from Quote object
+                price = _safe_float(quote.last_price)
+                if price is None or price == 0:
+                    continue
 
-                close_price = _safe_float(getattr(ticker, "close", None))
-                if close_price is None:
+                bid = _safe_float(quote.bid_price) or price
+                ask = _safe_float(quote.ask_price) or price
+                volume = _safe_int(quote.volume)
+
+                # Calculate change from previous close
+                close_price = _safe_float(quote.close_price)
+                if close_price is None or close_price == 0:
                     close_price = self.last_prices.get(symbol)
+
                 change = 0.0
                 change_pct = 0.0
 
-                if close_price:
+                if close_price and close_price > 0:
                     change = price - close_price
-                    if close_price:
-                        change_pct = ((price / close_price) - 1.0) * 100.0
+                    change_pct = ((price / close_price) - 1.0) * 100.0
 
                 updates[symbol] = {
                     "symbol": symbol,
@@ -246,12 +272,9 @@ class IBDataConnector(QObject):
             self._write_to_file(updates)
             self.data_received.emit(updates)
 
-            # PRODUCTION MODE: Suppress debug market data print statements
-            # for symbol, data in updates.items():
-            #     print(f"📊 {symbol}: ${data['last']:.2f}")
-
         except Exception as e:
             print(f"Update error: {e}")
+            self.logger.error(f"Price update error: {e}")
             self.error_occurred.emit(f"Update error: {e}")
 
     def _write_to_file(self, updates: dict):
@@ -282,20 +305,21 @@ class IBDataConnector(QObject):
             self.error_occurred.emit(f"Failed to write live data file: {e}")
 
     def disconnect(self):
-        """Tear down subscriptions and close the IB connection"""
+        """Tear down subscriptions and close the Web API connection"""
         try:
             if self.timer and self.timer.isActive():
                 self.timer.stop()
 
-            if self.ib:
+            if self.market_data_manager:
                 try:
-                    self.ib.disconnect()
+                    self.market_data_manager.stop()
                 finally:
-                    self.ib = None
+                    self.market_data_manager = None
 
             self.connected = False
             self.subscriptions.clear()
-            self.connection_status.emit(False, "IB DISCONNECTED")
+            self.connection_status.emit(False, "Web API DISCONNECTED")
+            print("🔌 Web API disconnected")
 
         except Exception as e:
             self.logger.error(f"Error during disconnect: {e}")
@@ -303,8 +327,12 @@ class IBDataConnector(QObject):
 
 
 def patch_dashboard_with_ib_data(dashboard):
-    """Simple patch function"""
-    print("🔥 Patching dashboard with IB data...")
+    """
+    Patch dashboard with IBKR Web API real-time data.
+
+    Migration Note: Now uses Web API instead of IB Gateway/TWS.
+    """
+    print("🔥 Patching dashboard with Web API real-time data...")
 
     connector = IBDataConnector()
 
@@ -326,6 +354,6 @@ def patch_dashboard_with_ib_data(dashboard):
     connector.data_received.connect(update_ui)
 
     if connector.connect_to_ib():
-        dashboard.add_system_log("✅ IB REAL DATA CONNECTED")
+        dashboard.add_system_log("✅ Web API REAL DATA CONNECTED")
 
     return connector

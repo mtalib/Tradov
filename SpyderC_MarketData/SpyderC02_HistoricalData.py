@@ -13,10 +13,13 @@ Last Updated: 2025-08-22 Time: 14:35:00
 
 Module Description:
     This module handles the retrieval, storage, and management of historical market data
-    for the Spyder trading system. It interfaces with Interactive Brokers to fetch
-    historical price data, option data, and market statistics. The module includes
-    caching mechanisms to minimize API calls and provides data preprocessing utilities.
-    Updated to use ib_async for IB Gateway 10.37 compatibility.
+    for the Spyder trading system. Migrated from IB Gateway (ib_async) to IBKR Web API.
+
+    MIGRATION STATUS: Migrated from ib_async to IBKR Client Portal Web API (OAuth 2.0).
+    Now uses SpyderB09_ClientPortal_MarketData for historical data retrieval.
+
+    The module includes caching mechanisms to minimize API calls and provides data
+    preprocessing utilities.
 """
 
 # ==============================================================================
@@ -36,7 +39,11 @@ from enum import Enum
 # ==============================================================================
 import pandas as pd
 import numpy as np
-from ib_async import Contract
+
+# Migrated from ib_async to IBKR Web API
+from SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
+# Alias for backward compatibility
+Contract = IBContract
 
 # ==============================================================================
 # LOCAL IMPORTS

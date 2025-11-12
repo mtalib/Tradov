@@ -14,12 +14,13 @@ Module Description:
     This module provides comprehensive SPY options chain management implementing
     the exact requirements from the market data specification: 0DTE (1s), 1DTE (5s),
     WEEKLY (15s), and MONTHLY (60s) options with dynamic strike selection based
-    on current SPY price. Uses modern ib_async library for enhanced IB Gateway 10.37
-    compatibility. Integrates seamlessly with SpyderB08_MultiClientDataManager
-    using Client ID 2 for 0DTE and distributed across other clients for longer-dated options.
+    on current SPY price.
+
+    MIGRATION STATUS: Migrated from ib_async to IBKR Web API (OAuth 2.0).
+    Uses ClientPortal API for options chain data instead of IB Gateway/TWS.
 
 Key Features:
-    • Modern ib_async integration for enhanced stability
+    • IBKR Web API (OAuth 2.0) integration - migrated from ib_async
     • Dynamic strike selection based on current SPY price
     • Multiple options chain types (0DTE, 1DTE, WEEKLY, MONTHLY)
     • Optimized update frequencies for each chain type
@@ -27,11 +28,8 @@ Key Features:
     • Automatic expiration handling
 
 Dependencies:
-    • ib_async (modern IB API wrapper)
+    • IBKR Client Portal API (Web API with OAuth 2.0)
     • Standard Python libraries for data processing
-
-Installation Note:
-    pip install ib_async
 """
 
 import calendar
@@ -58,27 +56,23 @@ import numpy as np
 import pandas as pd
 
 # ==============================================================================
-# INTERACTIVE BROKERS API IMPORTS - Modern ib_async
+# INTERACTIVE BROKERS WEB API IMPORTS - Migrated from ib_async
 # ==============================================================================
-try:
-    # IB functionality is in IB class
-    # TickerId not needed in ib_async, TickType
-    from ib_async import Contract, ContractDetails
 
-    # IB functionality is in IB class
+# Migration: Use our own data types instead of ib_async
+from SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
+from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
 
-    ib_async_AVAILABLE = True
-except ImportError as e:
-    ib_async_AVAILABLE = False
-    print(f"⚠️ ib_async not available: {e}")
-    print("Install with: pip install ib_async")
+# Backward compatibility: Create aliases for migrated code
+Contract = IBContract
+ib_async_AVAILABLE = True  # Migration complete - using Web API data types
 
-    # Create placeholder classes when ib_async is not available
-    class Contract:
-        pass
-
-    class ContractDetails:
-        pass
+class ContractDetails:
+    """Placeholder for ContractDetails - Web API uses contract responses directly"""
+    def __init__(self):
+        self.contract = None
+        self.tradingClass = ""
+        self.multiplier = "100"
 
 
 # ==============================================================================
@@ -674,40 +668,23 @@ class SPYOptionsChainManager:
         option_type: OptionType,
         chain_type: OptionsChainType,
     ) -> Optional[OptionsContract]:
-        """Create an options contract using ib_async."""
+        """
+        Create an options contract using IBKR Web API data types.
+
+        Migration Note: Now uses IBContract (Web API) instead of ib_async Contract.
+        """
         try:
-            if not ib_async_AVAILABLE:
-                # Create mock contract for testing
-                mock_contract = type("MockContract", (), {})()
-                mock_contract.symbol = "SPY"
-                mock_contract.secType = "OPT"
-                mock_contract.exchange = "SMART"
-                mock_contract.currency = "USD"
-                mock_contract.lastTradeDateOrContractMonth = expiration.strftime(
-                    "%Y%m%d"
-                )
-                mock_contract.strike = strike
-                mock_contract.right = option_type.value
-
-                options_contract = OptionsContract(
-                    symbol="SPY",
-                    expiration=expiration,
-                    strike=strike,
-                    option_type=option_type,
-                    chain_type=chain_type,
-                    contract=mock_contract,
-                )
-                return options_contract
-
-            # Create IB contract using ib_async
-            contract = Contract()
-            contract.symbol = "SPY"
-            contract.secType = "OPT"
-            contract.exchange = "SMART"
-            contract.currency = "USD"
-            contract.lastTradeDateOrContractMonth = expiration.strftime("%Y%m%d")
-            contract.strike = strike
-            contract.right = option_type.value
+            # Create IB contract using IBContract (migrated from ib_async)
+            contract = IBContract(
+                symbol="SPY",
+                sec_type=SecurityType.OPTION,
+                exchange="SMART",
+                currency="USD",
+                last_trade_date_or_contract_month=expiration.strftime("%Y%m%d"),
+                strike=float(strike),
+                right=option_type.value,
+                multiplier="100"
+            )
 
             # Create our options contract wrapper
             options_contract = OptionsContract(
