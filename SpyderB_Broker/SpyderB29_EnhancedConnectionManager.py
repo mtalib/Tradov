@@ -11,12 +11,21 @@ Year Created: 2025
 Last Updated: 2025-09-13 Time: 19:30:00
 
 Module Description:
-    This module consolidates all connection management functionality for Interactive
-    Brokers Gateway into a single, robust solution. It combines features from the
-    existing SpyderB05_ConnectionManager and SpyderB20_IntegratedConnectivityManager
-    while adding the timeout prevention strategies from the IB analysis report.
+    ⚠️ DEPRECATED - MIGRATION TO WEB API IN PROGRESS ⚠️
 
-    Key Features:
+    This module provided connection management for IB Gateway/TWS via ib_async.
+    It is being DEPRECATED as part of the migration to IBKR Web API (OAuth 2.0).
+
+    The Web API provides its own connection management:
+    - Session management with OAuth 2.0 (SpyderB09_ClientPortal_Session)
+    - Rate limiting (SpyderB09_ClientPortal_RateLimiter)
+    - WebSocket connections (SpyderB09_ClientPortal_WebSocket)
+    - REST client with retry logic (SpyderB09_ClientPortal_RESTClient)
+
+    MIGRATION STATUS: This file should NOT be used in new code.
+    Use ClientPortalAPI modules instead.
+
+    Legacy Key Features (IB Gateway/TWS):
     - Unified ConnectivityState enum (compatible with existing modules)
     - Async/await timeout prevention (following IB report recommendations)
     - Exponential backoff reconnection with proper error code handling
@@ -51,12 +60,15 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS
+# THIRD-PARTY IMPORTS - DEPRECATED
 # ==============================================================================
+# DEPRECATED: ib_async import for IB Gateway/TWS connection management
+# This module is being phased out in favor of Web API
 try:
     import ib_async as ib
 
     IB_ASYNC_AVAILABLE = True
+    print("⚠️ WARNING: EnhancedConnectionManager is DEPRECATED. Use ClientPortalAPI instead.")
 except ImportError:
     try:
         from ib_async import IB, ConnectionError as IBConnectionError

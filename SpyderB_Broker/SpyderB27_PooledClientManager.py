@@ -12,11 +12,21 @@ Year Created: 2025
 Last Updated: 2025-10-08 Time: 12:00:00
 
 Module Description:
-    Manages a pool of IB Gateway client connections to support distributed
-    trading operations. Provides connection pooling, load balancing, and
-    automatic failover for high-availability trading systems.
-    
-    Key Features:
+    ⚠️ DEPRECATED - MIGRATION TO WEB API IN PROGRESS ⚠️
+
+    This module provided pooled IB Gateway client connections via ib_async.
+    It is being DEPRECATED as part of the migration to IBKR Web API (OAuth 2.0).
+
+    The Web API does not require client connection pools - it uses:
+    - Single session management with OAuth 2.0 (SpyderB09_ClientPortal_Session)
+    - Rate limiting (SpyderB09_ClientPortal_RateLimiter)
+    - WebSocket for streaming data (SpyderB09_ClientPortal_WebSocket)
+    - REST API for operations (SpyderB09_ClientPortal_RESTClient)
+
+    MIGRATION STATUS: This file should NOT be used in new code.
+    Use ClientPortalAPI modules instead.
+
+    Legacy Key Features (IB Gateway/TWS):
     - Multiple concurrent IB Gateway connections
     - Automatic client ID management
     - Connection health monitoring
@@ -29,13 +39,14 @@ Module Constants:
     MAX_CLIENT_ID (int): Maximum client ID (default: 99)
     DEFAULT_POOL_SIZE (int): Default number of pooled clients (default: 3)
     HEALTH_CHECK_INTERVAL (int): Seconds between health checks (default: 30)
-    
+
 Dependencies:
-    - ib_async for IB connectivity
+    - ib_async for IB connectivity (DEPRECATED)
     - SpyderB_Broker connection modules
     - SpyderU_Utilities for logging
 
 Change Log:
+    2025-11-12: Marked as DEPRECATED - migrating to Web API
     2025-10-08 (v1.0.0):
         - Initial production release
         - Converted from start_pooled_clients.py
@@ -59,11 +70,14 @@ import threading
 from queue import Queue, Empty
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS
+# THIRD-PARTY IMPORTS - DEPRECATED
 # ==============================================================================
+# DEPRECATED: ib_async import for IB Gateway/TWS connection pooling
+# This module is being phased out in favor of Web API
 try:
     from ib_async import IB, util
     HAS_IB_ASYNC = True
+    print("⚠️ WARNING: PooledClientManager is DEPRECATED. Use ClientPortalAPI instead.")
 except ImportError:
     HAS_IB_ASYNC = False
     print("Warning: ib_async not available")

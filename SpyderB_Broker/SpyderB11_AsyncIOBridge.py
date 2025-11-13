@@ -11,16 +11,23 @@ Year Created: 2025
 Last Updated: 2025-09-11 Time: 17:45:00
 
 Module Description:
-    This module provides a modern bridge between ib_async's asyncio event loop
-    and other parts of the Spyder system. It has been updated to use ib_async
-    (the actively maintained successor to ib_insync) for improved stability
-    and performance with IB Gateway. Provides essential functionality
-    for systems that need async IB operations while maintaining clean separation
-    from synchronous components.
+    ⚠️ DEPRECATED - MIGRATION TO WEB API IN PROGRESS ⚠️
 
-Key Features:
+    This module provided an AsyncIO bridge for ib_async integration with IB Gateway/TWS.
+    It is being DEPRECATED as part of the migration to IBKR Web API (OAuth 2.0).
+
+    The Web API uses its own async patterns:
+    - aiohttp for async REST API calls
+    - asyncio-based WebSocket connections
+    - Native async/await support in ClientPortalAPI
+    - No bridge required for Web API integration
+
+    MIGRATION STATUS: This file should NOT be used in new code.
+    Use ClientPortalAPI modules with native async/await instead.
+
+    Legacy Key Features (IB Gateway/TWS):
     • Modern ib_async integration for optimal IB Gateway compatibility
-    • Simplified request/response pattern for easy integration  
+    • Simplified request/response pattern for easy integration
     • Thread-safe communication via queue system
     • Robust error handling and connection management
     • Support for market data, orders, positions, and account data
@@ -46,15 +53,17 @@ import concurrent.futures
 from collections import defaultdict, deque
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS WITH FALLBACKS
+# THIRD-PARTY IMPORTS WITH FALLBACKS - DEPRECATED
 # ==============================================================================
 
-# ib_async with fallback
+# DEPRECATED: ib_async import for IB Gateway/TWS AsyncIO bridge
+# This module is being phased out in favor of Web API native async
 try:
     import nest_asyncio
     from ib_async import IB, util, Contract, Stock, Option, Order, Trade, Ticker, BarData
     nest_asyncio.apply()
     HAS_IB_ASYNC = True
+    print("⚠️ WARNING: AsyncIOBridge is DEPRECATED. Use ClientPortalAPI native async instead.")
 except ImportError:
     HAS_IB_ASYNC = False
     # Mock classes for fallback

@@ -9,11 +9,27 @@ Year Created: 2025
 Last Updated: 2025-08-26 Time: 10:45:00
 
 Module Description:
+    ⚠️ DEPRECATED - MIGRATION TO WEB API IN PROGRESS ⚠️
+
+    This module provided integration testing for IB Gateway/TWS via ib_async.
+    It is being DEPRECATED as part of the migration to IBKR Web API (OAuth 2.0).
+
+    For Web API integration testing, use:
+    - SpyderT_Testing/SpyderT27_ClientPortal_Integration_Test.py
+    - OAuth authentication tests
+    - REST endpoint integration tests
+    - WebSocket connection tests
+    - Session management tests
+    - Rate limiter functionality tests
+
+    MIGRATION STATUS: This file should NOT be used in new code.
+    Use ClientPortalAPI integration test suite instead.
+
+    Legacy Purpose (IB Gateway/TWS):
     Comprehensive integration test suite for validating the complete IB Gateway
     setup including configuration, startup automation, connection stability,
-    and API functionality. Provides automated testing, performance benchmarking,
+    and API functionality. Provided automated testing, performance benchmarking,
     and diagnostic reporting for the Spyder trading system integration.
-    IB Gateway 10.39 specific features have been removed.
 """
 
 import os
@@ -58,12 +74,14 @@ except ImportError as e:
     print(f"⚠️ Gateway modules not available: {e}")
     MODULES_AVAILABLE = False
 
-# IB API imports
+# IB API imports - DEPRECATED
+# DEPRECATED: ib_async import for Gateway/TWS integration testing
 try:
     from ib_async import IB, Contract, Stock, Option, util
     IB_ASYNC_AVAILABLE = True
+    print("⚠️ WARNING: IntegrationTestSuite is DEPRECATED. Use ClientPortalAPI test suite instead.")
 except ImportError:
-    print("⚠️ ib_async not available")
+    print("⚠️ ib_async not available (DEPRECATED - use Web API tests)")
     IB_ASYNC_AVAILABLE = False
 
 # ==============================================================================

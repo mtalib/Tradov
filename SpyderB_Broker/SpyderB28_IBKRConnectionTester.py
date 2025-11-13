@@ -11,19 +11,28 @@ Year Created: 2025
 Last Updated: 2025-08-30 Time: 21:45:00
 
 Module Description:
-    Comprehensive IBKR connection testing module that validates connectivity to
+    ⚠️ DEPRECATED - MIGRATION TO WEB API IN PROGRESS ⚠️
+
+    This module provided connection testing for IB Gateway/TWS via IBAPI and ib_async.
+    It is being DEPRECATED as part of the migration to IBKR Web API (OAuth 2.0).
+
+    For Web API connection testing, use:
+    - OAuth token validation (SpyderB09_ClientPortal_Auth)
+    - REST endpoint health checks
+    - Session validation (SpyderB09_ClientPortal_Session)
+    - WebSocket connectivity tests
+    - Rate limiter status checks
+
+    MIGRATION STATUS: This file should NOT be used in new code.
+    Create new Web API connection tester using ClientPortalAPI modules.
+
+    Legacy Purpose (IB Gateway/TWS):
+    Comprehensive IBKR connection testing module that validated connectivity to
     Interactive Brokers servers using both raw IBAPI and Spyder's ib-insync
-    infrastructure. Provides diagnostic tools for troubleshooting Zurich server
-    routing issues and connection problems. Includes account verification and
-    server connectivity tests as requested by IBKR support.
+    infrastructure. Provided diagnostic tools for troubleshooting Zurich server
+    routing issues and connection problems.
 
-Dependencies:
-    - ibapi (raw IBAPI for IBKR support tests)
-    - ib_insync (Spyder's primary IB interface)
-    - SpyderB_Broker components (SpyderClient, ConnectionManager)
-    - SpyderU_Utilities (SpyderLogger)
-
-Test Coverage:
+Legacy Test Coverage:
     - Raw IBAPI connection test (IBKR support request)
     - Spyder infrastructure connection test
     - Account summary validation
@@ -75,9 +84,11 @@ except ImportError:
         AllTags = ""
 
 
-# Spyder imports
+# Spyder imports - DEPRECATED
+# DEPRECATED: ib_async import for Gateway/TWS connection testing
 try:
     from ib_async import IB, util
+    print("⚠️ WARNING: IBKRConnectionTester is DEPRECATED. Create Web API connection tester instead.")
 
     IB_ASYNC_AVAILABLE = True
 except ImportError:

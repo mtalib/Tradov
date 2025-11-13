@@ -2,11 +2,20 @@
 """
 IB Gateway Connection Pool for Efficient Connection Management
 
-This module provides a sophisticated connection pool for IB Gateway connections,
-designed to solve the handshake timeout and connection limit issues observed
-with individual client connections.
+⚠️ DEPRECATED - MIGRATION TO WEB API IN PROGRESS ⚠️
 
-Key Features:
+This module provided connection pooling for IB Gateway/TWS via ib_async.
+It is being DEPRECATED as part of the migration to IBKR Web API (OAuth 2.0).
+
+The Web API does not require connection pooling - it uses:
+- REST API calls with rate limiting (SpyderB09_ClientPortal_RateLimiter)
+- WebSocket connections for streaming (SpyderB09_ClientPortal_WebSocket)
+- Session management with OAuth 2.0 (SpyderB09_ClientPortal_Session)
+
+MIGRATION STATUS: This file should NOT be used in new code.
+Use ClientPortalAPI modules instead.
+
+Legacy Key Features (IB Gateway/TWS):
 - Pre-established persistent connections
 - Thread-safe connection borrowing/returning
 - Health monitoring and auto-recovery
@@ -15,7 +24,7 @@ Key Features:
 - Graceful shutdown and cleanup
 
 Author: Spyder Trading System
-Version: 1.0.0
+Version: 1.0.0 (DEPRECATED)
 """
 
 import asyncio
@@ -30,6 +39,8 @@ from queue import Queue, Empty
 from typing import Optional, List, Dict, Any, Callable
 import weakref
 
+# DEPRECATED: ib_async import for IB Gateway/TWS connection pooling
+# This module is being phased out in favor of Web API
 try:
     from ib_async import IB
 
@@ -37,6 +48,7 @@ try:
 except ImportError:
     IB_ASYNC_AVAILABLE = False
     IB = None
+    print("⚠️ WARNING: IBConnectionPool is DEPRECATED. Use ClientPortalAPI instead.")
 
 # Spyder imports
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
