@@ -286,6 +286,8 @@ class CircuitBreaker:
                 "state": self.state.name,
                 "failure_count": self.failure_count,
                 "success_count": self.success_count,
+                "failure_threshold": self.failure_threshold,
+                "recovery_timeout": self.recovery_timeout,
                 "last_failure_time": self.last_failure_time,
                 "is_open": self.is_open,
                 "time_until_retry": self._time_until_retry() if self.is_open else 0.0
