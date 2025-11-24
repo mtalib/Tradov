@@ -1517,8 +1517,8 @@ class SpyderTradingDashboard(QMainWindow):
                     spy_price = data.get("SPY", {}).get("last", "N/A")
                     self.add_system_log(f"🔥 Real data detected - SPY: ${spy_price}")
                     real_data_available = True
-                except:
-                    self.add_system_log("⚠️ Real data file exists but couldn't read it")
+                except (json.JSONDecodeError, KeyError, IOError) as e:
+                    self.add_system_log(f"⚠️ Real data file exists but couldn't read it: {e}")
             else:
                 self.add_system_log(
                     "📊 No real data detected - will monitor for availability"

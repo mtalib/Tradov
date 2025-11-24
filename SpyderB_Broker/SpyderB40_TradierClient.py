@@ -57,6 +57,7 @@ References:
 # STANDARD IMPORTS
 # ==============================================================================
 import time
+import asyncio
 from typing import Optional, Dict, Any, List
 from enum import Enum
 
@@ -72,6 +73,8 @@ from urllib3.util.retry import Retry
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit, acquire_tradier
+from SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
 
 # ==============================================================================
 # CONSTANTS
@@ -575,6 +578,214 @@ class TradierClient:
     def __repr__(self) -> str:
         """String representation."""
         return f"TradierClient(account={self.account_id}, env={self.environment.value})"
+
+    # ==========================================================================
+    # ASYNC WRAPPERS WITH RATE LIMITING & CIRCUIT BREAKERS
+    # ==========================================================================
+
+    @rate_limit(service="tradier")
+    async def place_order_async(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: int,
+        order_type: OrderType = OrderType.MARKET,
+        duration: OrderDuration = OrderDuration.DAY,
+        limit_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        order_class: OrderClass = OrderClass.EQUITY
+    ) -> Dict[str, Any]:
+        """
+        Place an order asynchronously with rate limiting and circuit breaker.
+
+        This async version automatically applies:
+        - Rate limiting (10 req/sec for Tradier)
+        - Circuit breaker protection (opens after 5 failures)
+        - Non-blocking execution in async contexts
+
+        Args:
+            symbol: Security symbol (e.g., "SPY")
+            side: Order side (buy/sell)
+            quantity: Number of shares/contracts
+            order_type: Order type (market, limit, stop)
+            duration: Time-in-force (day, gtc)
+            limit_price: Limit price (required for limit orders)
+            stop_price: Stop price (required for stop orders)
+            order_class: Security class (equity, option)
+
+        Returns:
+            Order response with order ID
+
+        Example:
+            >>> # In async context
+            >>> order = await client.place_order_async(
+            ...     symbol="SPY",
+            ...     side=OrderSide.BUY,
+            ...     quantity=10,
+            ...     order_type=OrderType.MARKET
+            ... )
+        """
+        loop = asyncio.get_event_loop()
+
+        # Wrap sync method in async executor with circuit breaker protection
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                self.place_order,
+                symbol,
+                side,
+                quantity,
+                order_type,
+                duration,
+                limit_price,
+                stop_price,
+                order_class
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def get_quotes_async(self, symbols: List[str]) -> Dict[str, Any]:
+        """
+        Get real-time quotes asynchronously with rate limiting and circuit breaker.
+
+        This async version provides:
+        - Automatic rate limiting to prevent API bans
+        - Circuit breaker to handle service outages gracefully
+        - Non-blocking operation in async event loops
+
+        Args:
+            symbols: List of symbols (e.g., ["SPY", "QQQ"])
+
+        Returns:
+            Quote data
+
+        Example:
+            >>> quotes = await client.get_quotes_async(["SPY", "QQQ"])
+        """
+        loop = asyncio.get_event_loop()
+
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                self.get_quotes,
+                symbols
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def get_account_balances_async(self) -> Dict[str, Any]:
+        """
+        Get account balances asynchronously with protection.
+
+        Returns:
+            Account balance data
+        """
+        loop = asyncio.get_event_loop()
+
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                self.get_account_balances
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def get_positions_async(self) -> Dict[str, Any]:
+        """
+        Get current positions asynchronously with protection.
+
+        Returns:
+            List of current positions
+        """
+        loop = asyncio.get_event_loop()
+
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                self.get_positions
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def cancel_order_async(self, order_id: int) -> Dict[str, Any]:
+        """
+        Cancel an order asynchronously with protection.
+
+        Args:
+            order_id: Order ID to cancel
+
+        Returns:
+            Cancellation response
+        """
+        loop = asyncio.get_event_loop()
+
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                self.cancel_order,
+                order_id
+            )
+            return result
+
+    @rate_limit(service="tradier")
+    async def get_option_chain_async(self, symbol: str, expiration: str) -> Dict[str, Any]:
+        """
+        Get option chain asynchronously with protection.
+
+        Args:
+            symbol: Underlying symbol (e.g., "SPY")
+            expiration: Expiration date (YYYY-MM-DD)
+
+        Returns:
+            Option chain data
+        """
+        loop = asyncio.get_event_loop()
+
+        async with tradier_breaker:
+            result = await loop.run_in_executor(
+                None,
+                self.get_option_chain,
+                symbol,
+                expiration
+            )
+            return result
+
+    # ==========================================================================
+    # CIRCUIT BREAKER MONITORING
+    # ==========================================================================
+
+    @staticmethod
+    def get_circuit_breaker_status() -> Dict[str, Any]:
+        """
+        Get current circuit breaker status for monitoring.
+
+        Returns:
+            Dictionary with circuit breaker statistics:
+                - state: Current state (CLOSED/OPEN/HALF_OPEN)
+                - failure_count: Number of consecutive failures
+                - is_open: Whether circuit is open (blocking requests)
+                - time_until_retry: Seconds until retry attempt (if open)
+
+        Example:
+            >>> status = TradierClient.get_circuit_breaker_status()
+            >>> if status['is_open']:
+            ...     logger.warning(f"Tradier circuit open for {status['time_until_retry']}s")
+        """
+        return tradier_breaker.get_stats()
+
+    @staticmethod
+    def reset_circuit_breaker():
+        """
+        Manually reset the circuit breaker.
+
+        Use this after manually verifying that the service has recovered.
+
+        Example:
+            >>> TradierClient.reset_circuit_breaker()
+            >>> logger.info("Tradier circuit breaker manually reset")
+        """
+        tradier_breaker.reset()
+        logger.info("Tradier circuit breaker has been manually reset")
 
 
 # ==============================================================================

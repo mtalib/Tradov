@@ -63,6 +63,8 @@ from collections import deque
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import websocket
+import requests
+import asyncio
 
 # Try to import PySide6 for Qt integration
 try:
@@ -79,6 +81,8 @@ except ImportError:
 # ==============================================================================
 from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit, acquire_polygon
+from SpyderU_Utilities.SpyderU41_CircuitBreaker import polygon_breaker
 
 # ==============================================================================
 # CONSTANTS
@@ -552,6 +556,176 @@ if HAS_QT:
         def __repr__(self) -> str:
             """String representation."""
             return f"PolygonDataHandler(symbols={self.symbols}, status={self.status.value})"
+
+        # ==========================================================================
+        # REST API METHODS WITH RATE LIMITING & CIRCUIT BREAKERS
+        # ==========================================================================
+
+        @rate_limit(service="polygon_rest")
+        async def fetch_historical_bars_async(
+            self,
+            symbol: str,
+            from_date: str,
+            to_date: str,
+            multiplier: int = 1,
+            timespan: str = "day"
+        ) -> Dict[str, Any]:
+            """
+            Fetch historical aggregate bars asynchronously with protection.
+
+            This method provides:
+            - Rate limiting based on Polygon tier (5/min starter, 100/min business)
+            - Circuit breaker protection against outages
+            - Non-blocking async execution
+
+            Args:
+                symbol: Stock symbol (e.g., "SPY")
+                from_date: Start date (YYYY-MM-DD)
+                to_date: End date (YYYY-MM-DD)
+                multiplier: Size of timespan (e.g., 1 for 1-day, 5 for 5-minute)
+                timespan: Size of time window (minute, hour, day, week, month)
+
+            Returns:
+                Historical bars data
+
+            Example:
+                >>> bars = await handler.fetch_historical_bars_async(
+                ...     "SPY", "2025-01-01", "2025-01-31", multiplier=1, timespan="day"
+                ... )
+            """
+            # Determine tier from environment or default to starter
+            import os
+            tier = os.getenv("POLYGON_TIER", "starter")
+
+            # Additional tier-specific rate limiting
+            await acquire_polygon(tier=tier)
+
+            url = f"{POLYGON_REST_URL}/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{from_date}/{to_date}"
+            params = {"apiKey": self.api_key, "adjusted": "true", "sort": "asc"}
+
+            loop = asyncio.get_event_loop()
+
+            async with polygon_breaker:
+                # Use executor for blocking HTTP request
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: requests.get(url, params=params, timeout=10)
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.info(f"Fetched {len(data.get('results', []))} bars for {symbol}")
+                    return data
+                else:
+                    error_msg = f"Polygon API error {response.status_code}: {response.text}"
+                    logger.error(error_msg)
+                    raise Exception(error_msg)
+
+        @rate_limit(service="polygon_rest")
+        async def fetch_last_trade_async(self, symbol: str) -> Dict[str, Any]:
+            """
+            Fetch the last trade for a symbol asynchronously with protection.
+
+            Args:
+                symbol: Stock symbol (e.g., "SPY")
+
+            Returns:
+                Last trade data
+
+            Example:
+                >>> trade = await handler.fetch_last_trade_async("SPY")
+                >>> print(f"Last price: ${trade['results']['p']}")
+            """
+            import os
+            tier = os.getenv("POLYGON_TIER", "starter")
+            await acquire_polygon(tier=tier)
+
+            url = f"{POLYGON_REST_URL}/v2/last/trade/{symbol}"
+            params = {"apiKey": self.api_key}
+
+            loop = asyncio.get_event_loop()
+
+            async with polygon_breaker:
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: requests.get(url, params=params, timeout=10)
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    error_msg = f"Polygon API error {response.status_code}: {response.text}"
+                    logger.error(error_msg)
+                    raise Exception(error_msg)
+
+        @rate_limit(service="polygon_rest")
+        async def fetch_snapshot_async(self, symbol: str) -> Dict[str, Any]:
+            """
+            Fetch current snapshot (latest trade, quote, and daily stats) asynchronously.
+
+            Args:
+                symbol: Stock symbol (e.g., "SPY")
+
+            Returns:
+                Snapshot data with current trade, quote, and daily statistics
+
+            Example:
+                >>> snapshot = await handler.fetch_snapshot_async("SPY")
+                >>> print(f"Current: ${snapshot['ticker']['lastTrade']['p']}")
+            """
+            import os
+            tier = os.getenv("POLYGON_TIER", "starter")
+            await acquire_polygon(tier=tier)
+
+            url = f"{POLYGON_REST_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
+            params = {"apiKey": self.api_key}
+
+            loop = asyncio.get_event_loop()
+
+            async with polygon_breaker:
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: requests.get(url, params=params, timeout=10)
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    error_msg = f"Polygon API error {response.status_code}: {response.text}"
+                    logger.error(error_msg)
+                    raise Exception(error_msg)
+
+        # ==========================================================================
+        # CIRCUIT BREAKER MONITORING
+        # ==========================================================================
+
+        @staticmethod
+        def get_circuit_breaker_status() -> Dict[str, Any]:
+            """
+            Get current circuit breaker status for Polygon API.
+
+            Returns:
+                Dictionary with circuit breaker statistics
+
+            Example:
+                >>> status = PolygonDataHandler.get_circuit_breaker_status()
+                >>> if status['is_open']:
+                ...     logger.warning(f"Polygon circuit open!")
+            """
+            return polygon_breaker.get_stats()
+
+        @staticmethod
+        def reset_circuit_breaker():
+            """
+            Manually reset the Polygon circuit breaker.
+
+            Use after verifying service has recovered.
+
+            Example:
+                >>> PolygonDataHandler.reset_circuit_breaker()
+            """
+            polygon_breaker.reset()
+            logger.info("Polygon circuit breaker has been manually reset")
 
 
 # ==============================================================================
