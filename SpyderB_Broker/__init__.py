@@ -1,45 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System v1.0
+SPYDER - Autonomous Options Trading System v2.0
 
 Series: SpyderB_Broker
-Module: __init__.py (CONSOLIDATED VERSION WITH B29)
-Purpose: Package initialization with consolidated connection manager
+Module: __init__.py
+Purpose: Package initialization for Tradier + Polygon broker integration
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-13 Time: 20:00:00
+Last Updated: 2025-11-24
 
 Module Description:
-    Updated package initialization for SpyderB_Broker with the new consolidated
-    SpyderB29_EnhancedConnectionManager and proper handling of renamed modules.
-    This version resolves duplicate module numbers and provides a clean interface
-    for all broker components.
+    Updated package initialization for SpyderB_Broker with Tradier API integration
+    for order execution and Polygon.io for market data.
 
-    KEY CHANGES:
-    - Added SpyderB29_EnhancedConnectionManager (consolidated connection manager)
-    - Fixed duplicate module numbers (B26, B27)
-    - Proper module renaming support
-    - Backward compatibility maintained
-    - Enhanced error handling and diagnostics
-    - Timeout prevention integration
+    MIGRATION NOTES:
+    - Removed all IBKR/Interactive Brokers dependencies
+    - TradierClient is now the primary broker interface
+    - Market data provided by Polygon.io (see SpyderC_MarketData)
+    - Simplified authentication (Bearer token vs OAuth 2.0)
 """
 
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
-__version__ = "2.2.0"
+__version__ = "3.0.0"
 __author__ = "Mohamed Talib"
-__description__ = (
-    "SPYDER Broker Package - Interactive Brokers Gateway Interface (Consolidated)"
-)
+__description__ = "SPYDER Broker Package - Tradier API Integration"
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
-import sys
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, Any, Optional
 
 # ==============================================================================
 # PACKAGE INITIALIZATION LOGGING
@@ -52,9 +45,9 @@ def _log_import_status(module_name: str, success: bool, error: str = None):
     """Log import status for debugging and validation."""
     _module_status[module_name] = success
     if success:
-        _logger.debug(f"✅ {module_name} imported successfully")
+        _logger.debug(f"[OK] {module_name} imported successfully")
     else:
-        _logger.warning(f"❌ {module_name} import failed: {error}")
+        _logger.warning(f"[FAIL] {module_name} import failed: {error}")
 
 
 def get_module_status() -> Dict[str, bool]:
@@ -70,8 +63,8 @@ def get_package_status() -> Dict[str, Any]:
         "modules_total": len(_module_status),
         "success_rate": sum(_module_status.values()) / max(1, len(_module_status)),
         "module_details": _module_status.copy(),
-        "connection_manager_version": "B29_Enhanced",
-        "timeout_prevention": True,
+        "broker": "Tradier",
+        "data_provider": "Polygon.io",
     }
 
 
@@ -79,466 +72,161 @@ def print_package_status():
     """Print formatted package status."""
     status = get_package_status()
     print(f"SpyderB_Broker Package Status (v{status['version']}):")
+    print(f"  Broker: {status['broker']}")
+    print(f"  Data Provider: {status['data_provider']}")
     print(f"  Modules loaded: {status['modules_loaded']}/{status['modules_total']}")
     print(f"  Success rate: {status['success_rate']:.1%}")
-    print(f"  Connection Manager: {status['connection_manager_version']}")
-    print(f"  Timeout Prevention: {status['timeout_prevention']}")
 
 
 # ==============================================================================
 # CORE MODULE IMPORTS
 # ==============================================================================
 
-# Order Types (B00)
+# Order Types (B00) - Generic order type definitions
 try:
     from .SpyderB00_OrderTypes import *
-
     _log_import_status("SpyderB00_OrderTypes", True)
 except ImportError as e:
     _log_import_status("SpyderB00_OrderTypes", False, str(e))
 
-# Main Spyder Client (B01)
+# ==============================================================================
+# TRADIER CLIENT (B40) - PRIMARY BROKER INTERFACE
+# ==============================================================================
 try:
-    from .SpyderB01_SpyderClient import SpyderClient, IBConfig, create_spyder_client
-
-    _log_import_status("SpyderB01_SpyderClient", True)
+    from .SpyderB40_TradierClient import (
+        TradierClient,
+        TradingEnvironment,
+        OrderSide,
+        OrderType,
+        OrderDuration,
+        TradierError,
+        TradierAuthenticationError,
+        TradierValidationError,
+        TradierServerError,
+        TradierRateLimitError,
+        create_tradier_client_from_env,
+    )
+    _log_import_status("SpyderB40_TradierClient", True)
 except ImportError as e:
-    _log_import_status("SpyderB01_SpyderClient", False, str(e))
-    # Create fallback
-    SpyderClient = None
-    IBConfig = None
-    create_spyder_client = None
+    _log_import_status("SpyderB40_TradierClient", False, str(e))
+    TradierClient = None
+    TradingEnvironment = None
+    OrderSide = None
+    OrderType = None
+    OrderDuration = None
+    TradierError = None
+    TradierAuthenticationError = None
+    TradierValidationError = None
+    TradierServerError = None
+    TradierRateLimitError = None
+    create_tradier_client_from_env = None
 
-# Order Manager (B02)
+# ==============================================================================
+# SUPPORTING MODULES (TO BE REFACTORED FOR TRADIER)
+# ==============================================================================
+
+# Order Manager (B02) - Needs refactoring to use TradierClient
 try:
-    from .SpyderB02_OrderManager import OrderManager, OrderRequest, create_order_manager
-
+    from .SpyderB02_OrderManager import OrderManager, OrderRequest
     _log_import_status("SpyderB02_OrderManager", True)
 except ImportError as e:
     _log_import_status("SpyderB02_OrderManager", False, str(e))
     OrderManager = None
     OrderRequest = None
-    create_order_manager = None
 
-# Position Tracker (B03)
+# Position Tracker (B03) - Needs refactoring to use Tradier positions
 try:
-    from .SpyderB03_PositionTracker import PositionTracker, create_position_tracker
-
+    from .SpyderB03_PositionTracker import PositionTracker
     _log_import_status("SpyderB03_PositionTracker", True)
 except ImportError as e:
     _log_import_status("SpyderB03_PositionTracker", False, str(e))
     PositionTracker = None
-    create_position_tracker = None
 
-# Account Manager (B04)
+# Account Manager (B04) - Needs refactoring to use Tradier accounts
 try:
-    from .SpyderB04_AccountManager import AccountManager, create_account_manager
-
+    from .SpyderB04_AccountManager import AccountManager
     _log_import_status("SpyderB04_AccountManager", True)
 except ImportError as e:
     _log_import_status("SpyderB04_AccountManager", False, str(e))
     AccountManager = None
-    create_account_manager = None
 
-# ==============================================================================
-# CONNECTION MANAGERS - NEW CONSOLIDATED APPROACH
-# ==============================================================================
-
-# NEW: Enhanced Connection Manager (B29) - PRIMARY
+# Contract Builder (B06) - Needs refactoring for Tradier symbol format
 try:
-    from .SpyderB29_EnhancedConnectionManager import (
-        EnhancedConnectionManager,
-        ConnectionConfig,
-        ConnectionStatus,
-        ConnectionState,
-        ConnectivityState,
-        TradingMode,
-        get_connection_manager,
-        reset_connection_manager,
-    )
-
-    _log_import_status("SpyderB29_EnhancedConnectionManager", True)
-
-    # Make the enhanced manager the default
-    ConnectionManager = EnhancedConnectionManager
-
-except ImportError as e:
-    _log_import_status("SpyderB29_EnhancedConnectionManager", False, str(e))
-
-    # Fallback to original Connection Manager (B05) for backward compatibility
-    try:
-        from .SpyderB05_ConnectionManager import ConnectionManager, ConnectivityState
-
-        _log_import_status("SpyderB05_ConnectionManager", True)
-        _log_import_status("SpyderB29_Fallback", True, "Using B05 as fallback")
-    except ImportError as e2:
-        _log_import_status("SpyderB05_ConnectionManager", False, str(e2))
-        ConnectionManager = None
-        ConnectivityState = None
-
-# Legacy Connection Manager (B05) - kept for compatibility
-try:
-    from .SpyderB05_ConnectionManager import (
-        ConnectionManager as LegacyConnectionManager,
-    )
-
-    _log_import_status("SpyderB05_Legacy", True)
-except ImportError as e:
-    _log_import_status("SpyderB05_Legacy", False, str(e))
-    LegacyConnectionManager = None
-
-# Integrated Connectivity Manager (B20) - kept for compatibility
-try:
-    from .SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager
-
-    _log_import_status("SpyderB20_IntegratedConnectivityManager", True)
-except ImportError as e:
-    _log_import_status("SpyderB20_IntegratedConnectivityManager", False, str(e))
-    IntegratedConnectivityManager = None
-
-# ==============================================================================
-# CONTRACT AND DATA MODULES
-# ==============================================================================
-
-# Contract Builder (B06)
-try:
-    from .SpyderB06_ContractBuilder import ContractBuilder, get_contract_builder
-
+    from .SpyderB06_ContractBuilder import ContractBuilder
     _log_import_status("SpyderB06_ContractBuilder", True)
 except ImportError as e:
     _log_import_status("SpyderB06_ContractBuilder", False, str(e))
     ContractBuilder = None
-    get_contract_builder = None
-    create_contract_builder = None
 
-# Market Data Manager (B07)
+# Market Data Manager (B07) - Needs refactoring to use Polygon
 try:
-    from .SpyderB07_MarketDataManager import (
-        MarketDataManager,
-        create_market_data_manager,
-    )
-
+    from .SpyderB07_MarketDataManager import MarketDataManager
     _log_import_status("SpyderB07_MarketDataManager", True)
 except ImportError as e:
     _log_import_status("SpyderB07_MarketDataManager", False, str(e))
     MarketDataManager = None
-    create_market_data_manager = None
-
-# Multi-Client Data Manager (B08)
-try:
-    from .SpyderB08_MultiClientDataManager import MultiClientDataManager
-
-    _log_import_status("SpyderB08_MultiClientDataManager", True)
-except ImportError as e:
-    _log_import_status("SpyderB08_MultiClientDataManager", False, str(e))
-    MultiClientDataManager = None
-
-# IB Client Portal (B09)
-try:
-    from .SpyderB09_IBClientPortal import IBClientPortal
-
-    _log_import_status("SpyderB09_IBClientPortal", True)
-except ImportError as e:
-    _log_import_status("SpyderB09_IBClientPortal", False, str(e))
-    IBClientPortal = None
-
-# IB Data Types (B10)
-try:
-    from .SpyderB10_IBDataTypes import IBDataTypeManager as IBDataTypes
-
-    _log_import_status("SpyderB10_IBDataTypes", True)
-except ImportError as e:
-    _log_import_status("SpyderB10_IBDataTypes", False, str(e))
-    IBDataTypes = None
 
 # ==============================================================================
-# INFRASTRUCTURE MODULES
+# UTILITY MODULES
 # ==============================================================================
 
-# AsyncIO Bridge (B11)
-try:
-    from .SpyderB11_AsyncIOBridge import AsyncIOBridge
-
-    _log_import_status("SpyderB11_AsyncIOBridge", True)
-except ImportError as e:
-    _log_import_status("SpyderB11_AsyncIOBridge", False, str(e))
-    AsyncIOBridge = None
-
-# Gateway Automation (B12)
-try:
-    from .SpyderB12_GatewayAutomation import (
-        GatewayAutomation,
-        create_gateway_automation,
-    )
-
-    _log_import_status("SpyderB12_GatewayAutomation", True)
-except ImportError as e:
-    _log_import_status("SpyderB12_GatewayAutomation", False, str(e))
-    GatewayAutomation = None
-    create_gateway_automation = None
-
-# Gateway Config (B13)
-try:
-    from .SpyderB13_GatewayConfig import GatewayConfig
-
-    _log_import_status("SpyderB13_GatewayConfig", True)
-except ImportError as e:
-    _log_import_status("SpyderB13_GatewayConfig", False, str(e))
-    GatewayConfig = None
-
-# Multi-Client Watchdog (B14)
-try:
-    from .SpyderB14_MultiClientWatchdog import MultiClientWatchdog
-
-    _log_import_status("SpyderB14_MultiClientWatchdog", True)
-except ImportError as e:
-    _log_import_status("SpyderB14_MultiClientWatchdog", False, str(e))
-    MultiClientWatchdog = None
-
-# Prometheus Metrics (B15)
+# Prometheus Metrics (B15) - Generic metrics collection
 try:
     from .SpyderB15_PrometheusMetrics import PrometheusMetrics
-
     _log_import_status("SpyderB15_PrometheusMetrics", True)
 except ImportError as e:
     _log_import_status("SpyderB15_PrometheusMetrics", False, str(e))
     PrometheusMetrics = None
 
-# Gateway Integration (B16)
-try:
-    from .SpyderB16_GatewayIntegration import GatewayIntegrationManager
-
-    _log_import_status("SpyderB16_GatewayIntegration", True)
-except ImportError as e:
-    _log_import_status("SpyderB16_GatewayIntegration", False, str(e))
-    GatewayIntegrationManager = None
-
-# Server Monitor (B17)
-try:
-    from .SpyderB17_ServerMonitor import ServerMonitor
-
-    _log_import_status("SpyderB17_ServerMonitor", True)
-except ImportError as e:
-    _log_import_status("SpyderB17_ServerMonitor", False, str(e))
-    ServerMonitor = None
-
-# Zurich Connectivity Diagnostic (B18)
-try:
-    from .SpyderB18_ZurichConnectivityDiagnostic import ZurichConnectivityDiagnostic
-
-    _log_import_status("SpyderB18_ZurichConnectivityDiagnostic", True)
-except ImportError as e:
-    _log_import_status("SpyderB18_ZurichConnectivityDiagnostic", False, str(e))
-    ZurichConnectivityDiagnostic = None
-
-# VPN Manager (B19)
-try:
-    from .SpyderB19_VPNManager import VPNManager
-
-    _log_import_status("SpyderB19_VPNManager", True)
-except ImportError as e:
-    _log_import_status("SpyderB19_VPNManager", False, str(e))
-    VPNManager = None
-
-# ==============================================================================
-# AUTOMATION AND TESTING MODULES
-# ==============================================================================
-
-# Gateway Startup Automation (B21)
-try:
-    from .SpyderB21_GatewayStartupAutomation import GatewayStartupAutomation
-
-    _log_import_status("SpyderB21_GatewayStartupAutomation", True)
-except ImportError as e:
-    _log_import_status("SpyderB21_GatewayStartupAutomation", False, str(e))
-    GatewayStartupAutomation = None
-
-# Integration Test Suite (B22)
-try:
-    from .SpyderB22_IntegrationTestSuite import IntegrationTestSuite
-
-    _log_import_status("SpyderB22_IntegrationTestSuite", True)
-except ImportError as e:
-    _log_import_status("SpyderB22_IntegrationTestSuite", False, str(e))
-    IntegrationTestSuite = None
-
-# Bashrc Configuration (B23)
-try:
-    from .SpyderB23_BashrcConfiguration import BashrcConfiguration
-
-    _log_import_status("SpyderB23_BashrcConfiguration", True)
-except ImportError as e:
-    _log_import_status("SpyderB23_BashrcConfiguration", False, str(e))
-    BashrcConfiguration = None
-
-# Configuration Migration (B24)
-try:
-    from .SpyderB24_ConfigurationMigration import ConfigurationMigration
-
-    _log_import_status("SpyderB24_ConfigurationMigration", True)
-except ImportError as e:
-    _log_import_status("SpyderB24_ConfigurationMigration", False, str(e))
-    ConfigurationMigration = None
-
-# Gateway Installer (B25)
-try:
-    from .SpyderB25_GatewayInstaller import GatewayInstaller
-
-    _log_import_status("SpyderB25_GatewayInstaller", True)
-except ImportError as e:
-    _log_import_status("SpyderB25_GatewayInstaller", False, str(e))
-    GatewayInstaller = None
-
-# ==============================================================================
-# BRIDGE AND CONNECTOR MODULES (HANDLING DUPLICATES)
-# ==============================================================================
-
-# PySide Async Bridge (B26) - KEEP ORIGINAL
+# PySide Async Bridge (B26) - Qt/async integration
 try:
     from .SpyderB26_PySideAsyncBridge import PySideAsyncBridge
-
     _log_import_status("SpyderB26_PySideAsyncBridge", True)
 except ImportError as e:
     _log_import_status("SpyderB26_PySideAsyncBridge", False, str(e))
     PySideAsyncBridge = None
 
-# SPY Options Chain Manager (B30) - RENAMED FROM B26
+# SPY Options Chain Manager (B30) - Options chain utilities
 try:
     from .SpyderB30_SPYOptionsChainManager import SPYOptionsChainManager
-
     _log_import_status("SpyderB30_SPYOptionsChainManager", True)
 except ImportError as e:
     _log_import_status("SpyderB30_SPYOptionsChainManager", False, str(e))
-    # Try old location for backward compatibility
-    try:
-        from .SpyderB30_SPYOptionsChainManager import SPYOptionsChainManager
+    SPYOptionsChainManager = None
 
-        _log_import_status("SpyderB30_SPYOptionsChainManager_Legacy", True)
-    except ImportError:
-        _log_import_status("SpyderB30_SPYOptionsChainManager", False, str(e))
-        SPYOptionsChainManager = None
-
-# IB Data Connector (B27) - KEEP ORIGINAL
-try:
-    from .SpyderB27_IBDataConnector import IBDataConnector
-
-    _log_import_status("SpyderB27_IBDataConnector", True)
-except ImportError as e:
-    _log_import_status("SpyderB27_IBDataConnector", False, str(e))
-    IBDataConnector = None
-
-# VPN Manager (B31) - RENAMED FROM B27
-try:
-    from .SpyderB31_VPNManager import VPNManager as VPNManagerAlt
-
-    _log_import_status("SpyderB31_VPNManager", True)
-except ImportError as e:
-    _log_import_status("SpyderB31_VPNManager", False, str(e))
-    # Try old location for backward compatibility
-    try:
-        from .SpyderB31_VPNManager import VPNManager as VPNManagerAlt
-
-        _log_import_status("SpyderB31_VPNManager_Legacy", True)
-    except ImportError:
-        _log_import_status("SpyderB31_VPNManager", False, str(e))
-        VPNManagerAlt = None
-
-# IBKR Connection Tester (B28)
-try:
-    from .SpyderB28_IBKRConnectionTester import IBKRConnectionTester
-
-    _log_import_status("SpyderB28_IBKRConnectionTester", True)
-except ImportError as e:
-    _log_import_status("SpyderB28_IBKRConnectionTester", False, str(e))
-    IBKRConnectionTester = None
 
 # ==============================================================================
-# FACTORY FUNCTIONS AND CONVENIENCE METHODS
+# FACTORY FUNCTIONS
 # ==============================================================================
 
-
-def create_broker_client(config: Optional[Dict[str, Any]] = None):
+def create_broker_client(
+    api_key: Optional[str] = None,
+    account_id: Optional[str] = None,
+    environment: str = "sandbox"
+) -> Optional[TradierClient]:
     """
-    Create a complete broker client with all components.
+    Create a Tradier broker client.
 
     Args:
-        config: Configuration dictionary
+        api_key: Tradier API key (or load from env)
+        account_id: Tradier account ID (or load from env)
+        environment: 'live', 'sandbox', or 'paper'
 
     Returns:
-        Dictionary with all broker components
+        TradierClient instance or None if creation fails
     """
     try:
-        # Create connection manager (enhanced version)
-        if (
-            ConnectionManager
-            and hasattr(ConnectionManager, "__name__")
-            and "Enhanced" in ConnectionManager.__name__
-        ):
-            conn_config = (
-                ConnectionConfig() if "ConnectionConfig" in globals() else None
+        if api_key and account_id:
+            env = TradingEnvironment[environment.upper()]
+            return TradierClient(
+                api_key=api_key,
+                account_id=account_id,
+                environment=env
             )
-            connection_manager = get_connection_manager(conn_config)
         else:
-            connection_manager = ConnectionManager() if ConnectionManager else None
-
-        # Create other components
-        spyder_client = create_spyder_client() if create_spyder_client else None
-        order_manager = (
-            create_order_manager(spyder_client) if create_order_manager else None
-        )
-        position_tracker = (
-            create_position_tracker(spyder_client) if create_position_tracker else None
-        )
-        account_manager = (
-            create_account_manager(spyder_client) if create_account_manager else None
-        )
-        contract_builder = get_contract_builder() if get_contract_builder else None
-        market_data_manager = (
-            create_market_data_manager(spyder_client)
-            if create_market_data_manager
-            else None
-        )
-
-        return {
-            "connection_manager": connection_manager,
-            "spyder_client": spyder_client,
-            "order_manager": order_manager,
-            "position_tracker": position_tracker,
-            "account_manager": account_manager,
-            "contract_builder": contract_builder,
-            "market_data_manager": market_data_manager,
-            "status": (
-                "enhanced_broker_client"
-                if connection_manager
-                else "basic_broker_client"
-            ),
-        }
-
+            return create_tradier_client_from_env()
     except Exception as e:
         _logger.error(f"Failed to create broker client: {e}")
-        return None
-
-
-def get_enhanced_connection_manager(config: Optional[Dict[str, Any]] = None):
-    """
-    Get the enhanced connection manager with timeout prevention.
-
-    Args:
-        config: Connection configuration
-
-    Returns:
-        Enhanced connection manager instance or None
-    """
-    try:
-        from .SpyderB29_EnhancedConnectionManager import EnhancedConnectionManager
-
-        if config:
-            return EnhancedConnectionManager(**config)
-        else:
-            return EnhancedConnectionManager()
-
-    except Exception as e:
-        print(f"Failed to create enhanced connection manager: {e}")
         return None
 
 
@@ -547,52 +235,30 @@ def diagnose_broker_package():
     print("SpyderB_Broker Package Diagnostics")
     print("=" * 50)
 
-    # Package status
     status = get_package_status()
     print(f"Package Version: {status['version']}")
+    print(f"Broker: {status['broker']}")
+    print(f"Data Provider: {status['data_provider']}")
     print(f"Modules Loaded: {status['modules_loaded']}/{status['modules_total']}")
     print(f"Success Rate: {status['success_rate']:.1%}")
-    print(f"Connection Manager: {status.get('connection_manager_version', 'Unknown')}")
-    print(f"Timeout Prevention: {status.get('timeout_prevention', False)}")
     print()
 
-    # Connection manager status
-    print("Connection Manager Analysis:")
-    if ConnectionManager:
-        if (
-            hasattr(ConnectionManager, "__name__")
-            and "Enhanced" in ConnectionManager.__name__
-        ):
-            print("  ✅ Enhanced Connection Manager (B29) - Timeout prevention enabled")
-        else:
-            print("  ⚠️  Legacy Connection Manager (B05) - Consider upgrading to B29")
-    else:
-        print("  ❌ No connection manager available")
-    print()
-
-    # Module details
-    print("Detailed Module Status:")
+    print("Module Status:")
     for module, success in _module_status.items():
-        status_icon = "✅" if success else "❌"
+        status_icon = "[OK]" if success else "[FAIL]"
         print(f"  {status_icon} {module}")
 
     print()
-    print("Recommendations:")
-    if status["success_rate"] < 0.8:
-        print("  - Some modules failed to load - check dependencies")
-    if not status.get("timeout_prevention", False):
-        print(
-            "  - Consider using SpyderB29_EnhancedConnectionManager for timeout prevention"
-        )
-    if status["success_rate"] >= 0.9:
-        print("  - Broker package is healthy and ready for production use")
+    if TradierClient:
+        print("[OK] TradierClient available - ready for trading")
+    else:
+        print("[FAIL] TradierClient not available - check installation")
 
 
 # ==============================================================================
 # EXPORTS
 # ==============================================================================
 
-# Core components (always exported if available)
 __all__ = [
     # Package management
     "get_package_status",
@@ -601,73 +267,35 @@ __all__ = [
     "diagnose_broker_package",
     # Factory functions
     "create_broker_client",
-    "get_enhanced_connection_manager",
-    # Core classes (if available)
 ]
 
-# Add available classes to exports
-if SpyderClient:
-    __all__.extend(["SpyderClient", "IBConfig", "create_spyder_client"])
-
-if ConnectionManager:
-    __all__.append("ConnectionManager")
-
-if "EnhancedConnectionManager" in globals():
-    __all__.extend(
-        [
-            "EnhancedConnectionManager",
-            "ConnectionConfig",
-            "ConnectionStatus",
-            "ConnectionState",
-            "ConnectivityState",
-            "TradingMode",
-            "get_connection_manager",
-            "reset_connection_manager",
-        ]
-    )
-
-if OrderManager:
-    __all__.extend(["OrderManager", "OrderRequest", "create_order_manager"])
-
-if PositionTracker:
-    __all__.extend(["PositionTracker", "create_position_tracker"])
-
-if AccountManager:
-    __all__.extend(["AccountManager", "create_account_manager"])
-
-if ContractBuilder:
-    __all__.extend(
-        ["ContractBuilder", "get_contract_builder", "create_contract_builder"]
-    )
-
-if MarketDataManager:
-    __all__.extend(["MarketDataManager", "create_market_data_manager"])
+# Add Tradier exports
+if TradierClient:
+    __all__.extend([
+        "TradierClient",
+        "TradingEnvironment",
+        "OrderSide",
+        "OrderType",
+        "OrderDuration",
+        "TradierError",
+        "TradierAuthenticationError",
+        "TradierValidationError",
+        "TradierServerError",
+        "TradierRateLimitError",
+        "create_tradier_client_from_env",
+    ])
 
 # Add other available components
 for component_name in [
-    "MultiClientDataManager",
-    "IBClientPortal",
-    "IBDataTypes",
-    "AsyncIOBridge",
-    "GatewayAutomation",
-    "GatewayConfig",
-    "MultiClientWatchdog",
+    "OrderManager",
+    "OrderRequest",
+    "PositionTracker",
+    "AccountManager",
+    "ContractBuilder",
+    "MarketDataManager",
     "PrometheusMetrics",
-    "GatewayIntegrationManager",
-    "ServerMonitor",
-    "ZurichConnectivityDiagnostic",
-    "VPNManager",
-    "IntegratedConnectivityManager",
-    "GatewayStartupAutomation",
-    "IntegrationTestSuite",
-    "BashrcConfiguration",
-    "ConfigurationMigration",
-    "GatewayInstaller",
     "PySideAsyncBridge",
     "SPYOptionsChainManager",
-    "IBDataConnector",
-    "VPNManagerAlt",
-    "IBKRConnectionTester",
 ]:
     if globals().get(component_name) is not None:
         __all__.append(component_name)
@@ -676,9 +304,5 @@ for component_name in [
 # PACKAGE INITIALIZATION COMPLETE
 # ==============================================================================
 
-_logger.info(f"SpyderB_Broker package initialized (v{__version__})")
+_logger.info(f"SpyderB_Broker package initialized (v{__version__}) - Tradier integration")
 _logger.info(f"Loaded {sum(_module_status.values())}/{len(_module_status)} modules")
-
-# Print status on import if in debug mode
-if _logger.isEnabledFor(logging.DEBUG):
-    print_package_status()
