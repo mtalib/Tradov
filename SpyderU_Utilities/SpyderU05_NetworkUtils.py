@@ -247,7 +247,9 @@ class NetworkUtils:
                         latency = ping3.ping(host, timeout=PING_TIMEOUT)
                         if latency is not None:
                             latencies.append(latency * 1000)  # Convert to ms
-                    except Exception:
+                    except (OSError, TimeoutError) as e:
+                        # Ping failed, continue to next attempt
+                        logger.debug(f"Ping attempt failed: {e}")
                         continue
             else:
                 # Fallback to socket connection timing
@@ -257,7 +259,9 @@ class NetworkUtils:
                         socket.create_connection((host, 53), timeout=PING_TIMEOUT)
                         latency = (time.time() - start_time) * 1000
                         latencies.append(latency)
-                    except Exception:
+                    except (OSError, TimeoutError, socket.timeout) as e:
+                        # Connection attempt failed, continue to next attempt
+                        logger.debug(f"Socket connection failed: {e}")
                         continue
             
             if latencies:
@@ -432,10 +436,13 @@ class NetworkUtils:
                     response = requests.get(url, timeout=timeout)
                     if response.status_code == 200:
                         return True
-                except:
+                except (requests.RequestException, OSError, TimeoutError) as e:
+                    # URL check failed, try next URL
+                    logger.debug(f"HTTP check failed for {url}: {e}")
                     continue
             return False
-        except Exception:
+        except (requests.RequestException, OSError) as e:
+            logger.warning(f"Internet connectivity check failed: {e}")
             return False
 
 # ==============================================================================

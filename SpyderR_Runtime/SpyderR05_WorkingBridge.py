@@ -183,8 +183,9 @@ class WorkingIBBridge(QObject):
             self.dashboard.add_system_log(f"❌ Client ID {client_id} failed: {e}")
             try:
                 test_ib.disconnect()
-            except:
-                pass
+            except Exception as disconnect_error:
+                # Log disconnect failure but don't propagate
+                self.dashboard.add_system_log(f"⚠️ Disconnect failed: {disconnect_error}")
             return False
     
     def attempt_connection(self) -> bool:
@@ -437,14 +438,16 @@ def get_working_client_id() -> int:
         try:
             ib = IB()
             ib.connect(IB_HOST, IB_PORT, clientId=client_id, timeout=5)
-            
+
             if ib.isConnected():
                 ib.disconnect()
                 return client_id
-                
-        except Exception:
+
+        except Exception as e:
+            # Log connection failure for this client ID
+            print(f"⚠️ Client ID {client_id} connection failed: {e}")
             continue
-    
+
     return -1
 
 # ==============================================================================

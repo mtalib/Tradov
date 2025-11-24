@@ -265,9 +265,10 @@ class ApplicationManager(QObject):
                 try:
                     if hasattr(widget, 'close'):
                         widget.close()
-                except:
-                    pass
-            
+                except Exception as e:
+                    # Log widget closure failure but continue cleanup
+                    self.logger.warning(f"Failed to close widget {widget.__class__.__name__}: {e}")
+
             self._widgets.clear()
             
             # Emit shutdown signal
@@ -349,8 +350,9 @@ class ApplicationManager(QObject):
                     from PySide6.QtCore import Qt
                     self.app.setAttribute(Qt.AA_EnableHighDpiScaling, True)
                     self.app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-                except:
-                    pass
+                except (ImportError, AttributeError) as e:
+                    # High DPI settings not available or not supported
+                    self.logger.debug(f"High DPI scaling not available: {e}")
 
 # ==============================================================================
 # SINGLETON PATTERN
