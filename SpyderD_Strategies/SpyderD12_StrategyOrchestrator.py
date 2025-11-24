@@ -361,7 +361,9 @@ class StrategyOrchestrator:
         # Trading calendar
         try:
             self.trading_calendar = TradingCalendar() if TradingCalendar else None
-        except:
+        except (ImportError, TypeError, AttributeError) as e:
+            # TradingCalendar not available or failed to initialize
+            self.logger.debug(f"TradingCalendar not available: {e}")
             self.trading_calendar = None
         
         # Initialize available strategies

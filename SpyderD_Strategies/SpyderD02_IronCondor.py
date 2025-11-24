@@ -364,8 +364,9 @@ class IronCondorStrategy(BaseStrategy):
             
             # Combined score
             return (iv_rank_score * 0.6 + iv_level_score * 0.4)
-            
-        except:
+
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"IV analysis failed: {e}")
             return 0.0
     
     def _analyze_expected_move_for_ic(self, market_data: pd.DataFrame, 
@@ -412,8 +413,9 @@ class IronCondorStrategy(BaseStrategy):
             else:
                 # Outside acceptable range
                 return 0.0
-                
-        except:
+
+        except (ValueError, ZeroDivisionError, TypeError) as e:
+            self.logger.warning(f"Move quality calculation failed: {e}")
             return 0.0
     
     def _analyze_trend_for_iron_condor(self, market_data: pd.DataFrame) -> Dict[str, Any]:
@@ -470,8 +472,9 @@ class IronCondorStrategy(BaseStrategy):
             trend_suitable = trend_analysis.get('trend_suitable_for_ic', False)
             
             return iv_suitable and move_suitable and trend_suitable
-            
-        except:
+
+        except (KeyError, TypeError, AttributeError) as e:
+            self.logger.warning(f"Market condition check failed: {e}")
             return False
     
     # ==========================================================================
@@ -622,8 +625,10 @@ class IronCondorStrategy(BaseStrategy):
                 return False
             
             return True
-            
-        except:
+
+
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"Strike validation failed: {e}")
             return False
     
     # ==========================================================================
@@ -747,8 +752,9 @@ class IronCondorStrategy(BaseStrategy):
                 return 0.0
             
             return abs(put_iv - call_iv)
-            
-        except:
+
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"IV skew calculation failed: {e}")
             return 0.0
     
     def _generate_ic_recommendation(self, iv_analysis: Dict, expected_move_analysis: Dict,
@@ -771,8 +777,9 @@ class IronCondorStrategy(BaseStrategy):
                 recommendation = "Poor Iron Condor opportunity - consider other strategies"
             
             return recommendation, overall_score
-            
-        except:
+
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"IC recommendation generation failed: {e}")
             return "Analysis incomplete", 0.0
     
     def _identify_ic_risk_warnings(self, iv_analysis: Dict, expected_move_analysis: Dict,
@@ -798,8 +805,9 @@ class IronCondorStrategy(BaseStrategy):
                 warnings.append("High volatility skew - uneven risk between puts and calls")
             
             return warnings
-            
-        except:
+
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"IC risk warning identification failed: {e}")
             return ["Risk analysis incomplete"]
     
     def get_strategy_performance(self) -> Dict[str, Any]:
