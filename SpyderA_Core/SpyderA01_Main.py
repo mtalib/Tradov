@@ -143,6 +143,7 @@ SpyderTradingDashboard: type | None = None
 
 try:
     from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
+    from SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
 
     has_trading_dashboard = True
     print("✅ Real Trading Dashboard (G05) loaded successfully!")
@@ -587,6 +588,18 @@ class SpyderApplication:
 
                 self.main_window.show()
                 self.logger.info("✅ Real Trading Dashboard launched successfully!")
+
+                # Setup GUI logging to route logs to dashboard widgets
+                try:
+                    import os
+                    gui_log_level = os.environ.get("GUI_LOG_LEVEL", "INFO")
+                    self.gui_log_handler = setup_gui_logging(
+                        self.main_window,
+                        log_level=gui_log_level
+                    )
+                    self.logger.info(f"✅ GUI logging handler connected (level: {gui_log_level})")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Could not setup GUI logging: {e}")
             elif has_working_dashboard and WorkingSpyderDashboard:
                 self.logger.info("🚀 Starting Working Trading Dashboard (fallback)...")
 
@@ -601,6 +614,18 @@ class SpyderApplication:
 
                 self.main_window.show()
                 self.logger.info("✅ Working Trading Dashboard launched successfully!")
+
+                # Setup GUI logging to route logs to dashboard widgets
+                try:
+                    import os
+                    gui_log_level = os.environ.get("GUI_LOG_LEVEL", "INFO")
+                    self.gui_log_handler = setup_gui_logging(
+                        self.main_window,
+                        log_level=gui_log_level
+                    )
+                    self.logger.info(f"✅ GUI logging handler connected (level: {gui_log_level})")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Could not setup GUI logging: {e}")
             else:
                 self.logger.info(
                     "⚠️ Trading Dashboard not available, using test window..."

@@ -105,24 +105,31 @@ pytest SpyderT_Testing/SpyderT42_Integration_Test.py
 
 ## Debugging Tips
 
-1. **Tradier API Issues**:
+1. **GUI Logging** (NEW!):
+   - All `logger.info()` calls now appear in dashboard automatically
+   - System Log panel: Infrastructure, connections, errors
+   - Automation Log panel: Strategies, trades, signals
+   - Configure level: Set `GUI_LOG_LEVEL=INFO` in .env
+   - See: `docs/GUI_LOGGING.md` for full documentation
+
+2. **Tradier API Issues**:
    - Run validation: `python SpyderQ_Scripts/validate_tradier_polygon.py`
    - Check TRADIER_API_KEY in .env
    - Verify TRADIER_ACCOUNT_ID is correct
    - Check if market is open for order execution
 
-2. **Polygon Connection Issues**:
+3. **Polygon Connection Issues**:
    - Verify POLYGON_API_KEY in .env
    - Check WebSocket connection status
    - Review rate limits (Starter: 5/min REST)
    - Check subscription level for data access
 
-3. **Market Data Issues**:
+4. **Market Data Issues**:
    - Verify Polygon subscription level
    - Check if market is open
    - Review SpyderC_MarketData logs
 
-4. **Order Failures**:
+5. **Order Failures**:
    - Check Tradier account permissions
    - Verify trading hours for the instrument
    - Review risk limits in SpyderE_Risk

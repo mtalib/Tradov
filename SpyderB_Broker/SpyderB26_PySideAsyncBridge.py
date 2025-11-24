@@ -83,14 +83,25 @@ except ImportError:
 
 # DEPRECATED: ib_async import for IB Gateway/TWS PySide6 bridge
 # This module is being phased out in favor of Web API with Qt networking
+import warnings
+
+# Emit runtime deprecation warning whenever this module is imported
+warnings.warn(
+    "SpyderB26_PySideAsyncBridge is DEPRECATED and will be removed in a future version. "
+    "The system has migrated from IBKR (IB Gateway/TWS) to Tradier API for order execution. "
+    "Use SpyderB40_TradierClient with standard Qt networking instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 try:
     from ib_async import IB, Contract, Order, MarketOrder, LimitOrder, util
     from ib_async import IB as IBAsync
 
     IB_ASYNC_AVAILABLE = True
-    print("⚠️ WARNING: PySideAsyncBridge is DEPRECATED. Use ClientPortalAPI with Qt networking instead.")
+    print("⚠️ WARNING: PySideAsyncBridge is DEPRECATED. Use Tradier API (SpyderB40_TradierClient) instead.")
 except ImportError:
-    print("❌ ib_async not installed (DEPRECATED - use Web API)")
+    print("❌ ib_async not installed (DEPRECATED - system migrated to Tradier API)")
     IB_ASYNC_AVAILABLE = False
 
     # Create fallback classes
