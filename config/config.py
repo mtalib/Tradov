@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - IBKR Web API Configuration
-OAuth 2.0 authentication with private_key_jwt (RFC 7521/7523)
-See: https://www.interactivebrokers.com/campus/ibkr-api-page/web-api/
+SPYDER - Tradier + Polygon Configuration
+Tradier for order execution, Polygon.io for market data
 """
 
 import os
@@ -14,55 +13,62 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ==============================================================================
-# IBKR WEB API CONFIGURATION (OAuth 2.0)
+# TRADIER API CONFIGURATION
 # ==============================================================================
-IBKR_WEB_API_CONFIG = {
-    "connection_type": "web_api",  # REST + WebSocket
-    "api_base_url": os.environ.get("IBKR_API_BASE_URL", "https://api.ibkr.com/v1/api"),
-    "auth_method": os.environ.get("IBKR_AUTH_METHOD", "oauth2"),  # OAuth 2.0 only
+TRADIER_CONFIG = {
+    "api_key": os.environ.get("TRADIER_API_KEY", ""),
+    "account_id": os.environ.get("TRADIER_ACCOUNT_ID", ""),
 
-    # OAuth 2.0 Configuration (private_key_jwt)
-    "oauth": {
-        "token_url": os.environ.get("IBKR_OAUTH_TOKEN_URL", "https://api.ibkr.com/v1/oauth2/token"),
-        "consumer_key": os.environ.get("IBKR_OAUTH_CONSUMER_KEY", ""),
-        "private_key_path": os.environ.get("IBKR_OAUTH_PRIVATE_KEY_PATH", ""),
-        "algorithm": "RS256",  # JWT signing algorithm
-        "token_expiry_buffer": 60,  # Refresh 60s before expiry
-    },
-
-    # Session Management
-    "session": {
-        "tickle_interval": 240,  # Tickle every 4 minutes
-        "max_session_duration": 86400,  # 24 hours
-        "auto_reconnect": True,
-        "reconnect_delay": 5,
-        "max_reconnect_attempts": 3,
-    },
-
-    # Rate Limiting
-    "rate_limit": {
-        "requests_per_second": 50,  # OAuth 2.0 limit
-        "adaptive_backoff": True,
-        "backoff_multiplier": 0.8,  # Reduce rate on 429 errors
-        "recovery_multiplier": 1.05,  # Increase rate on success
-    },
+    # Environment URLs
+    "live_url": os.environ.get("TRADIER_LIVE_URL", "https://api.tradier.com/v1"),
+    "sandbox_url": os.environ.get("TRADIER_SANDBOX_URL", "https://sandbox.tradier.com/v1"),
 
     # Connection Settings
-    "connection": {
-        "timeout": 30,
-        "verify_ssl": True,
-        "max_connections": 10,
-        "max_connections_per_host": 20,
-    },
+    "timeout": 30,
+    "max_retries": 3,
+    "retry_delay": 1.0,
+
+    # Rate Limiting (Tradier has no official limit but be reasonable)
+    "requests_per_second": 10,
+}
+
+# ==============================================================================
+# POLYGON.IO API CONFIGURATION
+# ==============================================================================
+POLYGON_CONFIG = {
+    "api_key": os.environ.get("POLYGON_API_KEY", ""),
+
+    # URLs
+    "rest_url": os.environ.get("POLYGON_REST_URL", "https://api.polygon.io"),
+    "ws_url": os.environ.get("POLYGON_WS_URL", "wss://socket.polygon.io"),
+
+    # Subscription Settings
+    "subscribe_trades": os.environ.get("POLYGON_SUBSCRIBE_TRADES", "true").lower() == "true",
+    "subscribe_quotes": os.environ.get("POLYGON_SUBSCRIBE_QUOTES", "true").lower() == "true",
+    "subscribe_aggregates": os.environ.get("POLYGON_SUBSCRIBE_AGGREGATES", "true").lower() == "true",
+
+    # Default Symbols
+    "default_symbols": os.environ.get("POLYGON_SYMBOLS", "SPY,QQQ,IWM").split(","),
+
+    # Connection Settings
+    "reconnect_delay": 5,
+    "max_reconnect_attempts": 10,
+
+    # Rate Limiting (Polygon Starter: 5/min REST, Business: 100/min)
+    "rest_requests_per_minute": int(os.environ.get("POLYGON_RATE_LIMIT", "5")),
 }
 
 # ==============================================================================
 # TRADING MODE CONFIGURATION
 # ==============================================================================
-TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # Default: paper
+TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
 
 # Explicit live trading confirmation (SAFETY FEATURE)
 REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
+
+# Provider Selection
+DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "polygon")  # polygon
+EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 
 # ==============================================================================
 # TRADING CONFIGURATION
@@ -101,11 +107,10 @@ TRADING_CONFIG = {
     ],
     # Execution Settings
     "execution": {
-        "order_type": "LMT",
+        "order_type": "limit",
         "price_offset_ticks": 1,
         "max_slippage_percent": 0.5,
         "fill_wait_seconds": 30,
-        "use_adaptive_orders": True,
     },
     # Risk Management
     "risk_management": {
@@ -131,8 +136,6 @@ TRADING_CONFIG = {
         "alert_on_daily_summary": True,
         "alert_on_errors": True,
         "alert_on_large_moves": True,
-        "alert_on_api_rate_limit": True,  # Web API specific
-        "alert_on_session_expiry": True,  # Session management
     },
 }
 
@@ -186,10 +189,10 @@ DATABASE_CONFIG = {
 LOGGING_CONFIG = {
     "log_level": os.environ.get("LOG_LEVEL", "INFO"),
     "log_to_file": True,
-    "log_file_path": "logs/spyder_webapi.log",
+    "log_file_path": "logs/spyder.log",
     "log_rotation": "daily",
     "log_retention_days": 30,
-    "log_format": "%(asctime)s - %(name)s - %(levelname)s - [WEB_API] %(message)s",
+    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 }
 
 SYSTEM_CONFIG = {
@@ -207,11 +210,11 @@ SYSTEM_CONFIG = {
 
 
 # ==============================================================================
-# HELPER FUNCTIONS FOR WEB API
+# HELPER FUNCTIONS
 # ==============================================================================
 def get_active_config():
-    """Get configuration for active trading mode with Web API settings"""
-    mode = os.environ.get("TRADING_MODE", "paper")
+    """Get configuration for active trading mode"""
+    mode = os.environ.get("TRADING_MODE", "sandbox")
 
     # Safety check for live trading
     if mode == "live" and REQUIRE_LIVE_CONFIRMATION:
@@ -222,53 +225,59 @@ def get_active_config():
                 "after verifying you want to trade with real money."
             )
 
+    # Determine Tradier URL based on mode
+    if mode == "live":
+        tradier_url = TRADIER_CONFIG["live_url"]
+    else:
+        tradier_url = TRADIER_CONFIG["sandbox_url"]
+
     return {
         "mode": mode,
-        "connection_type": "web_api",
-        "api_base_url": IBKR_WEB_API_CONFIG["api_base_url"],
-        "auth_method": "oauth2",
-        "consumer_key": IBKR_WEB_API_CONFIG["oauth"]["consumer_key"],
+        "execution_provider": EXECUTION_PROVIDER,
+        "data_provider": DATA_PROVIDER,
+        "tradier_url": tradier_url,
+        "tradier_account_id": TRADIER_CONFIG["account_id"],
+        "polygon_ws_url": POLYGON_CONFIG["ws_url"],
         "requires_confirmation": REQUIRE_LIVE_CONFIRMATION if mode == "live" else False,
     }
 
 
-def validate_web_api_config():
-    """Validate Web API configuration"""
-    config = IBKR_WEB_API_CONFIG["oauth"]
-
+def validate_config():
+    """Validate Tradier + Polygon configuration"""
     errors = []
 
-    # Check consumer key
-    if not config["consumer_key"]:
-        errors.append("IBKR_OAUTH_CONSUMER_KEY not set in .env")
+    # Check Tradier configuration
+    if not TRADIER_CONFIG["api_key"]:
+        errors.append("TRADIER_API_KEY not set in .env")
+    if not TRADIER_CONFIG["account_id"]:
+        errors.append("TRADIER_ACCOUNT_ID not set in .env")
 
-    # Check private key path
-    if not config["private_key_path"]:
-        errors.append("IBKR_OAUTH_PRIVATE_KEY_PATH not set in .env")
-    elif not Path(config["private_key_path"]).exists():
-        errors.append(f"Private key file not found: {config['private_key_path']}")
+    # Check Polygon configuration
+    if not POLYGON_CONFIG["api_key"]:
+        errors.append("POLYGON_API_KEY not set in .env")
 
     # Check trading mode
     mode = os.environ.get("TRADING_MODE", "")
-    if mode not in ["paper", "live"]:
-        errors.append(f"Invalid TRADING_MODE: {mode}. Must be 'paper' or 'live'")
+    if mode not in ["sandbox", "paper", "live"]:
+        errors.append(f"Invalid TRADING_MODE: {mode}. Must be 'sandbox', 'paper', or 'live'")
 
     if errors:
         return False, "\n".join(["Configuration errors:"] + [f"  - {e}" for e in errors])
 
-    return True, f"Web API configuration valid (mode: {mode})"
+    return True, f"Configuration valid (mode: {mode})"
 
 
 def check_api_authentication():
     """Check if API authentication is properly configured"""
     try:
         config = get_active_config()
-        is_valid, message = validate_web_api_config()
+        is_valid, message = validate_config()
 
         return {
             "authenticated": is_valid,
             "mode": config["mode"],
-            "connection_type": "web_api",
+            "execution_provider": config["execution_provider"],
+            "data_provider": config["data_provider"],
             "status": "ready" if is_valid else "configuration_error",
             "message": message,
         }
@@ -276,7 +285,8 @@ def check_api_authentication():
         return {
             "authenticated": False,
             "mode": "unknown",
-            "connection_type": "web_api",
+            "execution_provider": EXECUTION_PROVIDER,
+            "data_provider": DATA_PROVIDER,
             "status": "error",
             "message": f"Configuration check failed: {str(e)}",
         }
@@ -284,21 +294,23 @@ def check_api_authentication():
 
 # Print configuration status on import
 if __name__ != "__main__":
-    print("🌐 SPYDER IBKR Web API Configuration Loaded")
-    print(f"   API URL: {IBKR_WEB_API_CONFIG['api_base_url']}")
-    print(f"   Auth Method: OAuth 2.0 (private_key_jwt)")
+    print("SPYDER Configuration Loaded (Tradier + Polygon)")
+    print(f"   Execution: Tradier API")
+    print(f"   Market Data: Polygon.io")
     print(f"   Trading Mode: {TRADING_MODE}")
 
 if __name__ == "__main__":
     # Test the configuration when run directly
-    print("🔍 Testing Web API Configuration...")
+    print("Testing Configuration...")
 
     status = check_api_authentication()
     print(f"Authentication Status: {status['status']}")
     print(f"Mode: {status['mode']}")
+    print(f"Execution Provider: {status['execution_provider']}")
+    print(f"Data Provider: {status['data_provider']}")
     print(f"Message: {status['message']}")
 
     if status["authenticated"]:
-        print("✅ Configuration is valid and ready for use")
+        print("[OK] Configuration is valid and ready for use")
     else:
-        print("❌ Configuration errors found - check .env file")
+        print("[FAIL] Configuration errors found - check .env file")

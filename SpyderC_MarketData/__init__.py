@@ -4,14 +4,16 @@
 SPYDER - Automated SPY Options Trading System
 
 Package: SpyderC_MarketData
-Purpose: Market Data Management
+Purpose: Market Data Management (Polygon.io Integration)
 
 This package handles all market data operations including real-time feeds,
 historical data, option chains, and market internals.
 
+Primary Data Source: Polygon.io WebSocket + REST API
+
 Author: Mohamed Talib
 Date: 2025-06-24
-Version: 1.4
+Version: 2.0 - Tradier/Polygon Migration
 """
 
 # ==============================================================================
@@ -84,8 +86,29 @@ except ImportError:
     print("Warning: SpyderC08_SPYFeed not available")
 
 # ==============================================================================
+# POLYGON.IO DATA HANDLER (PRIMARY DATA SOURCE)
+# ==============================================================================
+try:
+    from .SpyderC25_PolygonDataHandler import (
+        PolygonDataHandler,
+        MarketDataUpdate,
+        ConnectionStatus,
+        MessageType,
+        create_polygon_handler_from_env,
+    )
+    __all__.extend([
+        "PolygonDataHandler",
+        "MarketDataUpdate",
+        "ConnectionStatus",
+        "MessageType",
+        "create_polygon_handler_from_env",
+    ])
+except ImportError as e:
+    print(f"Warning: SpyderC25_PolygonDataHandler not available: {e}")
+
+# ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
 __package_name__ = "SpyderC_MarketData"
-__description__ = "Market Data Management"
-__version__ = "1.4.0"
+__description__ = "Market Data Management (Polygon.io)"
+__version__ = "2.0.0"
