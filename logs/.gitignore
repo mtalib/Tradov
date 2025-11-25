@@ -1,0 +1,8 @@
+# Ignore all files in logs directory
+*
+
+# But keep this .gitignore file
+!.gitignore
+
+# This ensures the logs/ directory exists in git
+# but log files are never committed
