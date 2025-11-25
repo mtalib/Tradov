@@ -3,15 +3,30 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderR_Runtime [Application Name] [Series Letter] [Series Name] 
+Series: SpyderR_Runtime [Application Name] [Series Letter] [Series Name]
 Module: SpyderR05_WorkingBridge.py [Application Name][Series Letter] [Module Number]_[Purpose].py
 Purpose: Working IB Bridge with proper client IDs and fallback using ib_async
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-21 Time: 21:05:00  
+Year Created: 2025
+Last Updated: 2025-08-21 Time: 21:05:00
+
+⚠️ DEPRECATION WARNING ⚠️
+    This module is DEPRECATED and no longer used.
+
+    Migration Status:
+    - ❌ IBKR Gateway integration via ib_async is legacy code
+    - ✅ System migrated to Tradier API (no gateway needed)
+    - 🔧 Dashboard connectivity now uses Tradier + Polygon.io
+
+    The Spyder system has transitioned to:
+    - Tradier API for broker integration (SpyderB40_TradierClient.py)
+    - Polygon.io for real-time market data (SpyderC25_PolygonDataHandler.py)
+    - No IB Gateway required for operations
+
+    This module remains for historical reference only.
 
 Module Description:
-    This module provides a working bridge to IB Gateway using ib_async for 
+    This module provides a working bridge to IB Gateway using ib_async for
     IB Gateway 10.37+ compatibility. It includes proper client ID management,
     connection testing with multiple client IDs, and fallback to simulation
     if IB connection fails. Tests multiple client IDs starting from 3 as
@@ -52,13 +67,16 @@ from PySide6.QtCore import QTimer, QObject, Signal
 # Import dashboard
 from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 
-# Try importing IB with ib_async
+# ⚠️ DEPRECATED: ib_async integration is legacy code
+# The Spyder system no longer uses IB Gateway or ib_async
+# For broker integration, use SpyderB40_TradierClient instead
 try:
     from ib_async import IB, Stock, Index, Future, Contract, util
     IB_AVAILABLE = True
 except ImportError:
     IB_AVAILABLE = False
-    print("Warning: ib_async not available")
+    print("Warning: ib_async not available (module deprecated)")
+    print("Use Tradier API via SpyderB40_TradierClient for broker integration")
 
 # ==============================================================================
 # CONSTANTS

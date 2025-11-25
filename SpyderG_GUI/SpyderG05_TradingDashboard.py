@@ -10,6 +10,19 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-24 Time: 12:00:00
 
+⚠️ INTEGRATION UPDATE ⚠️
+    Dashboard references to "IB Gateway" and "IB Clients" are LEGACY terminology.
+
+    Current Data Sources:
+    - ✅ Tradier API for account data and order execution
+    - ✅ Polygon.io for real-time market data
+    - ❌ IB Gateway integration is deprecated (legacy references remain in UI)
+
+    Future Updates Needed:
+    - Update UI labels from "IB Client" to "Data Source"
+    - Remove Gateway control panel references
+    - Update Prometheus metrics to reflect current architecture
+
 Module Description:
     Enhanced trading dashboard that seamlessly integrates real market data from IB Gateway
     while maintaining full functionality in simulation mode. Features automatic detection
