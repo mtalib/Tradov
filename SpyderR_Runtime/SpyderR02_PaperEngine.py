@@ -7,8 +7,22 @@ Series: SpyderR_Runtime
 Module: SpyderR02_PaperEngine.py
 Purpose: Paper trading engine with modern ib_async integration
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-21 Time: 19:30:00  
+Year Created: 2025
+Last Updated: 2025-08-21 Time: 19:30:00
+
+⚠️ DEPRECATION WARNING ⚠️
+    This module uses DEPRECATED ib_async integration.
+
+    Current Status:
+    - ❌ IBKR integration via ib_async is legacy code
+    - ✅ Recommended: Use Tradier sandbox mode for paper trading
+    - 🔧 See: SpyderB40_TradierClient (supports sandbox mode)
+
+    The Spyder system has migrated to:
+    - Tradier API for order execution and paper trading
+    - Polygon.io for market data
+
+    This module remains for backward compatibility only.
 
 Module Description:
     This module provides a comprehensive paper trading engine using the modern
@@ -48,19 +62,22 @@ import json
 import asyncio
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS - Modern ib_async
+# THIRD-PARTY IMPORTS - Modern ib_async (DEPRECATED)
 # ==============================================================================
 import pandas as pd
 import numpy as np
 
-# Using modern ib_async 
+# ⚠️ DEPRECATED: ib_async is no longer used by Spyder trading system
+# For paper trading, use Tradier sandbox mode via SpyderB40_TradierClient
+# This import remains for backward compatibility only.
 try:
     from ib_async import Contract, Order, Trade, LimitOrder, MarketOrder
     from ib_async import Stock, Option, Future, IB, Ticker
     HAS_IB_ASYNC = True
 except ImportError:
     print("⚠️ ib_async not available - running in simulation mode")
-    print("Install with: pip install ib_async")
+    print("For paper trading, use Tradier sandbox mode instead")
+    print("See: SpyderB40_TradierClient.py")
     HAS_IB_ASYNC = False
 
     # Fallback classes for when ib_async is not available

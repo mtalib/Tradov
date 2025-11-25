@@ -458,7 +458,8 @@ class IronButterflyStrategy(BaseStrategy):
             
             return (iv_rank_score * 0.7 + iv_level_score * 0.3)
             
-        except:
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"Iron Butterfly calculation failed: {e}")
             return 0.0
     
     def _analyze_time_decay_potential(self, market_data: pd.DataFrame) -> Dict[str, float]:
@@ -543,7 +544,8 @@ class IronButterflyStrategy(BaseStrategy):
                 # Move too large for Iron Butterfly
                 return 0.0
                 
-        except:
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"Iron Butterfly calculation failed: {e}")
             return 0.0
     
     def _assess_market_suitability_for_ib(self, neutral_outlook: bool, iv_analysis: Dict,
@@ -558,7 +560,8 @@ class IronButterflyStrategy(BaseStrategy):
             
             return outlook_suitable and iv_suitable and move_suitable and decay_suitable
             
-        except:
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"Iron Butterfly validation failed: {e}")
             return False
     
     # ==========================================================================
@@ -761,7 +764,8 @@ class IronButterflyStrategy(BaseStrategy):
             
             return recommendation, overall_score
             
-        except:
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"Iron Butterfly recommendation failed: {e}")
             return "Analysis incomplete", 0.0
     
     def _identify_ib_risk_warnings(self, neutral_outlook: bool, iv_analysis: Dict,
@@ -788,7 +792,8 @@ class IronButterflyStrategy(BaseStrategy):
             
             return warnings
             
-        except:
+        except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
+            self.logger.warning(f"Iron Butterfly risk analysis failed: {e}")
             return ["Risk analysis incomplete"]
     
     def get_strategy_performance(self) -> Dict[str, Any]:

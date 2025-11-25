@@ -11,6 +11,18 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-28 Time: 19:00:00
 
+⚠️ INTEGRATION UPDATE REQUIRED ⚠️
+    This module currently uses DEPRECATED ib_async for IB client integration.
+
+    Migration Needed:
+    - ❌ Remove ib_async IB client dependency
+    - ✅ Integrate with SpyderB40_TradierClient for order execution
+    - ✅ Use Polygon.io for market data via SpyderC25_PolygonDataHandler
+    - 🔧 Update algorithmic slicing to work with Tradier API
+
+    Current Status: Functional but uses legacy IBKR integration
+    Priority: Medium - Module works but should be updated for consistency
+
 Module Description:
     Advanced daily profit targeting system with institutional-grade algorithmic
     slicing capabilities. Handles large profit targets (up to millions) through
@@ -59,7 +71,12 @@ from scipy import stats, optimize
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import pytz
+
+# ⚠️ DEPRECATED: ib_async integration should be replaced with Tradier API
+# TODO: Migrate to SpyderB40_TradierClient for order execution
+# Current implementation uses legacy IBKR integration
 from ib_async import IB, Contract, Order, Trade, Fill, OrderStatus
+
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -885,7 +902,9 @@ class DayProfitTargetEngine:
         # Trading calendar
         try:
             self.trading_calendar = TradingCalendar() if TradingCalendar else None
-        except:
+        except (ImportError, TypeError, AttributeError) as e:
+            # TradingCalendar not available or failed to initialize
+            self.logger.debug(f"TradingCalendar not available: {e}")
             self.trading_calendar = None
 
         # Callbacks

@@ -3,19 +3,28 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderB_Broker [Application Name] [Series Letter] [Series Name] 
+Series: SpyderB_Broker [Application Name] [Series Letter] [Series Name]
 Module: SpyderB06_ContractBuilder.py [Application Name][Series Letter] [Module Number]_[Purpose].py
 Purpose: IB contract construction with validation and caching for ib_async compatibility
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-21 Time: 20:47:00  
+Year Created: 2025
+Last Updated: 2025-08-21 Time: 20:47:00
+
+⚠️ DEPRECATION WARNING ⚠️
+    This module is DEPRECATED and scheduled for removal.
+    The Spyder system has migrated to:
+    - Tradier API for order execution (SpyderB40_TradierClient.py)
+    - Polygon.io for market data (SpyderC25_PolygonDataHandler.py)
+
+    This legacy ib_async module is no longer maintained and should not be used
+    for new development. It remains only for historical reference.
 
 Module Description:
     This module provides comprehensive contract building functionality for
     Interactive Brokers using ib_async (compatible with IB Gateway 10.37+).
-    It creates and validates contracts for stocks, options, futures, and 
-    complex strategies. Includes contract caching for performance, validation 
-    against IB requirements, and support for all SPY option specifications 
+    It creates and validates contracts for stocks, options, futures, and
+    complex strategies. Includes contract caching for performance, validation
+    against IB requirements, and support for all SPY option specifications
     including weekly expirations and multi-leg strategies.
 
 Key Features:
@@ -45,8 +54,11 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS - IB_ASYNC INTEGRATION
+# THIRD-PARTY IMPORTS - IB_ASYNC INTEGRATION (DEPRECATED)
 # ==============================================================================
+# ⚠️ DEPRECATED: ib_async is legacy code - use Tradier API instead
+# The Spyder system no longer uses Interactive Brokers for order execution.
+# See: SpyderB40_TradierClient.py for current broker integration.
 try:
     from ib_async import (CFD, ComboLeg, Commodity, Contract, Forex, Future,
                         Index, Option, Stock, TagValue)

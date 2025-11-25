@@ -10,6 +10,19 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-24 Time: 12:00:00
 
+⚠️ INTEGRATION UPDATE ⚠️
+    Dashboard references to "IB Gateway" and "IB Clients" are LEGACY terminology.
+
+    Current Data Sources:
+    - ✅ Tradier API for account data and order execution
+    - ✅ Polygon.io for real-time market data
+    - ❌ IB Gateway integration is deprecated (legacy references remain in UI)
+
+    Future Updates Needed:
+    - Update UI labels from "IB Client" to "Data Source"
+    - Remove Gateway control panel references
+    - Update Prometheus metrics to reflect current architecture
+
 Module Description:
     Enhanced trading dashboard that seamlessly integrates real market data from IB Gateway
     while maintaining full functionality in simulation mode. Features automatic detection
@@ -243,6 +256,19 @@ except ImportError:
     GatewayControlPanel = None  # type: ignore
     gateway_panel_available = False
     print("⚠️ Gateway Control Panel not available")
+
+# ==============================================================================
+# CIRCUIT BREAKER MONITOR
+# ==============================================================================
+try:
+    from SpyderG_GUI.SpyderG16_CircuitBreakerMonitor import create_circuit_breaker_monitor
+
+    circuit_breaker_monitor_available = True
+    print("✅ Circuit Breaker Monitor available")
+except ImportError:
+    create_circuit_breaker_monitor = None  # type: ignore
+    circuit_breaker_monitor_available = False
+    print("⚠️ Circuit Breaker Monitor not available")
 
 try:
     from SpyderG_GUI.SpyderG15_ClientConnectionManager import (
@@ -1517,8 +1543,8 @@ class SpyderTradingDashboard(QMainWindow):
                     spy_price = data.get("SPY", {}).get("last", "N/A")
                     self.add_system_log(f"🔥 Real data detected - SPY: ${spy_price}")
                     real_data_available = True
-                except:
-                    self.add_system_log("⚠️ Real data file exists but couldn't read it")
+                except (json.JSONDecodeError, KeyError, IOError) as e:
+                    self.add_system_log(f"⚠️ Real data file exists but couldn't read it: {e}")
             else:
                 self.add_system_log(
                     "📊 No real data detected - will monitor for availability"
@@ -2405,6 +2431,15 @@ class SpyderTradingDashboard(QMainWindow):
 
         risk_group.setLayout(risk_layout)
         layout.addWidget(risk_group)
+
+        # Circuit Breaker Monitor (NEW)
+        if circuit_breaker_monitor_available:
+            try:
+                circuit_breaker_widget = create_circuit_breaker_monitor(parent=self)
+                circuit_breaker_widget.setMaximumHeight(350)
+                layout.addWidget(circuit_breaker_widget)
+            except Exception as e:
+                print(f"⚠️ Failed to create circuit breaker monitor: {e}")
 
         # Autonomous AI Activity
         auto_group = QGroupBox("AUTONOMOUS AI ACTIVITY")

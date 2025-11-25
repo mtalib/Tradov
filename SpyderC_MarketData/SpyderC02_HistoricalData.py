@@ -11,6 +11,20 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-22 Time: 14:35:00
 
+⚠️ MIGRATION TO POLYGON.IO RECOMMENDED ⚠️
+    This module has been partially migrated from IBKR APIs but should be
+    updated to use Polygon.io for historical data.
+
+    Current Status:
+    - ✅ Migrated from ib_async to IBKR Client Portal Web API
+    - ⚠️ Still uses IBKR-specific data types and structures
+    - 🎯 Recommended: Migrate to Polygon.io Aggregates API
+
+    For New Development:
+    - Use SpyderC25_PolygonDataHandler.fetch_historical_bars_async()
+    - Polygon provides cleaner API and better rate limits for historical data
+    - No broker dependency for historical data retrieval
+
 Module Description:
     This module handles the retrieval, storage, and management of historical market data
     for the Spyder trading system. Migrated from IB Gateway (ib_async) to IBKR Web API.

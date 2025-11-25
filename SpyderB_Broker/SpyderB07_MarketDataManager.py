@@ -780,8 +780,9 @@ class MarketDataManager:
             parts = symbol.split("_")
             if len(parts) > 1:
                 return float(parts[1])
-        except:
-            pass
+        except (ValueError, IndexError, AttributeError) as e:
+            # Failed to parse strike price from symbol format
+            self.logger.debug(f"Could not extract strike from symbol '{symbol}': {e}")
         return 0.0
 
     def _extract_option_type_from_symbol(self, symbol: str) -> str:

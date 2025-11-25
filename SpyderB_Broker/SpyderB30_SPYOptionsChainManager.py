@@ -10,6 +10,17 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-21 Time: 21:00:00
 
+⚠️ MIGRATION STATUS ⚠️
+    This module has been partially migrated from ib_async to modern APIs.
+    Current integration status:
+    - ✅ Data types migrated to IBContract (Web API compatible)
+    - ✅ Using SpyderB10_IBDataTypes for contract definitions
+    - ⚠️ Some ib_async references remain for backward compatibility
+    - 🎯 Future: Complete migration to Tradier + Polygon.io APIs
+
+    Recommended: Use SpyderB40_TradierClient + SpyderC25_PolygonDataHandler
+    for new options chain functionality.
+
 Module Description:
     This module provides comprehensive SPY options chain management implementing
     the exact requirements from the market data specification: 0DTE (1s), 1DTE (5s),
@@ -59,13 +70,18 @@ import pandas as pd
 # INTERACTIVE BROKERS WEB API IMPORTS - Migrated from ib_async
 # ==============================================================================
 
-# Migration: Use our own data types instead of ib_async
+# ✅ MIGRATION COMPLETE: Now using internal data types instead of ib_async
+# ib_async has been replaced with IBContract (Web API compatible)
 from SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
-from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
+from SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder  # DEPRECATED - legacy only
 
 # Backward compatibility: Create aliases for migrated code
 Contract = IBContract
 ib_async_AVAILABLE = True  # Migration complete - using Web API data types
+
+# NOTE: For new development, use:
+# - SpyderB40_TradierClient for order execution
+# - SpyderC25_PolygonDataHandler for market data
 
 class ContractDetails:
     """Placeholder for ContractDetails - Web API uses contract responses directly"""

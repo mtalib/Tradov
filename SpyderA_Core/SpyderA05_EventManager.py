@@ -550,8 +550,9 @@ class EventManager:
                 self.priority_queue.join()
                 if self.persist_events:
                     self._persist_queue.join()
-            except:
-                pass
+            except (RuntimeError, AttributeError) as e:
+                # Queue join may fail if queue already closed or in invalid state
+                self.logger.warning(f"Error waiting for queues during shutdown: {e}")
             
             # Stop worker threads
             for thread in self.worker_threads:

@@ -7,32 +7,35 @@ Series: SpyderC_MarketData
 Module: SpyderC07_OPRAFeed.py
 Purpose: OPRA real-time options data feed with ib_async integration
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-21 Time: 22:00:00  
+Year Created: 2025
+Last Updated: 2025-08-21 Time: 22:00:00
+
+⚠️ DEPRECATION WARNING ⚠️
+    This module is DEPRECATED and should be replaced with Polygon.io integration.
+
+    Migration Status:
+    - ❌ Uses deprecated ib_async for OPRA data (line 60: from ib_async import *)
+    - ❌ IBKR no longer primary data source for Spyder
+    - 🎯 Polygon.io provides direct OPRA feed access without broker
+
+    For New Development:
+    - Use SpyderC25_PolygonDataHandler for options data
+    - Polygon WebSocket: wss://socket.polygon.io/options
+    - Channels: T.* (trades), Q.* (quotes), AM.* (aggregates)
+    - No IB Gateway required, cleaner architecture
+
+    Current System:
+    - ✅ Polygon.io: Real-time options quotes and trades
+    - ✅ Tradier: Options chain data and execution
+    - ❌ IBKR: Deprecated (legacy only)
 
 Module Description:
     This module provides high-quality real-time options data feed from OPRA for SPY
-    options trading using modern ib_async library for enhanced IB Gateway 10.37 
+    options trading using modern ib_async library for enhanced IB Gateway 10.37
     compatibility. It handles options quotes, trades, volume, open interest, and
     Greeks calculations from live market data with Level 2 options market data
     support, real-time options chain updates, and integration with the broader
     Spyder market data infrastructure for comprehensive options analytics.
-
-Key Features:
-    • Modern ib_async integration for optimal IB Gateway compatibility
-    • Real-time OPRA options data feed with Level 2 market data
-    • Comprehensive options quotes, trades, and Greeks calculations
-    • Institutional flow analysis and options chain management
-    • Enhanced error handling and connection stability
-    • Advanced options analytics and implied volatility calculations
-
-Dependencies:
-    • ib_async (modern IB API wrapper)
-    • py_vollib (options pricing and Greeks)
-    • Standard market data libraries
-
-Installation Note:
-    pip install ib_async py_vollib
 """
 
 # ==============================================================================
@@ -57,6 +60,10 @@ import math
 # ==============================================================================
 import numpy as np
 import pandas as pd
+
+# ⚠️ DEPRECATED: ib_async wildcard import is legacy code
+# This module should be replaced with SpyderC25_PolygonDataHandler
+# Polygon provides direct OPRA feed without broker dependency
 from ib_async import *
 import pytz
 from scipy import stats

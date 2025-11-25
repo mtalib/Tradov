@@ -821,11 +821,30 @@ class MaxLossProtection:
         }
     
     def emergency_override(self, admin_password: str) -> bool:
-        """Emergency override (requires admin password)"""
-        # In production, this would verify against secure password
-        if admin_password == "EMERGENCY_OVERRIDE_2025":
+        """
+        Emergency override (requires admin password).
+
+        SECURITY: Password must be set via EMERGENCY_OVERRIDE_PASSWORD environment variable.
+        Never hardcode passwords in source code.
+
+        Args:
+            admin_password: Password provided by administrator
+
+        Returns:
+            bool: True if override successful, False otherwise
+        """
+        import os
+
+        # Load password from environment variable (NEVER hardcode!)
+        expected_password = os.environ.get("EMERGENCY_OVERRIDE_PASSWORD")
+
+        if not expected_password:
+            self.logger.error("EMERGENCY_OVERRIDE_PASSWORD not configured in environment")
+            return False
+
+        if admin_password == expected_password:
             self.logger.critical("EMERGENCY OVERRIDE ACTIVATED")
-            
+
             # Reset all states
             self.protection_status.is_active = True
             self.protection_status.trading_allowed = True
@@ -833,9 +852,9 @@ class MaxLossProtection:
             self.protection_status.current_state = RecoveryState.NORMAL
             self.active_breaches.clear()
             self.recovery_plans.clear()
-            
+
             return True
-        
+
         self.logger.warning("Invalid emergency override attempt")
         return False
     

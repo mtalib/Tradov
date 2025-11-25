@@ -461,24 +461,38 @@ class RiskManager:
 
     async def _request_positions(self):
         """Request position updates"""
+        # Load account ID from environment variable (NEVER hardcode!)
+        account_id = os.environ.get("TRADIER_ACCOUNT_ID")
+
+        if not account_id:
+            self.logger.error("TRADIER_ACCOUNT_ID not configured in environment")
+            return
+
         message = {
             "MsgType": "PositionRequest",
-            "Account": "U1234567"  # TODO: Get from config
+            "Account": account_id
         }
 
         await self.connect_api.send_message(message)
-        self.logger.debug("Requested position updates")
+        self.logger.debug(f"Requested position updates for account {account_id}")
 
     async def _request_account_summary(self):
         """Request account summary updates"""
+        # Load account ID from environment variable (NEVER hardcode!)
+        account_id = os.environ.get("TRADIER_ACCOUNT_ID")
+
+        if not account_id:
+            self.logger.error("TRADIER_ACCOUNT_ID not configured in environment")
+            return
+
         message = {
             "MsgType": "AccountSummaryRequest",
-            "Account": "U1234567",  # TODO: Get from config
+            "Account": account_id,
             "Tags": "NetLiquidation,TotalCashValue,MarginUsed,MarginAvailable"
         }
 
         await self.connect_api.send_message(message)
-        self.logger.debug("Requested account summary updates")
+        self.logger.debug(f"Requested account summary updates for account {account_id}")
 
     async def _handle_position_update(self, data: Dict[str, Any]):
         """
