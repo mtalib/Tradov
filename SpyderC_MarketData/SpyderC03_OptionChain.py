@@ -11,6 +11,20 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-22 Time: 14:40:00
 
+⚠️ MIGRATION TO POLYGON.IO + TRADIER RECOMMENDED ⚠️
+    This module uses DEPRECATED ib_async imports for option chain data.
+
+    Migration Needed:
+    - ❌ Remove ib_async Contract imports (line 41)
+    - ✅ Use Tradier API for option chain data (SpyderB40_TradierClient)
+    - ✅ Use Polygon.io for options quotes and Greeks
+    - 🔧 Update ContractBuilder references to use Tradier contracts
+
+    Current Architecture:
+    - Tradier: GET /markets/options/chains endpoint for option chains
+    - Polygon: Options quotes and historical data
+    - Internal: Greeks calculations (SpyderF06_GreeksCalculator)
+
 Module Description:
     This module manages option chain data for the Spyder trading system. It fetches
     and maintains real-time option chains, calculates Greeks, tracks open interest
@@ -38,6 +52,10 @@ import math
 import pandas as pd
 import numpy as np
 from scipy.stats import norm
+
+# ⚠️ DEPRECATED: ib_async Contract import is legacy code
+# TODO: Replace with Tradier API for option chains
+# See: SpyderB40_TradierClient.get_options_chain()
 from ib_async import Contract
 
 # ==============================================================================

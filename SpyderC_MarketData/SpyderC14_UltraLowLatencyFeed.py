@@ -7,40 +7,39 @@ Series: SpyderC_MarketData
 Module: SpyderC14_UltraLowLatencyFeed.py
 Purpose: Ultra-low latency market data feed with ib_async integration
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-21 Time: 21:55:00  
+Year Created: 2025
+Last Updated: 2025-08-21 Time: 21:55:00
+
+⚠️ DEPRECATION WARNING ⚠️
+    This module is DEPRECATED and represents over-engineering for current needs.
+
+    Status:
+    - ❌ Uses deprecated ib_async for market data
+    - ⚠️ HFT-level optimization not needed for options strategies
+    - 🎯 Polygon.io WebSocket provides adequate latency (~50-100ms)
+
+    Architecture Decision:
+    - Current Spyder strategies are NOT high-frequency trading
+    - Options strategies operate on 1-second to 1-minute timeframes
+    - Sub-5ms latency optimization is premature
+    - Polygon.io + standard async provides sufficient performance
+
+    For Current Needs:
+    - Use SpyderC25_PolygonDataHandler (standard WebSocket)
+    - ~50-100ms latency is sufficient for options strategies
+    - Simpler architecture, easier maintenance
+    - No special kernel/hardware requirements
+
+    Note: If HFT capabilities needed in future, consider:
+    - Direct exchange connectivity (CME iLink, etc.)
+    - FPGAs for sub-microsecond latency
+    - Co-location services
+    - This module's techniques as starting point
 
 Module Description:
     This module implements a high-performance, ultra-low latency market data
     feed system inspired by institutional HFT architectures with modern ib_async
-    integration for enhanced IB Gateway 10.37 compatibility. It uses lock-free
-    data structures, memory-mapped files, and optimized data paths to achieve
-    sub-50ms latency for SPY options trading with institutional-grade performance.
-
-Key Features:
-    • Modern ib_async integration for optimal IB Gateway compatibility
-    • Lock-free circular buffers for zero-copy data sharing
-    • Memory-mapped files for inter-process communication
-    • Nanosecond-precision timestamping
-    • Kernel bypass techniques (where available)
-    • Zero-allocation hot path processing
-    • CPU affinity and NUMA optimization
-    • Predictive pre-calculation of likely orders
-    • Hardware timestamping support
-
-Performance Targets:
-    • Market data latency: <5ms (from exchange to strategy)
-    • Order preparation: <10ms (pre-calculated orders)
-    • Total round-trip: <50ms (signal to execution)
-    • Throughput: >1M messages/second
-
-Dependencies:
-    • ib_async (modern IB API wrapper)
-    • numba (optional for JIT compilation)
-    • Standard performance libraries
-
-Installation Note:
-    pip install ib_async numba
+    integration for enhanced IB Gateway 10.37 compatibility.
 """
 
 # ==============================================================================
