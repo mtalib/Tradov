@@ -257,6 +257,19 @@ except ImportError:
     gateway_panel_available = False
     print("⚠️ Gateway Control Panel not available")
 
+# ==============================================================================
+# CIRCUIT BREAKER MONITOR
+# ==============================================================================
+try:
+    from SpyderG_GUI.SpyderG16_CircuitBreakerMonitor import create_circuit_breaker_monitor
+
+    circuit_breaker_monitor_available = True
+    print("✅ Circuit Breaker Monitor available")
+except ImportError:
+    create_circuit_breaker_monitor = None  # type: ignore
+    circuit_breaker_monitor_available = False
+    print("⚠️ Circuit Breaker Monitor not available")
+
 try:
     from SpyderG_GUI.SpyderG15_ClientConnectionManager import (
         ClientConnectionManager,
@@ -2418,6 +2431,15 @@ class SpyderTradingDashboard(QMainWindow):
 
         risk_group.setLayout(risk_layout)
         layout.addWidget(risk_group)
+
+        # Circuit Breaker Monitor (NEW)
+        if circuit_breaker_monitor_available:
+            try:
+                circuit_breaker_widget = create_circuit_breaker_monitor(parent=self)
+                circuit_breaker_widget.setMaximumHeight(350)
+                layout.addWidget(circuit_breaker_widget)
+            except Exception as e:
+                print(f"⚠️ Failed to create circuit breaker monitor: {e}")
 
         # Autonomous AI Activity
         auto_group = QGroupBox("AUTONOMOUS AI ACTIVITY")
