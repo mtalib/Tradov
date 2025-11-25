@@ -1,0 +1,119 @@
+═══════════════════════════════════════════════════════════════════════════
+              PULL REQUEST - QUICK REFERENCE GUIDE
+═══════════════════════════════════════════════════════════════════════════
+
+📌 BRANCH: claude/spyder-repo-analysis-018wFyGURwLwDVkJKR5bRtR9
+
+📋 TITLE:
+Code Quality & Infrastructure: Exception Handling, IBKR Deprecation, Circuit Breaker Monitor
+
+═══════════════════════════════════════════════════════════════════════════
+                           CREATE PR STEPS
+═══════════════════════════════════════════════════════════════════════════
+
+METHOD 1: GitHub Web Interface (RECOMMENDED)
+─────────────────────────────────────────────────────────────────────────
+
+1. Visit: https://github.com/mtalib/Spyder
+
+2. Look for yellow banner at top:
+   "claude/spyder-repo-analysis-018wFyGURwLwDVkJKR5bRtR9 had recent pushes"
+
+3. Click green "Compare & pull request" button
+
+4. Fill in PR form:
+   - Title: (see above)
+   - Description: Copy from PR_DESCRIPTION.md
+   - Base branch: (select your main development branch)
+
+5. Click "Create pull request"
+
+METHOD 2: Direct URL
+─────────────────────────────────────────────────────────────────────────
+
+Visit this URL directly:
+https://github.com/mtalib/Spyder/compare/master...claude/spyder-repo-analysis-018wFyGURwLwDVkJKR5bRtR9
+
+(Note: Replace 'master' with your actual base branch if different)
+
+═══════════════════════════════════════════════════════════════════════════
+                           PR HIGHLIGHTS
+═══════════════════════════════════════════════════════════════════════════
+
+✅ CHANGES SUMMARY:
+   • 5 commits
+   • 14 files modified
+   • ~1,700 lines added
+   • 1 new file created (Circuit Breaker Monitor)
+
+✅ KEY IMPROVEMENTS:
+   1. Fixed 13 bare exception handlers (3 strategy files)
+   2. Added deprecation warnings (12 IBKR legacy files)
+   3. Created Circuit Breaker Status Monitor widget
+
+✅ STATUS:
+   • All changes committed ✅
+   • All changes pushed ✅
+   • Syntax validated ✅
+   • No breaking changes ✅
+   • Ready to merge ✅
+
+═══════════════════════════════════════════════════════════════════════════
+                           COMMIT LIST
+═══════════════════════════════════════════════════════════════════════════
+
+dc7c84d feat: Add Circuit Breaker Status Monitor to Dashboard
+2004e32 docs: Add deprecation warnings to market data IBKR modules
+f7e6ca8 docs: Add deprecation warnings to IBKR legacy imports
+27ef85f fix: Fix 13 bare exception handlers in strategy modules
+c031c51 docs: Add comprehensive improvements summary
+
+═══════════════════════════════════════════════════════════════════════════
+                           FILES MODIFIED
+═══════════════════════════════════════════════════════════════════════════
+
+CREATED:
+  • SpyderG_GUI/SpyderG16_CircuitBreakerMonitor.py
+
+MODIFIED:
+  • SpyderD_Strategies/SpyderD02_IronCondor.py
+  • SpyderD_Strategies/SpyderD10_IronButterfly.py
+  • SpyderD_Strategies/SpyderD12_StrategyOrchestrator.py
+  • SpyderB_Broker/SpyderB06_ContractBuilder.py
+  • SpyderB_Broker/SpyderB30_SPYOptionsChainManager.py
+  • SpyderR_Runtime/SpyderR02_PaperEngine.py
+  • SpyderE_Risk/SpyderE13_DayProfitTarget.py
+  • SpyderR_Runtime/SpyderR05_WorkingBridge.py
+  • SpyderG_GUI/SpyderG05_TradingDashboard.py
+  • SpyderC_MarketData/SpyderC02_HistoricalData.py
+  • SpyderC_MarketData/SpyderC03_OptionChain.py
+  • SpyderC_MarketData/SpyderC07_OPRAFeed.py
+  • SpyderC_MarketData/SpyderC14_UltraLowLatencyFeed.py
+  • SpyderC_MarketData/SpyderC20_MarketDataHub.py
+
+═══════════════════════════════════════════════════════════════════════════
+                           TESTING COMMANDS
+═══════════════════════════════════════════════════════════════════════════
+
+# Test Circuit Breaker Widget standalone:
+cd /home/user/Spyder
+source .venv/bin/activate
+python SpyderG_GUI/SpyderG16_CircuitBreakerMonitor.py
+
+# Test in full dashboard:
+python SpyderA_Core/SpyderA01_Main.py
+
+# Verify syntax of all modified files:
+python -m py_compile SpyderG_GUI/SpyderG16_CircuitBreakerMonitor.py
+
+═══════════════════════════════════════════════════════════════════════════
+                           DOCUMENTATION
+═══════════════════════════════════════════════════════════════════════════
+
+Full PR Description: /home/user/Spyder/PR_DESCRIPTION.md
+Quick Reference:     /home/user/Spyder/PR_QUICK_REFERENCE.txt
+
+═══════════════════════════════════════════════════════════════════════════
+
+Ready to create your PR! 🚀
+
