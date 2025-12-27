@@ -37,8 +37,8 @@ import numpy as np
 import pandas as pd
 
 # Local imports (correct)
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 
 # ==============================================================================

@@ -6,10 +6,12 @@ Quick functional test for resilience infrastructure.
 import asyncio
 import time
 import sys
+from pathlib import Path
 
-sys.path.insert(0, '/home/user/Spyder')
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent))
 
-from SpyderU_Utilities.SpyderU40_RateLimiter import (
+from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import (
     RateLimiter,
     MultiRateLimiter,
     rate_limit,
@@ -17,7 +19,7 @@ from SpyderU_Utilities.SpyderU40_RateLimiter import (
     acquire_polygon
 )
 
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import (
+from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import (
     CircuitState,
     CircuitBreaker,
     CircuitBreakerError,

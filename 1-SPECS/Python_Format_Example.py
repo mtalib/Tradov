@@ -67,8 +67,8 @@ from threading import Lock, Event as ThreadEvent, RLock
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # Safe imports with fallbacks
 try:
