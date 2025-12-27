@@ -172,11 +172,15 @@ sys.path.insert(0, str(project_root))
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderB_Broker.SpyderB29_EnhancedConnectionManager import (
-    get_connection_manager,
-    ConnectionConfig,
-    TradingMode,
-)
+# TEMPORARILY DISABLED: Module not found after restructure
+# from Spyder.SpyderB_Broker.SpyderB29_EnhancedConnectionManager import (
+#     get_connection_manager,
+#     ConnectionConfig,
+#     TradingMode,
+# )
+get_connection_manager = None  # Placeholder
+ConnectionConfig = None  # Placeholder
+TradingMode = None  # Placeholder
 
 # Import Signal Info Dialog for popup system
 try:

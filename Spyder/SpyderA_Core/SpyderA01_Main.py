@@ -24,8 +24,8 @@ import inspect
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-# Add project root to path
-project_root = Path(__file__).parent.parent
+# Add project root to path (now need to go up 3 levels: SpyderA01_Main.py -> SpyderA_Core -> Spyder -> project_root)
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 # Try to import Qt modules for GUI
@@ -80,7 +80,7 @@ setup_logging_func: Any = None
 get_logger_func: Any = None
 
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import get_logger, SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import get_logger, SpyderLogger
 
     def setup_logging(**_kwargs: Any) -> None:
         SpyderLogger.initialize_logging()
@@ -107,7 +107,7 @@ EventManager: type | None = None
 Event: type | None = None
 
 try:
-    from SpyderA_Core.SpyderA05_EventManager import EventManager, Event
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event
 
     has_event_manager = True
 except ImportError:
@@ -121,8 +121,8 @@ IBConfig: type | None = None
 ConnectionConfig: type | None = None
 
 try:
-    from SpyderB_Broker.SpyderB01_SpyderClient import get_spyder_client, IBConfig
-    from SpyderB_Broker.SpyderB05_ConnectionManager import (
+    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import get_spyder_client, IBConfig
+    from Spyder.SpyderB_Broker.SpyderB05_ConnectionManager import (
         get_connection_manager,
         ConnectionConfig,
     )
@@ -142,8 +142,8 @@ has_trading_dashboard = False
 SpyderTradingDashboard: type | None = None
 
 try:
-    from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
-    from SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
+    from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
+    from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
 
     has_trading_dashboard = True
     print("✅ Real Trading Dashboard (G05) loaded successfully!")

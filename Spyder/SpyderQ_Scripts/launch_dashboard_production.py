@@ -96,7 +96,7 @@ try:
     )
 
     print("✅ Importing SpyderG_GUI...")
-    from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
+    from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 
     print("✅ Setting up Client ID Manager...")
     client_manager = get_client_manager(min_id=10, max_id=99, cleanup_delay=1.0)
