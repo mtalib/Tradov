@@ -246,6 +246,24 @@ try:
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
+        
+        # CRITICAL: Set desktop file name for proper GNOME/Wayland integration
+        # This ensures the window appears under the launcher icon with a yellow dot
+        app.setDesktopFileName("spyder-trading.desktop")
+        app.setApplicationName("SPYDER Dashboard")
+        app.setApplicationDisplayName("SPYDER Trading Dashboard")
+        
+        # Set organization for settings
+        app.setOrganizationName("Spyder")
+        app.setOrganizationDomain("spyder.trading")
+        
+        print("🎯 Desktop integration configured (spyder-trading)")
+    else:
+        # Application already running - bring existing window to front
+        print("⚠️ SPYDER Dashboard is already running!")
+        print("   Activating existing window...")
+        # Exit without creating new instance
+        sys.exit(0)
 
     print("✅ Creating Enhanced Trading Dashboard...")
 
