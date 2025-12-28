@@ -93,16 +93,8 @@ def sample_env_file(temp_dir):
     env_file = temp_dir / ".env"
     env_content = """
 # Test Environment Configuration
-IBKR_CONSUMER_KEY=test_consumer_key
-IBKR_PRIVATE_KEY_PATH=/test/path/to/key.pem
-IBKR_ACCOUNT_ID=DU123456
-
-CP_GATEWAY_HOST=localhost
-CP_GATEWAY_PORT=5000
-CP_GATEWAY_SSL=true
-
-IBKR_RATE_LIMIT=10
-IBKR_TICKLE_INTERVAL=240
+TRADING_MODE=paper
+RATE_LIMIT_REQUESTS_PER_SECOND=50
 """
     env_file.write_text(env_content.strip())
     yield env_file
@@ -130,40 +122,8 @@ def mock_error_handler():
 
 
 # ==============================================================================
-# CLIENT PORTAL API FIXTURES
+# HTTP & WEBSOCKET FIXTURES
 # ==============================================================================
-
-@pytest.fixture
-def mock_oauth_config():
-    """Mock OAuth configuration"""
-    return {
-        'consumer_key': 'test_consumer_key_12345',
-        'private_key_path': '/test/path/to/private_key.pem',
-        'token_url': 'https://api.ibkr.com/v1/oauth2/token'
-    }
-
-
-@pytest.fixture
-def mock_gateway_config():
-    """Mock CP Gateway configuration"""
-    return {
-        'host': 'localhost',
-        'port': 5000,
-        'ssl': True,
-        'cacert': '/test/path/to/cacert.pem'
-    }
-
-
-@pytest.fixture
-def mock_ib_client():
-    """Mock IB client for testing"""
-    client = MagicMock()
-    client.is_connected = Mock(return_value=True)
-    client.reqMarketData = Mock()
-    client.placeOrder = Mock()
-    client.reqPositions = Mock()
-    client.reqAccountSummary = Mock()
-    return client
 
 
 @pytest.fixture
@@ -291,44 +251,6 @@ def rate_limiter_config():
 
 
 # ==============================================================================
-# JWT/OAUTH FIXTURES
-# ==============================================================================
-
-@pytest.fixture
-def sample_jwt_payload():
-    """Sample JWT payload for testing"""
-    now = datetime.now()
-    return {
-        'iss': 'test_consumer_key',
-        'sub': 'test_consumer_key',
-        'aud': 'https://api.ibkr.com/v1/oauth2/token',
-        'exp': int((now + timedelta(minutes=5)).timestamp()),
-        'iat': int(now.timestamp()),
-        'jti': f'test_jti_{now.timestamp()}'
-    }
-
-
-@pytest.fixture
-def sample_oauth_token_response():
-    """Sample OAuth token response"""
-    return {
-        'access_token': 'test_access_token_abcdef123456',
-        'token_type': 'Bearer',
-        'expires_in': 3600,
-        'scope': 'read write'
-    }
-
-
-@pytest.fixture
-def mock_private_key():
-    """Mock RSA private key for testing"""
-    # Note: This is a placeholder. In real tests, we'd use a test key
-    return b"""-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA0Z3VS6JqPi6S...
------END RSA PRIVATE KEY-----"""
-
-
-# ==============================================================================
 # FILE SYSTEM FIXTURES
 # ==============================================================================
 
@@ -337,7 +259,6 @@ def mock_config_file(temp_dir):
     """Create a mock configuration file"""
     config_file = temp_dir / "config.json"
     config = {
-        'api_mode': 'oauth',
         'rate_limit': 50,
         'session_timeout': 360,
         'max_retries': 3
@@ -368,20 +289,11 @@ Available pytest markers:
 @pytest.mark.live
     Requires live trading account (DANGEROUS - use with extreme caution)
 
-@pytest.mark.ibkr
-    Requires IBKR connection (Gateway or OAuth)
-
 @pytest.mark.gui
     GUI tests - require display
 
 @pytest.mark.network
     Requires network access
-
-@pytest.mark.oauth
-    Requires OAuth credentials
-
-@pytest.mark.gateway
-    Requires CP Gateway running
 
 @pytest.mark.smoke
     Smoke tests - quick sanity checks
@@ -396,9 +308,9 @@ def test_something_simple():
     assert True
 
 @pytest.mark.integration
-@pytest.mark.ibkr
-def test_ib_connection():
-    # Test that requires IB connection
+@pytest.mark.network
+def test_api_connection():
+    # Test that requires API connection
     pass
 
 @pytest.mark.slow
