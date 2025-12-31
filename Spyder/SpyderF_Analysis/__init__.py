@@ -27,6 +27,24 @@ from .SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
 from .SpyderF09_EntryFilters import EntryFilters
 from .SpyderF10_MarketRegimeDetector import MarketRegimeDetector
 
+# Renaissance-style indicators
+try:
+    from .SpyderF21_RenaissanceIndicators import (
+        RenaissanceStyleSignalGenerator,
+        MeanReversionIndicators,
+        VolatilityIndicators,
+        MarketMicrostructureIndicators,
+        OptionsGreeksIndicators,
+        RenaissanceSignal,
+        MeanReversionSignal,
+        VolatilityRegime,
+        create_renaissance_signal_generator,
+    )
+    RENAISSANCE_INDICATORS_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: SpyderF21_RenaissanceIndicators not available: {e}")
+    RENAISSANCE_INDICATORS_AVAILABLE = False
+
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
@@ -42,6 +60,20 @@ __all__ = [
     "VolatilityAnalyzer",
     "VolatilityRegimeAnalyzer",
 ]
+
+# Add Renaissance indicators if available
+if RENAISSANCE_INDICATORS_AVAILABLE:
+    __all__.extend([
+        "RenaissanceStyleSignalGenerator",
+        "MeanReversionIndicators",
+        "VolatilityIndicators",
+        "MarketMicrostructureIndicators",
+        "OptionsGreeksIndicators",
+        "RenaissanceSignal",
+        "MeanReversionSignal",
+        "VolatilityRegime",
+        "create_renaissance_signal_generator",
+    ])
 
 # ==============================================================================
 # PACKAGE METADATA

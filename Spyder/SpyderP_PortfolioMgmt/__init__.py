@@ -116,6 +116,22 @@ except ImportError as e:
     print(f"⚠️ SpyderP06_StrategyRotation not available: {e}")
     STRATEGY_ROTATION_AVAILABLE = False
 
+# Renaissance Position Sizer
+try:
+    from .SpyderP07_RenaissancePositionSizer import (
+        RenaissancePositionSizer,
+        PositionSizeMethod,
+        PositionSizeResult,
+        TradeRecord,
+        PerformanceMetrics,
+        create_position_sizer,
+    )
+
+    RENAISSANCE_POSITION_SIZER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ SpyderP07_RenaissancePositionSizer not available: {e}")
+    RENAISSANCE_POSITION_SIZER_AVAILABLE = False
+
 # ==============================================================================
 # PACKAGE CONVENIENCE FUNCTIONS
 # ==============================================================================
@@ -135,6 +151,7 @@ def get_available_modules():
         "SpyderP04_CapitalAllocator": CAPITAL_ALLOCATOR_AVAILABLE,
         "SpyderP05_MultiStrategyAllocator": MULTI_STRATEGY_ALLOCATOR_AVAILABLE,
         "SpyderP06_StrategyRotation": STRATEGY_ROTATION_AVAILABLE,
+        "SpyderP07_RenaissancePositionSizer": RENAISSANCE_POSITION_SIZER_AVAILABLE,
     }
 
 
@@ -280,6 +297,16 @@ if MULTI_STRATEGY_ALLOCATOR_AVAILABLE:
 
 if STRATEGY_ROTATION_AVAILABLE:
     __all__.extend(["StrategyRotation"])
+
+if RENAISSANCE_POSITION_SIZER_AVAILABLE:
+    __all__.extend([
+        "RenaissancePositionSizer",
+        "PositionSizeMethod",
+        "PositionSizeResult",
+        "TradeRecord",
+        "PerformanceMetrics",
+        "create_position_sizer",
+    ])
 
 # ==============================================================================
 # INITIALIZATION

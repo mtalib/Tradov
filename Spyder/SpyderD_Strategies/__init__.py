@@ -121,6 +121,26 @@ try:
 except ImportError:
     pass  # Optional module
 
+# Renaissance Mean Reversion Strategy
+try:
+    from .SpyderD30_RenaissanceMeanReversion import (
+        RenaissanceMeanReversionStrategy,
+        OptionContract,
+        OptionType,
+        TradeAction,
+        create_renaissance_strategy,
+    )
+
+    __all__.extend([
+        "RenaissanceMeanReversionStrategy",
+        "OptionContract",
+        "OptionType",
+        "TradeAction",
+        "create_renaissance_strategy",
+    ])
+except ImportError as e:
+    print(f"Warning: SpyderD30_RenaissanceMeanReversion not available: {e}")
+
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
