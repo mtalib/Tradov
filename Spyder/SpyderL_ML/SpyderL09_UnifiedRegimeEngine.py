@@ -120,6 +120,22 @@ OPTIMAL_HISTORICAL_DAYS = 252  # 1 year
 MIN_REGIME_DURATION = 5 * 60  # 5 minutes minimum regime duration
 REGIME_FLIP_COOLDOWN = 2 * 60  # 2 minutes cooldown between flips
 
+# Rolling window configuration (from Markov-Chains2.md best practices)
+ROLLING_WINDOW_DAYS = 63  # ~3 months of trading days for non-stationarity
+MIN_ROLLING_SAMPLES = 50  # Minimum samples for rolling window training
+RETRAIN_ON_REGIME_CHANGE = True  # Trigger retraining on regime transitions
+
+# Greeks-aware options trading thresholds
+MIN_DTE_FOR_DIRECTIONAL = 7  # Minimum days to expiration for directional plays
+THETA_DECAY_WARNING_DTE = 5  # DTE threshold for theta decay warnings
+VEGA_HIGH_IV_THRESHOLD = 0.30  # 30% IV considered high
+VEGA_LOW_IV_THRESHOLD = 0.15  # 15% IV considered low
+OPTIONS_CONFIDENCE_THRESHOLD = 0.40  # From Markov-Chains-Code.md
+
+# VIX + Price composite state thresholds
+VIX_SPIKE_THRESHOLD = 5.0  # VIX increase in points for "spike"
+PRICE_DROP_THRESHOLD = -0.02  # 2% drop threshold
+
 # ==============================================================================
 # ENUMERATIONS
 # ==============================================================================
@@ -154,6 +170,30 @@ class RegimeTransition(Enum):
     STABLE = "stable"
     TRANSITIONING = "transitioning"
     JUST_CHANGED = "just_changed"
+
+class CompositeMarketState(Enum):
+    """VIX + Price composite states (from Markov-Chains2.md)"""
+    CRASH = "crash"                    # Price Down + VIX Up sharply
+    SLOW_BLEED = "slow_bleed"          # Price Down + VIX Flat/Down
+    FEAR_RALLY = "fear_rally"          # Price Up + VIX Up (short squeeze)
+    HEALTHY_RALLY = "healthy_rally"    # Price Up + VIX Down
+    COMPLACENT = "complacent"          # Price Flat + VIX Very Low
+    CONSOLIDATION = "consolidation"    # Price Flat + VIX Normal
+    UNKNOWN = "unknown"
+
+class OptionsAction(Enum):
+    """Options trading actions with Greeks awareness"""
+    BUY_CALL = "buy_call"
+    BUY_PUT = "buy_put"
+    SELL_CALL = "sell_call"
+    SELL_PUT = "sell_put"
+    IRON_CONDOR = "iron_condor"
+    STRADDLE = "straddle"
+    STRANGLE = "strangle"
+    CREDIT_SPREAD = "credit_spread"
+    DEBIT_SPREAD = "debit_spread"
+    HOLD = "hold"
+    NO_EDGE = "no_edge"
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -209,7 +249,7 @@ class RegimePerformanceMetrics:
     avg_confidence: float
     sample_count: int
 
-@dataclass  
+@dataclass
 class MarketConditions:
     """Current market conditions for regime analysis"""
     timestamp: datetime
@@ -223,6 +263,54 @@ class MarketConditions:
     skew_level: float = 100.0
     trend_strength: float = 0.0
     volatility_regime: float = 0.15
+    # New fields for Greeks awareness
+    vix_change: float = 0.0  # VIX change for composite state
+    implied_volatility: float = 0.20  # Current IV for options
+    prev_vix_level: float = 0.0  # Previous VIX for spike detection
+
+@dataclass
+class OptionsSignal:
+    """Greeks-aware options trading signal (from Markov-Chains2.md)"""
+    action: OptionsAction
+    regime: MarketRegime
+    composite_state: CompositeMarketState
+    confidence: float
+    timestamp: datetime
+    # Greeks considerations
+    theta_warning: bool = False  # True if DTE < threshold
+    vega_note: str = ""  # High/Low IV note
+    recommended_dte: int = 30  # Recommended days to expiration
+    recommended_delta: float = 0.30  # Recommended delta
+    # Risk parameters
+    max_position_pct: float = 0.05  # Max position as % of portfolio
+    stop_loss_pct: float = 0.50  # Stop loss as % of premium
+    reason: str = ""  # Human-readable reasoning
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'action': self.action.value,
+            'regime': self.regime.value,
+            'composite_state': self.composite_state.value,
+            'confidence': self.confidence,
+            'timestamp': self.timestamp.isoformat(),
+            'theta_warning': self.theta_warning,
+            'vega_note': self.vega_note,
+            'recommended_dte': self.recommended_dte,
+            'recommended_delta': self.recommended_delta,
+            'max_position_pct': self.max_position_pct,
+            'stop_loss_pct': self.stop_loss_pct,
+            'reason': self.reason
+        }
+
+@dataclass
+class RollingWindowConfig:
+    """Configuration for rolling window retraining"""
+    window_days: int = ROLLING_WINDOW_DAYS
+    min_samples: int = MIN_ROLLING_SAMPLES
+    retrain_on_change: bool = RETRAIN_ON_REGIME_CHANGE
+    last_retrain: Optional[datetime] = None
+    samples_since_retrain: int = 0
+    performance_degradation_threshold: float = 0.15  # Trigger retrain if accuracy drops
 
 # ==============================================================================
 # ML REGIME CLASSIFIER
@@ -572,6 +660,450 @@ class SignalRegimeDetector:
             return MarketRegime.UNKNOWN, 0.0
 
 # ==============================================================================
+# COMPOSITE STATE DETECTOR (from Markov-Chains2.md)
+# ==============================================================================
+class CompositeStateDetector:
+    """
+    Detects composite VIX + Price states for nuanced market analysis.
+
+    From Markov-Chains2.md: "Use Price + VIX to create states. This helps
+    distinguish between a Crash (Price Down, VIX Up) and a Slow Bleed
+    (Price Down, VIX Flat)."
+    """
+
+    def __init__(self, config: Dict[str, Any] = None):
+        self.config = config or {}
+        self.logger = SpyderLogger.get_logger(f"{__name__}.CompositeState")
+
+        # Thresholds
+        self.vix_spike_threshold = self.config.get('vix_spike', VIX_SPIKE_THRESHOLD)
+        self.price_drop_threshold = self.config.get('price_drop', PRICE_DROP_THRESHOLD)
+
+        # History for VIX change calculation
+        self.vix_history: deque = deque(maxlen=20)
+
+    def detect_composite_state(self, conditions: MarketConditions) -> CompositeMarketState:
+        """Detect composite VIX + Price state"""
+        try:
+            price_change = conditions.spy_change_pct
+            vix_level = conditions.vix_level
+            vix_change = conditions.vix_change
+
+            # Update VIX history
+            self.vix_history.append(vix_level)
+
+            # Calculate VIX change if not provided
+            if vix_change == 0.0 and len(self.vix_history) >= 2:
+                vix_change = vix_level - self.vix_history[-2]
+
+            # Detect composite state based on Price + VIX dynamics
+            # CRASH: Price down significantly + VIX spiking
+            if price_change < self.price_drop_threshold and vix_change > self.vix_spike_threshold:
+                return CompositeMarketState.CRASH
+
+            # SLOW_BLEED: Price down but VIX stable/declining
+            if price_change < self.price_drop_threshold and vix_change <= 0:
+                return CompositeMarketState.SLOW_BLEED
+
+            # FEAR_RALLY: Price up but VIX also up (short squeeze, uncertain)
+            if price_change > 0.005 and vix_change > 1.0:
+                return CompositeMarketState.FEAR_RALLY
+
+            # HEALTHY_RALLY: Price up + VIX down (confidence)
+            if price_change > 0.005 and vix_change < -0.5:
+                return CompositeMarketState.HEALTHY_RALLY
+
+            # COMPLACENT: Flat price + very low VIX
+            if abs(price_change) < 0.003 and vix_level < 12:
+                return CompositeMarketState.COMPLACENT
+
+            # CONSOLIDATION: Normal range
+            if abs(price_change) < 0.005:
+                return CompositeMarketState.CONSOLIDATION
+
+            return CompositeMarketState.UNKNOWN
+
+        except Exception as e:
+            self.logger.error(f"Composite state detection failed: {e}")
+            return CompositeMarketState.UNKNOWN
+
+
+# ==============================================================================
+# SIMPLE MARKOV TRANSITION MATRIX (from Markov-Chains-Code.md)
+# ==============================================================================
+class SimpleMarkovTrader:
+    """
+    Simple Markov Chain trader implementing the approach from documentation.
+
+    Provides interpretable transition probabilities alongside the more
+    complex HMM/ML approaches. Uses frequency-based transition matrix
+    calculation as described in Markov-Chains-Code.md.
+    """
+
+    def __init__(self, states: int = 3, bins: List[float] = None):
+        """
+        Initialize Simple Markov Trader.
+
+        Args:
+            states: Number of states (default 3: Bearish, Neutral, Bullish)
+            bins: Custom bin edges for discretizing returns.
+                  Default: [-inf, -0.005, 0.005, inf]
+        """
+        self.states = states
+        self.bins = bins or [-np.inf, -0.005, 0.005, np.inf]
+        self.transition_matrix: Optional[np.ndarray] = None
+        self.state_labels = ['Bearish', 'Neutral', 'Bullish']
+        self.logger = SpyderLogger.get_logger(f"{__name__}.SimpleMarkov")
+
+        # Rolling window support
+        self.rolling_config = RollingWindowConfig()
+        self.return_history: deque = deque(maxlen=ROLLING_WINDOW_DAYS * 2)
+
+    def fit(self, prices: pd.Series) -> 'SimpleMarkovTrader':
+        """
+        Train the model on historical price data to build Transition Matrix.
+
+        Args:
+            prices: Series of closing prices
+        """
+        try:
+            # Calculate log returns
+            log_returns = np.log(prices / prices.shift(1)).dropna()
+
+            # Discretize returns into states
+            states = pd.cut(log_returns, bins=self.bins, labels=False, include_lowest=True)
+            states = states.dropna().astype(int)
+
+            # Store returns for rolling window
+            self.return_history.extend(log_returns.values)
+
+            # Initialize transition matrix
+            matrix = np.zeros((self.states, self.states))
+
+            # Count transitions
+            for i in range(len(states) - 1):
+                current_state = states.iloc[i]
+                next_state = states.iloc[i + 1]
+
+                if 0 <= current_state < self.states and 0 <= next_state < self.states:
+                    matrix[current_state, next_state] += 1
+
+            # Normalize rows to get probabilities
+            row_sums = matrix.sum(axis=1, keepdims=True)
+            row_sums = np.where(row_sums == 0, 1, row_sums)  # Avoid division by zero
+            self.transition_matrix = matrix / row_sums
+
+            # Update rolling config
+            self.rolling_config.last_retrain = datetime.now()
+            self.rolling_config.samples_since_retrain = 0
+
+            self.logger.info(f"Markov model trained on {len(prices)} samples")
+            self.logger.debug(f"Transition Matrix:\n{self.transition_matrix}")
+
+            return self
+
+        except Exception as e:
+            self.logger.error(f"Markov model training failed: {e}")
+            return self
+
+    def fit_rolling(self, prices: pd.Series) -> 'SimpleMarkovTrader':
+        """
+        Train with rolling window to handle non-stationarity.
+        Uses only the most recent ROLLING_WINDOW_DAYS of data.
+        """
+        window_size = min(len(prices), ROLLING_WINDOW_DAYS)
+        return self.fit(prices.iloc[-window_size:])
+
+    def get_current_state(self, current_return: float) -> int:
+        """Determine state from return value"""
+        state = np.digitize(current_return, self.bins[1:-1])  # Exclude inf bounds
+        return max(0, min(state, self.states - 1))
+
+    def predict(self, current_price: float, prev_price: float) -> Dict[str, Any]:
+        """
+        Predict next state and generate trading signal.
+
+        Returns dict with regime prediction and options action.
+        """
+        if self.transition_matrix is None:
+            return {
+                'current_regime': 'Unknown',
+                'predicted_regime': 'Unknown',
+                'confidence': 0.0,
+                'action': OptionsAction.NO_EDGE,
+                'probabilities': []
+            }
+
+        # Calculate return
+        log_return = np.log(current_price / prev_price)
+        current_state = self.get_current_state(log_return)
+
+        # Get transition probabilities
+        probabilities = self.transition_matrix[current_state]
+        predicted_state = np.argmax(probabilities)
+        confidence = float(np.max(probabilities))
+
+        # Track for rolling window
+        self.return_history.append(log_return)
+        self.rolling_config.samples_since_retrain += 1
+
+        # Determine action based on confidence threshold
+        action = self._get_options_action(predicted_state, confidence)
+
+        return {
+            'current_regime': self.state_labels[current_state],
+            'predicted_regime': self.state_labels[predicted_state],
+            'confidence': confidence,
+            'action': action,
+            'probabilities': probabilities.tolist(),
+            'needs_retrain': self._check_needs_retrain()
+        }
+
+    def _get_options_action(self, predicted_state: int, confidence: float) -> OptionsAction:
+        """
+        Get options action based on predicted state.
+        From Markov-Chains-Code.md: confidence < 0.40 = NO EDGE
+        """
+        if confidence < OPTIONS_CONFIDENCE_THRESHOLD:
+            return OptionsAction.NO_EDGE
+
+        if predicted_state == 2:  # Bullish
+            return OptionsAction.BUY_CALL
+        elif predicted_state == 0:  # Bearish
+            return OptionsAction.BUY_PUT
+        else:  # Neutral
+            return OptionsAction.IRON_CONDOR
+
+    def _check_needs_retrain(self) -> bool:
+        """Check if model needs retraining based on rolling window"""
+        if self.rolling_config.last_retrain is None:
+            return True
+
+        # Check time since last retrain
+        hours_since_retrain = (datetime.now() - self.rolling_config.last_retrain).total_seconds() / 3600
+        if hours_since_retrain > MODEL_RETRAIN_HOURS:
+            return True
+
+        # Check samples since retrain
+        if self.rolling_config.samples_since_retrain > ROLLING_WINDOW_DAYS:
+            return True
+
+        return False
+
+    def get_transition_matrix(self) -> Optional[np.ndarray]:
+        """Get the current transition matrix"""
+        return self.transition_matrix
+
+
+# ==============================================================================
+# GREEKS-AWARE OPTIONS SIGNAL GENERATOR
+# ==============================================================================
+class GreeksAwareSignalGenerator:
+    """
+    Generates options signals with Greeks awareness.
+
+    From Markov-Chains2.md: "The Greeks are Ignored: This model only predicts
+    price direction. Theta (Time Decay): If the market predicts 'Bullish' but
+    the move takes 2 weeks to happen, you might still lose money on a Call
+    option due to time decay."
+    """
+
+    def __init__(self, config: Dict[str, Any] = None):
+        self.config = config or {}
+        self.logger = SpyderLogger.get_logger(f"{__name__}.GreeksSignal")
+
+        # Initialize component detectors
+        self.composite_detector = CompositeStateDetector(config)
+        self.simple_markov = SimpleMarkovTrader()
+
+        # Signal history
+        self.signal_history: deque = deque(maxlen=500)
+
+    def generate_signal(self, conditions: MarketConditions,
+                       regime: MarketRegime,
+                       confidence: float,
+                       target_dte: int = 30) -> OptionsSignal:
+        """
+        Generate Greeks-aware options signal.
+
+        Args:
+            conditions: Current market conditions
+            regime: Detected market regime
+            confidence: Regime detection confidence
+            target_dte: Target days to expiration
+        """
+        try:
+            # Get composite state
+            composite_state = self.composite_detector.detect_composite_state(conditions)
+
+            # Determine base action from regime
+            action, reason = self._determine_action(regime, composite_state, confidence)
+
+            # Apply Greeks adjustments
+            theta_warning = target_dte < THETA_DECAY_WARNING_DTE
+            vega_note = self._get_vega_note(conditions.implied_volatility)
+
+            # Adjust action based on Greeks
+            action, reason = self._adjust_for_greeks(
+                action, reason, theta_warning,
+                conditions.implied_volatility, composite_state
+            )
+
+            # Calculate recommended parameters
+            recommended_dte = self._get_recommended_dte(regime, composite_state)
+            recommended_delta = self._get_recommended_delta(regime, confidence)
+            max_position = self._get_position_size(regime, confidence)
+
+            signal = OptionsSignal(
+                action=action,
+                regime=regime,
+                composite_state=composite_state,
+                confidence=confidence,
+                timestamp=conditions.timestamp,
+                theta_warning=theta_warning,
+                vega_note=vega_note,
+                recommended_dte=recommended_dte,
+                recommended_delta=recommended_delta,
+                max_position_pct=max_position,
+                stop_loss_pct=self._get_stop_loss(regime),
+                reason=reason
+            )
+
+            self.signal_history.append(signal)
+            return signal
+
+        except Exception as e:
+            self.logger.error(f"Signal generation failed: {e}")
+            return OptionsSignal(
+                action=OptionsAction.HOLD,
+                regime=regime,
+                composite_state=CompositeMarketState.UNKNOWN,
+                confidence=0.0,
+                timestamp=conditions.timestamp,
+                reason=f"Error: {str(e)}"
+            )
+
+    def _determine_action(self, regime: MarketRegime,
+                         composite: CompositeMarketState,
+                         confidence: float) -> Tuple[OptionsAction, str]:
+        """Determine base options action from regime and composite state"""
+
+        # Low confidence = no edge
+        if confidence < OPTIONS_CONFIDENCE_THRESHOLD:
+            return OptionsAction.NO_EDGE, "Confidence below threshold (40%)"
+
+        # Crisis mode - protective strategies
+        if regime == MarketRegime.CRISIS_MODE or composite == CompositeMarketState.CRASH:
+            return OptionsAction.BUY_PUT, "Crisis/Crash detected - protective puts"
+
+        # High volatility - premium selling or straddles
+        if regime == MarketRegime.HIGH_VOLATILITY:
+            if composite == CompositeMarketState.FEAR_RALLY:
+                return OptionsAction.STRANGLE, "High vol + fear rally - strangle"
+            return OptionsAction.IRON_CONDOR, "High vol - collect premium"
+
+        # Low volatility - buy options before vol expansion
+        if regime == MarketRegime.LOW_VOLATILITY:
+            if composite == CompositeMarketState.COMPLACENT:
+                return OptionsAction.STRADDLE, "Complacent market - buy vol"
+            return OptionsAction.CREDIT_SPREAD, "Low vol - credit spreads"
+
+        # Trending markets - directional plays
+        if regime == MarketRegime.BULL_TRENDING:
+            if composite == CompositeMarketState.HEALTHY_RALLY:
+                return OptionsAction.BUY_CALL, "Healthy bull trend - calls"
+            return OptionsAction.SELL_PUT, "Bull trend - sell puts"
+
+        if regime == MarketRegime.BEAR_TRENDING:
+            if composite == CompositeMarketState.SLOW_BLEED:
+                return OptionsAction.DEBIT_SPREAD, "Slow bleed - bear debit spread"
+            return OptionsAction.BUY_PUT, "Bear trend - puts"
+
+        # Sideways/Range
+        if regime == MarketRegime.SIDEWAYS_RANGE:
+            return OptionsAction.IRON_CONDOR, "Range-bound - iron condor"
+
+        # Recovery mode
+        if regime == MarketRegime.RECOVERY_MODE:
+            return OptionsAction.DEBIT_SPREAD, "Recovery - bullish debit spread"
+
+        return OptionsAction.HOLD, "No clear edge"
+
+    def _get_vega_note(self, iv: float) -> str:
+        """Get Vega consideration note"""
+        if iv > VEGA_HIGH_IV_THRESHOLD:
+            return f"HIGH IV ({iv:.1%}) - favor selling premium"
+        elif iv < VEGA_LOW_IV_THRESHOLD:
+            return f"LOW IV ({iv:.1%}) - favor buying options"
+        return f"Normal IV ({iv:.1%})"
+
+    def _adjust_for_greeks(self, action: OptionsAction, reason: str,
+                          theta_warning: bool, iv: float,
+                          composite: CompositeMarketState) -> Tuple[OptionsAction, str]:
+        """Adjust action based on Greeks considerations"""
+
+        # If theta warning and buying options, suggest spreads instead
+        if theta_warning and action in [OptionsAction.BUY_CALL, OptionsAction.BUY_PUT]:
+            if action == OptionsAction.BUY_CALL:
+                return OptionsAction.DEBIT_SPREAD, f"{reason} | THETA WARNING: Use debit spread to reduce decay"
+            else:
+                return OptionsAction.DEBIT_SPREAD, f"{reason} | THETA WARNING: Use bear debit spread"
+
+        # If IV is very high and buying options, consider selling instead
+        if iv > VEGA_HIGH_IV_THRESHOLD and action in [OptionsAction.BUY_CALL, OptionsAction.BUY_PUT]:
+            if action == OptionsAction.BUY_CALL:
+                return OptionsAction.SELL_PUT, f"{reason} | HIGH IV: Sell puts instead of buying calls"
+            else:
+                return OptionsAction.CREDIT_SPREAD, f"{reason} | HIGH IV: Use bear credit spread"
+
+        return action, reason
+
+    def _get_recommended_dte(self, regime: MarketRegime,
+                            composite: CompositeMarketState) -> int:
+        """Get recommended DTE based on regime"""
+        if regime == MarketRegime.CRISIS_MODE or composite == CompositeMarketState.CRASH:
+            return 7  # Short-term protection
+        elif regime == MarketRegime.HIGH_VOLATILITY:
+            return 14  # Shorter duration in high vol
+        elif regime == MarketRegime.LOW_VOLATILITY:
+            return 45  # Longer duration in low vol
+        elif regime in [MarketRegime.BULL_TRENDING, MarketRegime.BEAR_TRENDING]:
+            return 30  # Standard for trends
+        else:
+            return 21  # Default
+
+    def _get_recommended_delta(self, regime: MarketRegime, confidence: float) -> float:
+        """Get recommended delta based on regime and confidence"""
+        if regime in [MarketRegime.BULL_TRENDING, MarketRegime.BEAR_TRENDING]:
+            # Higher delta for trends if confident
+            return 0.40 if confidence > 0.7 else 0.30
+        elif regime == MarketRegime.HIGH_VOLATILITY:
+            # Lower delta in high vol
+            return 0.25
+        else:
+            return 0.30
+
+    def _get_position_size(self, regime: MarketRegime, confidence: float) -> float:
+        """Get recommended position size as % of portfolio"""
+        base_size = 0.05  # 5% base
+
+        # Reduce in crisis
+        if regime == MarketRegime.CRISIS_MODE:
+            return base_size * 0.5
+
+        # Scale by confidence
+        return base_size * min(confidence, 1.0)
+
+    def _get_stop_loss(self, regime: MarketRegime) -> float:
+        """Get recommended stop loss as % of premium"""
+        if regime == MarketRegime.HIGH_VOLATILITY:
+            return 0.30  # Tighter stop in high vol
+        elif regime == MarketRegime.LOW_VOLATILITY:
+            return 0.60  # Wider stop in low vol
+        return 0.50  # Default 50%
+
+
+# ==============================================================================
 # MAIN UNIFIED REGIME ENGINE
 # ==============================================================================
 class UnifiedRegimeEngine:
@@ -592,35 +1124,45 @@ class UnifiedRegimeEngine:
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
-        
+
         # Component detectors
         self.ml_classifier = MLRegimeClassifier(self.config.get('ml_config', {}))
         self.signal_detector = SignalRegimeDetector(self.config.get('signal_config', {}))
-        
+
+        # NEW: Markov Chain and Greeks-aware components (from documentation)
+        self.composite_detector = CompositeStateDetector(self.config.get('composite_config', {}))
+        self.simple_markov = SimpleMarkovTrader()
+        self.greeks_signal_generator = GreeksAwareSignalGenerator(self.config.get('greeks_config', {}))
+
+        # Rolling window configuration
+        self.rolling_config = RollingWindowConfig()
+        self.price_history: deque = deque(maxlen=ROLLING_WINDOW_DAYS * 2)
+
         # Quantitative and attribution engines (optional integration)
         self.quant_engine = None
         self.attribution_engine = None
-        
+
         if QUANT_MODELS_AVAILABLE:
             try:
                 self.quant_engine = create_advanced_models_engine()
                 self.logger.info("Integrated with V07 Advanced Models")
             except Exception as e:
                 self.logger.warning(f"Could not integrate V07: {e}")
-        
+
         if ATTRIBUTION_AVAILABLE:
             try:
                 self.attribution_engine = create_attribution_engine()
                 self.logger.info("Integrated with F15 Attribution")
             except Exception as e:
                 self.logger.warning(f"Could not integrate F15: {e}")
-        
+
         # State management
         self.current_regime: Optional[MarketRegime] = None
         self.current_confidence: float = 0.0
+        self.current_composite_state: Optional[CompositeMarketState] = None
         self.regime_start_time: Optional[datetime] = None
         self.regime_history: deque = deque(maxlen=1000)
-        
+
         # Source weights (can be dynamically adjusted)
         self.source_weights = {
             RegimeSource.ML_CLASSIFIER: 0.35,
@@ -628,22 +1170,25 @@ class UnifiedRegimeEngine:
             RegimeSource.QUANTITATIVE: 0.20,
             RegimeSource.ATTRIBUTION: 0.10
         }
-        
+
         # Performance tracking
         self.performance_metrics: Dict[MarketRegime, RegimePerformanceMetrics] = {}
         self.consensus_history: deque = deque(maxlen=500)
         self.transition_count = 0
         self.accuracy_scores: deque = deque(maxlen=100)
-        
+
         # Threading for async operations
         self.update_thread: Optional[threading.Thread] = None
         self.is_running = False
         self._lock = threading.RLock()
-        
+
         # Initialize performance tracking
         self._initialize_performance_tracking()
-        
+
         self.logger.info("UnifiedRegimeEngine initialized successfully")
+        self.logger.info("  ✅ Composite State Detector (VIX+Price)")
+        self.logger.info("  ✅ Simple Markov Trader (rolling window)")
+        self.logger.info("  ✅ Greeks-Aware Signal Generator")
     
     def _initialize_performance_tracking(self):
         """Initialize performance tracking for all regimes"""
@@ -1054,8 +1599,174 @@ class UnifiedRegimeEngine:
             recent_consensus = list(self.consensus_history)[-50:]
             summary['recent_confidence_avg'] = np.mean([c.confidence for c in recent_consensus])
             summary['recent_consensus_avg'] = np.mean([c.consensus_score for c in recent_consensus])
-        
+
         return summary
+
+    # ==========================================================================
+    # NEW: MARKOV CHAIN AND GREEKS-AWARE METHODS
+    # ==========================================================================
+    def get_options_signal(self, market_conditions: MarketConditions,
+                          target_dte: int = 30) -> OptionsSignal:
+        """
+        Get Greeks-aware options trading signal.
+
+        This method combines regime detection with Greeks considerations
+        as recommended in Markov-Chains2.md documentation.
+
+        Args:
+            market_conditions: Current market conditions
+            target_dte: Target days to expiration for the trade
+
+        Returns:
+            OptionsSignal with action, Greeks warnings, and recommendations
+        """
+        try:
+            with self._lock:
+                # Get current regime
+                consensus = self.get_current_regime(market_conditions)
+
+                # Update composite state
+                self.current_composite_state = self.composite_detector.detect_composite_state(
+                    market_conditions
+                )
+
+                # Generate Greeks-aware signal
+                signal = self.greeks_signal_generator.generate_signal(
+                    conditions=market_conditions,
+                    regime=consensus.regime,
+                    confidence=consensus.confidence,
+                    target_dte=target_dte
+                )
+
+                return signal
+
+        except Exception as e:
+            self.logger.error(f"Options signal generation failed: {e}")
+            return OptionsSignal(
+                action=OptionsAction.HOLD,
+                regime=MarketRegime.UNKNOWN,
+                composite_state=CompositeMarketState.UNKNOWN,
+                confidence=0.0,
+                timestamp=market_conditions.timestamp,
+                reason=f"Error: {str(e)}"
+            )
+
+    def get_composite_state(self, market_conditions: MarketConditions) -> CompositeMarketState:
+        """
+        Get VIX + Price composite market state.
+
+        From Markov-Chains2.md: Distinguishes between Crash (Price Down + VIX Up)
+        and Slow Bleed (Price Down + VIX Flat).
+
+        Args:
+            market_conditions: Current market conditions
+
+        Returns:
+            CompositeMarketState enum value
+        """
+        return self.composite_detector.detect_composite_state(market_conditions)
+
+    def get_simple_markov_prediction(self, current_price: float,
+                                    prev_price: float) -> Dict[str, Any]:
+        """
+        Get simple Markov chain prediction with transition probabilities.
+
+        Provides interpretable transition matrix output as described
+        in Markov-Chains-Code.md documentation.
+
+        Args:
+            current_price: Current SPY price
+            prev_price: Previous SPY price
+
+        Returns:
+            Dict with prediction, probabilities, and recommended action
+        """
+        return self.simple_markov.predict(current_price, prev_price)
+
+    def train_simple_markov(self, prices: pd.Series,
+                           use_rolling_window: bool = True) -> bool:
+        """
+        Train the simple Markov chain model.
+
+        Args:
+            prices: Series of historical closing prices
+            use_rolling_window: If True, uses rolling window for non-stationarity
+
+        Returns:
+            True if training successful
+        """
+        try:
+            if use_rolling_window:
+                self.simple_markov.fit_rolling(prices)
+            else:
+                self.simple_markov.fit(prices)
+
+            self.logger.info("Simple Markov model trained successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Simple Markov training failed: {e}")
+            return False
+
+    def get_transition_matrix(self) -> Optional[np.ndarray]:
+        """
+        Get the current Markov transition matrix.
+
+        Returns:
+            numpy array of transition probabilities or None if not trained
+        """
+        return self.simple_markov.get_transition_matrix()
+
+    def check_rolling_window_retrain(self) -> bool:
+        """
+        Check if models need retraining based on rolling window policy.
+
+        From Markov-Chains2.md: "You must re-train the model frequently
+        (e.g., rolling window of 3 months)."
+
+        Returns:
+            True if retraining is recommended
+        """
+        return self.simple_markov._check_needs_retrain()
+
+    def update_price_history(self, price: float) -> None:
+        """
+        Update price history for rolling window tracking.
+
+        Args:
+            price: New price to add to history
+        """
+        self.price_history.append(price)
+
+        # Check if we need to retrain
+        if len(self.price_history) >= MIN_ROLLING_SAMPLES:
+            if self.simple_markov._check_needs_retrain():
+                self.logger.info("Rolling window retrain triggered")
+                prices_series = pd.Series(list(self.price_history))
+                self.simple_markov.fit_rolling(prices_series)
+
+    def get_markov_chain_summary(self) -> Dict[str, Any]:
+        """
+        Get comprehensive Markov Chain analysis summary.
+
+        Returns:
+            Dict with transition matrix, current state, and predictions
+        """
+        matrix = self.simple_markov.get_transition_matrix()
+
+        return {
+            'trained': matrix is not None,
+            'transition_matrix': matrix.tolist() if matrix is not None else None,
+            'state_labels': self.simple_markov.state_labels,
+            'rolling_window_days': ROLLING_WINDOW_DAYS,
+            'needs_retrain': self.simple_markov._check_needs_retrain(),
+            'samples_since_retrain': self.simple_markov.rolling_config.samples_since_retrain,
+            'last_retrain': (
+                self.simple_markov.rolling_config.last_retrain.isoformat()
+                if self.simple_markov.rolling_config.last_retrain else None
+            )
+        }
+
 
 # ==============================================================================
 # MODULE FUNCTIONS

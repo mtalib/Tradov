@@ -86,6 +86,11 @@ UPDATE_INTERVAL = 60  # seconds
 CONFIDENCE_THRESHOLD = 0.65
 REGIME_PERSISTENCE_MIN = 3  # bars
 
+# Rolling Window Configuration (from Markov-Chains2.md best practices)
+ROLLING_WINDOW_DAYS = 63  # ~3 months of trading days
+RETRAIN_INTERVAL_HOURS = 24  # Hours between retraining
+PERFORMANCE_DEGRADATION_THRESHOLD = 0.15  # Trigger retrain if accuracy drops
+
 # Risk Configuration
 REGIME_RISK_LIMITS = {
     "LOW_VOLATILITY_TRENDING": 1.0,
@@ -560,37 +565,75 @@ class SpyderM06_HMMRegimeDetector:
             return features
     
     def _should_retrain(self) -> bool:
-        """Determine if model should be retrained"""
+        """
+        Determine if model should be retrained.
+
+        Enhanced with rolling window logic from Markov-Chains2.md:
+        "You must re-train the model frequently (e.g., rolling window of 3 months)."
+        """
         # Retrain if no regime history
         if len(self.regime_history) == 0:
             return True
-        
-        # Retrain periodically
+
+        # Check time-based retraining (rolling window policy)
+        last_retrain = getattr(self, '_last_retrain_time', None)
+        if last_retrain is not None:
+            hours_since_retrain = (datetime.now() - last_retrain).total_seconds() / 3600
+            if hours_since_retrain >= RETRAIN_INTERVAL_HOURS:
+                logger.info(f"Rolling window retrain triggered: {hours_since_retrain:.1f} hours since last retrain")
+                return True
+
+        # Retrain periodically by sample count
         if len(self.regime_history) % 100 == 0:
             return True
-        
-        # Retrain if confidence consistently low
+
+        # Retrain if confidence consistently low (performance degradation)
         recent_confidence = [r.confidence for r in list(self.regime_history)[-10:]]
-        if recent_confidence and np.mean(recent_confidence) < 0.5:
+        if recent_confidence and np.mean(recent_confidence) < (CONFIDENCE_THRESHOLD - PERFORMANCE_DEGRADATION_THRESHOLD):
+            logger.info(f"Performance degradation detected: avg confidence {np.mean(recent_confidence):.2f}")
             return True
-        
+
         return False
+
+    def _use_rolling_window_data(self, features: np.ndarray) -> np.ndarray:
+        """
+        Apply rolling window to training data to handle non-stationarity.
+
+        From Markov-Chains2.md: Markets change over time, so we use only
+        the most recent ~3 months of data.
+        """
+        if len(features) > ROLLING_WINDOW_DAYS:
+            logger.debug(f"Applying rolling window: using last {ROLLING_WINDOW_DAYS} of {len(features)} samples")
+            return features[-ROLLING_WINDOW_DAYS:]
+        return features
     
     def _train_model(self, features: np.ndarray) -> None:
-        """Train HMM model"""
+        """
+        Train HMM model with rolling window support.
+
+        Enhanced to use rolling window data to handle non-stationarity
+        as recommended in Markov-Chains2.md documentation.
+        """
         try:
+            # Apply rolling window to handle non-stationarity
+            features_windowed = self._use_rolling_window_data(features)
+
             # Scale features
-            features_scaled = self.scaler.fit_transform(features)
-            
+            features_scaled = self.scaler.fit_transform(features_windowed)
+
             # Train HMM
             self.hmm_model.fit(features_scaled)
-            
+
             # Train regime-specific models if enabled
             if self.config['enable_ml_models']:
                 self._train_regime_models(features_scaled)
-            
-            logger.info(f"HMM model trained with {len(features)} samples")
-            
+
+            # Track retrain time for rolling window policy
+            self._last_retrain_time = datetime.now()
+
+            logger.info(f"HMM model trained with {len(features_windowed)} samples "
+                       f"(rolling window from {len(features)} total)")
+
         except Exception as e:
             logger.error(f"Error training model: {e}")
     
