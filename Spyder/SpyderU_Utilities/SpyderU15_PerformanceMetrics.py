@@ -43,7 +43,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 TRADING_DAYS_PER_YEAR = 252
-RISK_FREE_RATE = 0.02  # 2% annual risk-free rate
+RISK_FREE_RATE = 0.045  # 4.5% annual risk-free rate (current T-bill rate)
 MIN_PERIODS_FOR_CALCULATION = 30
 
 # Benchmark performance thresholds

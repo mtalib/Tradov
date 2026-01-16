@@ -53,7 +53,7 @@ except ImportError:
 # ==============================================================================
 TRADING_DAYS_PER_YEAR = 252
 TRADING_DAYS_PER_MONTH = 21
-RISK_FREE_RATE = 0.05  # 5% annual risk-free rate
+RISK_FREE_RATE = 0.045  # 4.5% annual risk-free rate (current T-bill rate, standardized)
 DEFAULT_INITIAL_CAPITAL = 100000.0
 
 

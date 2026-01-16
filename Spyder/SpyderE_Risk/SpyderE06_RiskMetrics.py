@@ -70,9 +70,9 @@ except ImportError:
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-# Risk-free rate (annual)
-DEFAULT_RISK_FREE_RATE = 0.02  # 2% annual
-TREASURY_BILL_RATE = 0.05     # Current T-bill rate
+# Risk-free rate (annual) - standardized across all modules
+DEFAULT_RISK_FREE_RATE = 0.045  # 4.5% annual (current T-bill rate)
+TREASURY_BILL_RATE = 0.045      # Current T-bill rate (updated 2026-01-16)
 
 # Trading days
 TRADING_DAYS_PER_YEAR = 252
