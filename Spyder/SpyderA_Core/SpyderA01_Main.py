@@ -127,10 +127,6 @@ try:
         ConnectionConfig,
     )
 
-    # IB Gateway 10.39 specialized connection manager removed
-    HAS_1039_MANAGER = False
-    print("ℹ️ IB Gateway 10.39 specialized connection manager has been removed")
-
     has_broker_modules = True
     print("✅ Broker modules loaded successfully!")
 except ImportError as e:
@@ -510,13 +506,12 @@ class SpyderApplication:
                     "ℹ️ Event manager not available - continuing without it"
                 )
 
-            # IB Gateway 10.39 specialized connection manager removed
             # Using standard connection approach
             self.logger.info(
-                "⚡ Skipping blocking Gateway connection at startup for fast launch"
+                "⚡ Skipping blocking connection at startup for fast launch"
             )
             self.logger.info(
-                "🔄 Dashboard will auto-connect via polling timer when Gateway is available"
+                "🔄 Dashboard will auto-connect via polling timer when available"
             )
 
             self.client = None  # Will be set by set_ib_client() when available
@@ -579,11 +574,10 @@ class SpyderApplication:
                     self.logger.debug(traceback.format_exc())
                     raise
 
-                # CRITICAL FIX: Pass the IB client connection to the dashboard
                 # The dashboard now manages its own connection via its polling timer.
                 # No client needs to be passed from the main application.
                 self.logger.info(
-                    "ℹ️ Dashboard will manage its own IB Gateway connection."
+                    "ℹ️ Dashboard will manage its own connection."
                 )
 
                 self.main_window.show()
@@ -713,11 +707,7 @@ class SpyderApplication:
                 except Exception as e:
                     self.logger.warning(f"GUI cleanup error: {e}")
 
-            # IB Gateway 10.39 specialized connection manager removed
-
             self.logger.info("✅ Shutdown complete")
-
-    # IB Gateway 10.39 specialized connection manager method removed
 
 
 def main() -> int:

@@ -21,14 +21,9 @@ Modules Overview:
     • SpyderI03_ConfigManager: Configuration management and validation
     • SpyderI04_DiagnosticsEngine_*: Comprehensive diagnostic and health checking
     • SpyderI06_AgentMessageBus: Inter-agent communication infrastructure
-    • SpyderI12_IBAutomaterCore: IB Gateway automation core functionality
-    • SpyderI13_IBAutomaterUI: IB Gateway UI automation
-    • SpyderI14_IBConnectionManager: IB connection lifecycle management
-    • SpyderI15_IBTradingInterface: IB trading API interface
 
 Key Features:
     • Centralized module integration and coordination
-    • Automated IB Gateway setup and management
     • Real-time system health monitoring and diagnostics
     • Event-driven inter-module communication
     • Configuration validation and management
@@ -108,42 +103,6 @@ except ImportError as e:
     print(f"⚠️ SpyderI06_AgentMessageBus not available: {e}")
     AGENT_MESSAGE_BUS_AVAILABLE = False
 
-# IB Automater Core
-try:
-    from .SpyderI12_IBAutomaterCore import (
-        IBAutomaterCore,
-        # Add main classes from IBAutomaterCore when inspected
-    )
-
-    IB_AUTOMATER_CORE_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ SpyderI12_IBAutomaterCore not available: {e}")
-    IB_AUTOMATER_CORE_AVAILABLE = False
-
-# IB Connection Manager
-try:
-    from .SpyderI14_IBConnectionManager import (
-        IBConnectionManager,
-        # Add main classes from IBConnectionManager when inspected
-    )
-
-    IB_CONNECTION_MANAGER_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ SpyderI14_IBConnectionManager not available: {e}")
-    IB_CONNECTION_MANAGER_AVAILABLE = False
-
-# IB Trading Interface
-try:
-    from .SpyderI15_IBTradingInterface import (
-        IBTradingInterface,
-        # Add main classes from IBTradingInterface when inspected
-    )
-
-    IB_TRADING_INTERFACE_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ SpyderI15_IBTradingInterface not available: {e}")
-    IB_TRADING_INTERFACE_AVAILABLE = False
-
 # ==============================================================================
 # PACKAGE CONVENIENCE FUNCTIONS
 # ==============================================================================
@@ -162,9 +121,6 @@ def get_available_modules():
         "SpyderI03_ConfigManager": CONFIG_MANAGER_AVAILABLE,
         "SpyderI04_DiagnosticsEngine": DIAGNOSTICS_ENGINE_AVAILABLE,
         "SpyderI06_AgentMessageBus": AGENT_MESSAGE_BUS_AVAILABLE,
-        "SpyderI12_IBAutomaterCore": IB_AUTOMATER_CORE_AVAILABLE,
-        "SpyderI14_IBConnectionManager": IB_CONNECTION_MANAGER_AVAILABLE,
-        "SpyderI15_IBTradingInterface": IB_TRADING_INTERFACE_AVAILABLE,
     }
 
 
@@ -193,9 +149,6 @@ def get_package_info():
             "config_management": CONFIG_MANAGER_AVAILABLE,
             "diagnostics": DIAGNOSTICS_ENGINE_AVAILABLE,
             "agent_messaging": AGENT_MESSAGE_BUS_AVAILABLE,
-            "ib_automation": IB_AUTOMATER_CORE_AVAILABLE,
-            "ib_connection": IB_CONNECTION_MANAGER_AVAILABLE,
-            "ib_trading": IB_TRADING_INTERFACE_AVAILABLE,
         },
     }
 
@@ -277,15 +230,6 @@ if DIAGNOSTICS_ENGINE_AVAILABLE:
 
 if AGENT_MESSAGE_BUS_AVAILABLE:
     __all__.extend(["AgentMessageBus"])
-
-if IB_AUTOMATER_CORE_AVAILABLE:
-    __all__.extend(["IBAutomaterCore"])
-
-if IB_CONNECTION_MANAGER_AVAILABLE:
-    __all__.extend(["IBConnectionManager"])
-
-if IB_TRADING_INTERFACE_AVAILABLE:
-    __all__.extend(["IBTradingInterface"])
 
 # ==============================================================================
 # INITIALIZATION

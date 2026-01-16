@@ -180,10 +180,6 @@ SpyderI_Integration/
   SpyderI04_DiagnosticsEngine_Utils.py
   SpyderI04_SyntaxValidator.py
   SpyderI06_AgentMessageBus.py
-  SpyderI12_IBAutomaterCore.py
-  SpyderI13_IBAutomaterUI.py
-  SpyderI14_IBConnectionManager.py
-  SpyderI15_IBTradingInterface.py
 SpyderJ_Alerts/
   __init__.py
   SpyderJ01_AlertManager.py

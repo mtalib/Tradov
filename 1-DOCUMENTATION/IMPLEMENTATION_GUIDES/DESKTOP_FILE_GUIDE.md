@@ -26,14 +26,14 @@ This file makes Spyder appear in:
 Version=1.0
 Type=Application
 Name=Spyder Trading Dashboard
-Comment=Autonomous Options Trading System with IB Gateway Integration
+Comment=Autonomous Options Trading System
 Exec=/home/adam/Projects/Spyder/Maestro Test Scripts/20250823_spyder_paper_wrapper.sh
 Icon=/home/adam/Projects/Spyder/assets/spyder-icon.png
 Terminal=false
 Categories=Finance;Development;Trading;
 StartupNotify=true
 StartupWMClass=spyder-trading-dashboard
-Keywords=trading;options;IB;gateway;dashboard;spyder;
+Keywords=trading;options;dashboard;spyder;
 ```
 
 ---
