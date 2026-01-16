@@ -45,40 +45,20 @@ import pandas as pd
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-except ImportError:
-    # Fallback if running from different directory
-    try:
-        from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-        from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-    except ImportError:
-        # Simple fallback logger
-        import logging
-        class SpyderLogger:
-            @staticmethod
-            def get_logger(name):
-                return logging.getLogger(name)
-        class SpyderErrorHandler:
-            def error(self, msg):
-                logging.error(msg)
+from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 try:
-    from Spyder.SpyderU_Utilities.SpyderU07_Constants import OptionType
+    from SpyderU_Utilities.SpyderU07_Constants import OptionType
     OPTIONTYPE_AVAILABLE = True
 except ImportError:
-    try:
-        from SpyderU07_Constants import OptionType
-        OPTIONTYPE_AVAILABLE = True
-    except ImportError:
-        # Fallback OptionType definition
-        class OptionType(Enum):
-            """Option type enumeration (fallback)"""
-            CALL = "CALL"
-            PUT = "PUT"
-        OPTIONTYPE_AVAILABLE = False
-        warnings.warn("Using fallback OptionType - check SpyderU07_Constants.py")
+    # Fallback OptionType definition
+    class OptionType(Enum):
+        """Option type enumeration (fallback)"""
+        CALL = "CALL"
+        PUT = "PUT"
+    OPTIONTYPE_AVAILABLE = False
+    warnings.warn("Using fallback OptionType - check SpyderU07_Constants.py")
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS - INSTITUTIONAL LIBRARIES

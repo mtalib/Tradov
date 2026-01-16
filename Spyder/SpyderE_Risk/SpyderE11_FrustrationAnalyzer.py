@@ -226,15 +226,15 @@ class ReplicaSymmetryMetrics:
     overlap_distribution: List[float] = field(default_factory=list)
 
     # RSB detection
-    rsb_detected: bool = False
-    rsb_strength: float = 0.0                   # 0-1, strength of symmetry breaking
+    rsb_detected: bool
+    rsb_strength: float                   # 0-1, strength of symmetry breaking
 
     # Parisi order parameter (simplified)
-    order_parameter: float = 0.0                # q(x) approximation
+    order_parameter: float                # q(x) approximation
 
     # Divergence metrics
-    short_long_divergence: float = 0.0          # Short vs long-term correlation divergence
-    sector_divergence: float = 0.0              # Cross-sector divergence
+    short_long_divergence: float          # Short vs long-term correlation divergence
+    sector_divergence: float              # Cross-sector divergence
 
 @dataclass
 class UltrametricMetrics:
@@ -280,8 +280,8 @@ class SpinGlassAnalysis:
     evt_tail_probability: Optional[float] = None
 
     # Overall assessment
-    market_stability: str = "stable"                 # "stable", "unstable", "critical"
-    confidence: float = 0.5                     # Confidence in assessment
+    market_stability: str                 # "stable", "unstable", "critical"
+    confidence: float                     # Confidence in assessment
 
     # Actionable signals
     signals: List[str] = field(default_factory=list)
