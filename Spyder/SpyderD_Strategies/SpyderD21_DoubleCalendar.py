@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD21_DoubleCalendar.py
-Group: D (Trading Strategies)
-Purpose: Double calendar spread strategy for range-bound markets
-
-Description:
-    Professional double calendar implementation combining call and put calendar
-    spreads at different strikes to maximize theta collection. Features IV regime
-    analysis, synchronized position management, and inter-strike correlation
-    monitoring for optimal profit zones.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -38,6 +40,7 @@ from scipy import stats, optimize
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalStrength, MarketCondition
 )
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

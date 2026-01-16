@@ -1,16 +1,34 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Test script to verify asyncio event loop integration for IB Gateway connections.
-This test verifies that the "Task got Future attached to a different loop" error is fixed.
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderG_GUI
+Module: test_asyncio_integration.py
+Purpose: Test script to verify asyncio event loop integration for IB Gateway connections.
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Test script to verify asyncio event loop integration for IB Gateway connections.
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 import os
 import asyncio
 import time
 from pathlib import Path
 
-# Add project root to path
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 

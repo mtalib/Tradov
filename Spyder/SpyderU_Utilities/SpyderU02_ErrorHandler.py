@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU02_ErrorHandler.py
-Group: U (Utilities)
-Purpose: Centralized error handling with recovery strategies
-
-Description:
-    This module provides comprehensive error handling for the entire Spyder
-    system. It categorizes errors, implements recovery strategies, logs errors
-    appropriately, and integrates with the monitoring system. The module supports
-    graceful degradation, automatic retries, and emergency shutdowns when necessary.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-28
-Version: 3.0 (Fixed - No circular imports)
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import traceback
 import time
 import threading
 from typing import Optional, Dict, Any, Callable, List, Union, Type
@@ -30,25 +31,20 @@ from enum import Enum, auto
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
 import logging
-import weakref
 import functools
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import traceback
+import weakref
 import pandas as pd
 
 # ==============================================================================
-# LOCAL IMPORTS - NO CORE MODULE IMPORTS TO AVOID CIRCULAR DEPENDENCIES
+# LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
-# NOTE: Removed EventManager import to fix circular dependency
-# Event emission is now handled through dependency injection
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
 MAX_ERROR_HISTORY = 1000
 ERROR_RATE_WINDOW = 300  # 5 minutes
 MAX_ERROR_RATE = 10  # errors per minute

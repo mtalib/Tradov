@@ -1,35 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Configuration Validator
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderQ_Scripts/validate_configuration.py
-Purpose: Validate environment configuration before system startup
-Author: Spyder Development Team
+Series: SpyderQ_Scripts
+Module: validate_configuration.py
+Purpose: SPYDER - Configuration Validator
+
+Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-11-24
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    Comprehensive validation of all environment variables and configuration
-    settings required for Spyder trading system. Prevents startup with invalid
-    or missing critical configuration.
+    SPYDER - Configuration Validator
 
-Features:
-    - Required variable validation
-    - Type and format validation
-    - Range validation for numeric values
-    - API credential format checking
-    - Trading mode safety checks
-    - Clear error messages with fix suggestions
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from enum import Enum
 
-# Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 

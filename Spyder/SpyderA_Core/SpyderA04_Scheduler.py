@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderA_Core
 Module: SpyderA04_Scheduler.py
-Group: A (Core Trading Engine)
-Purpose: Trading schedule and time management
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module manages trading schedules, market hours, and automated task execution
-    for the Spyder options trading system. It handles market open/close times,
-    trading windows, scheduled strategy executions, and integrates with market
-    calendars for holidays and special trading days. The module provides flexible
-    scheduling options including cron-style scheduling, interval-based tasks, and
-    one-time scheduled events.
-
-Spyder Version: 2.0
 Author: Mohamed Talib
-Created: 2025-01-27
-Last Updated: 2025-07-06 - Production Ready
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -32,17 +31,17 @@ from datetime import datetime, time, timedelta, date
 from typing import Dict, List, Optional, Callable, Any, Set, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import pytz
 import logging
 from pathlib import Path
 import json
-import sqlite3
 from collections import defaultdict, deque
-import traceback
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pytz
+import sqlite3
+import traceback
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -50,6 +49,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.job import Job
 from apscheduler.events import (
+
     EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED,
     JobExecutionEvent, JobEvent
 )

@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderI_Integration
 Module: SpyderI04_DiagnosticsEngine_DataCollector.py
-Group: I (Integration)
-Purpose: Data collection for diagnostics engine
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Handles all data collection activities for the diagnostics engine including
-    system metrics, module health, integration status, and performance data.
-    Maintains historical data and provides data access methods.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 17:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -23,11 +25,15 @@ Last Updated: 2025-07-01 Time: 17:30:00
 # ==============================================================================
 import os
 import threading
-import psutil
-import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from collections import deque, defaultdict
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import psutil
+import numpy as np
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -35,6 +41,7 @@ from collections import deque, defaultdict
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderI_Integration.SpyderI04_DiagnosticsEngine_Types import (
+
     SystemMetrics, ModuleHealth, IntegrationHealth, DiagnosticReport,
     HealthStatus, MAX_PERFORMANCE_SAMPLES, MAX_HEALTH_SNAPSHOTS, MAX_DIAGNOSTIC_HISTORY
 )

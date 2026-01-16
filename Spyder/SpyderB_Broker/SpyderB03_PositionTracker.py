@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
-Module: SpyderB03_PositionTracker.py
-Group: B (Broker Integration)
-Purpose: Real-time position tracking with P&L and Greeks monitoring
+SPYDER - Autonomous Options Trading System v1.0
 
-Description:
-    This module provides comprehensive real-time position tracking with live P&L
-    calculation, Greeks monitoring, and portfolio analytics. It maintains accurate
-    position records synchronized with Interactive Brokers, handles partial fills,
-    tracks cost basis, and provides real-time risk metrics calculation including
-    all commissions and fees.
+Series: SpyderB_Broker
+Module: SpyderB03_PositionTracker.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-04
-Version: 2.0 (Production Ready)
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -30,24 +32,14 @@ from collections import defaultdict, deque
 from enum import Enum, auto
 import json
 import uuid
-import weakref
+from threading import Lock, RLock, Event as ThreadEvent
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import weakref
 import pandas as pd
 import numpy as np
-from threading import Lock, RLock, Event as ThreadEvent
-
-# ==============================================================================
-# LOCAL IMPORTS
-# Import for Greeks calculations (with fallback)
-# TA-Lib import removed
-
-# ==============================================================================
-# POSITION TRACKER CLASS
-# ==============================================================================
-
 
 class PositionTracker:
     """

@@ -1,30 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderJ01_AlertManager.py (Enhanced with Predictive Alerts)
-Group: J (Notifications)
-Purpose: Alert system orchestration with ML-powered predictive capabilities
+Series: SpyderJ_Alerts
+Module: SpyderJ01_AlertManager.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Enhanced alert manager that includes predictive alerts using machine learning
-    to forecast trading risks before they occur. Features include risk zone breach
-    prediction, optimal exit timing alerts, volatility spike warnings, and
-    adaptive alert thresholds based on market conditions. The system integrates
-    with existing SPYDER ML modules to provide proactive rather than reactive
-    alerting across all trading strategies.
-
-Spyder Version: 1.0
 Author: Mohamed Talib
-Created: 2025-01-27
-Enhanced: 2025-07-01
-Version: 1.5
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-# =============================================================================
-# STANDARD LIBRARY IMPORTS
-# =============================================================================
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import json
 import asyncio
@@ -35,23 +33,23 @@ from typing import Dict, List, Optional, Set, Tuple, Any, Callable, Union
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum, auto
+import time
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import hashlib
 import pickle
-import time
 import math
-
-# =============================================================================
-# THIRD-PARTY IMPORTS
-# =============================================================================
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 import joblib
 
-# =============================================================================
-# LOCAL APPLICATION IMPORTS
-# =============================================================================
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
 from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
@@ -60,7 +58,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, 
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import AlertLevel
 
-# ML Integration imports (optional - graceful fallback if not available)
 try:
     from SpyderL_ML.SpyderL01_MLPredictor import MLPredictor
     from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier

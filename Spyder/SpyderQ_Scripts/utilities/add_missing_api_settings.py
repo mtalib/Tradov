@@ -1,30 +1,39 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Add Missing Critical API Settings to IB Gateway jts.ini
-======================================================
+SPYDER - Autonomous Options Trading System v1.0
 
-This script adds the missing critical API settings that are required for
-IB Gateway to properly accept socket connections. These settings are often
-not documented but are essential for API functionality.
+Series: SpyderX_Unknown
+Module: add_missing_api_settings.py
+Purpose: Add Missing Critical API Settings to IB Gateway jts.ini
 
-The script will add:
-1. ReadOnlyApi=false (to allow full API access)
-2. Additional API socket settings that may be required
-3. Proper section ordering that IB Gateway expects
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Usage:
-    python add_missing_api_settings.py
-    python add_missing_api_settings.py --dry-run
+Module Description:
+    Add Missing Critical API Settings to IB Gateway jts.ini
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
-import shutil
 import re
 from datetime import datetime
 from pathlib import Path
-import argparse
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import shutil
+import argparse
 
 class AddMissingAPISettings:
     """Add missing critical API settings to jts.ini"""

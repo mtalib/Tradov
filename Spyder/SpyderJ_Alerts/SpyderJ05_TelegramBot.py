@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderJ_Alerts
 Module: SpyderJ05_TelegramBot.py
-Group: J (Notifications)
-Purpose: Telegram bot integration for trading notifications
-
-Description:
-    This module provides Telegram bot integration for the Spyder trading system.
-    It handles sending real-time notifications about trades, alerts, and system
-    status through Telegram's Bot API. The module includes message formatting,
-    rate limiting, error handling, and support for rich media messages.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-27
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -47,10 +49,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType, EventPriority
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Telegram API
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/{method}"
 MAX_MESSAGE_LENGTH = 4096
 MAX_CAPTION_LENGTH = 1024

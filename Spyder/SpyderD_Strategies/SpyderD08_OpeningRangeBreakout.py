@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderD_Strategies
 Module: SpyderD08_OpeningRangeBreakout.py
-Purpose: Opening range breakout strategy
+Purpose: SPYDER - Automated SPY Options Trading System
+
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-09-04 Time: 15:30:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    This module implements an opening range breakout strategy that monitors
-    the first 15-30 minutes of trading to establish a range, then trades
-    breakouts from that range. The strategy focuses on Monday/Tuesday and
-    uses tight trailing stops as recommended by the research.
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -25,11 +28,11 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import uuid
-import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import statistics
 import pandas as pd
 import numpy as np
 
@@ -37,6 +40,7 @@ import numpy as np
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalType, SignalStrength,
     StrategyPosition, PositionType, PositionState,
     EventManager, RiskProfile, Event, EventType

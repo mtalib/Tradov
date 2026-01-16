@@ -1,33 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderJ_Alerts
 Module: SpyderJ02_EmailNotifier.py
-Group: J (Notifications)
-Purpose: Email notification system
-
-Description:
-    This module handles email notifications for trading events, alerts,
-    and reports. It supports HTML formatting, attachments, and various
-    email templates for different notification types.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-05-30
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import smtplib
-import ssl
 import json
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, field
@@ -40,6 +37,12 @@ import time
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 import jinja2
 import pandas as pd
 from email_validator import validate_email, EmailNotValidError
@@ -51,10 +54,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU04_Encryption import EncryptionManager
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Email server configurations
 SMTP_SERVERS = {
     'gmail': {
         'server': 'smtp.gmail.com',

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderN_OptionsAnalytics
 Module: SpyderN09_GammaExposure.py
-Group: N (Options Analytics)
-Purpose: Real-time Gamma Exposure (GEX) calculation and analysis
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module calculates real-time gamma exposure (GEX) using OPRA data feeds
-    to identify key market maker hedging levels. It provides institutional-grade
-    GEX calculations, identifies gamma flip points, and generates actionable
-    trading signals based on dealer positioning. The module integrates with
-    existing OPRA handlers for ultra-low latency calculations.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-28
-Last Updated: 2025-06-28 Time: 17:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -33,11 +33,11 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
-import bisect
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import bisect
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -56,10 +56,6 @@ from Spyder.SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGree
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# GEX Calculation Parameters
 SPOT_RANGE_PERCENTAGE = 0.20  # Calculate GEX for +/- 20% of spot
 SPOT_INCREMENTS = 0.50  # $0.50 increments for GEX profile
 MIN_OPEN_INTEREST = 100  # Minimum OI to include in calculations

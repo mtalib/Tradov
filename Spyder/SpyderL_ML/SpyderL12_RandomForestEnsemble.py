@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL12_RandomForestEnsemble.py
-Group: L (Machine Learning)
-Purpose: Random Forest ensemble for complex options payoffs
-
-Description:
-This module implements Random Forest ensemble models optimized
-    for options trading. It handles non-linear payoff structures, provides:
-    strategy-specific models, and includes SHAP explainability for all
-    predictions. The module supports 100-500 trees with Bayesian optimization.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-13
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import asyncio
 import logging
 import warnings
@@ -25,14 +30,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import joblib
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import joblib
 import numpy as np
 import pandas as pd
 import shap
 from sklearn.ensemble import (ExtraTreesRegressor, GradientBoostingRegressor,
+
                               RandomForestRegressor)
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 # ==============================================================================

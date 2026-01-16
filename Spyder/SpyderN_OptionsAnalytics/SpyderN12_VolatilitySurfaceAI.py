@@ -1,55 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderN09_VolatilitySurfaceAI.py
-Group: N (Options Analytics)
-Purpose: AI-Enhanced 3D Volatility Surface Modeling and Prediction
+Series: SpyderN_OptionsAnalytics
+Module: SpyderN12_VolatilitySurfaceAI.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements sophisticated volatility surface modeling using
-    machine learning to predict the entire implied volatility surface across
-    strikes and expirations. It combines LSTM networks for temporal patterns
-    with Random Forests for surface characteristics, providing real-time
-    updates and interactive 3D visualization.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Key Features:
-    - Full 3D implied volatility surface prediction
-    - LSTM + Random Forest ensemble for accuracy
-    - Real-time surface updates with market data
-    - Greeks surface visualization (delta, gamma, vega surfaces)
-    - Volatility smile and skew analysis
-    - Term structure modeling
-    - Surface arbitrage detection
-    - Interactive 3D plotting with Plotly
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
-Architecture:
-    - SABR model calibration for baseline
-    - Neural network for residual learning
-    - Random Forest for surface characteristics
-    - Kalman filtering for smooth updates
-    - GPU acceleration for real-time performance
-
-Author: SPYDER Volatility Analytics Team
-Date: 2025-07-11
-Version: 1.0
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Union, Callable
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
 import json
-import pickle
 from pathlib import Path
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+import pickle
 
 warnings.filterwarnings("ignore")
 

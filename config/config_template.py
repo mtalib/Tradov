@@ -1,9 +1,25 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Configuration package for Spyder trading system.
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderX_Unknown
+Module: config_template.py
+Purpose: Configuration package for Spyder trading system.
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Configuration package for Spyder trading system.
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-try:
-    from .config import IB_CONFIG, TRADING_CONFIG
 except ImportError:
     # Fallback to template if config.py doesn't exist
     from .config_template import IB_CONFIG, TRADING_CONFIG

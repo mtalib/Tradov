@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD12_RSIMeanReversion.py
-Group: D (Trading Strategies)
-Purpose: RSI mean reversion strategy for oversold/overbought conditions
-
-Description:
-    Professional RSI mean reversion strategy that identifies extreme RSI conditions
-    and trades options expecting a reversion to the mean. Buys calls when RSI < 30
-    (oversold) and buys puts when RSI > 70 (overbought). Most active during the
-    11:00 AM - 2:00 PM window for optimal mean reversion opportunities.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -38,6 +40,7 @@ from scipy import stats
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalStrength, MarketCondition
 )
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

@@ -1,36 +1,46 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
+Series: SpyderT_Testing
 Module: SpyderT14_RiskSuiteIntegrationTest.py
-Group: T (Testing)
-Purpose: Integration testing for complete risk management suite
-Author: Mohamed Talib
-Date Created: 2025-01-08
-Last Updated: 2025-01-08 Time: 12:00:00
+Purpose: SPYDER - Autonomous Options Trading System
 
-Description:
-    Comprehensive integration testing framework for the newly developed risk
-    management suite including E11_MaxLossProtection, E12_PortfolioVaR, 
-    E13_TailRiskManager, P05_MultiStrategyAllocator, and P06_StrategyRotation.
-    Tests data flow, coordination, and crisis response scenarios.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Autonomous Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import unittest
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import asyncio
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 import json
 import logging
-from unittest.mock import Mock, patch, MagicMock
 import sys
 import os
 
-# Add parent directory to path for imports
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import unittest
+import numpy as np
+import pandas as pd
+from unittest.mock import Mock, patch, MagicMock
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ==================================================================================

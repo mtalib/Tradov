@@ -1,18 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER Dashboard Path Diagnostic and Fix Script
+SPYDER - Autonomous Options Trading System v1.0
 
-This script identifies and fixes the launcher configuration issue
-where it's looking for SpyderG01_Dashboard.py instead of the correct file.
+Series: SpyderX_Unknown
+Module: fix_launcher_dashboard_path.py
+Purpose: SPYDER Dashboard Path Diagnostic and Fix Script
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER Dashboard Path Diagnostic and Fix Script
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
 from pathlib import Path
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import subprocess
 
-# Colors for terminal output
 class Colors:
     GREEN = '\033[92m'
     RED = '\033[91m'

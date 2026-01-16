@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD03_CreditSpread.py
-Group: D (Trading Strategies)
-Purpose: Bull put/Bear call spread strategies
-
-Description:
-    This module implements credit spread strategies including bull put spreads
-    and bear call spreads. These strategies profit from time decay and are
-    suitable for moderately bullish or bearish market conditions.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0 (Production-Ready)
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -23,13 +26,13 @@ Version: 2.0 (Production-Ready)
 from datetime import datetime, timedelta, time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
-import math
 import uuid
 from enum import Enum, auto
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
 import pandas as pd
 import numpy as np
 
@@ -37,6 +40,7 @@ import numpy as np
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalType, SignalStrength,
     StrategyPosition, PositionType, PositionState,
     EventManager, RiskProfile, Event, EventType

@@ -1,47 +1,39 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF21_RenaissanceIndicators.py
-Group: F (Analysis)
-Purpose: Renaissance Technologies-inspired statistical indicators for mean reversion trading
-
-Description:
-    This module implements statistical indicators inspired by Renaissance Technologies'
-    quantitative approach to trading. It focuses on mean reversion, statistical arbitrage,
-    and volatility analysis - core methodologies that have driven RenTech's legendary
-    Medallion Fund success.
-
-Key Features:
-    - Z-Score calculation for mean reversion detection
-    - Bollinger Bands with bandwidth and %B for statistical deviation
-    - IV Percentile calculation for volatility mean reversion
-    - Statistical arbitrage signal generation
-    - Market microstructure analysis (bid-ask spread, order flow)
-    - Composite signal generator with confidence scoring
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 1.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Reference: Inspired by Renaissance Technologies' publicly known methodologies
-    - Statistical arbitrage
-    - Mean reversion
-    - High-frequency pattern detection
-    - Systematic risk management
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from scipy import stats
 from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+from scipy import stats
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -49,10 +41,6 @@ from enum import Enum
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Mean reversion thresholds
 ZSCORE_OVERBOUGHT = 2.0
 ZSCORE_OVERSOLD = -2.0
 ZSCORE_EXTREME_OVERBOUGHT = 3.0

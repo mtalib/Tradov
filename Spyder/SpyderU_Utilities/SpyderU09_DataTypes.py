@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU09_DataTypes.py
-Group: U (Utilities)
-Purpose: Core data type definitions and structures
-
-Description:
-    This module defines all core data types and structures used throughout
-    the Spyder trading system. It includes market data structures, order
-    definitions, position tracking, option contracts, and other fundamental
-    data types that ensure type safety and consistency across the platform.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-07-18
-Last Updated: 2025-07-18 Time: 11:45:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -40,10 +41,6 @@ import numpy as np
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Market data constants
 MARKET_DATA_FIELDS = [
     "bid", "ask", "last", "volume", "open", "high", "low", "close",
     "bid_size", "ask_size", "last_size", "open_interest"

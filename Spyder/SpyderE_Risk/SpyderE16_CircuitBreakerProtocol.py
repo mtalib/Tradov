@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderE04_CircuitBreakerProtocol.py
-Group: E (Risk Management)
-Purpose: Market circuit breaker and crisis management protocols
-
-Description:
-This module implements automated circuit breaker protocols for
-    market crashes. It monitors S&P 500 declines (7%, 13%, 20% levels),
-    automatically flattens positions during halts, enforces limit-only
-    orders during extreme volatility, and manages post-halt recovery.
+Series: SpyderE_Risk
+Module: SpyderE16_CircuitBreakerProtocol.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-13
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -26,18 +28,15 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict
+import asyncio
+import logging
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import asyncio
-import logging
 import pandas as pd
 import numpy as np
 
-# ==============================================================================
-# MODULE IMPLEMENTATION
-# ==============================================================================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 class CircuitBreakerLevel(Enum):

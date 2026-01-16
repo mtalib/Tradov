@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF08_VolatilityRegime.py
-Group: F (Technical Analysis)
-Purpose: Volatility regime detection with automated model retraining
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module identifies volatility regimes using statistical models and
-    machine learning. It includes automated retraining to adapt to changing
-    market conditions and regime transitions.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI (Enhanced by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added ML model auto-retraining and regime prediction
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -24,15 +27,15 @@ from typing import Dict, List, Optional, Tuple, Any, Callable
 from enum import Enum
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
-import numpy as np
-import pandas as pd
 import threading
-import pickle
 import json
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pandas as pd
+import pickle
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import TimeSeriesSplit
@@ -48,9 +51,6 @@ from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
 from Spyder.SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
 from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 
-# ==============================================================================
-# ENUMS
-# ==============================================================================
 class VolatilityRegime(Enum):
     """Volatility regime classification."""
     LOW = "low"

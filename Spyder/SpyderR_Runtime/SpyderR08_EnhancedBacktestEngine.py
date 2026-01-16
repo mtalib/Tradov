@@ -1,23 +1,28 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
-Module: SpyderR06_EnhancedBacktestEngine.py
-Group: R (Runtime)
-Purpose: Enhanced backtesting engine with risk suite and ML integration
+Series: SpyderR_Runtime
+Module: SpyderR08_EnhancedBacktestEngine.py
+Purpose: SPYDER - Autonomous Options Trading System
+
 Author: Mohamed Talib
-Date Created: 2025-01-08
-Last Updated: 2025-01-08 Time: 14:00:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Description:
-    Advanced backtesting engine that integrates with the risk management suite
-    (E11-E13), portfolio management (P05-P06), performance analytics (K10), 
-    and ML engine (L18). Features event-driven architecture, realistic 
-    execution simulation, walk-forward analysis, and Monte Carlo optimization.
+Module Description:
+    SPYDER - Autonomous Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import pandas as pd
-import numpy as np
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple, Union, Callable
 from dataclasses import dataclass, field, asdict
@@ -25,11 +30,18 @@ from enum import Enum
 import json
 import logging
 from collections import defaultdict, deque
-import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import pandas as pd
+import numpy as np
+import multiprocessing as mp
 import pickle
 import sqlite3
-import warnings
+
 warnings.filterwarnings('ignore')
 
 # ==================================================================================

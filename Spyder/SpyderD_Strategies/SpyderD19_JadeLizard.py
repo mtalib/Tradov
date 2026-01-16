@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD19_JadeLizard.py
-Group: D (Trading Strategies)
-Purpose: Jade Lizard strategy - neutral to bullish premium collection
-
-Description:
-    Professional Jade Lizard implementation combining a short put with a 
-    short call spread to collect premium with no upside risk. This three-leg
-    strategy is designed for high-probability income generation in neutral
-    to slightly bullish markets.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -38,6 +40,7 @@ from scipy import stats
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalStrength, MarketCondition
 )
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

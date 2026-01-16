@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderE_Risk
 Module: SpyderE09_VolatilityRiskManager.py
-Group: E (Risk Management)
-Purpose: Volatility-specific risk management and protection protocols
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides specialized risk management for volatility trading,
-    including VIX spike protection protocols, volatility regime-based position
-    sizing, gamma scalping automation, and comprehensive vol surface risk metrics.
-    It integrates with existing risk management systems to add volatility-specific
-    controls and protections. Provides real-time monitoring of volatility risks
-    and automated hedging strategies.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-06 Time: 17:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -35,19 +34,16 @@ from dataclasses import dataclass, field, asdict
 from collections import deque, defaultdict
 from enum import Enum, auto
 from pathlib import Path
-import math
-import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import statistics
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-# ==============================================================================
-# LOCAL IMPORTS - SAFE PATTERN
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:

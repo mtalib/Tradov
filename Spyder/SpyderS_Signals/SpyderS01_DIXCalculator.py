@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderS_Signals
 Module: SpyderS01_DIXCalculator.py
-Group: S (Signals)
-Purpose: Full S&P 500 DIX (Dark Index) Calculation Engine
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements the complete DIX calculation methodology as described by 
-    SqueezeMetrics. It calculates the dollar-weighted Dark Pool Indicator (DPI) 
-    across all S&P 500 components using FINRA short sale data and market 
-    capitalization weighting. The module provides the core calculation engine for 
-    institutional dark pool sentiment analysis used in SPY options trading decisions.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Author: Manus AI
-Date Created: 2025-07-14
-Last Updated: 2025-07-15 Time: 11:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,20 +31,17 @@ from enum import Enum
 from datetime import datetime, timedelta
 import time
 import warnings
-from io import StringIO
+import logging
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+from io import StringIO
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import requests
-import logging
 
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler

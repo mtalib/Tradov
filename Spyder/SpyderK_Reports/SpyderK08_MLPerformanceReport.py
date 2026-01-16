@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderK_Reports
 Module: SpyderK08_MLPerformanceReport.py
-Group: K (Reports)
-Purpose: ML model performance tracking and reporting
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module tracks and reports on machine learning model performance including
-    prediction accuracy over time, feature importance evolution, model drift detection,
-    A/B test results, and model comparison metrics. It provides comprehensive insights
-    into ML model effectiveness, helping identify when models need retraining or
-    replacement, and which features contribute most to predictive power.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-07
-Last Updated: 2025-01-07 Time: 11:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -30,7 +30,6 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 import json
-import pickle
 from pathlib import Path
 from collections import defaultdict, deque
 import warnings
@@ -38,6 +37,7 @@ import warnings
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pickle
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -49,6 +49,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 from sklearn.metrics import (
+
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, confusion_matrix, classification_report,
     mean_squared_error, mean_absolute_error, r2_score

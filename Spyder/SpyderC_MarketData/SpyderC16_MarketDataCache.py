@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC16_MarketDataCache.py
-Group: C (Market Data)
-Purpose: High-performance market data caching with persistence
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a multi-tiered caching system for market data with:
-    - In-memory LRU cache for ultra-fast access
-    - Time-based TTL expiration
-    - SQLite persistence for historical data
-    - Redis support for distributed caching (optional)
-    - Cache warming and preloading
-    - Automatic cleanup and memory management
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Assistant
-Date Created: 2025-01-23
-Last Updated: 2025-01-23
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -26,7 +25,6 @@ Last Updated: 2025-01-23
 # ==============================================================================
 import os
 import json
-import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta
@@ -34,18 +32,18 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from collections import OrderedDict, defaultdict
-import pickle
-import gzip
 from functools import lru_cache
-import heapq
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import sqlite3
+import pickle
+import gzip
+import heapq
 import pandas as pd
 import numpy as np
 
-# Optional Redis support
 try:
     import redis
     REDIS_AVAILABLE = True

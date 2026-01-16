@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderN_OptionsAnalytics
 Module: SpyderN08_VolatilitySurface.py
-Group: N (Options Analytics)
-Purpose: 3D volatility surface modeling
-
-Description:
-    This module creates and analyzes 3D volatility surfaces across strikes and
-    expirations. It provides surface fitting algorithms, arbitrage detection,
-    and real-time surface updates for comprehensive volatility analysis. The
-    surface visualization helps identify trading opportunities and market anomalies.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-14
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Status: PRODUCTION - Fully implemented
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -27,8 +27,6 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, field
 from datetime import datetime, date, timedelta
 from enum import Enum, auto
-import numpy as np
-from scipy import interpolate, optimize
 import threading
 import time
 import json
@@ -36,6 +34,8 @@ import json
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+from scipy import interpolate, optimize
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -53,10 +53,6 @@ from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from Spyder.SpyderN_OptionsAnalytics.SpyderN01_VolatilitySmile import VolatilitySmileAnalyzer
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Surface construction parameters
 MIN_STRIKES_PER_EXPIRY = 5
 MIN_EXPIRIES = 3
 MONEYNESS_RANGE = (0.70, 1.30)  # 70% to 130% of spot

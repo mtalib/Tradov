@@ -1,44 +1,46 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX12_SystemHealthAgent.py
-Purpose: AI-Enhanced System Health Monitoring and Diagnostics
-Group: X (AI Agents)
+Purpose: SPYDER - Automated SPY Options Trading System
 
-This module implements an intelligent system health monitoring agent that tracks
-system performance, detects anomalies, predicts failures, and provides AI-driven
-diagnostics using Ollama integration.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-16
-Last Updated: 2025-06-19 Time: 14:02
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
-
-# Standard library imports
 import asyncio
 import json
 import logging
-import psutil
-import platform
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import psutil
+import platform
 import statistics
 import traceback
-
-# Third-party imports
 import numpy as np
 
-# Ollama imports (with graceful fallback)
 try:
     import ollama
     OLLAMA_AVAILABLE = True

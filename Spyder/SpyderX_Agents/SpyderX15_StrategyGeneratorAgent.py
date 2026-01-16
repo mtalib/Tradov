@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderX15_StrategyGeneratorAgent_Simplified.py
-Group: X (AI Agents)
-Purpose: Simplified Strategy Generation Agent (No Heavy Dependencies)
+Series: SpyderX_Agents
+Module: SpyderX15_StrategyGeneratorAgent.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Simplified version of the strategy generator that works with basic dependencies.
-    Demonstrates the core strategy generation concepts without requiring heavy ML libraries.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: SPYDER Strategy Evolution Team
-Date: 2025-07-19
-Version: 1.0 - Simplified for quick testing
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Set, Union, Callable
 from dataclasses import dataclass, field
@@ -31,11 +33,14 @@ import json
 import random
 import copy
 from pathlib import Path
-import hashlib
 
 # ==============================================================================
-# LOCAL IMPORTS (with fallbacks)
+# THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pandas as pd
+import hashlib
+
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     SPYDER_LOGGER_AVAILABLE = True

@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderK_Reports
 Module: SpyderK01_ReportGenerator.py
-Group: K (Reports)
-Purpose: Report generation framework
-
-Description:
-    Basic report generator for the Spyder trading system.
-    Provides framework for generating various types of reports.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-14
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -22,9 +26,6 @@ Version: 1.4
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler

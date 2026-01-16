@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderJ_Alerts
 Module: SpyderJ04_DesktopNotifier.py
-Group: J (Notifications)
-Purpose: Desktop notification system
-
-Description:
-    This module handles desktop notifications for trading events using
-    system-native notifications. It supports Windows, macOS, and Linux
-    with fallback options and sound alerts.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-05-30
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -24,8 +27,6 @@ import os
 import sys
 import json
 import time
-import platform
-import subprocess
 import threading
 import queue
 from datetime import datetime, timedelta
@@ -33,7 +34,13 @@ from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-# Platform-specific import
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import platform
+import subprocess
+
 if platform.system() == 'Windows':
     try:
         import winsound

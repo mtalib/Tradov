@@ -1,45 +1,48 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD14_CalendarSpread.py
-Group: D (Trading Strategies)
-Purpose: Calendar spread strategy with multi-timeframe optimization
-
-Description:
-    Professional calendar spread implementation that profits from time decay
-    differentials between near and far-dated options. Features IV term structure
-    analysis, optimal time spread calculations, and sophisticated roll management
-    for both put and call calendars.:
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import uuid
-from dataclasses import dataclass, field
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
 import pandas as pd
 from scipy import optimize, stats
 
-from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
-from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
+from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (BaseStrategy,
+
                                                        MarketCondition,
                                                        SignalStrength,
                                                        TradingSignal)

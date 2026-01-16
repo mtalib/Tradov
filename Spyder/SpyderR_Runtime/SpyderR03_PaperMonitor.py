@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderR_Runtime
 Module: SpyderR03_PaperMonitor.py
-Group: R (Runtime Operations)
-Purpose: Real-time monitoring and analysis of paper trading performance
-
-Description:
-    This module monitors paper trading performance in real-time, tracking
-    execution quality, strategy performance, and market conditions. It provides
-    insights into how well strategies perform with real market data and helps
-    identify areas for improvement before moving to live trading.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-05-31
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -27,11 +29,11 @@ import threading
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
-import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import statistics
 import pandas as pd
 import numpy as np
 
@@ -42,10 +44,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Monitoring intervals
 UPDATE_INTERVAL = 5  # seconds
 METRICS_WINDOW = 300  # 5 minutes of detailed metrics
 

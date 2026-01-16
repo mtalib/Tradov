@@ -1,43 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU06_MathUtils.py
-Group: U (Utilities)
-Purpose: Mathematical utility functions
-
-Description:
-    This module provides mathematical utilities for financial calculations,
-    statistical analysis, and technical computations used throughout the
-    trading system. It includes functions for option pricing, risk metrics,
-    statistical measures, and numerical methods optimized for trading applications.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-01
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import math
-import statistics
-from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from typing import Callable, List, Optional, Tuple, Union
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import statistics
+from decimal import ROUND_HALF_UP, Decimal
 import numpy as np
 from scipy import optimize, stats
 from scipy.special import ndtr
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Precision settings
 PRICE_PRECISION = 2
 PERCENTAGE_PRECISION = 4
 GREEK_PRECISION = 6

@@ -1,42 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - GUI Log Handler
+SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderG_GUI
 Module: SpyderG99_GUILogHandler.py
-Purpose: Custom logging handler that routes Python logs to GUI dashboard widgets
-Author: Spyder Development Team
+Purpose: SPYDER - GUI Log Handler
+
+Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-11-24
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    Provides a thread-safe logging handler that bridges Python's logging system
-    with the PyQt6/PySide6 GUI dashboard log displays. Routes log messages to
-    appropriate dashboard widgets based on log level and context.
+    SPYDER - GUI Log Handler
 
-FEATURES:
-    • Thread-safe log routing using Qt signals
-    • Automatic routing to system log or automation log
-    • Log level filtering (INFO and above to GUI by default)
-    • Color-coded messages based on severity
-    • Prevents duplicate messages
-    • Buffer management to prevent memory leaks
-
-USAGE:
-    # In main application initialization:
-    from SpyderG_GUI.SpyderG99_GUILogHandler import GUILogHandler
-
-    gui_handler = GUILogHandler(dashboard)
-    gui_handler.setLevel(logging.INFO)
-    logging.getLogger().addHandler(gui_handler)
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import logging
-from typing import Optional, Set
-from datetime import datetime
-from PySide6.QtCore import QObject, Signal, Qt, QMetaObject, Q_ARG
-
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from SpyderG_GUI.SpyderG99_GUILogHandler import GUILogHandler
 
 class GUILogHandler(QObject, logging.Handler):
     """

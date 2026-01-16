@@ -1,38 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU15_PerformanceMetrics.py
-Group: U (Utilities)
-Purpose: Performance analysis and risk metrics calculation
-
-Description:
-    This module provides comprehensive performance analysis for trading strategies
-    including Sharpe ratio, maximum drawdown, Calmar ratio, Sortino ratio, and
-    other key performance metrics. It serves as an alternative to empyrical
-    package for Python 3.13 compatibility and includes options-specific metrics
-    for evaluating trading strategy performance.:
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-07-18
-Last Updated: 2025-07-18 Time: 12:30:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import math
 import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import numpy as np
 import pandas as pd
 from scipy import stats
 
@@ -42,10 +42,6 @@ from scipy import stats
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Performance calculation constants
 TRADING_DAYS_PER_YEAR = 252
 RISK_FREE_RATE = 0.02  # 2% annual risk-free rate
 MIN_PERIODS_FOR_CALCULATION = 30

@@ -1,33 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderS04_DIXQuickStart.py
-Group: S (Signals)
-Purpose: DIX Quick Start Demo and Testing Module
+Series: SpyderT_Testing
+Module: SpyderT21_DIXQuickStart.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a quick start demonstration of the complete DIX
-    implementation. It showcases DIX calculation, visualization generation,
-    and analysis capabilities in a simple, easy-to-run format. The module
-    is designed for testing, demonstration, and quick analysis of current
-    dark pool sentiment for SPY options trading decisions.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Author: Manus AI
-Date Created: 2025-07-14
-Last Updated: 2025-07-15 Time: 11:45:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import argparse
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-import logging
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -36,8 +32,10 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 # ==============================================================================
-# LOCAL IMPORTS
+# THIRD-PARTY IMPORTS
 # ==============================================================================
+import argparse
+
 try:
     from SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
     from SpyderS_Signals.SpyderS02_DIXDemo import SpyderDIXDemo

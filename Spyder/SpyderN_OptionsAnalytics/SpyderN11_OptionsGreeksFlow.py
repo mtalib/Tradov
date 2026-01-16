@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderN_OptionsAnalytics
 Module: SpyderN11_OptionsGreeksFlow.py
-Group: N (Options Analytics)
-Purpose: Greeks-based flow analysis for dealer positioning and hedging flows
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module analyzes options flow through the lens of Greeks, focusing on
-    dealer gamma flows, vanna flows around expiry, charm decay analysis, and
-    real-time Greek exposure changes. It provides insights into dealer hedging
-    behavior and predicts market movements based on Greeks dynamics.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-12-28
-Last Updated: 2025-12-28 Time: 11:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import heapq
-import json
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
 import os
 import sys
 import threading
@@ -34,17 +34,22 @@ from datetime import date, datetime, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import plotly.graph_objects as go
-import plotly.express as px
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import heapq
+import plotly.graph_objects as go
+import plotly.express as px
 import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.interpolate import interp1d
 
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
 from Spyder.SpyderA_Core.SpyderA05_EventManager import (Event, EventType,
+
                                                  get_event_manager)
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator

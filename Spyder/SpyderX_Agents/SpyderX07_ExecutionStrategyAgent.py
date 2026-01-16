@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX07_ExecutionStrategyAgent.py
-Purpose: AI-Enhanced Order Execution and Strategy Management
-Group: X (AI Agents)
+Purpose: SPYDER - Automated SPY Options Trading System
 
-This module implements an intelligent execution strategy agent that optimizes
-order placement, manages slippage, and ensures best execution for SPY options
-trades using Ollama AI integration.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-16
-Last Updated: 2025-06-19 Time: 13:47
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
-
-# Standard library imports
 import asyncio
 import json
 import logging
@@ -30,13 +31,14 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from enum import Enum
 import random
-import statistics
 from collections import deque
 
-# Third-party imports
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import statistics
 import numpy as np
 
-# Ollama imports (with graceful fallback)
 try:
     import ollama
     OLLAMA_AVAILABLE = True

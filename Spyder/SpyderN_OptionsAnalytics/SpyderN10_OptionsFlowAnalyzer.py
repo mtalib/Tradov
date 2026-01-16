@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderN_OptionsAnalytics
 Module: SpyderN10_OptionsFlowAnalyzer.py
-Group: N (Options Analytics)
-Purpose: Advanced options flow analysis with unusual activity detection
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides institutional-grade options flow analysis using real-time
-    OPRA data feeds. It detects unusual options activity, identifies smart money
-    movements, analyzes order flow sentiment, and generates actionable trading
-    signals. The module includes sweep detection, block trade analysis, and
-    multi-exchange flow aggregation for comprehensive market intelligence.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-28
-Last Updated: 2025-06-28 Time: 17:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -28,17 +28,17 @@ import sys
 import time
 import threading
 import json
-import bisect
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Tuple, Any, Set, Deque
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
-import heapq
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import bisect
+import heapq
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -57,10 +57,6 @@ from Spyder.SpyderC_MarketData.SpyderC07_OPRAFeed import OPRAFeedHandler
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Flow Detection Thresholds
 MIN_PREMIUM_VALUE = 25000  # Minimum premium for tracking
 BLOCK_TRADE_SIZE = 500  # Minimum contracts for block
 SWEEP_TIME_WINDOW = 3  # Seconds to identify sweeps

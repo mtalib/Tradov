@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderG05_ChartWidget.py
-Group: G (User Interface)
-Purpose: Real-time price and indicator charts
-
-Description:
-    This module provides interactive price charts with technical indicators
-    for the Spyder trading system. It displays real-time SPY price data,
-    option chains, and various technical indicators used by the strategies.
+Series: SpyderG_GUI
+Module: SpyderG04_ChartWidget.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-05
-Version: 1.5
-Updated: 2025-06-22 - Migrated to PyQt6
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -26,17 +28,16 @@ import json
 from typing import Dict, List, Optional, Any, Tuple, Callable
 from collections import deque
 from dataclasses import dataclass
-import numpy as np
 import threading
 import time
-
-# ==============================================================================
-# PYTHON PATH SETUP
-# ==============================================================================
 import sys
 from pathlib import Path
 
-# Add project root to Python path
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))

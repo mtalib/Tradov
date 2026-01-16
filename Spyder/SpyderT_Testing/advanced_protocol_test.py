@@ -1,14 +1,36 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Advanced IBAPI Connection Test
-Tests the exact IBAPI handshake protocol
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderT_Testing
+Module: advanced_protocol_test.py
+Purpose: Advanced IBAPI Connection Test
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Advanced IBAPI Connection Test
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import socket
-import struct
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import time
 from datetime import datetime
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import socket
+import struct
 
 class IBAPIProtocolTest:
     """Test IBAPI connection using exact protocol"""

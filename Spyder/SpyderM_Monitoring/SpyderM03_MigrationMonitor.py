@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderM_Monitoring
 Module: SpyderM03_MigrationMonitor.py
-Group: M (Monitoring)
-Purpose: Monitor SpyderF to SpyderX migration progress
-
-Description:
-    This module tracks the performance comparison between traditional SpyderF
-    modules and new SpyderX AI agents during the migration period. It provides
-    metrics, logging, and dashboards to ensure safe transition.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-20
-Version: 1.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -26,6 +29,10 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from collections import defaultdict
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import statistics
 
 # ==============================================================================
@@ -34,9 +41,6 @@ import statistics
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
 DIVERGENCE_THRESHOLD = 0.1  # 10% divergence triggers alert
 PERFORMANCE_WINDOW = 1000   # Number of comparisons to track
 

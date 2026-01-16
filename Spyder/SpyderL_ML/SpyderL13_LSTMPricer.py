@@ -1,37 +1,39 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL13_LSTMPricer.py
-Group: L (Machine Learning)
-Purpose: LSTM neural network for options pricing
-
-Description:
-This module implements a multi-layer LSTM network for options
-    pricing with 15-25% improvement over Black-Scholes for OTM options.
-    Features 3-layer bidirectional architecture with attention mechanism,
-    dropout regularization, and uncertainty quantification.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-13
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import asyncio
-import logging
-import pickle
-import warnings
-from dataclasses import dataclass
-from datetime import datetime, timedelta
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import asyncio
+import logging
+import warnings
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pickle
 import numpy as np
 import pandas as pd
 import torch
@@ -42,9 +44,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler, StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
-# ==============================================================================
-# MODULE IMPLEMENTATION
-# ==============================================================================
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

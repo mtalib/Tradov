@@ -1,29 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU18_DependencyAnalyzer.py
-Group: U (Utilities)
-Purpose: Module dependency analysis and visualization
-
-Description:
-    This module provides comprehensive dependency analysis for the entire Spyder
-    codebase. It extracts import relationships, generates dependency graphs,
-    creates visual maps, and produces detailed reports showing how modules
-    interconnect. The analyzer helps identify circular dependencies, unused
-    imports, and architectural patterns.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-07-18
-Last Updated: 2025-07-18 Time: 12:45:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import ast
 import os
 import re
 import sys
@@ -33,11 +32,12 @@ from enum import Enum
 from pathlib import Path
 import json
 from datetime import datetime
-import glob
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import ast
+import glob
 import pandas as pd
 import networkx as nx
 
@@ -47,10 +47,6 @@ import networkx as nx
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Spyder module groups
 MODULE_GROUPS = {
     'SpyderA_Core': {'color': '#FF6B6B', 'label': 'Core Engine'},
     'SpyderB_Broker': {'color': '#4ECDC4', 'label': 'Broker Integration'},

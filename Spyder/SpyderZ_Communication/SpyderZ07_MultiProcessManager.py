@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderZ_Communication
 Module: SpyderZ07_MultiProcessManager.py
-Group: Z (Communication Infrastructure)
-Purpose: Multi-process lifecycle management with shared memory and monitoring
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module manages the lifecycle of all SPYDER trading processes including
-    volatility engine, anomaly detector, and auto-hedger. It provides process
-    spawning, monitoring, automatic restart on failure, resource allocation,
-    and shared memory management for high-performance tick data distribution.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-28
-Last Updated: 2025-06-28 Time: 16:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -26,23 +27,23 @@ import os
 import sys
 import time
 import json
-import signal
-import psutil
 import threading
-import multiprocessing as mp
-from multiprocessing import shared_memory
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Callable, Type
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import pickle
-import struct
 import logging
 from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import signal
+import psutil
+import multiprocessing as mp
+from multiprocessing import shared_memory
+import pickle
+import struct
 import zmq
 import numpy as np
 import pandas as pd
@@ -51,6 +52,7 @@ import pandas as pd
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderZ01_ZeroMQIntegration import (
+
     SpyderMessage, MessageType, SpyderCommHub
 )
 from SpyderZ02_MessageProtocol import (

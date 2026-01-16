@@ -1,39 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL10_FeatureEngineering.py
-Group: L (Machine Learning)
-Purpose: Advanced feature engineering for ML models
-
-Description:
-    This module creates sophisticated features for machine learning models
-    by combining price action, Greeks, volume profiles, market internals,
-    and temporal patterns. It provides both real-time and historical
-    feature extraction with caching for performance optimization.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2024-12-20
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, field
 from collections import deque
 import json
-import pickle
 from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pandas as pd
+import pickle
 from scipy import stats
 from scipy.signal import find_peaks
 from sklearn.preprocessing import StandardScaler, RobustScaler
@@ -50,10 +52,6 @@ from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from Spyder.SpyderC_MarketData.SpyderC04_MarketInternals import MarketInternals
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Feature categories
 PRICE_FEATURES = [
     'returns_1m', 'returns_5m', 'returns_15m', 'returns_30m', 'returns_60m',
     'log_returns_5m', 'volatility_5m', 'volatility_15m', 'volatility_30m',

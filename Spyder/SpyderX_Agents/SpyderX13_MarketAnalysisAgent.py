@@ -1,48 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX13_MarketAnalysisAgent.py
-Group: X (AI Agents)
-Purpose: AI-Enhanced Market Analysis and Regime Detection
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This agent provides sophisticated market analysis by combining traditional
-    technical analysis with AI-powered pattern recognition and regime detection.
-    It identifies market conditions, trends, and potential turning points while
-    providing natural language insights about market dynamics. The agent learns
-    from historical patterns to improve prediction accuracy.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-17
-Last Updated: 2025-01-28 Time: 18:30
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
-
-# ==============================================================================
-# STANDARD IMPORTS
-# ==============================================================================
-import asyncio
-import json
-import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Union
-from dataclasses import dataclass, field
-from enum import Enum
-from collections import defaultdict, deque
-import hashlib
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
-from scipy import stats, signal
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
+from historical patterns to improve prediction accuracy.
 
-# Ollama imports (with graceful fallback)
 try:
     import ollama
     OLLAMA_AVAILABLE = True

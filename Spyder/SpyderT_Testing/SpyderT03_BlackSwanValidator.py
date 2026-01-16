@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderT_Testing
 Module: SpyderT03_BlackSwanValidator.py
-Group: T (Testing)
-Purpose: Comprehensive validation and testing for Black Swan Indicator system
+Purpose: SPYDER - Automated SPY Options Trading System
+
 Author: Mohamed Talib
-Date Created: 2025-01-15 
-Last Updated: 2025-01-15 Time: 13:00:00  
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Description:
-    This module provides comprehensive testing and validation capabilities for
-    the Black Swan Indicator system. It includes unit tests, integration tests,
-    performance benchmarks, stress tests, and validation against historical
-    events. Ensures all components work correctly and meet performance requirements.
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -25,12 +27,17 @@ import os
 import sys
 import json
 import time
-import unittest
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import unittest
+
 warnings.filterwarnings('ignore')
 
 # ==============================================================================

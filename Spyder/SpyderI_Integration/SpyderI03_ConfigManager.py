@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderI_Integration
 Module: SpyderI03_ConfigManager.py
-Group: I (Integration)
-Purpose: Cross-module configuration synchronization and management
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides centralized configuration management across all SPYDER
-    modules with real-time synchronization, environment-specific configurations,
-    hot reloading, validation, encryption for sensitive data, and versioning
-    capabilities. It ensures all modules stay synchronized with configuration
-    changes and provides audit trails for configuration modifications.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 17:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -26,11 +26,9 @@ Last Updated: 2025-07-01 Time: 17:00:00
 import os
 import sys
 import json
-import yaml
 import threading
 import asyncio
 import time
-import hashlib
 import copy
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Set, Callable, Union, Tuple
@@ -38,15 +36,17 @@ from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
 from enum import Enum, auto
 from pathlib import Path
-import weakref
-import base64
 from functools import wraps
-import tempfile
-import shutil
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import yaml
+import hashlib
+import weakref
+import base64
+import tempfile
+import shutil
 import watchdog
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -62,7 +62,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU04_Encryption import EncryptionManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# Integration Hub integration
 try:
     from SpyderI_Integration.SpyderI01_IntegrationHub import get_integration_hub
     HUB_AVAILABLE = True

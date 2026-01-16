@@ -1,22 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderG02_GUIEntry.py
-Group: G (GUI)
-Purpose: Simple GUI entry point to launch the trading dashboard
+Series: SpyderG_GUI
+Module: SpyderG01_Dashboard.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Simplified entry point that launches the Spyder trading dashboard
-    without requiring all dependencies to be present initially.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
 from pathlib import Path
 
-# Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 

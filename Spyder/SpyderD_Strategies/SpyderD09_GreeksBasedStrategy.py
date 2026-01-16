@@ -1,47 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD09_GreeksBasedStrategy.py
-Group: D (Trading Strategies)
-Purpose: High-speed trading strategy leveraging OPRA Greeks
-
-Description:
-    This module implements trading strategies that leverage pre-calculated Greeks
-    from OPRA feeds for ultra-fast decision making. It includes delta-neutral
-    strategies, gamma scalping, and Greek-based arbitrage detection, all executing
-    with minimal latency due to elimination of Greeks calculation overhead.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0 (Production-Ready)
-"""
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-# ==============================================================================
-# STANDARD IMPORTS
-# ==============================================================================
-from datetime import datetime, timedelta, time
-from typing import Dict, List, Optional, Any, Tuple, Set
-from dataclasses import dataclass, field
-from enum import Enum, auto
-import uuid
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import queue
-from collections import defaultdict
-import asyncio
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
+"""
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pandas as pd
-import numpy as np
+from OPRA feeds for ultra-fast decision making. It includes delta-neutral
 
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
-from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
     BaseStrategy, TradingSignal, SignalType, SignalStrength,
     StrategyPosition, PositionType, PositionState,
     EventManager, RiskProfile, Event, EventType

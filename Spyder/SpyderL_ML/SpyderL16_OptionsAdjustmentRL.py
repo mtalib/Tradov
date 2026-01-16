@@ -1,53 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL16_OptionsAdjustmentRL.py
-Group: L (Machine Learning)
-Purpose: Reinforcement Learning for Dynamic Options Position Adjustment
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements sophisticated reinforcement learning agents that
-    learn optimal adjustment strategies for options positions. It uses
-    PPO and SAC algorithms with custom Gym environments tailored for each
-    strategy type, incorporating risk-adjusted reward shaping.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Key Features:
-    - Custom Gym environments for each options strategy
-    - PPO (Proximal Policy Optimization) for discrete adjustments
-    - SAC (Soft Actor-Critic) for continuous adjustments
-    - Risk-adjusted reward functions (Sharpe, Sortino, Calmar)
-    - Multi-objective optimization (profit, risk, drawdown)
-    - Experience replay with prioritization
-    - Ensemble of multiple RL agents
-    - Real-time position monitoring and adjustment
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
-Architecture:
-    - Strategy-specific environments (IronCondor, CreditSpread, etc.)
-    - Hierarchical action spaces for complex adjustments
-    - State representation with Greeks, market conditions, P&L
-    - Transfer learning between similar strategies
-
-Author: SPYDER RL Trading Team
-Date: 2025-07-11
-Version: 1.0
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Union, Callable
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from enum import Enum, auto
 import json
-import pickle
 from pathlib import Path
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+import pickle
 
 warnings.filterwarnings("ignore")
 

@@ -1,14 +1,37 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Test multiple client IDs to identify connection conflicts
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderT_Testing
+Module: test_client_ids.py
+Purpose: Test multiple client IDs to identify connection conflicts
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Test multiple client IDs to identify connection conflicts
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import time
 import threading
 from datetime import datetime
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
-
 
 class ClientIDTester(EClient, EWrapper):
     """Test different client IDs for IB Gateway connection"""

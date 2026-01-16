@@ -1,34 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL08_EntryOptimizer.py
-Group: L (Machine Learning)
-Purpose: ML-based entry timing optimization
-
-Description:
-    This module uses machine learning to optimize entry timing for options trades.
-    It combines regime detection, feature engineering, and predictive models to
-    identify optimal entry points with high probability of success. The module
-    adapts to different market regimes and provides confidence scores for entries.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2024-12-20
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta, time
 from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
 import json
-import pickle
 from pathlib import Path
 from collections import deque
 import warnings
@@ -36,6 +35,9 @@ import warnings
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pandas as pd
+import pickle
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
@@ -56,10 +58,6 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingCalendar
 from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer, FeatureSet
 from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier, RegimeType, MarketRegime
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Entry windows (based on research)
 OPTIMAL_ENTRY_WINDOWS = {
     'morning': (time(10, 15), time(11, 40)),  # Primary window
     'afternoon': (time(14, 0), time(15, 30))  # Secondary window

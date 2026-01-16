@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderK_Reports
 Module: SpyderK03_PerformanceDashboard.py
-Group: K (Reports)
-Purpose: Interactive real-time performance dashboard
-
-Description:
-    This module provides an interactive web-based performance dashboard using
-    Dash/Plotly. It displays real-time P&L curves, strategy comparisons,
-    risk-adjusted returns, drawdown analysis, and comprehensive performance
-    metrics. The dashboard auto-updates and provides drill-down capabilities
-    for detailed analysis.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-28
-Version: 1.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -53,9 +54,6 @@ from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_lay
 from Spyder.SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetricsCalculator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
 DASHBOARD_PORT = 8050
 UPDATE_INTERVAL = 5000  # milliseconds
 LOOKBACK_PERIODS = {

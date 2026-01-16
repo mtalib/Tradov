@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX04_RiskGuardianAgent.py
-Group: X (AI Agents)
-Purpose: AI-Enhanced Risk Management and Control Agent
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This agent replaces traditional risk management modules with intelligent,
-    context-aware risk assessment. It consolidates functionality from RiskManager,
-    PortfolioRisk, DrawdownControl, StressTest, and RiskControl modules into a
-    unified AI-driven risk guardian. The agent provides real-time risk monitoring,
-    dynamic position sizing, and intelligent circuit breaker decisions.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-17
-Last Updated: 2025-01-28 Time: 17:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -32,18 +32,17 @@ from typing import Dict, List, Optional, Tuple, Any, Union, Set
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
-import hashlib
-import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import hashlib
+import statistics
 import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.optimize import minimize
 
-# Ollama imports (with graceful fallback)
 try:
     import ollama
     OLLAMA_AVAILABLE = True

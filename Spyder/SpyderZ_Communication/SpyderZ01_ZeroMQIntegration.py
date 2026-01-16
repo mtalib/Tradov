@@ -1,30 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderZ_Communication
 Module: SpyderZ01_ZeroMQIntegration.py
-Group: Z (ZeroMQ Communication Layer)
-Purpose: High-performance IPC with robust error handling and reliability
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Enhanced ZeroMQ-based communication for SPYDER with production-grade
-    reliability features including:
-    - Automatic reconnection with exponential backoff
-    - Circuit breakers for system protection
-    - Message acknowledgment and retry mechanisms
-    - Heartbeat monitoring for connection health
-    - Comprehensive error recovery strategies
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: SPYDER Team
-Date: 2025-01-03
-Version: 2.0
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
-import zmq
 import json
 import threading
 import time
@@ -39,9 +37,10 @@ from collections import defaultdict, deque
 import random
 
 # ==============================================================================
-# CONSTANTS
+# THIRD-PARTY IMPORTS
 # ==============================================================================
-# Connection settings
+import zmq
+
 DEFAULT_TIMEOUT = 5000  # milliseconds
 HEARTBEAT_INTERVAL = 1.0  # seconds
 HEARTBEAT_TIMEOUT = 5.0  # seconds

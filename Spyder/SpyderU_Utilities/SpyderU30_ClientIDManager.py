@@ -1,10 +1,28 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-SPYDER - Client ID Rotation Manager
-Prevents "clientId already in use" errors by managing rotating client ID pool
-Based on production algorithmic trading systems research
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderU_Utilities
+Module: SpyderU30_ClientIDManager.py
+Purpose: SPYDER - Client ID Rotation Manager
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Client ID Rotation Manager
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import time
 import threading
 from dataclasses import dataclass

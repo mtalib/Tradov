@@ -1,55 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL15_MOmentPredictor.py
-Group: L (Machine Learning)
-Purpose: MOMENT foundation model integration for multi-task time series
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module integrates the MOMENT (Multi-task Open-source Model for
-    Time-series) foundation model to provide advanced multi-task capabilities
-    including forecasting, classification, anomaly detection, and imputation.
-    It creates an ensemble with the existing LSTM model for superior
-    options pricing predictions with external data integration.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Key Features:
-    - Multi-task time series analysis (forecast, classify, detect, impute)
-    - External data integration (Fed calendar, earnings, sentiment)
-    - Ensemble predictions with existing LSTM
-    - Dynamic confidence weighting
-    - Production-ready async implementation
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
-Performance:
-    - Inference time: <15ms for single prediction
-    - Multi-task processing: Parallel execution
-    - Expected improvement: 20-35% over baseline
-
-Dependencies:
-    - moment-timeseries (pip install moment-timeseries)
-    - Existing SpyderL13_LSTMPricer
-    - SpyderL10_FeatureEngineering
-
-Author: SPYDER AI Enhancement Team
-Date: 2025-07-11
-Version: 1.0
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import json
 from pathlib import Path
-import pickle
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+import pickle
 
 warnings.filterwarnings("ignore")
 

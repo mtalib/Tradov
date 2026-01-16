@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderS_Signals
 Module: SpyderS02_DIXScheduler.py
-Group: S (Signals)
-Purpose: Automated DIX Calculation Scheduler and Data Fetcher
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides fully automated scheduling for DIX calculations.
-    It handles automatic data fetching from FINRA, market cap updates from
-    yfinance, and S&P 500 constituent updates. The scheduler runs daily at
-    6:30 PM ET and includes retry logic, error handling, and notification
-    systems for reliable operation.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Author: Manus AI
-Date Created: 2025-07-15
-Last Updated: 2025-07-15 Time: 12:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import json
-import logging
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
+import logging
 import os
 import sys
 import threading
@@ -34,19 +34,16 @@ from datetime import datetime, time, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-import pandas as pd
-import pytz
-import requests
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pandas as pd
+import pytz
+import requests
 import schedule
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
 try:
     from SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
     from SpyderS_Signals.SpyderS02_DIXDemo import SpyderDIXDemo

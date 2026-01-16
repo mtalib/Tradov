@@ -1,46 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX11_SentimentAnalysisAgent.py
-Group: X (AI Agents)
-Purpose: Advanced NLP-based sentiment analysis for market intelligence
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements sophisticated sentiment analysis using state-of-the-art
-    NLP models to analyze earnings calls, Federal Reserve communications, news,
-    social media, and multi-language sources. It provides real-time sentiment
-    scores and event detection for SPY options trading decisions.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Key Features:
-    - Earnings call transcript analysis with entity recognition
-    - Federal Reserve communication parsing (FOMC, speeches, minutes)
-    - Entity-specific sentiment tracking (companies, sectors, officials)
-    - Multi-language support for global news sources
-    - Real-time social media sentiment (Reddit, Twitter/X)
-    - Event impact prediction and classification
-    - Sentiment momentum and regime detection
-    - Audio transcription for live events
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
-Architecture:
-    - Transformer-based models (BERT, FinBERT, RoBERTa)
-    - Named Entity Recognition (NER) for financial entities
-    - Topic modeling for theme extraction
-    - Sentiment aggregation with confidence scoring
-    - Multi-modal analysis (text, audio, tables)
-
-Author: SPYDER NLP Intelligence Team
-Date: 2025-07-11
-Version: 2.0
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Set, Union
 from dataclasses import dataclass, field
@@ -48,13 +31,19 @@ from collections import defaultdict, deque
 from enum import Enum, auto
 import json
 import re
-import pickle
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+import pickle
 import hashlib
 import feedparser
 import aiohttp
-from concurrent.futures import ThreadPoolExecutor
-import warnings
 
 warnings.filterwarnings("ignore")
 

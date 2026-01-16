@@ -1,33 +1,44 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
+Series: SpyderL_ML
 Module: SpyderL18_EnhancedMLIntegration.py
-Group: L (Machine Learning)
-Purpose: Enhanced ML integration with risk management suite
-Author: Mohamed Talib
-Date Created: 2025-01-08
-Last Updated: 2025-01-08 Time: 13:00:00
+Purpose: SPYDER - Autonomous Options Trading System
 
-Description:
-    Advanced machine learning module that integrates with the risk management
-    suite (E11-E13) and portfolio management (P05-P06) to provide predictive
-    analytics, reinforcement learning for strategy selection, and adaptive
-    risk adjustment. Features ensemble models, online learning, and real-time
-    prediction serving.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Autonomous Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import numpy as np
-import pandas as pd
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field
 from enum import Enum
-import joblib
 import json
 import logging
 from collections import deque
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+import joblib
+
 warnings.filterwarnings('ignore')
 
 # Machine Learning Libraries

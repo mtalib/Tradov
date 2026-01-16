@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderS_Signals
 Module: SpyderS04_BlackSwanScheduler.py
-Group: S (Signals)
-Purpose: Daily automated scheduling and alerts for Black Swan monitoring
+Purpose: SPYDER - Automated SPY Options Trading System
+
 Author: Mohamed Talib
-Date Created: 2025-01-15 
-Last Updated: 2025-01-15 Time: 12:30:00  
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Description:
-    This module provides automated scheduling capabilities for the Black Swan
-    Indicator, including daily monitoring, alert generation, report creation,
-    and integration with Spyder's scheduling system. Supports cron-like
-    scheduling, email notifications, and database logging of all activities.
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -26,8 +28,6 @@ import sys
 import json
 import time
 import threading
-import schedule
-import signal
 from datetime import datetime, timedelta, time as dt_time
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
@@ -38,10 +38,11 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import schedule
+import signal
 import pandas as pd
 import numpy as np
 
-# Email imports
 try:
     import smtplib
     from email.mime.text import MIMEText

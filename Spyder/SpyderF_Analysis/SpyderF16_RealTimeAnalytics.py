@@ -1,48 +1,27 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderF_Analysis
 Module: SpyderF16_RealTimeAnalytics.py
-Purpose: Real-time streaming analytics and attribution engine
+Purpose: SPYDER - Autonomous Options Trading System v1.0
+
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-30 Time: 21:00:00
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    Advanced real-time analytics engine providing live streaming attribution analysis,
-    continuous factor exposure monitoring, and ultra-low latency performance tracking.
-    Integrates seamlessly with F12 backtesting, F13 model validation, F14 market 
-    microstructure, and F15 performance attribution modules. Supports WebSocket feeds,
-    real-time dashboard integration, and institutional-grade live analytics.
+    SPYDER - Autonomous Options Trading System v1.0
 
-Key Features:
-    - Real-time P&L attribution as positions change
-    - Live factor exposure monitoring and alerts
-    - Streaming analytics with microsecond precision
-    - WebSocket integration for dashboard feeds
-    - Dynamic real-time alert system
-    - Continuous model validation monitoring
-    - Live risk metric calculations
-    - Professional real-time reporting
-
-Dependencies:
-    - numpy>=1.24.0
-    - pandas>=2.0.0
-    - asyncio>=3.9.0
-    - websockets>=11.0.2
-    - aiohttp>=3.8.0
-    - redis>=4.5.0 (optional for caching)
-    - zmq>=25.0.0 (optional for messaging)
-    - SpyderU01_Logger
-    - SpyderU02_ErrorHandler
-    - SpyderF12_AdvancedBacktestingEngine (integration)
-    - SpyderF13_ModelValidation (integration)
-    - SpyderF14_MarketMicrostructure (integration)
-    - SpyderF17_UnifiedPerformanceEngine (integration)
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
 import asyncio
 import json
@@ -51,7 +30,6 @@ import time
 import threading
 import warnings
 import queue
-import traceback
 from typing import Dict, List, Tuple, Optional, Any, Callable, AsyncGenerator
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
@@ -59,7 +37,10 @@ from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 
-# Core libraries
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import traceback
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -67,7 +48,6 @@ import websockets
 import aiohttp
 from aiohttp import web
 
-# Optional high-performance libraries
 try:
     import redis
     REDIS_AVAILABLE = True

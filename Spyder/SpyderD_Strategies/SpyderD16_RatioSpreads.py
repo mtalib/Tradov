@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD16_RatioSpreads.py
-Group: D (Trading Strategies)
-Purpose: Ratio spreads and Jade Lizard strategies for income generation
-
-Description:
-    Professional implementation of ratio spreads (1x2, 1x3) and Jade Lizard
-    strategies. These unbalanced option positions collect premium while 
-    maintaining defined risk profiles through careful strike selection and
-    position management.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -38,6 +40,7 @@ from scipy import stats, optimize
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalStrength, MarketCondition
 )
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

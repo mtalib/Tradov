@@ -1,16 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Apply Dual-Mode Bashrc Configuration
-This script applies the dual-mode bashrc that supports both local IB Gateway and Remote TWS
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderX_Unknown
+Module: apply_dual_mode_bashrc.py
+Purpose: SPYDER - Apply Dual-Mode Bashrc Configuration
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Apply Dual-Mode Bashrc Configuration
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
-import shutil
 from pathlib import Path
 from datetime import datetime
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import shutil
 
 def backup_current_bashrc():
     """Backup the current .bashrc file"""

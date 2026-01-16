@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC06_DataValidator.py
-Group: C (Market Data)
-Purpose: Data quality and validation checks
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module ensures data quality and integrity for the Spyder trading system.
-    It validates incoming market data, detects anomalies, handles data gaps,
-    and maintains data consistency across all components. The validator prevents
-    bad data from affecting trading decisions and alerts when data issues occur.
-    Features include real-time validation, statistical anomaly detection, and
-    comprehensive data quality scoring.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-06
-Last Updated: 2025-07-06 Time: 17:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -34,12 +33,12 @@ from typing import Dict, List, Optional, Tuple, Any, Set, Callable, Union
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
-import statistics
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import statistics
+import math
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -55,10 +54,6 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils, M
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import TimeFrame
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Validation Thresholds
 MAX_PRICE_CHANGE_PCT = 0.10        # 10% maximum price change
 MAX_VOLUME_SPIKE = 10.0             # 10x average volume
 MIN_TICK_SIZE = 0.01                # Minimum tick size

@@ -1,38 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL07_PaperTradeLearner.py
-Group: L (Machine Learning)
-Purpose: Learn and optimize from paper trading results
-
-Description:
-    This module analyzes paper trading performance to automatically improve
-    strategy parameters, identify successful patterns, and optimize the
-    trading system based on real market behavior.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-05-30
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-import pickle
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Set
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 from collections import defaultdict, Counter
-import statistics
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pickle
+import statistics
+import math
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -47,9 +50,7 @@ import joblib
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-#from SpyderH_Storage.SpyderH01_DatabaseManager import DatabaseManager
 
-# Fallback DatabaseManager class
 class DatabaseManager:
     """Fallback DatabaseManager when H_Storage module is not available"""
     def __init__(self, *args, **kwargs):

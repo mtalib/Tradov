@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD05_Straddle.py
-Group: D (Trading Strategies)
-Purpose: Long straddle/strangle strategies
-
-Description:
-    This module implements long straddle and strangle strategies designed to
-    profit from significant price movements in either direction. These strategies
-    are particularly effective before major events or when expecting increased
-    volatility.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0 (Production-Ready)
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -25,12 +27,12 @@ from datetime import datetime, timedelta, time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import math
 import uuid
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
 import pandas as pd
 import numpy as np
 from scipy.stats import norm
@@ -39,6 +41,7 @@ from scipy.stats import norm
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalType, SignalStrength,
     StrategyPosition, PositionType, PositionState,
     EventManager, RiskProfile, Event, EventType

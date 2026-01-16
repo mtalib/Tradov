@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderH_Storage
 Module: SpyderH03_MarketDataCache.py
-Group: H (Storage)
-Purpose: In-memory market data caching with TTL support
-
-Description:
-    Provides a high-performance in-memory cache for market data with
-    automatic expiration (TTL), size limits, and efficient retrieval.
-    Supports caching of quotes, bars, option chains, and other market
-    data with configurable eviction policies.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-06-14
-Last Updated: 2025-12-31 Time: 12:00:00
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -30,16 +31,13 @@ from dataclasses import dataclass, field
 from collections import OrderedDict
 from enum import Enum
 import threading
-import hashlib
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import hashlib
 import numpy as np
 
-# ==============================================================================
-# LOCAL IMPORTS - SAFE PATTERN
-# ==============================================================================
 try:
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     LOCAL_IMPORTS = True

@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC01_DataFeed.py
-Group: C (Market Data)
-Purpose: Central data feed orchestrator with enhanced market data architecture
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This enhanced module serves as the central orchestrator for all market data
-    operations in the Spyder system. It integrates with the new MarketDataHub
-    for IBKR connections and MarketDataCache for efficient data storage and
-    retrieval. The module maintains backward compatibility while providing
-    improved performance and reliability.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Assistant (Enhanced)
-Date Created: 2025-01-23
-Last Updated: 2025-01-23
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -54,10 +55,6 @@ from Spyder.SpyderC_MarketData.SpyderC07_MarketDataHub import MarketDataHub, Mar
 from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Data Feed Configuration
 DEFAULT_FEED_CONFIG = {
     'cache_enabled': True,
     'hub_enabled': True,

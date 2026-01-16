@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderH_Storage
 Module: SpyderH07_PerformanceAnalytics.py
-Group: H (Storage)
-Purpose: Trading performance analytics and metrics calculation
-
-Description:
-    Provides comprehensive performance analytics for trading activities.
-    Calculates key performance metrics, generates equity curves, analyzes
-    trade distributions, and provides insights for strategy optimization.
-    Integrates with trade repository for historical analysis.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-06-14
-Last Updated: 2025-12-31 Time: 12:00:00
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -37,9 +38,6 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
-# ==============================================================================
-# LOCAL IMPORTS - SAFE PATTERN
-# ==============================================================================
 try:
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     LOCAL_IMPORTS = True

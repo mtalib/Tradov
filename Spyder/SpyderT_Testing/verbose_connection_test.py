@@ -1,17 +1,39 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Minimal IBAPI Connection Test with Detailed Error Reporting
-Uses the actual IBAPI library with maximum verbosity
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderT_Testing
+Module: verbose_connection_test.py
+Purpose: Minimal IBAPI Connection Test with Detailed Error Reporting
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Minimal IBAPI Connection Test with Detailed Error Reporting
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 import time
 import threading
 from datetime import datetime
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.common import OrderId, TickerId
-
 
 class VerboseIBTest(EClient, EWrapper):
     """Minimal test with maximum logging"""

@@ -1,51 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX14_OrchestratorAgent.py
-Group: X (AI Agents)
-Purpose: Multi-Agent Reinforcement Learning Orchestration
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements a sophisticated orchestrator agent that coordinates
-    all other AI agents using meta-learning and reinforcement learning. It
-    dynamically adjusts agent weights based on performance, implements both
-    cooperative and competitive dynamics, and optimizes the collective
-    intelligence of the Spyder system.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Key Features:
-    - Meta-learning for optimal agent coordination
-    - Dynamic weight adjustment based on performance
-    - Competitive/cooperative agent dynamics
-    - Real-time performance tracking
-    - Consensus building mechanisms
-    - Conflict resolution strategies
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
-Architecture:
-    - Uses PPO (Proximal Policy Optimization) for meta-learning
-    - Implements attention mechanisms for agent importance
-    - Maintains performance history for each agent
-    - Supports both synchronous and asynchronous coordination
-
-Author: SPYDER Orchestration Team
-Date: 2025-07-11
-Version: 1.0
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Set, Callable
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
 import json
-import pickle
 from pathlib import Path
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -53,6 +37,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pandas as pd
+import pickle
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -68,6 +55,7 @@ from sklearn.preprocessing import StandardScaler
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
+
     MAX_AGENTS,
     ORCHESTRATOR_UPDATE_INTERVAL,
     PERFORMANCE_WINDOW,

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX06_BacktestingAgent.py
-Group: X (AI Agents)
-Purpose: AI-Enhanced Backtesting and Strategy Validation
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This agent replaces traditional backtesting modules with an intelligent AI system
-    that generates hypotheses, designs tests, optimizes parameters, and provides deep
-    insights into strategy performance. It can identify regime-specific performance,
-    hidden biases, and suggest improvements. The agent transforms backtesting from
-    a mechanical process into an intelligent research activity.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-16
-Last Updated: 2025-06-19 Time: 11:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,9 +31,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from collections import defaultdict, deque
-import hashlib
 from copy import deepcopy
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import hashlib
+
 warnings.filterwarnings('ignore')
 
 # ==============================================================================

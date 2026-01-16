@@ -1,15 +1,28 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-SPYDER - Production Grade Stable Dashboard Launcher
-Implements all research-based stability improvements:
-- G1GC JVM optimization
-- Client ID rotation with cleanup delays
-- Event-driven connections with nextValidId waiting
-- Exponential backoff reconnection
-- Subscription cleanup to prevent memory leaks
-- Anti-flood protection
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderQ_Scripts
+Module: launch_dashboard_production.py
+Purpose: SPYDER - Production Grade Stable Dashboard Launcher
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Production Grade Stable Dashboard Launcher
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 import os
 import logging
@@ -17,10 +30,13 @@ import asyncio
 import time
 from pathlib import Path
 import warnings
-import builtins
 from contextlib import contextmanager
 
-# Store original functions for anti-flood protection
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import builtins
+
 original_print = builtins.print
 
 # Anti-flood configuration

@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL17_FederatedLearning.py
-Group: L (Machine Learning)
-Purpose: Federated learning for privacy-preserving collaborative model training
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements federated learning capabilities that enable multiple
-    trading desks, institutions, or individual traders to collaboratively train
-    machine learning models without sharing sensitive trading data. It uses
-    federated averaging, differential privacy, and secure aggregation protocols
-    to protect individual strategies while improving overall model performance
-    through collective learning.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-11
-Last Updated: 2025-01-11 Time: 12:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,14 +30,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum, auto
 import json
-import pickle
-import hashlib
-import secrets
 from pathlib import Path
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import pickle
+import hashlib
+import secrets
 
 warnings.filterwarnings("ignore")
 

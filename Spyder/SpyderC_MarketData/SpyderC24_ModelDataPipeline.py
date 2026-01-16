@@ -1,47 +1,27 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderC_MarketData
 Module: SpyderC24_ModelDataPipeline.py
-Purpose: Specialized data pipeline for F13 model validation and ML workflows
+Purpose: SPYDER - Autonomous Options Trading System v1.0
+
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-30 Time: 23:30:00
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    Advanced ML data pipeline specifically designed for F13 Model Validation engine.
-    Handles feature engineering, data drift detection, model input preparation,
-    validation data streaming, and continuous model monitoring. Supports multiple
-    model types including classification, regression, time series, and reinforcement
-    learning models with automated data quality assurance and drift alerts.
+    SPYDER - Autonomous Options Trading System v1.0
 
-Key Features:
-    - Real-time feature engineering with 50+ technical indicators
-    - Automated data drift detection using multiple statistical tests
-    - Model input validation and preprocessing pipelines
-    - Continuous data quality monitoring with alerts
-    - Support for streaming and batch model validation
-    - Feature importance tracking and stability monitoring
-    - Automated data labeling for supervised learning
-    - Integration with MLOps frameworks and model registries
-
-Dependencies:
-    - numpy>=1.24.0
-    - pandas>=2.0.0
-    - scikit-learn>=1.3.0
-    - scipy>=1.10.0
-    - talib>=0.4.0 (optional, for technical indicators)
-    - mlflow>=2.0.0 (optional, for model tracking)
-    - evidently>=0.4.0 (optional, for drift detection)
-    - SpyderU01_Logger
-    - SpyderU02_ErrorHandler
-    - SpyderC21_FSeriesIntegrationHub (integration)
-    - SpyderC22_FactorDataProvider (integration)
-    - SpyderF13_ModelValidation (target)
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
 import asyncio
 import logging
@@ -54,10 +34,12 @@ from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 import json
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import pickle
 import hashlib
-
-# Core libraries
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -68,7 +50,6 @@ from sklearn.feature_selection import SelectKBest, f_regression
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-# Optional ML libraries
 try:
     import talib
     TALIB_AVAILABLE = True

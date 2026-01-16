@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF10_MarketRegimeDetector.py
-Group: F (Technical Analysis)
-Purpose: Professional market regime detection and analysis with strategy selection
-
-Description:
-    This module implements sophisticated market regime detection based
-    on institutional standards including VIX levels, volatility clustering,
-    mean reversion analysis, and market stress indicators. Provides real-time
-    regime classification to optimize strategy selection and risk management.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.1
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -47,10 +49,6 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils
 from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 from Spyder.SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# VIX regime thresholds (institutional standards)
 VIX_LOW_THRESHOLD = 16.0
 VIX_MEDIUM_THRESHOLD = 25.0
 VIX_HIGH_THRESHOLD = 30.0

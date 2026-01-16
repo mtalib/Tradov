@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderE_Risk
 Module: SpyderE06_RiskMetrics.py
-Group: E (Risk Management)
-Purpose: Risk metrics calculation (Sharpe, Sortino, etc.)
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module calculates comprehensive risk metrics for trading performance
-    evaluation. It provides real-time and historical risk analytics including
-    Sharpe ratio, Sortino ratio, maximum drawdown, Value at Risk (VaR),
-    Calmar ratio, Information ratio, and other essential risk measurements
-    used for portfolio management and strategy evaluation.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-18
-Last Updated: 2025-07-06 Time: 16:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -30,8 +30,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
-import math
-import statistics
 from collections import deque
 import threading
 from pathlib import Path
@@ -39,8 +37,11 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import statistics
 import numpy as np
 import pandas as pd
+
 try:
     from scipy import stats
     HAS_SCIPY = True

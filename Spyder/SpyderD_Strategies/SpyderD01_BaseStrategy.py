@@ -1,28 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD01_BaseStrategy.py
-Group: D (Trading Strategies)
-Purpose: Base class for all trading strategies
-
-Description:
-    This module provides the foundational base class that all trading strategies
-    inherit from. It implements common functionality including position management,
-    signal generation, risk controls, performance tracking, and event handling.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0 (Production-Ready)
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import asyncio
-import json
-import threading
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import asyncio
+import json
+import threading
 import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -32,10 +35,10 @@ from datetime import datetime, time, timedelta
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
 import pandas as pd
 
 # ==============================================================================
@@ -44,6 +47,7 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (MAX_DAILY_TRADES,
+
                                                 MAX_PORTFOLIO_RISK,
                                                 MAX_POSITION_SIZE,
                                                 STOP_LOSS_PERCENTAGE,

@@ -1,55 +1,45 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD30_RenaissanceMeanReversion.py
-Group: D (Trading Strategies)
-Purpose: Renaissance Technologies-inspired mean reversion strategy for SPY options
-
-Description:
-    This module implements a mean reversion trading strategy inspired by Renaissance
-    Technologies' quantitative approach. The strategy exploits the statistical tendency
-    of prices to revert to their mean after extreme moves.
-
-Key Features:
-    - Z-score based mean reversion detection
-    - IV percentile for volatility regime awareness
-    - Confidence-scaled position sizing
-    - Dual strategy: Mean reversion + Theta decay
-    - Automatic stop loss and take profit management
-
-Renaissance Philosophy:
-    The Medallion Fund's legendary success comes from:
-    1. Finding small statistical edges (~0.5% better than random)
-    2. Executing consistently across many trades
-    3. Strict risk management
-    4. Emotion-free systematic execution
-
-Strategies Implemented:
-    1. Mean Reversion: Buy puts when overbought (Z > 2), calls when oversold (Z < -2)
-    2. Theta Decay: Sell premium when IV is elevated (IV percentile > 70%)
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 1.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import uuid
-import numpy as np
-import pandas as pd
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 
 # ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+
+# ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy,
     TradingSignal,
     StrategyPosition,

@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD15_StraddleStrangle.py
-Group: D (Trading Strategies)
-Purpose: Volatility trading through straddles and strangles
-
-Description:
-    Professional implementation of straddle and strangle strategies for capturing
-    volatility expansion. Features event detection, dynamic strike selection,
-    real-time Greeks management, and gamma scalping capabilities for both long
-    and short volatility positions.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -38,6 +40,7 @@ from scipy import stats
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalStrength, MarketCondition
 )
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

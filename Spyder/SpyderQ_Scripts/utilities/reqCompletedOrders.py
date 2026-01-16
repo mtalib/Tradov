@@ -1,6 +1,28 @@
-reqCompletedOrders.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Unknown
+Module: reqCompletedOrders.py
+Purpose: Module for reqCompletedOrders
 
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Module for reqCompletedOrders
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
+"""
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 from ibapi.client import *
 from ibapi.wrapper import *
 

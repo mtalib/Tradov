@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderK_Reports
 Module: SpyderK06_PortfolioAnalytics.py
-Group: K (Reports)
-Purpose: Portfolio-level analytics and reporting
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides comprehensive portfolio analytics including correlation
-    matrices, risk attribution, factor exposure analysis, stress test results,
-    and portfolio optimization suggestions. It generates detailed reports to help
-    understand portfolio composition, risk concentrations, and opportunities for
-    improving risk-adjusted returns through rebalancing or hedging strategies.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-07
-Last Updated: 2025-01-07 Time: 10:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -59,10 +59,6 @@ from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_lay
 from Spyder.SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetrics
 from Spyder.SpyderN_OptionsAnalytics.SpyderN03_GreeksCalculator import GreeksCalculator
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Risk thresholds
 RISK_CONCENTRATION_THRESHOLD = 0.15  # 15% of portfolio risk
 CORRELATION_HIGH_THRESHOLD = 0.7
 CORRELATION_EXTREME_THRESHOLD = 0.9

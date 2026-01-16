@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF01_Indicators.py
-Group: F (Technical Analysis)
-Purpose: Technical indicators with configuration support and validation
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a comprehensive set of technical indicators optimized
-    for SPY options trading. All indicators support dynamic configuration and
-    include proper input validation for production reliability.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI (Enhanced by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added ConfigManager integration and validation
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -46,10 +49,6 @@ from Spyder.SpyderU_Utilities.SpyderU08_Validators import Validators
 from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
 from Spyder.SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
 
-
-# ==============================================================================
-# ENUMS
-# ==============================================================================
 class TrendDirection(Enum):
     """Trend direction classification."""
 

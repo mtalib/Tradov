@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD18_EvolvedCreditSpread.py
-Group: D (Strategies)
-Purpose: AI-Evolved Credit Spread Strategy with Modern TA Libraries
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements the AI-evolved credit spread strategy discovered through
-    genetic algorithm optimization achieving 0.799 fitness across 20 generations.
-    Uses modern technical analysis libraries (pandas-ta/ta) instead of TA-Lib for
-    better reliability and institutional deployment. The strategy employs AI-discovered
-    entry conditions and risk-optimized parameters derived from evolutionary algorithms.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: SPYDER AI Evolution Team
-Date Created: 2025-07-19
-Last Updated: 2025-07-19 Time: 22:00:00
-Version: 1.0 - Production Ready (Modern TA Libraries)
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -32,12 +32,12 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import numpy as np
 import pandas as pd
 
-# ==============================================================================
-# THIRD-PARTY IMPORTS (Modern TA Libraries - NO TALIB!)
-# ==============================================================================
 try:
     import pandas_ta as ta
 

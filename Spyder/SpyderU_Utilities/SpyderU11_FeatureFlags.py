@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU11_FeatureFlags.py
-Group: U (Utilities)
-Purpose: Feature flag management and A/B testing framework
-
-Description:
-    This module provides comprehensive feature flag management for the Spyder
-    trading system. It enables dynamic feature enabling/disabling, A/B testing,
-    gradual rollouts, and configuration management without code deployment.
-    Features can be controlled per user, environment, or globally with
-    real-time updates and rollback capabilities.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-07-18
-Last Updated: 2025-07-18 Time: 11:00:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import hashlib
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
@@ -37,6 +36,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import hashlib
 import pandas as pd
 
 # ==============================================================================
@@ -45,10 +45,6 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Feature flag configuration
 DEFAULT_CONFIG_FILE = "config/feature_flags.json"
 CACHE_REFRESH_INTERVAL = 300  # 5 minutes
 MAX_CACHE_AGE = 3600  # 1 hour
