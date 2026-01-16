@@ -1,29 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderD_Strategies
 Module: SpyderD04_ZeroDTE.py
-Group: D (Trading Strategies)
-Purpose: Enhanced 0DTE strategy with LEAN algorithm patterns
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Enhanced Zero Days to Expiration (0DTE) options strategy using patterns from
-    QuantConnect LEAN's IndexOptionShortPutOTMExpiryRegressionAlgorithm.py and
-    similar algorithms. Features precise expiry filtering, scheduled entry timing,
-    OTM strike selection, and professional expiry management.
-
-Key LEAN Enhancements:
-    - Precise expiry filtering by exact date (same day)
-    - Scheduled entry timing (1 minute after market open like LEAN)
-    - OTM strike selection logic from LEAN algorithms
-    - Automated expiry management and delisting handling
-    - Professional validation and error handling
-
-Based on: QuantConnect LEAN IndexOptionShortPutOTMExpiryRegressionAlgorithm.py
 Author: Mohamed Talib
-Created: 2025-01-10
-Version: 2.0 (Production-Ready)
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -35,12 +29,12 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import uuid
-import math
 from collections import defaultdict
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
 import pandas as pd
 import numpy as np
 import pytz
@@ -49,6 +43,7 @@ import pytz
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+
     BaseStrategy, TradingSignal, SignalType, SignalStrength,
     StrategyPosition, PositionType, PositionState,
     EventManager, RiskProfile, Event, EventType

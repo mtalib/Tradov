@@ -1,43 +1,44 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU05_NetworkUtils.py
-Group: U (Utilities)
-Purpose: Network connectivity and communication utilities
-
-Description:
-    This module provides comprehensive network utilities for the Spyder trading
-    system including internet connectivity checking, IB Gateway connection
-    validation, latency measurement, and network health monitoring. It ensures
-    reliable network communications for trading operations and provides
-    diagnostics for connection issues.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-07-18
-Last Updated: 2025-07-18 Time: 10:30:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import socket
-import subprocess
-import platform
 import time
 import threading
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
-import requests
-from urllib.parse import urlparse
 import concurrent.futures
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import socket
+import subprocess
+import platform
+import requests
+from urllib.parse import urlparse
+
 try:
     import ping3
     PING3_AVAILABLE = True

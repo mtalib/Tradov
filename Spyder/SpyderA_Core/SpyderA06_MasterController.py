@@ -1,32 +1,35 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
+Series: SpyderA_Core
 Module: SpyderA06_MasterController.py
-Group: A (Core)
-Purpose: Master control and orchestration for entire Spyder system
-Author: Mohamed Talib
-Date Created: 2025-01-08
-Last Updated: 2025-01-08 Time: 15:00:00
+Purpose: SPYDER - Autonomous Options Trading System
 
-Description:
-    Master Control Module that orchestrates the entire Spyder trading system.
-    Manages startup/shutdown sequences, module dependencies, health monitoring,
-    state management, and coordinates all components including risk management
-    (E-series), ML engine (L-series), portfolio management (P-series),
-    trading strategies (D-series), and broker connections (B-series).
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Autonomous Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import asyncio
 import json
 import logging
 import os
-import pickle
-import signal
 import sys
 import threading
 import time
-import traceback
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import asdict, dataclass, field
@@ -37,12 +40,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import pickle
+import signal
+import traceback
 import psutil
 import yaml
-
-# ==================================================================================
-# LOGGING CONFIGURATION
-# ==================================================================================
 
 logging.basicConfig(
     level=logging.INFO,

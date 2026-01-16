@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC08_SPYFeed.py
-Group: C (Market Data)
-Purpose: Real-time SPY tick data and microstructure analysis
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides high-frequency SPY data processing with microsecond
-    precision. It handles Level 2 market data, tick processing, market
-    microstructure analysis, and generates trading signals based on order
-    flow and market dynamics.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-05
-Last Updated: 2025-01-06 Time: 10:45:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -32,12 +33,12 @@ from datetime import datetime, timedelta
 import threading
 import time
 from collections import deque, defaultdict
-import statistics
-import bisect
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import statistics
+import bisect
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -49,10 +50,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventType, EventBus
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Symbol
 SPY_SYMBOL = "SPY"
 
 # Trade sizes

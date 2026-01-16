@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderF11_GreeksAggregator.py  
-Group: F (Analysis)
-Purpose: High-performance portfolio Greeks aggregation with caching
+Series: SpyderF_Analysis
+Module: SpyderF11_GreeksAggregator.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides efficient aggregation of Greeks across entire options
-    portfolios with Redis caching, parallel processing, and real-time updates.
-    It integrates with risk management to ensure portfolio Greeks stay within limits.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI (Performance improvements by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added Redis caching and performance optimizations
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -29,13 +32,13 @@ from datetime import datetime, timedelta
 from enum import Enum
 from collections import defaultdict, deque
 import json
-import pickle
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-import hashlib
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS  
+# THIRD-PARTY IMPORTS
 # ==============================================================================
+import pickle
+import hashlib
 import numpy as np
 import pandas as pd
 import redis
@@ -51,9 +54,6 @@ from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
 
-# ==============================================================================
-# ENUMS
-# ==============================================================================
 class GreeksValidationLevel(Enum):
     """Greeks validation levels."""
     NONE = 0

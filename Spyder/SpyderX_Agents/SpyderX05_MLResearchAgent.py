@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX05_MLResearchAgent.py
-Group: X (AI Agents)
-Purpose: AI-Enhanced Machine Learning Research and Model Management
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This agent replaces all traditional ML modules with an intelligent AI system
-    that performs AutoML, dynamic feature engineering, model selection, and
-    continuous learning. It can understand which ML approaches work best for
-    current market conditions and automatically adapt. The agent manages the
-    entire ML pipeline from data preparation to model deployment and monitoring.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-16
-Last Updated: 2025-06-19 Time: 11:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,18 +31,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from collections import defaultdict, deque
-import hashlib
-import pickle
 from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import hashlib
+import pickle
 import numpy as np
 import pandas as pd
 import joblib
-
-# ML Libraries
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression, Ridge, Lasso
 from sklearn.svm import SVC, SVR

@@ -1,44 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderE_Risk
 Module: SpyderE05_AutomaticRebalancer.py
-Group: E (Risk Management)
-Purpose: Automated portfolio Greek rebalancing
-
-Description:
-This module provides automated Greek rebalancing to maintain
-    portfolio neutrality. It executes hedges when thresholds are breached,
-    selects optimal hedging instruments (SPY, ES, MES), manages rebalancing
-    costs, and implements emergency flattening protocols.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-13
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# THIRD-PARTY IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
 import asyncio
 import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-# ==============================================================================
-# STANDARD IMPORTS
-# ==============================================================================
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import numpy as np
 import pandas as pd
 
-# ==============================================================================
-# MODULE IMPLEMENTATION
-# ==============================================================================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

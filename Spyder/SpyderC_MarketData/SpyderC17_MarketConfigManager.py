@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC17_MarketConfigManager.py
-Group: C (Market Data)
-Purpose: Centralized configuration management for market data systems
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a comprehensive configuration management system for all
-    market data components. It supports dynamic configuration updates, environment-
-    specific settings, validation, versioning, and hot-reloading of configurations
-    without system restart. The module ensures all market data components operate
-    with consistent and validated settings.:
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Assistant
-Date Created: 2025-01-23
-Last Updated: 2025-01-23
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import copy
-import hashlib
-import json
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import copy
+import json
 import os
 import re
 import threading
@@ -36,11 +36,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-import yaml
-
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import hashlib
+import yaml
+
 try:
     import toml
 

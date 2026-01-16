@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderI_Integration
 Module: SpyderI02_EventRouter.py
-Group: I (Integration)
-Purpose: Event-driven integration routing with intelligent filtering and correlation
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    The Event Router manages intelligent routing of events between SPYDER modules
-    with advanced filtering, correlation, and optimization. Features include
-    pattern-based routing, event correlation analysis, performance optimization,
-    circuit breaking for overloaded modules, and real-time event analytics.
-    Supports both synchronous and asynchronous event processing with guaranteed
-    delivery and comprehensive monitoring.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 16:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -36,13 +35,13 @@ from enum import Enum, auto
 from collections import defaultdict, deque
 import json
 import uuid
-import weakref
 from concurrent.futures import ThreadPoolExecutor, Future
-import fnmatch
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import weakref
+import fnmatch
 import numpy as np
 from scipy import stats
 
@@ -53,7 +52,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# Integration Hub integration
 try:
     from SpyderI_Integration.SpyderI01_IntegrationHub import get_integration_hub
     HUB_AVAILABLE = True

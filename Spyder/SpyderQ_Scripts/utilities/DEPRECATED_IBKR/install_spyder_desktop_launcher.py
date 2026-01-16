@@ -1,28 +1,37 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-SPYDER Desktop Launcher Installation Script
-===========================================
+SPYDER - Autonomous Options Trading System v1.0
 
-Creates a professional .desktop file for launching SPYDER Trading System
-with custom icon and proper integration into the applications menu.
+Series: SpyderX_Unknown
+Module: install_spyder_desktop_launcher.py
+Purpose: SPYDER Desktop Launcher Installation Script
 
-Features:
-- Custom Spider icon integration
-- Enhanced GUI launcher
-- Desktop and applications menu integration
-- Right-click context menu support
-- Proper MIME type associations
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Usage:
-    python3 install_spyder_desktop_launcher.py
+Module Description:
+    SPYDER Desktop Launcher Installation Script
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
-import subprocess
 from pathlib import Path
 from datetime import datetime
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import subprocess
 
 class SpyderDesktopInstaller:
     def __init__(self):

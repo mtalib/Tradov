@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF05_TrendDetection.py
-Group: F (Technical Analysis)
-Purpose: Trend detection with ML integration hooks
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module detects market trends using multiple methods including moving
-    averages, linear regression, and pattern analysis. It includes hooks for
-    ML enhancement to combine traditional and machine learning approaches.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI (Enhanced by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added ML integration hooks and adaptive parameters
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -24,15 +27,16 @@ from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
 from datetime import datetime, timedelta
 from dataclasses import dataclass
-import numpy as np
-import pandas as pd
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pandas as pd
 from scipy import signal
 from scipy.stats import linregress
 from scipy.ndimage import gaussian_filter1d
+
 try:
     import talib
     HAS_TALIB = True

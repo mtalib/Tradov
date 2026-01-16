@@ -1,9 +1,28 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Quick fix for AttributeError in StreamlinedSpyderLauncher
-Reorders widget creation to fix 'launch_btn' attribute error
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderX_Unknown
+Module: fix_launcher_widget_order.py
+Purpose: Quick fix for AttributeError in StreamlinedSpyderLauncher
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Quick fix for AttributeError in StreamlinedSpyderLauncher
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 from pathlib import Path
 

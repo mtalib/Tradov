@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderK_Reports
 Module: SpyderK07_StrategyComparison.py
-Group: K (Reports)
-Purpose: Strategy comparison and analysis
-
-Description:
-    Provides comprehensive tools for comparing trading strategy performance
-    and generating comparative analysis reports. Includes side-by-side
-    performance metrics, correlation analysis, risk-adjusted returns,
-    and statistical significance testing.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-06-14
-Last Updated: 2025-12-31 Time: 12:00:00
-Version: 2.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -36,9 +37,6 @@ import threading
 import numpy as np
 import pandas as pd
 
-# ==============================================================================
-# LOCAL IMPORTS - SAFE PATTERN
-# ==============================================================================
 try:
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     LOCAL_IMPORTS = True

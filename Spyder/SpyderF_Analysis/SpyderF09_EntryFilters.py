@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF09_EntryFilters.py
-Group: F (Technical Analysis)
-Purpose: Entry filters with adaptive thresholds from paper trading
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a comprehensive filtering system for trade entries
-    with adaptive thresholds that learn from paper trading results. Filters
-    can be dynamically adjusted based on performance.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI (Enhanced by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added adaptive thresholds and paper trade learning
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -24,10 +27,14 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 from enum import Enum
 from datetime import datetime, timedelta, time
 from dataclasses import dataclass, field
-import numpy as np
-import pandas as pd
 import json
 from collections import defaultdict, deque
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -38,9 +45,6 @@ from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
 from Spyder.SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import FeatureFlags
 
-# ==============================================================================
-# ENUMS
-# ==============================================================================
 class FilterResult(Enum):
     """Filter result status."""
     PASS = "pass"

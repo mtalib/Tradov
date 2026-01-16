@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC05_VolumeProfile.py
-Group: C (Market Data)
-Purpose: Volume profile analysis for institutional flow detection and support/resistance levels
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides comprehensive volume profile analysis including VWAP calculations,
-    volume-at-price distributions, institutional flow detection, and volume-based support
-    and resistance levels. It analyzes tick-by-tick volume data to identify high-volume
-    nodes (HVN), low-volume nodes (LVN), and point of control (POC) levels that are
-    crucial for options strategy entry and exit timing.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-06
-Last Updated: 2025-07-06 Time: 16:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -28,18 +28,18 @@ import sys
 import time
 import threading
 import json
-import bisect
 from datetime import datetime, timedelta, time as dt_time
 from typing import Dict, List, Optional, Tuple, Any, Set, Callable
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
-import statistics
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import bisect
+import statistics
+import math
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -60,10 +60,6 @@ from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager, Market
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Volume Profile Configuration
 DEFAULT_PRICE_LEVELS = 500  # Number of price levels for volume profile
 MIN_TICK_VOLUME = 1  # Minimum volume to consider
 VWAP_LOOKBACK_PERIODS = [20, 50, 100, 200]  # VWAP calculation periods

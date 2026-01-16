@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderI_Integration
 Module: SpyderI02_EventRouter_Clean.py
-Group: I (Integration)
-Purpose: Clean version of Event Router with simplified event handling
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    A simplified and cleaned version of the Event Router for lightweight
-    event handling. This module provides basic event routing capabilities
-    without the complex filtering and correlation features of the main
-    EventRouter. Designed for scenarios requiring minimal overhead.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-09-04
-Last Updated: 2025-09-28 Time: 14:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -34,9 +35,6 @@ import json
 import uuid
 import logging
 
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU07_Constants import LOG_CONFIG, TRADING_HOURS
     from SpyderU_Utilities.SpyderU08_Logger import setup_logger

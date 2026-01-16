@@ -1,55 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderR_Runtime
 Module: SpyderR01_BacktestEngine.py
-Group: R (Runtime Operations)
-Purpose: Core backtesting engine for STRATEGY LOGIC TESTING ONLY
-
-═══════════════════════════════════════════════════════════════════════
-⚠️ ⚠️ ⚠️  CRITICAL WARNING - READ BEFORE USING  ⚠️ ⚠️ ⚠️
-═══════════════════════════════════════════════════════════════════════
-
-This module is NOT for performance validation or profit estimation!
-
-OPTIONS BACKTESTING LIMITATIONS:
-❌ Cannot accurately simulate bid-ask spreads (often 10-50% of option value)
-❌ Cannot model realistic fills or liquidity constraints
-❌ Greeks drift rapidly with underlying movement
-❌ Assignment risk is not properly modeled
-❌ Market microstructure effects are ignored
-❌ Implied volatility surfaces are incomplete
-
-USE THIS MODULE ONLY FOR:
-✅ Testing strategy entry/exit logic
-✅ Debugging new features
-✅ Getting rough parameter boundaries
-✅ Stress testing risk management rules
-✅ Validating code functionality
-
-DO NOT USE FOR:
-❌ Performance validation
-❌ Profit/loss estimation
-❌ Trading decisions
-❌ Capital allocation
-
-For realistic performance data, use PAPER TRADING for 4-8 weeks,
-then analyze results with SpyderL07_PaperTradeLearner.py
-
-═══════════════════════════════════════════════════════════════════════
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-05-30
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import datetime
-import pandas as pd
-import numpy as np
 from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
@@ -59,6 +33,8 @@ import warnings
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pandas as pd
+import numpy as np
 from tqdm import tqdm
 
 # ==============================================================================
@@ -70,10 +46,6 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, Signa
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
 from Spyder.SpyderH_Storage.SpyderH02_TradeRepository import Trade
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Backtesting defaults - UNREALISTIC for options!
 DEFAULT_SLIPPAGE = 0.01  # Real options slippage is much higher
 DEFAULT_COMMISSION = 0.65  # Per contract
 UNREALISTIC_FILL_RATE = 1.0  # Assumes all orders fill - NOT REALISTIC!

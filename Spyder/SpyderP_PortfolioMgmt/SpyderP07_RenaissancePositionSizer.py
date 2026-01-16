@@ -1,45 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderP_PortfolioMgmt
 Module: SpyderP07_RenaissancePositionSizer.py
-Group: P (Portfolio Management)
-Purpose: Renaissance Technologies-inspired position sizing with confidence-based scaling
-
-Description:
-    This module implements position sizing strategies inspired by Renaissance Technologies'
-    systematic risk management approach. The key insight is that position size should be
-    proportional to signal confidence - higher confidence signals get larger allocations.
-
-Key Features:
-    - Confidence-based position sizing (scales with signal strength)
-    - Risk-per-trade limits with adjustable parameters
-    - Kelly Criterion-inspired optimal sizing
-    - Maximum portfolio risk controls
-    - Trade performance tracking with metrics
-
-Renaissance Philosophy:
-    "We're right 50.75 percent of the time... but we're 100 percent right 50.75 percent
-    of the time. You can make billions that way." - Renaissance Employee
-
-    The strategy is not about making a few large, correct bets, but about consistently
-    executing a small statistical edge over a massive number of trades with proper sizing.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-10
-Version: 1.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -47,10 +40,6 @@ from enum import Enum
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Default risk parameters (conservative Renaissance-style)
 DEFAULT_MAX_POSITION_SIZE = 0.05        # 5% of portfolio per position
 DEFAULT_MAX_PORTFOLIO_RISK = 0.02       # 2% max portfolio risk per trade
 DEFAULT_MIN_CONFIDENCE = 0.50           # Minimum confidence to trade

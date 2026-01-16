@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderK_Reports
 Module: SpyderK02_DailyTradingReport.py
-Group: K (Reports)
-Purpose: Comprehensive daily trading report generation
-
-Description:
-    This module generates detailed daily trading reports including P&L analysis,
-    position summaries, strategy performance, risk metrics, and execution quality.
-    Reports can be generated in multiple formats (PDF, HTML, Excel) with automated
-    distribution via email. Includes real-time intraday snapshots and end-of-day
-    comprehensive analysis.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-28
-Version: 1.0
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -28,12 +29,12 @@ from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-import io
 from collections import defaultdict
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import io
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -57,9 +58,6 @@ from Spyder.SpyderB_Broker.SpyderB03_PositionTracker import PositionTracker
 from Spyder.SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetricsCalculator
 from Spyder.SpyderJ_Alerts.SpyderJ02_EmailNotifier import EmailNotifier
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
 REPORT_TEMPLATES_DIR = Path("templates/reports")
 REPORT_OUTPUT_DIR = Path("reports/daily")
 REPORT_FORMATS = ["pdf", "html", "excel", "json"]

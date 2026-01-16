@@ -1,12 +1,34 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Mock TALIB module - provides stub functions when TALIB is not used
+SPYDER - Autonomous Options Trading System v1.0
 
-Since Spyder doesn't use TALIB, this module provides basic placeholder
-functions that return neutral/default values.
+Series: SpyderF_Analysis
+Module: mock_talib.py
+Purpose: Mock TALIB module - provides stub functions when TALIB is not used
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Mock TALIB module - provides stub functions when TALIB is not used
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import numpy as np
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 from typing import Union, Tuple
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
 
 def SMA(close, timeperiod=30):
     """Simple Moving Average stub"""

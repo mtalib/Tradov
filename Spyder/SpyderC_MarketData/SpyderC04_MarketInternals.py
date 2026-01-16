@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC04_MarketInternals.py
-Group: C (Market Data)
-Purpose: Market internals analysis (TICK, ADD, VOLD, TRIN, etc.)
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides comprehensive market internals analysis including NYSE TICK,
-    ADD (Advance/Decline), VOLD (Volume), TRIN (Arms Index), and other breadth
-    indicators. It monitors market sentiment, breadth divergences, and generates
-    trading signals based on market internal conditions.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-04
-Last Updated: 2025-01-06 Time: 10:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import json
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
 import os
-import statistics
 import sys
 import threading
 import time
@@ -34,24 +34,21 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Optional
 
-import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import statistics
+import numpy as np
 import pandas as pd
 from scipy import stats
 
-from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventBus, EventType
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventBus, EventType
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Internal symbols to track
 INTERNAL_SYMBOLS = {
     "TICK": "NYSE:TICK",  # NYSE Tick Index
     "TICKI": "NASDAQ:TICKI",  # Nasdaq Tick Index

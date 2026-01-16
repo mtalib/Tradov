@@ -1,16 +1,34 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Working SPYDER Dashboard - Simplified but Functional
-This launcher creates a working trading dashboard that can connect to IB Gateway
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderQ_Scripts
+Module: launch_spyder_working_dashboard.py
+Purpose: Working SPYDER Dashboard - Simplified but Functional
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Working SPYDER Dashboard - Simplified but Functional
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 import os
 import time
 from datetime import datetime
 from pathlib import Path
 
-# Add project root to path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 

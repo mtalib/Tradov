@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
-Module: SpyderT12_FullSystemIntegration_Fixed.py
-Group: T (Testing)
-Purpose: Complete AI Evolution + Spyder System Integration Testing (Fixed Version)
+Series: SpyderT_Testing
+Module: SpyderT12_FullSystemIntegration.py
+Purpose: SPYDER - Automated SPY Options Trading System
+
 Author: Mohamed Talib
-Date Created: 2025-07-21
-Last Updated: 2025-07-21 Time: 14:45:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Description:
-    Fixed version of the full system integration test that properly uses standalone mocks
-    and handles the OptionType attribute issue. Tests complete pipeline integration
-    with graceful fallbacks and proper error handling.
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -24,15 +27,15 @@ import sys
 import os
 from pathlib import Path
 import asyncio
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 
 # ==============================================================================
-# PROJECT IMPORTS
+# THIRD-PARTY IMPORTS
 # ==============================================================================
-# Add project root to Python path
+import numpy as np
+import pandas as pd
+
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 

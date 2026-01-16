@@ -1,34 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderT_Testing
 Module: SpyderT01_UnitTestFramework.py
-Group: T (Testing)
-Purpose: Comprehensive unit testing framework with automated test discovery and execution
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a professional-grade testing framework specifically designed
-    for the Spyder trading system. It includes automated test discovery, parallel
-    test execution, comprehensive mocking capabilities, performance testing, and
-    detailed reporting. The framework ensures system reliability through extensive
-    testing of all trading components.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Features:
-    • Automated test discovery across the entire codebase
-    • Parallel test execution for improved performance
-    • Comprehensive mocking for broker APIs and market data
-    • Performance and stress testing capabilities
-    • Code coverage analysis and reporting
-    • Integration with CI/CD pipelines
-    • Detailed test reporting with metrics and analytics
-    • Thread-safe operations with proper resource management
-    • Professional error handling and logging
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-03
-Last Updated: 2025-07-04 Time: 12:00:00
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -42,11 +31,6 @@ import asyncio
 import json
 import uuid
 import warnings
-import unittest
-import inspect
-import importlib
-import importlib.util
-import traceback
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Set, Callable, Union, Tuple, Type
 from dataclasses import dataclass, field, asdict
@@ -54,20 +38,24 @@ from collections import defaultdict, deque
 from enum import Enum, auto
 from pathlib import Path
 import copy
-import subprocess
-import tempfile
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-import multiprocessing
+from threading import Lock, Event as ThreadEvent, RLock
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import unittest
+import inspect
+import importlib
+import importlib.util
+import traceback
+import subprocess
+import tempfile
+from unittest.mock import Mock, MagicMock, patch, AsyncMock
+import multiprocessing
 import numpy as np
 import pandas as pd
-from threading import Lock, Event as ThreadEvent, RLock
 
-# Testing frameworks
 try:
     import pytest
     HAS_PYTEST = True

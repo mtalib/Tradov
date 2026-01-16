@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderL12_RealTimePredictor.py
-Group: L (Machine Learning)
-Purpose: Real-time inference engine with low-latency predictions
-
-Description:
-    This module provides a high-performance real-time prediction engine
-    optimized for low-latency trading decisions. It includes feature caching,
-    model warm-up, batch prediction capabilities, and performance monitoring
-    to ensure predictions are delivered within strict latency requirements.
+Series: SpyderL_ML
+Module: SpyderL14_RealTimePredictor.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2024-12-20
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -28,14 +30,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
-import numpy as np
 from pathlib import Path
-import pickle
 import json
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pickle
 import pandas as pd
 from sklearn.base import BaseEstimator
 import joblib
@@ -46,6 +48,7 @@ import joblib
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
+
     MAX_PREDICTION_LATENCY_MS,
     FEATURE_CACHE_SIZE,
     PREDICTION_BATCH_SIZE

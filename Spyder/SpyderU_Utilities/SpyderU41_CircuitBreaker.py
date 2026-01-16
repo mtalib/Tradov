@@ -1,44 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Circuit Breaker
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderU_Utilities/SpyderU41_CircuitBreaker.py
-Purpose: Circuit breaker pattern for resilient API calls
-Author: Spyder Development Team
+Series: SpyderU_Utilities
+Module: SpyderU41_CircuitBreaker.py
+Purpose: SPYDER - Circuit Breaker
+
+Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-11-24
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    Implements circuit breaker pattern to prevent cascading failures when
-    external services (APIs) become unavailable. Automatically stops calling
-    failing services and retries after cooldown period.
+    SPYDER - Circuit Breaker
 
-Features:
-    - Three states: CLOSED (normal), OPEN (failing), HALF_OPEN (testing)
-    - Configurable failure threshold
-    - Automatic recovery testing
-    - Async/await support
-    - Decorator for easy integration
-    - Per-service circuit breakers
-
-Circuit Breaker States:
-    CLOSED: Normal operation, requests pass through
-    OPEN: Too many failures, requests fail immediately
-    HALF_OPEN: Testing if service recovered, limited requests
-
-Usage:
-    # As decorator
-    @circuit_breaker(failure_threshold=5, recovery_timeout=60)
-    async def api_call():
-        ...
-
-    # Manual usage
-    breaker = CircuitBreaker(failure_threshold=3)
-    async with breaker:
-        await risky_operation()
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import asyncio
 import time
 from typing import Optional, Callable, Any
@@ -46,6 +30,10 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from functools import wraps
 import threading
+
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import get_logger
 
 logger = get_logger(__name__)

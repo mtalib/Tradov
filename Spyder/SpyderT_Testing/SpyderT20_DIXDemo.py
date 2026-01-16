@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderS02_DIXDemo.py
-Group: S (Signals)
-Purpose: DIX Demo Calculator Using Major S&P 500 Stocks
+Series: SpyderT_Testing
+Module: SpyderT20_DIXDemo.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a demonstration version of the DIX calculator using
-    approximately 50 major S&P 500 stocks for faster execution and testing.
-    It maintains the same calculation methodology as the full version but with
-    a reduced dataset, making it ideal for development, testing, and real-time
-    applications where speed is critical.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Author: Manus AI
-Date Created: 2025-07-14
-Last Updated: 2025-07-15 Time: 11:15:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,20 +31,17 @@ from enum import Enum
 from datetime import datetime, timedelta
 import time
 import warnings
-from io import StringIO
+import logging
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+from io import StringIO
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import requests
-import logging
 
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler

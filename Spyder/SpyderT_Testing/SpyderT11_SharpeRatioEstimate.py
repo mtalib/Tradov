@@ -1,29 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderT_Testing
 Module: SpyderT11_SharpeRatioEstimate.py
-Group: T (Testing)
-Purpose: Calculate and display Spyder's Sharpe Ratio estimate
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This test script calculates Spyder's estimated Sharpe Ratio using the
-    SpyderU15_PerformanceMetrics module. It generates simulated returns based
-    on the elite evolved strategy performance (fitness 0.949) to provide an
-    estimate of the system's risk-adjusted returns.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI Assistant
-Date Created: 2025-10-22
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 from pathlib import Path
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import numpy as np
 import pandas as pd
 
-# Add project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 

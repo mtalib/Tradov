@@ -1,32 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU14_OptionStrategies.py
-Group: U (Utilities)
-Purpose: Options strategy utilities and payoff calculations
-
-Description:
-    This module provides utilities for options strategy construction, payoff
-    calculations, and risk analysis. Inspired by QuantConnect LEAN's
-    OptionStrategies helper class, it offers atomic strategy creation for
-    complex multi-leg options strategies with built-in validation.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-07-18
-Version: 1.5
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import math
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # ==============================================================================
-# STANDARD IMPORTS
+# THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
 import numpy as np
 import pandas as pd
 
@@ -36,9 +41,6 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
 RISK_FREE_RATE = 0.05  # 5% default risk-free rate
 DAYS_PER_YEAR = 365.25
 CONTRACT_MULTIPLIER = 100

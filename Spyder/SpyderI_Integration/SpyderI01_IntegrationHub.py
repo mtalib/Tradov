@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderI_Integration
 Module: SpyderI01_IntegrationHub.py
-Group: I (Integration)
-Purpose: Central integration coordinator for all SPYDER modules
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    The Integration Hub serves as the central coordinator for all module
-    integrations within the SPYDER ecosystem. It manages module discovery,
-    registration, health monitoring, and communication routing between
-    components. Features include automatic module detection, dependency
-    resolution, real-time health monitoring, configuration synchronization,
-    and intelligent routing of events and data between modules.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 16:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -27,9 +26,6 @@ Last Updated: 2025-07-01 Time: 16:00:00
 import asyncio
 import threading
 import time
-import inspect
-import importlib
-import pkgutil
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Set, Callable, Tuple, Union
 from dataclasses import dataclass, field
@@ -37,12 +33,15 @@ from enum import Enum, auto
 from collections import defaultdict, deque
 import json
 import uuid
-import weakref
 from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import inspect
+import importlib
+import pkgutil
+import weakref
 import networkx as nx
 from networkx.algorithms import dag
 
@@ -53,10 +52,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Module discovery patterns
 SPYDER_MODULE_PATTERN = r"Spyder[A-Z]\d+_.*\.py"
 MODULE_GROUPS = {
     'A': 'Core', 'B': 'Broker', 'C': 'MarketData', 'D': 'Strategies',

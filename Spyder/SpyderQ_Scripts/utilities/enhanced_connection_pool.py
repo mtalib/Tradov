@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Enhanced Connection Pool using EnhancedConnectionManager
+SPYDER - Autonomous Options Trading System v1.0
 
-This connection pool uses the same connection method that works for the dashboard
-(EnhancedConnectionManager) instead of direct ib_async calls that fail with timeouts.
+Series: SpyderX_Unknown
+Module: enhanced_connection_pool.py
+Purpose: Enhanced Connection Pool using EnhancedConnectionManager
 
-Key features:
-- Uses the proven EnhancedConnectionManager approach
-- Connection pooling for efficient resource usage
-- Thread-safe borrowing and returning
-- Automatic connection health monitoring
-- Integration with existing Spyder error handling
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Spyder Trading System
-Version: 1.0.0
+Module Description:
+    Enhanced Connection Pool using EnhancedConnectionManager
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import asyncio
 import logging
 import threading
@@ -24,10 +31,17 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from queue import Queue, Empty
 from typing import Dict, List, Optional, Any
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import weakref
 
-# Spyder imports
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
 from Spyder.SpyderB_Broker.SpyderB29_EnhancedConnectionManager import (
+
     get_connection_manager,
     ConnectionConfig,
     TradingMode,

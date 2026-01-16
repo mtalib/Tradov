@@ -1,17 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Test script for GUI logging integration.
+SPYDER - Autonomous Options Trading System v1.0
 
-This script demonstrates how to test the GUI log handler
-without running the full trading system.
+Series: SpyderQ_Scripts
+Module: test_gui_logging.py
+Purpose: Test script for GUI logging integration.
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Test script for GUI logging integration.
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 import logging
 from pathlib import Path
 
-# Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 

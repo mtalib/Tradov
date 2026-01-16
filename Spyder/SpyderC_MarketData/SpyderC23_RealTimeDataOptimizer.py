@@ -1,68 +1,51 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderC_MarketData
 Module: SpyderC23_RealTimeDataOptimizer.py
-Purpose: Ultra-low latency data optimization engine for F16 real-time analytics
+Purpose: SPYDER - Autonomous Options Trading System v1.0
+
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-30 Time: 23:00:00
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    Advanced real-time data optimization engine that minimizes latency and maximizes
-    throughput for F16 Real-time Analytics. Implements microsecond-precision data
-    processing, intelligent buffering, priority-based routing, and hardware-optimized
-    data structures. Designed for institutional-grade high-frequency trading systems
-    where every microsecond matters for alpha generation.
+    SPYDER - Autonomous Options Trading System v1.0
 
-Key Features:
-    - Microsecond-precision data processing with hardware optimization
-    - Priority-based data routing for critical vs non-critical data
-    - Intelligent pre-filtering and data compression techniques
-    - Lock-free data structures for maximum concurrency
-    - Memory-mapped data buffers for zero-copy operations
-    - NUMA-aware processing with CPU affinity management
-    - Real-time latency monitoring and automatic optimization
-    - Direct memory access (DMA) simulation for ultra-fast I/O
-
-Dependencies:
-    - numpy>=1.24.0
-    - pandas>=2.0.0
-    - asyncio>=3.9.0
-    - psutil>=5.9.0 (for system optimization)
-    - numba>=0.58.0 (optional, for JIT compilation)
-    - mmap (built-in, for memory mapping)
-    - SpyderU01_Logger
-    - SpyderU02_ErrorHandler
-    - SpyderC21_FSeriesIntegrationHub (integration)
-    - SpyderF16_RealTimeAnalytics (target)
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-import mmap
 import time
 import threading
 import logging
 import warnings
-import ctypes
-import struct
 from typing import Dict, List, Tuple, Optional, Any, Callable, Union
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty
-import multiprocessing as mp
 import os
 
-# Core libraries
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import mmap
+import ctypes
+import struct
+import multiprocessing as mp
 import numpy as np
 import pandas as pd
 
-# Optional performance libraries
 try:
     from numba import jit, types
     from numba.typed import Dict as NumbaDict, List as NumbaList

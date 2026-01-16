@@ -1,47 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU20_InstitutionalLibraries.py
-Group: U (Utilities)
-Purpose: Institutional-grade library integration and wrapper functions
-Author: SPYDER Institutional Team
-Date Created: 2025-07-19
-Last Updated: 2025-07-21 Time: 15:00:00
-Version: 1.3 - Complete Integration with OptionType Fix
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides unified interfaces to institutional-grade libraries
-    including QuantLib for options pricing, enhanced performance analytics,
-    and other professional trading tools. It abstracts complex library usage
-    into simple, consistent APIs optimized for SPY options trading.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Key Features:
-    - QuantLib options pricing integration with proper OptionType support
-    - Advanced portfolio analytics with PyFolio
-    - Professional risk metrics with RiskFolio-Lib  
-    - Stable-Baselines3 RL integration
-    - Institutional data source connectors
-    - Performance optimization utilities
-    - Comprehensive error handling and fallback mechanisms
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
-Dependencies:
-    - quantlib-python>=1.31
-    - pyfolio-reloaded>=0.2.2
-    - empyrical-reloaded>=0.5.5
-    - riskfolio-lib>=4.3.0
-    - stable-baselines3[extra]>=2.0.0
-    - ray[rllib]>=2.5.0
-
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Tuple, Any, Union, Callable
 from dataclasses import dataclass, field
@@ -55,12 +37,17 @@ import os
 import sys
 
 # ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+
+# ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# Import OptionType from constants (CRITICAL FIX)
 try:
     from SpyderU_Utilities.SpyderU07_Constants import OptionType
     OPTIONTYPE_AVAILABLE = True

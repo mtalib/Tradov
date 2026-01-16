@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderG_GUI
 Module: SpyderG03_OptionChainWidget.py
-Group: G (GUI)
-Purpose: Option chain display widget
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a comprehensive option chain display widget for the
-    Spyder trading system. It shows real-time option prices, Greeks, volume,
-    and open interest with interactive features for trade execution.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Spyder Team
-Date: 2024
-Version: 1.0
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -28,6 +31,7 @@ from datetime import datetime, date
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtWidgets import (
+
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QLabel, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox
 )

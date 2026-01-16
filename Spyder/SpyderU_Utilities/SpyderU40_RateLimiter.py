@@ -1,37 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Rate Limiter
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderU_Utilities/SpyderU40_RateLimiter.py
-Purpose: Rate limiting for API calls to prevent bans
-Author: Spyder Development Team
+Series: SpyderU_Utilities
+Module: SpyderU40_RateLimiter.py
+Purpose: SPYDER - Rate Limiter
+
+Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-11-24
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    Implements token bucket rate limiting for API calls. Prevents hitting
-    API rate limits for Tradier, Polygon, and other external services.
+    SPYDER - Rate Limiter
 
-Features:
-    - Token bucket algorithm
-    - Async/await support
-    - Decorator for easy integration
-    - Per-endpoint rate limiting
-    - Burst handling
-    - Thread-safe
-
-Usage:
-    # As decorator
-    @rate_limit(requests_per_second=10)
-    async def api_call():
-        ...
-
-    # As context manager
-    async with RateLimiter(requests_per_second=5):
-        await make_api_call()
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import asyncio
 import time
 from typing import Optional, Dict
@@ -39,7 +30,6 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from functools import wraps
 import threading
-
 
 @dataclass
 class TokenBucket:

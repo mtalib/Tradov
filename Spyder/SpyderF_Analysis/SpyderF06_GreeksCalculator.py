@@ -1,37 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF06_GreeksCalculator.py
-Group: F (Technical Analysis)
-Purpose: Advanced Greeks calculation for options with American options support
-         
-Description:
-    This module provides advanced Greeks calculations for both European and American
-    options. It includes Black-Scholes for European options and Binomial/Trinomial
-    trees for American options, with support for dividends and volatility smile.
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Author: Claude AI (Improvements by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added American options, dividends, and volatility smile
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import math
 from typing import Dict, Optional, Tuple, Union, List
 from enum import Enum
 from datetime import datetime, timedelta
-import numpy as np
-from scipy.stats import norm
-from scipy.optimize import minimize_scalar, brentq
 import warnings
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import numpy as np
+from scipy.stats import norm
+from scipy.optimize import minimize_scalar, brentq
 import pandas as pd
 from numba import jit, prange
 import cachetools
@@ -43,9 +46,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
 
-# ==============================================================================
-# ENUMS
-# ==============================================================================
 class PricingModel(Enum):
     """Supported pricing models."""
     BLACK_SCHOLES = "black_scholes"

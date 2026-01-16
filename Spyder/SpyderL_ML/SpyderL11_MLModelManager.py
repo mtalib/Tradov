@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderL_ML
 Module: SpyderL11_MLModelManager.py
-Group: L (Machine Learning)
-Purpose: Model versioning, deployment, and A/B testing
-
-Description:
-    This module manages the ML model lifecycle including versioning, deployment,
-    A/B testing, performance tracking, and model governance. It provides a
-    centralized system for managing multiple model versions, conducting
-    experiments, and ensuring smooth model transitions in production.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2024-12-20
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -23,35 +25,28 @@ Version: 1.4
 # ==============================================================================
 import os
 import json
-import pickle
-import hashlib
-import shutil
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import threading
 from collections import defaultdict, deque
-import numpy as np
 from pathlib import Path
 import uuid
+import os
+from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pickle
+import hashlib
+import shutil
+import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 import joblib
 
-# ==============================================================================
-
-# ==============================================================================
-# ML MODEL CONSTANTS
-# ==============================================================================
-import os
-from pathlib import Path
-
-# Model storage directory
 MODEL_BASE_DIR = Path.home() / ".spyder" / "models"
 MODEL_BASE_DIR.mkdir(parents=True, exist_ok=True)
 

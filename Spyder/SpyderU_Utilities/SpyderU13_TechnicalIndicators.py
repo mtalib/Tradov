@@ -1,37 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU13_TechnicalIndicators.py
-Group: U (Utilities)
-Purpose: Technical analysis indicators and calculations
-
-Description:
-    This module provides a comprehensive suite of technical analysis indicators
-    optimized for options trading strategies. It includes RSI, MACD, Bollinger
-    Bands, Stochastic, Moving Averages, and other key indicators with efficient
-    calculations and configurable parameters for real-time trading analysis.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date Created: 2025-07-18
-Last Updated: 2025-07-18 Time: 12:15:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import math
 import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import numpy as np
 import pandas as pd
 
 # ==============================================================================
@@ -40,10 +41,6 @@ import pandas as pd
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Default indicator parameters
 DEFAULT_RSI_PERIOD = 14
 DEFAULT_MACD_FAST = 12
 DEFAULT_MACD_SLOW = 26

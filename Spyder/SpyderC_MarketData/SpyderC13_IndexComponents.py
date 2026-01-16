@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC13_IndexComponents.py
-Group: C (Market Data)
-Purpose: S&P 500 index component analysis and breadth indicators
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides comprehensive analysis of S&P 500 component stocks
-    including breadth metrics, sector rotation detection, market cap weighted
-    analysis, and identification of leading/lagging stocks. It helps identify
-    underlying market strength beyond the index level and provides early
-    warning signals for market turns.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-12-28
-Last Updated: 2025-12-28 Time: 10:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -53,10 +53,6 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import TimeFrame, MARKET_SECTO
 from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeed
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# S&P 500 Configuration
 SP500_UPDATE_INTERVAL = 3600  # Update component list hourly
 PRICE_UPDATE_INTERVAL = 60    # Update prices every minute
 BREADTH_CALC_INTERVAL = 5     # Calculate breadth every 5 seconds

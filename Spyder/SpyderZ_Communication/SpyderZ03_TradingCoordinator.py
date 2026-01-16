@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderZ_Communication
 Module: SpyderZ03_TradingCoordinator.py
-Group: Z (Communication Infrastructure)
-Purpose: Enhanced trading coordinator with redundancy and state persistence
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements a fault-tolerant central trading coordinator with:
-    - High availability through redundancy and failover
-    - State persistence and recovery mechanisms
-    - Load balancing across multiple engines
-    - Message ordering guarantees
-    - Comprehensive monitoring and debugging
-    - Distributed consensus for critical operations
-    - Automatic backup and restore capabilities
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 2.0
-Author: SPYDER Team
-Date: 2025-01-03
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -29,9 +27,7 @@ import os
 import sys
 import time
 import json
-import pickle
 import threading
-import multiprocessing as mp
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Callable, Set
 from dataclasses import dataclass, field, asdict
@@ -39,14 +35,16 @@ from enum import Enum, auto
 import uuid
 import logging
 from collections import defaultdict, deque, OrderedDict
-import heapq
-import sqlite3
 from pathlib import Path
-import hashlib
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pickle
+import multiprocessing as mp
+import heapq
+import sqlite3
+import hashlib
 import zmq
 import pandas as pd
 import numpy as np
@@ -55,6 +53,7 @@ import numpy as np
 # LOCAL IMPORTS
 # ==============================================================================
 from SpyderZ01_ZeroMQIntegration import (
+
     SpyderMessage, MessageType, SpyderCommHub,
     ConnectionState, CircuitBreaker, PRIORITY_CRITICAL,
     PRIORITY_HIGH, PRIORITY_NORMAL

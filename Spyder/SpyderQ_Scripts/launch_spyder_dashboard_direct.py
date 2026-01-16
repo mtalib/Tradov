@@ -1,10 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Direct Dashboard Launcher
-Bypasses connection timeout issues by launching dashboard with direct connection management
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderQ_Scripts
+Module: launch_spyder_dashboard_direct.py
+Purpose: SPYDER - Direct Dashboard Launcher
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Direct Dashboard Launcher
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 import os
 import time
@@ -13,7 +31,6 @@ import asyncio
 import logging
 from pathlib import Path
 
-# Add project root to Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 

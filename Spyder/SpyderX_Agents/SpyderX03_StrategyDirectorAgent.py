@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX03_StrategyDirectorAgent.py
-Group: X (AI Agents)
-Purpose: AI-Enhanced Strategy Selection and Management Agent
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This agent replaces traditional rule-based strategy selection with intelligent
-    AI-driven decision making. It analyzes market conditions, portfolio state, and
-    risk parameters to dynamically select optimal trading strategies. The agent
-    integrates with Ollama for advanced pattern recognition and strategy optimization,
-    managing multiple concurrent strategies with real-time adaptation.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-17
-Last Updated: 2025-01-28 Time: 15:30
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,15 +31,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from collections import defaultdict, deque
-import hashlib
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import hashlib
 import numpy as np
 import pandas as pd
 
-# Ollama integration
 try:
     import ollama
     OLLAMA_AVAILABLE = True

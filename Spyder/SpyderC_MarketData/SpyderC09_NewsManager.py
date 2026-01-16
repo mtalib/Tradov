@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC09_NewsManager.py
-Group: C (Market Data)
-Purpose: Real-time news aggregation and sentiment analysis
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides real-time news aggregation from multiple sources,
-    performs advanced NLP sentiment analysis, assesses market impact, and
-    generates trading signals based on news flow. It specializes in Fed/Economic
-    news and breaking market events.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-05
-Last Updated: 2025-01-06 Time: 11:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -33,11 +34,11 @@ import threading
 import time
 from collections import deque, defaultdict
 import re
-import hashlib
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import hashlib
 import pandas as pd
 import numpy as np
 from textblob import TextBlob
@@ -52,10 +53,6 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventType, EventBus
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# News sources (would be configured with actual API keys)
 NEWS_SOURCES = {
     'bloomberg': 'https://www.bloomberg.com/feeds/news',
     'reuters': 'https://www.reuters.com/feeds/news',

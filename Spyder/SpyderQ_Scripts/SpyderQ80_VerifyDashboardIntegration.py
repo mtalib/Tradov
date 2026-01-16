@@ -1,33 +1,42 @@
 #!/usr/bin/env python3
-# ===============================================================================
-# SPYDER - Autonomous Options Trading System
-#
-# Spyder Version: 1.0
-# Module: SpyderQ80_VerifyDashboardIntegration.py
-# Group: Q (Scripts)
-# Purpose: Verify dashboard integration with all system components
-# Author: Mohamed Talib
-# Date Created: 2025-01-11
-# Last Updated: 2025-01-11 Time: 19:30:00
-#
-# Description:
-#     Comprehensive verification script that tests dashboard integration with
-#     all Spyder components including GUI modules, Prometheus metrics, risk
-#     parameters, system health monitoring, and multi-client connections.
-#     Ensures proper data flow between Q-series scripts and dashboard panels.
-# ===============================================================================
+# -*- coding: utf-8 -*-
+"""
+SPYDER - Autonomous Options Trading System v1.0
 
-import importlib
+Series: SpyderQ_Scripts
+Module: SpyderQ80_VerifyDashboardIntegration.py
+Purpose: Verify dashboard integration with all system components
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Verify dashboard integration with all system components
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
+"""
+
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# Add Spyder home to path
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import importlib
+import subprocess
+
 SPYDER_HOME = os.environ.get("SPYDER_HOME", "/home/adam/Projects/Spyder")
 sys.path.insert(0, SPYDER_HOME)
 

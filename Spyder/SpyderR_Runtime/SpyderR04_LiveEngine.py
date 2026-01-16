@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderR_Runtime
 Module: SpyderR04_LiveEngine.py
-Group: R (Runtime Operations)
-Purpose: Live trading execution engine with safety controls
-
-Description:
-    This module manages live trading operations with comprehensive safety checks,
-    position monitoring, and real-time execution. It coordinates between the trading
-    engine, broker interface, and risk management systems to ensure safe and
-    reliable live trading operations.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Spyder Version: 1.0
-Last Updated: 2025-01-17 Time: 16:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,23 +33,19 @@ from datetime import datetime, time, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
 import pandas as pd
 
-from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventType
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventType
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Trading hours (ET)
 MARKET_OPEN = time(9, 30)
 MARKET_CLOSE = time(16, 0)
 EXTENDED_HOURS_START = time(4, 0)

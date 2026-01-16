@@ -1,50 +1,30 @@
-from enum import Enum
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU03_DateTimeUtils.py
-Group: U (Utilities)
-Purpose: Trading hours and date utilities with research-driven time windows
-
-Description:
-    This module provides comprehensive date and time utilities for trading
-    operations. It handles market hours, trading days, holidays, time zone
-    conversions, and special trading sessions. Includes research-driven
-    optimal entry windows (10:15-11:40 AM) and time-based exits (12:00 PM).
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-06
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import calendar
-import warnings
-from datetime import date, datetime, time, timedelta, timezone
-from functools import lru_cache
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from zoneinfo import ZoneInfo
+from enum import Enum
 
-import numpy as np
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-import pandas as pd
-import pytz
-
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-
-# ==============================================================================
-# CONSTANTS - UPDATED WITH RESEARCH FINDINGS
-# ==============================================================================
-# Time zones
 US_EASTERN = "US/Eastern"
 UTC = "UTC"
 

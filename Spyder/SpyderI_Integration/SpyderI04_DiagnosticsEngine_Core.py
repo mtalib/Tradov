@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderI_Integration
 Module: SpyderI04_DiagnosticsEngine_Core.py
-Group: I (Integration)
-Purpose: Core diagnostics engine and main coordination
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Core diagnostics engine that coordinates all diagnostic activities including
-    health monitoring, issue detection, and report generation. This is the main
-    entry point for the diagnostics subsystem.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 17:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -35,6 +37,7 @@ from concurrent.futures import ThreadPoolExecutor
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import (
+
     PerformanceCalculator as PerformanceMetrics,
 )
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event

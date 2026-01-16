@@ -1,26 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - IB Gateway Handshake Diagnostic Test
+SPYDER - Autonomous Options Trading System v1.0
 
-Purpose: Detailed diagnostic test to identify handshake timeout issues
-Author: Claude AI Assistant
+Series: SpyderT_Testing
+Module: detailed_handshake_test.py
+Purpose: SPYDER - IB Gateway Handshake Diagnostic Test
+
+Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-27
+Last Updated: 2026-01-16 Time: 19:25:06
 
-This test performs step-by-step diagnostics of the IB Gateway connection
-including TCP connection, API handshake, and authentication flow.
+Module Description:
+    SPYDER - IB Gateway Handshake Diagnostic Test
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import socket
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import time
 import threading
 import sys
 from datetime import datetime
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import socket
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.common import OrderId, TickerId
-
 
 class DetailedHandshakeTest(EClient, EWrapper):
     """Comprehensive IB Gateway handshake diagnostic test"""

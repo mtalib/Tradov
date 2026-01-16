@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF07_GapAnalyzer.py
-Group: F (Technical Analysis)
-Purpose: Gap analysis with news event correlation
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module analyzes price gaps including overnight gaps, intraday gaps,
-    and gap fills. It correlates gaps with news events to identify news-driven
-    moves versus technical gaps.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI (Enhanced by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added news event correlation and enhanced statistics
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -24,12 +27,12 @@ from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
 from datetime import datetime, timedelta, time
 from dataclasses import dataclass, field
-import numpy as np
-import pandas as pd
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pandas as pd
 from scipy import stats
 
 # ==============================================================================
@@ -41,9 +44,6 @@ from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import FeatureFlags
 from Spyder.SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
 
-# ==============================================================================
-# ENUMS
-# ==============================================================================
 class GapType(Enum):
     """Types of gaps."""
     COMMON = "common"           # Small, likely to fill

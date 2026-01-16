@@ -1,56 +1,30 @@
-from typing import List, Dict, Optional
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderM_Monitoring
 Module: SpyderM04_TradingMetrics.py
-Group: M (Monitoring & Analytics)
-Purpose: Real-time trading metrics and performance monitoring
-
-Description:
-    This module provides comprehensive real-time monitoring of trading performance,
-    including P&L tracking, win rate analysis, strategy performance metrics, and
-    risk-adjusted returns. It aggregates data from multiple sources to provide
-    a unified view of trading system performance.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Spyder Version: 1.0
-Last Updated: 2025-01-17 Time: 16:30
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import os
-import sys
-from typing import Dict, List, Optional, Any, Tuple, Set
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, date
-from enum import Enum, auto
-import threading
-from collections import defaultdict, deque
-import statistics
-import json
-import math
+from typing import List, Dict, Optional
 
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-import pandas as pd
-import numpy as np
-
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventType
-
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Update intervals
 METRICS_UPDATE_INTERVAL = 5  # seconds
 AGGREGATE_INTERVAL = 60  # seconds
 REPORT_INTERVAL = 300  # 5 minutes

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
+Series: SpyderT_Testing
 Module: SpyderT10_DashboardRisk.py
-Group: T (Testing)
-Purpose: Risk Parameters Integration Testing for SPYDER Dashboard
+Purpose: SPYDER - Automated SPY Options Trading System
+
 Author: Mohamed Talib
-Date Created: 2025-01-20 
-Last Updated: 2025-01-20 Time: 16:45:00  
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Description:
-    This module provides comprehensive testing and integration capabilities for the
-    Risk Parameters Dialog with the SPYDER Dashboard. It includes monkey-patching
-    functionality, standalone testing modes, integration validation, and comprehensive
-    risk parameter management testing. Ensures seamless integration between risk
-    configuration and dashboard operations with real-time monitoring capabilities.
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -35,10 +35,6 @@ import json
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QTimer
 
-# ==============================================================================
-# LOCAL IMPORTS
-# ==============================================================================
-# Initialize global variables
 show_risk_parameters_dialog = None
 RISK_DIALOG_AVAILABLE = False
 DASHBOARD_AVAILABLE = False

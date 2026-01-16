@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC11_FuturesBasis.py
-Group: C (Market Data)
-Purpose: ES/SPY basis analysis and arbitrage opportunities
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module analyzes the basis between ES futures and SPY ETF to identify
-    arbitrage opportunities, fair value calculations, and market inefficiencies.
-    It provides real-time basis monitoring, dividend tracking, interest rate
-    adjustments, and automated alerts for profitable trading opportunities.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 15:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -27,18 +28,18 @@ import sys
 import time
 import threading
 import json
-import bisect
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Tuple, Any, Set, Deque
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from enum import Enum, auto
 import warnings
-import math
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import bisect
+import math
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -60,10 +61,6 @@ from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeed
 from Spyder.SpyderC_MarketData.SpyderC02_HistoricalData import HistoricalDataManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# ES Futures specifications
 ES_MULTIPLIER = 50  # ES futures multiplier
 ES_TICK_SIZE = 0.25  # Minimum tick size
 ES_TICK_VALUE = 12.50  # Value per tick

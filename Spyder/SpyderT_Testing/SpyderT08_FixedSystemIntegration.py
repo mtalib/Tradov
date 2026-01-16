@@ -1,19 +1,40 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Fixed Full System Integration Test - Corrected Import Paths
-Tests the complete pipeline with proper module imports
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderT_Testing
+Module: SpyderT08_FixedSystemIntegration.py
+Purpose: Fixed Full System Integration Test - Corrected Import Paths
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Fixed Full System Integration Test - Corrected Import Paths
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import asyncio
 import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import numpy as np
 import pandas as pd
 
-# Add project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 

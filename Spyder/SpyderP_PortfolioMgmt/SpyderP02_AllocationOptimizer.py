@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderP_PortfolioMgmt
 Module: SpyderP02_AllocationOptimizer.py
-Group: P (Portfolio Management)
-Purpose: ML-driven strategy allocation optimization
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides sophisticated machine learning-driven capital allocation
-    optimization using Modern Portfolio Theory, Black-Litterman models, risk parity,
-    Kelly Criterion, and advanced ML techniques. It combines quantitative finance
-    methods with machine learning to dynamically optimize strategy allocations
-    based on market regimes, performance predictions, and risk-return objectives.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 19:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -38,11 +38,11 @@ from collections import defaultdict, deque
 from enum import Enum, auto
 from pathlib import Path
 import copy
-import pickle
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import pickle
 import numpy as np
 import pandas as pd
 from scipy import stats, optimize, linalg
@@ -50,8 +50,6 @@ from scipy.stats import norm, multivariate_normal
 import plotly.graph_objects as go
 import plotly.express as px
 import seaborn as sns
-
-# Machine Learning
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler, RobustScaler
@@ -60,8 +58,6 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.cluster import KMeans
 import xgboost as xgb
 import lightgbm as lgb
-
-# Optimization
 from scipy.optimize import minimize, differential_evolution
 import cvxpy as cp
 import cvxopt
@@ -77,14 +73,11 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
-
-# Market data and analysis
 from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer, VIXRegime
 from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
 from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
 from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
 
-# Portfolio components
 try:
     from SpyderP_Portfolio.SpyderP01_PortfolioManager import PortfolioManager, StrategyAllocation
     from SpyderI_Integration.SpyderI01_IntegrationHub import get_integration_hub

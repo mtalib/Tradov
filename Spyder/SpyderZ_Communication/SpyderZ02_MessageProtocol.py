@@ -1,48 +1,49 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderZ_Communication
 Module: SpyderZ02_MessageProtocol.py
-Group: Z (Communication Infrastructure)
-Purpose: Enhanced message protocol with strict validation and versioning
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides a production-grade message protocol system with:
-    - Strict schema validation using JSON Schema
-    - Protocol version control and migration
-    - Message compression for large payloads
-    - Priority-based message handling
-    - Comprehensive type checking and validation
-    - Backward compatibility support
-    - Message encryption for sensitive data
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: SPYDER Team
-Date: 2025-01-03
-Version: 2.0
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
 import json
 import time
-import zlib
-import hashlib
-import base64
 from datetime import datetime, date
-from decimal import Decimal
 from typing import Dict, List, Optional, Any, Union, Type, Callable, Set
 from dataclasses import dataclass, asdict, field
 from enum import Enum, auto
 import uuid
 import logging
 from collections import defaultdict
-import jsonschema
-from jsonschema import validate, ValidationError
 import warnings
 
-# Optional MessagePack for efficient serialization
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import zlib
+import hashlib
+import base64
+from decimal import Decimal
+import jsonschema
+from jsonschema import validate, ValidationError
+
 try:
     import msgpack
     MSGPACK_AVAILABLE = True

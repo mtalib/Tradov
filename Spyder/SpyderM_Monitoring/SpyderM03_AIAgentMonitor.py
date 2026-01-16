@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderM_Monitoring
 Module: SpyderM03_AIAgentMonitor.py
-Group: M (Monitoring & Analytics)
-Purpose: Monitor AI agent performance and health
-
-Description:
-    This module provides comprehensive monitoring for all AI agents in the Spyder
-    system. It tracks performance metrics, resource usage, error rates, and provides
-    alerts when agents are underperforming or experiencing issues. The module
-    integrates with the AI Agent Manager to provide real-time visibility.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Spyder Version: 1.0
-Last Updated: 2025-01-17 Time: 16:15
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -29,12 +31,12 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 import threading
 from collections import defaultdict, deque
-import statistics
 import json
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import statistics
 import pandas as pd
 import numpy as np
 
@@ -46,10 +48,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventType
 from Spyder.SpyderU_Utilities.SpyderU12_AgentIntegration import AgentStatus, AgentMetrics
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Monitoring intervals
 AGENT_CHECK_INTERVAL = 30  # seconds
 METRICS_COLLECTION_INTERVAL = 60  # seconds
 ALERT_CHECK_INTERVAL = 15  # seconds

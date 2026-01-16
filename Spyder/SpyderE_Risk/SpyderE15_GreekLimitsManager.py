@@ -1,58 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from typing import List, Dict, Optional, Any, Union, Tuple
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderE03_GreekLimitsManager.py (Enhanced with Dynamic Risk Adaptation)
-Group: E (Risk Management)
-Purpose: Real-time Greek limits monitoring with adaptive risk management
+Series: SpyderE_Risk
+Module: SpyderE15_GreekLimitsManager.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Enhanced Greek limits manager that dynamically adapts risk thresholds based
-    on market conditions, volatility regimes, and real-time market data. Features
-    include VIX-based limit adjustments, regime-aware risk scaling, correlation
-    breakdowns detection, and predictive risk modeling. The system integrates
-    with SPYDER's ML modules for intelligent risk adaptation and provides
-    institutional-grade risk management with 5-second monitoring intervals.
-
-Spyder Version: 1.0
 Author: Mohamed Talib
-Created: 2025-06-13
-Enhanced: 2025-07-01
-Version: 1.5
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
-
+# ==============================================================================
 from typing import List, Dict, Optional, Any, Union, Tuple
 
-# ==============================================================================
-import threading
-import time
-import asyncio
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from collections import defaultdict, deque
-import json
-import math
-import copy
-
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-import numpy as np
-import pandas as pd
-from scipy import stats
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import IsolationForest
-
-# ==============================================================================
-# LOCAL IMPORTS
-
-# Local AlertLevel definition for compatibility
 class AlertLevel:
     """Alert severity levels"""
     LOW = "low"

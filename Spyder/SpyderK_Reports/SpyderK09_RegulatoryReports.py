@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderK_Reports
 Module: SpyderK09_RegulatoryReports.py
-Group: K (Reports)
-Purpose: Compliance and regulatory reporting
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module generates comprehensive regulatory and compliance reports including
-    trade blotters, position limits compliance checks, risk limit breach reports,
-    audit trail documentation, and month-end reconciliation. It ensures all trading
-    activities comply with regulatory requirements and provides detailed documentation
-    for audits, compliance reviews, and regulatory submissions.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-07
-Last Updated: 2025-01-07 Time: 11:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -33,12 +33,12 @@ import json
 import csv
 from pathlib import Path
 from collections import defaultdict
-import hashlib
 import uuid
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import hashlib
 import pandas as pd
 import numpy as np
 from reportlab.lib import colors
@@ -57,10 +57,6 @@ from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_lay
 from Spyder.SpyderB_Broker.SpyderB04_AccountManager import AccountManager
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Regulatory limits
 POSITION_LIMITS = {
     'SPY_OPTIONS': 75000,  # Contracts
     'SINGLE_EXPIRY': 25000,  # Contracts per expiry

@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Module: SpyderE08_PositionGroupValidator.py  
-Group: E (Risk Management)
-Purpose: Universal Position Group Validator with LEAN Algorithm Patterns
+Series: SpyderE_Risk
+Module: SpyderE08_PositionGroupValidator.py
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Universal position group validator implementing QuantConnect LEAN's
-    assert_strategy_position_group patterns across all option strategies.
-    Provides institutional-grade validation, error handling, and position
-    integrity checking using professional patterns from LEAN algorithms.
-    Ensures all multi-leg strategies maintain proper relationships and
-    risk parameters throughout their lifecycle.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-23
-Last Updated: 2025-07-06 Time: 16:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -32,7 +31,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Union, Set
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
-import math
 from collections import defaultdict
 import threading
 from abc import ABC, abstractmethod
@@ -40,12 +38,10 @@ from abc import ABC, abstractmethod
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
 import numpy as np
 import pandas as pd
 
-# ==============================================================================
-# LOCAL IMPORTS - SAFE PATTERN
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:

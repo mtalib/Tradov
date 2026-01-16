@@ -1,15 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Tradier + Polygon Configuration
-Tradier for order execution, Polygon.io for market data
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderX_Unknown
+Module: config.py
+Purpose: SPYDER - Tradier + Polygon Configuration
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Tradier + Polygon Configuration
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 from pathlib import Path
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 # ==============================================================================

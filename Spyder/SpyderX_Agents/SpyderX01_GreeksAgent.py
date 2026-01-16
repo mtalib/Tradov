@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderX_Agents
 Module: SpyderX01_GreeksAgent.py
-Group: X (AI Agents)
-Purpose: AI-Enhanced Greeks calculation and analysis with natural language insights
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides advanced AI-powered Greeks analysis that goes beyond traditional
-    calculations. It uses machine learning models to provide intelligent risk assessment,
-    natural language explanations, hedge recommendations, and predictive analytics for
-    options portfolios. The agent learns from market patterns and provides actionable
-    insights for professional options trading.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-03
-Last Updated: 2025-07-03 Time: 20:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -37,16 +37,15 @@ from collections import deque, defaultdict
 from enum import Enum, auto
 from threading import Lock, Event as ThreadEvent, RLock, Thread
 import copy
-import math
-import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import statistics
 import numpy as np
 import pandas as pd
 
-# Machine Learning
 try:
     from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
     from sklearn.preprocessing import StandardScaler

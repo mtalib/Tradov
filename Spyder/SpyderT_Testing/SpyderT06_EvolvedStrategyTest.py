@@ -1,13 +1,32 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Test your latest evolved strategy with institutional pricing
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderT_Testing
+Module: SpyderT06_EvolvedStrategyTest.py
+Purpose: Test your latest evolved strategy with institutional pricing
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Test your latest evolved strategy with institutional pricing
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
 from pathlib import Path
 
-# Add project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 

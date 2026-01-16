@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU08_Validators.py
-Group: U (Utilities)
-Purpose: Input validation utilities
-
-Description:
-    This module provides comprehensive input validation functions for the
-    trading system. It ensures data integrity by validating user inputs,
-    API responses, configuration parameters, and trading data. The validators
-    help prevent errors and ensure the system operates with valid data.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-06-01
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -23,13 +25,13 @@ Version: 1.4
 # ==============================================================================
 import re
 from datetime import date, datetime, time
-from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+from decimal import Decimal, InvalidOperation
 import pandas as pd
 
 # ==============================================================================
@@ -37,10 +39,6 @@ import pandas as pd
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Validation patterns
 EMAIL_PATTERN = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 PHONE_PATTERN = r"^\+?1?\d{10,15}$"
 SYMBOL_PATTERN = r"^[A-Z]{1,5}$"

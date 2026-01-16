@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF04_VolatilityAnalysis.py
-Group: F (Technical Analysis)
-Purpose: Volatility analysis and VIX correlation
-
-Description:
-    This module analyzes market volatility using multiple methods including
-    historical volatility, implied volatility proxies, GARCH models, and
-    VIX correlation analysis for options trading decisions.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-05-30
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -24,13 +27,13 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import math
-import statistics
 import warnings
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import statistics
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -43,10 +46,6 @@ from arch import arch_model
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Volatility calculation parameters
 TRADING_DAYS_YEAR = 252
 TRADING_HOURS_DAY = 6.5
 MINUTES_PER_YEAR = TRADING_DAYS_YEAR * TRADING_HOURS_DAY * 60

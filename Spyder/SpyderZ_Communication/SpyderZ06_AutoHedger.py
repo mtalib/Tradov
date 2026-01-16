@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderZ_Communication
 Module: SpyderZ06_AutoHedger.py
-Group: Z (Communication Infrastructure)
-Purpose: Automated delta-neutral hedging and risk management engine
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements sophisticated automated hedging strategies to maintain
-    portfolio risk within defined limits. It monitors real-time Greeks from the
-    volatility engine and generates hedge orders to maintain delta neutrality,
-    manage gamma exposure, and protect against adverse market movements. The
-    engine supports multiple hedging strategies and dynamic adjustment rules.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-28
-Last Updated: 2025-06-28 Time: 18:45:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -28,13 +28,18 @@ import sys
 import time
 import json
 import threading
-import multiprocessing as mp
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any, Tuple, Set
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from collections import deque, defaultdict
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import multiprocessing as mp
+
 warnings.filterwarnings('ignore')
 
 # ==============================================================================

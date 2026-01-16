@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderU_Utilities
 Module: SpyderU19_InteractionMatrix.py
-Group: U (Utilities)
-Purpose: Module interaction matrix and communication analysis
-
-Description:
-    This module provides interaction matrix analysis for the Spyder trading system.
-    It tracks module interactions, communication patterns, data flow analysis,
-    and system integration health monitoring. Helps optimize system architecture
-    and identify bottlenecks in module communication.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-07-18
-Version: 1.5
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Set, Tuple, Optional, Any, Union
 from dataclasses import dataclass, field
@@ -33,14 +33,17 @@ import threading
 import time
 
 # ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import numpy as np
+import pandas as pd
+
+# ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
 DEFAULT_MATRIX_SIZE = 100
 INTERACTION_TIMEOUT = 300  # 5 minutes
 MAX_HISTORY_SIZE = 10000

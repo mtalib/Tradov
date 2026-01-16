@@ -1,18 +1,39 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Advanced Evolution Push to Achieve Full Institutional Grade
-Push genetic algorithm to achieve Sharpe > 1.2 and full institutional metrics
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderT_Testing
+Module: SpyderT07_AdvancedEvolutionPush.py
+Purpose: Advanced Evolution Push to Achieve Full Institutional Grade
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Advanced Evolution Push to Achieve Full Institutional Grade
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import numpy as np
 import pandas as pd
 
-# Add project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 

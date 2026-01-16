@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC15_MicrostructureAnalyzer.py
-Group: C (Market Data)
-Purpose: Advanced market microstructure analysis for SPY options
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides institutional-grade market microstructure analysis
-    capabilities for SPY options trading. It analyzes order book dynamics,
-    detects sweep orders, identifies hidden liquidity, and monitors for
-    manipulative trading patterns like quote stuffing. The analyzer helps
-    identify optimal execution opportunities and avoid adverse selection.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-11
-Last Updated: 2025-01-11 Time: 09:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -32,14 +32,14 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from collections import defaultdict, deque
 import json
-import math
-import statistics
 from queue import Queue, Empty
-import numpy as np
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import statistics
+import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.signal import find_peaks
@@ -52,10 +52,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import get_option_chain
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Detection thresholds
 SWEEP_VOLUME_MULTIPLIER = 3.0  # Volume must be 3x average to be considered sweep
 SWEEP_TIME_WINDOW = 1.0  # seconds - time window for sweep detection
 IMBALANCE_THRESHOLD = 0.65  # 65% imbalance triggers signal

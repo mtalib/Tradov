@@ -1,35 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderI_Integration
 Module: SpyderI04_DiagnosticsEngine_Types.py
-Group: I (Integration)
-Purpose: Data types and structures for the diagnostics engine
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    Defines all data structures, enums, and type definitions used by the
-    diagnostics engine including health status, diagnostic issues, reports,
-    and system metrics.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 17:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-from dataclasses import dataclass, field
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
-
-# ==============================================================================
-# ENUMS
-# ==============================================================================
-
 
 class HealthStatus(Enum):
     """System health status levels"""

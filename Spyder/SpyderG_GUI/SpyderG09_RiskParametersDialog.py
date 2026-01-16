@@ -1,39 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
-Module: SpyderG06_RiskParametersDialog.py
-Group: G (GUI)
-Purpose: Complete Risk Levels Configuration Dialog for SPYDER Dashboard
+Series: SpyderG_GUI
+Module: SpyderG09_RiskParametersDialog.py
+Purpose: SPYDER - Automated SPY Options Trading System
+
 Author: Mohamed Talib
-Date Created: 2025-01-20
-Last Updated: 2025-01-20 Time: 16:45:00
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Description:
-    This module provides a comprehensive risk levels configuration dialog for the
-    Spyder options trading system. It features a professional PyQt6-based interface with
-    4 risk profile presets, global risk limits, strategy-specific settings, dynamic
-    market regime rules, real-time monitoring, import/export capabilities, and full
-    integration with the main dashboard automation systems.
+Module Description:
+    SPYDER - Automated SPY Options Trading System
 
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import json
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
 import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
+
                             QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                             QFormLayout, QFrame, QGridLayout, QGroupBox,
                             QHBoxLayout, QHeaderView, QLabel, QMessageBox,

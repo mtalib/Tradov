@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderP_PortfolioMgmt
 Module: SpyderP01_PortfolioManager.py
-Group: P (Portfolio Management)
-Purpose: Cross-strategy portfolio management and coordination
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides comprehensive portfolio management across all SPYDER
-    trading strategies. It handles multi-strategy position consolidation,
-    portfolio-level risk aggregation, capital allocation optimization, strategy
-    performance attribution, automated portfolio rebalancing, and cross-strategy
-    hedging coordination for institutional-grade portfolio management.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-07-01
-Last Updated: 2025-07-01 Time: 18:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -36,13 +36,13 @@ from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
 from enum import Enum, auto
 from pathlib import Path
-import weakref
-import statistics
 import copy
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import weakref
+import statistics
 import numpy as np
 import pandas as pd
 from scipy import stats, optimize
@@ -58,19 +58,14 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
-
-# Strategy and risk imports
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, StrategySignal, PositionType
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager, RiskProfile
 from Spyder.SpyderE_Risk.SpyderE02_PositionSizer import get_position_sizer
 from Spyder.SpyderE_Risk.SpyderE04_DrawdownControl import DrawdownController
-
-# Market data and analysis
 from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderS_Signals.SpyderS05_GEXDEXCalculator import GammaExposureCalculator
 
-# Integration components
 try:
     from SpyderI_Integration.SpyderI01_IntegrationHub import get_integration_hub
     from SpyderI_Integration.SpyderI03_ConfigManager import get_global_config_manager

@@ -1,46 +1,27 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderC_MarketData
 Module: SpyderC22_FactorDataProvider.py
-Purpose: Institutional-grade factor data provider for F15 performance attribution
+Purpose: SPYDER - Autonomous Options Trading System v1.0
+
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-30 Time: 22:30:00
+Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    Advanced factor data provider that sources, calculates, and manages factor data
-    for institutional-grade performance attribution analysis. Supports multiple factor
-    models including Fama-French, Carhart, custom options factors, and macro factors.
-    Integrates with external data providers, calculates proprietary factors, and
-    provides clean, aligned factor data to F15 Performance Attribution engine.
+    SPYDER - Autonomous Options Trading System v1.0
 
-Key Features:
-    - Multi-provider factor data sourcing (FRED, Yahoo, Bloomberg, custom)
-    - Fama-French 3, 4, 5, and 6-factor model support
-    - Custom options factors (VIX surface, skew, term structure)
-    - Macro factor integration (rates, credit, currencies, commodities)
-    - Real-time factor calculation and updates
-    - Factor data quality monitoring and validation
-    - Historical factor data management with backfill capabilities
-    - Factor exposure calculation for portfolios and strategies
-
-Dependencies:
-    - numpy>=1.24.0
-    - pandas>=2.0.0
-    - yfinance>=0.2.0 (optional)
-    - fredapi>=0.5.0 (optional)
-    - requests>=2.30.0
-    - scipy>=1.10.0
-    - SpyderU01_Logger
-    - SpyderU02_ErrorHandler
-    - SpyderC01_DataFeed (integration)
-    - SpyderC21_FSeriesIntegrationHub (integration)
-    - SpyderF17_UnifiedPerformanceEngine (target)
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
-# IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
 import asyncio
 import logging
@@ -54,13 +35,14 @@ from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 import json
 
-# Core libraries
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 import numpy as np
 import pandas as pd
 from scipy import stats
 import requests
 
-# Optional external data providers
 try:
     import yfinance as yf
     YFINANCE_AVAILABLE = True

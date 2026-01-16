@@ -1,33 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderA_Core
 Module: SpyderA03_Configuration.py
-Group: A (Core Trading Engine)
-Purpose: Complete configuration management system
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides comprehensive configuration management for the Spyder
-    trading system. It handles loading configurations from multiple sources
-    (files, environment variables, defaults), validates configuration values,
-    manages sensitive data encryption, supports hot-reloading, and provides
-    configuration versioning and audit trails.
-
-Spyder Version: 2.0
 Author: Mohamed Talib
-Created: 2025-01-27
-Last Updated: 2025-07-06 - Production Ready
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import configparser
-import copy
-import hashlib
-import json
-import logging
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import copy
+import json
+import logging
 import os
 import re
 import sys
@@ -39,12 +37,14 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-import toml
-import yaml
-
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import configparser
+import hashlib
+import toml
+import yaml
+
 try:
     import base64
 

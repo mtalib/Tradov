@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF02_PriceAction.py
-Group: F (Technical Analysis)
-Purpose: Price action analysis with performance monitoring
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module analyzes price action patterns including candlestick patterns,
-    chart patterns, and micro-structure. It includes performance monitoring
-    to ensure pattern detection runs efficiently in real-time.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI (Enhanced by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added performance monitoring and optimization
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import threading
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -28,27 +31,22 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple
 
-import numpy as np
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
 import pandas as pd
 from scipy import signal
 from scipy.stats import linregress
 
-from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
-from Spyder.SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
+from Spyder.SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import FeatureFlags
-
-# ==============================================================================
-# ENUMS
-# ==============================================================================
-
 
 class PatternType(Enum):
     """Types of price patterns."""

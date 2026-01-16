@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderM_Monitoring
 Module: SpyderM01_SystemMonitor.py
-Group: M (Monitoring)
-Purpose: System health and performance monitoring
-
-Description:
-    This module monitors the health and performance of the Spyder trading system.
-    It tracks resource usage, component health, latency metrics, and system errors.
-    The monitor can trigger alerts when thresholds are exceeded and provides
-    comprehensive system diagnostics for troubleshooting and optimization.
+Purpose: SPYDER - Automated SPY Options Trading System
 
 Author: Mohamed Talib
-Date: 2025-01-20
-Version: 1.4
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -23,19 +25,23 @@ Version: 1.4
 # ==============================================================================
 import time
 import threading
-import psutil
 import datetime
 import os
 import sys
-import gc
-import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
-import statistics
 import json
 import uuid
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import psutil
+import gc
+import traceback
+import statistics
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -43,9 +49,6 @@ import uuid
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
 METRICS_WINDOW = 300  # 5 minutes
 MONITOR_INTERVAL = 5  # seconds
 CPU_WARNING_THRESHOLD = 70.0

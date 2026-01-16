@@ -1,21 +1,37 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Apply Enhanced Bashrc Configuration - Direct Application
-========================================================
+SPYDER - Autonomous Options Trading System v1.0
 
-Applies comprehensive SPYDER bashrc configuration with dual-mode support
-based on current working setup. No interactive prompts required.
+Series: SpyderX_Unknown
+Module: apply_enhanced_bashrc.py
+Purpose: Apply Enhanced Bashrc Configuration - Direct Application
 
-Usage:
-    python3 apply_enhanced_bashrc.py
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    Apply Enhanced Bashrc Configuration - Direct Application
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
-import shutil
 from pathlib import Path
 from datetime import datetime
 
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import shutil
 
 def apply_enhanced_bashrc():
     """Apply enhanced bashrc configuration"""

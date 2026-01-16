@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderC_MarketData
 Module: SpyderC12_DarkPoolFlow.py
-Group: C (Market Data)
-Purpose: Dark pool and block trade analysis for institutional flow detection
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides comprehensive dark pool analysis including DIX (Dark Index)
-    integration, block trade detection across multiple exchanges, and institutional
-    accumulation/distribution signals. It identifies large institutional transactions
-    that occur away from public exchanges and provides insights into smart money
-    positioning.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-12-28
-Last Updated: 2025-12-28 Time: 10:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -53,10 +53,6 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import TimeFrame
 from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeed
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Dark Pool Detection Parameters
 MIN_BLOCK_SIZE = 10000  # Minimum shares for block trade
 MIN_BLOCK_VALUE = 500000  # Minimum dollar value for block trade
 DARK_POOL_VENUES = [

@@ -1,26 +1,23 @@
-    #!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderZ_Communication
 Module: SpyderZ04_VolatilityEngine.py
-Group: Z (Communication Infrastructure)
-Purpose: Production-ready volatility analysis with real calculations
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module implements a high-performance volatility analysis engine with:
-    - Real-time implied volatility calculation using Newton-Raphson method
-    - Complete Greeks calculation (Delta, Gamma, Theta, Vega, Rho)
-    - Volatility surface modeling with interpolation
-    - Volatility smile and skew detection
-    - Historical volatility computation
-    - Volatility regime classification
-    - Caching and performance optimization
-    - Error handling and validation
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 2.0
-Author: SPYDER Team
-Date: 2025-01-03
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,16 +28,21 @@ import sys
 import time
 import json
 import threading
-import multiprocessing as mp
-from multiprocessing import shared_memory
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any, Tuple, Set
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 from collections import defaultdict, deque
+import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import multiprocessing as mp
+from multiprocessing import shared_memory
 import pickle
 import struct
-import warnings
+
 warnings.filterwarnings('ignore')
 
 # ==============================================================================

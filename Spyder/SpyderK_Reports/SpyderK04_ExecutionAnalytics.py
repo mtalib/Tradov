@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderK_Reports
 Module: SpyderK04_ExecutionAnalytics.py
-Group: K (Reports)
-Purpose: Trade execution quality analysis and reporting
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module provides comprehensive analysis of trade execution quality including
-    slippage analysis, fill quality metrics, order timing analysis, market impact
-    assessment, and identification of best/worst execution times. It generates
-    detailed reports to help optimize order execution strategies and minimize
-    trading costs through data-driven insights.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-01-07
-Last Updated: 2025-01-07 Time: 10:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -30,12 +30,12 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 import json
-import statistics
 from collections import defaultdict, Counter
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import statistics
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -55,10 +55,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
 
-# ==============================================================================
-# CONSTANTS
-# ==============================================================================
-# Time windows for analysis
 INTRADAY_BINS = {
     'pre_market': ('04:00', '09:30'),
     'open': ('09:30', '10:00'),

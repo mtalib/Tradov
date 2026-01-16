@@ -1,16 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Environment Configuration Validator
-Validates .env file for IBKR Web API OAuth 2.0 setup
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderQ_Scripts
+Module: validate_env.py
+Purpose: SPYDER - Environment Configuration Validator
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Environment Configuration Validator
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import os
 import sys
 from pathlib import Path
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
 from dotenv import load_dotenv
 
-# Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Load environment variables

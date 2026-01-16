@@ -1,15 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Logger (Fixed Implementation)
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderU_Utilities
 Module: SpyderU01_Logger.py
+Purpose: SPYDER - Logger (Fixed Implementation)
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Logger (Fixed Implementation)
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import logging
 import sys
 from pathlib import Path
 from typing import Optional
-
 
 class SpyderLogger:
     """

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderE_Risk
 Module: SpyderE03_StopLossManager.py
-Group: E (Risk Management)
-Purpose: Stop loss and trailing stop management
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module manages stop loss orders including initial stops, trailing stops,
-    breakeven stops, and time-based stops. It provides dynamic stop adjustment
-    based on market conditions and position performance. Integrates with broker
-    API for automated stop order management and provides real-time monitoring
-    of stop levels with comprehensive risk protection.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-05-29
-Last Updated: 2025-07-06 Time: 15:00:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -31,7 +31,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
-import math
 import threading
 from collections import defaultdict, deque
 from pathlib import Path
@@ -39,12 +38,10 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
 import pandas as pd
 import numpy as np
 
-# ==============================================================================
-# LOCAL IMPORTS - SAFE PATTERN
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderE_Risk
 Module: SpyderE02_PositionSizer.py
-Group: E (Risk Management)
-Purpose: Dynamic position sizing with Kelly Criterion and professional methods
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module calculates optimal position sizes using multiple professional
-    methods including Kelly Criterion, volatility-based sizing, and risk parity.
-    It integrates with market conditions, strategy performance, and risk limits
-    to provide dynamic position sizing that adapts to changing market environments.
-    Provides real-time position sizing with professional risk controls.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-13
-Last Updated: 2025-07-06 Time: 14:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -30,8 +30,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
-import math
-import statistics
 from collections import defaultdict, deque
 import threading
 from pathlib import Path
@@ -39,13 +37,12 @@ from pathlib import Path
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import math
+import statistics
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-# ==============================================================================
-# LOCAL IMPORTS - SAFE PATTERN
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:

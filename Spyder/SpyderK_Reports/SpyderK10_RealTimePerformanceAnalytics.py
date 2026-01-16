@@ -1,23 +1,28 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
-Spyder Version: 1.0
+Series: SpyderK_Reports
 Module: SpyderK10_RealTimePerformanceAnalytics.py
-Group: K (Reports)
-Purpose: Real-time performance analytics and reporting dashboard
-Author: Mohamed Talib
-Date Created: 2025-01-08
-Last Updated: 2025-01-08 Time: 12:30:00
+Purpose: SPYDER - Autonomous Options Trading System
 
-Description:
-    Advanced real-time performance analytics module that integrates with the
-    risk management suite to provide comprehensive trading metrics, strategy
-    performance analysis, risk-adjusted returns, and automated reporting.
-    Designed to work seamlessly with E11, E12, E13, P05, and P06 modules.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Autonomous Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
-import pandas as pd
-import numpy as np
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass, field, asdict
@@ -26,8 +31,15 @@ import json
 import logging
 from collections import defaultdict, deque
 import asyncio
-import statistics
 import warnings
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import pandas as pd
+import numpy as np
+import statistics
+
 warnings.filterwarnings('ignore')
 
 # ==================================================================================

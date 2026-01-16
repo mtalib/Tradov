@@ -1,16 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER Dashboard Path Fix Script
+SPYDER - Autonomous Options Trading System v1.0
 
-This script fixes the incorrect dashboard reference in SpyderG08_IBKRLoginLauncher_Enhanced.py
-Changes: SpyderG01_Dashboard.py -> SpyderG02_GUIEntry.py
+Series: SpyderX_Unknown
+Module: patch_launcher_dashboard.py
+Purpose: SPYDER Dashboard Path Fix Script
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER Dashboard Path Fix Script
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 import sys
 from pathlib import Path
 
-# Define paths
 SPYDER_HOME = Path.home() / "Projects" / "Spyder"
 LAUNCHER_FILE = SPYDER_HOME / "SpyderG_GUI" / "SpyderG08_IBKRLoginLauncher_Enhanced.py"
 BACKUP_FILE = LAUNCHER_FILE.with_suffix('.py.backup')

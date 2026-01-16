@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderF_Analysis
 Module: SpyderF03_SupportResistance.py
-Group: F (Technical Analysis)
-Purpose: Support and resistance detection with dynamic configuration
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module identifies support and resistance levels using multiple methods
-    including pivot points, volume profile, and machine learning. All parameters
-    are dynamically configurable based on market volatility.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Author: Claude AI (Enhanced by Maestro)
-Date: 2024-01-07
-Version: 2.0 - Added dynamic configuration and volatility-based adjustments
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -24,16 +27,17 @@ from typing import Dict, List, Optional, Tuple, Set
 from enum import Enum
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
-import numpy as np
-import pandas as pd
 from collections import defaultdict
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
+import pandas as pd
 from scipy import signal
 from scipy.stats import gaussian_kde
 from sklearn.cluster import DBSCAN
+
 try:
     HAS_TALIB = False
     # talib not available - will use pandas alternatives

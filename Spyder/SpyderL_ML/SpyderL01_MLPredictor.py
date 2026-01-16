@@ -1,49 +1,44 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+SPYDER - Autonomous Options Trading System v1.0
+
+Series: SpyderL_ML
+Module: SpyderL01_MLPredictor.py
+Purpose: SPYDER - Automated SPY Options Trading System
+
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
+
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
+"""
+
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
 from dataclasses import dataclass, field
-import pandas as pd
 from datetime import datetime, timedelta
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Optional, Union
 
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import pandas as pd
+
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-"""
-SPYDER - Automated SPY Options Trading System
-Module: SpyderL01_MLPredictor.py
-Group: L (Machine Learning)
-Purpose: Machine learning predictions for trading
-
-Description:
-This module implements machine learning models for predicting market movements,
-volatility, and optimal trading signals. It includes feature engineering,
-model training, validation, and real-time prediction capabilities. The module
-supports multiple ML algorithms including Random Forest, XGBoost, and neural
-networks, with automated hyperparameter tuning and ensemble methods for
-improved accuracy. It integrates with the trading system to provide predictive
-signals for strategy enhancement.
-
-Author: Mohamed Talib
-Created: 2025-01-27
-Version: 1.4
-"""
-# =============================================================================
-# Standard Library Imports
-# =============================================================================
-from pathlib import Path
-
-# =============================================================================
-# Third-Party Imports
-# =============================================================================
-import numpy as np
-import pandas as pd
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
-
-# =============================================================================
-# Configuration Constants
-# =============================================================================
 FEATURE_DIR = Path.home() / ".spyder" / "models" / "features"
 CHECKPOINT_DIR = Path.home() / ".spyder" / "models" / "checkpoints"
 

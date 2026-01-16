@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Autonomous Options Trading System v1.0
 
+Series: SpyderE_Risk
 Module: SpyderE04_DrawdownControl.py
-Group: E (Risk Management)
-Purpose: Maximum drawdown monitoring and control
+Purpose: SPYDER - Automated SPY Options Trading System
 
-Description:
-    This module monitors and controls portfolio drawdown, implementing various
-    risk reduction strategies when drawdown thresholds are exceeded. It tracks
-    peak equity, calculates rolling drawdowns, adjusts trading behavior based
-    on drawdown levels, and provides automated recovery protocols. The module
-    ensures capital preservation through dynamic risk management.
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2026-01-16 Time: 19:25:06
 
-Spyder Version: 1.0
-Architect: Mohamed Talib
-Date Created: 2025-06-16
-Last Updated: 2025-07-06 Time: 15:30:00
+Module Description:
+    SPYDER - Automated SPY Options Trading System
+
+Change Log:
+    2026-01-16:
+        - Applied standard Python formatting
+        - Updated module header and structure
 """
 
 # ==============================================================================
@@ -34,17 +34,14 @@ from enum import Enum, auto
 import threading
 from collections import deque
 from pathlib import Path
-import statistics
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import statistics
 import numpy as np
 import pandas as pd
 
-# ==============================================================================
-# LOCAL IMPORTS - SAFE PATTERN
-# ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:
