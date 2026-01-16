@@ -145,14 +145,6 @@ try:
 except ImportError as e:
     print(f"Warning: SpyderU16_TechnicalAnalysis import failed: {e}")
 
-# SpyderU17_IBErrorCodes - IB ERROR CODE MAPPING
-try:
-    from .SpyderU17_IBErrorCodes import IBErrorCodes, get_error_manager
-
-    __all__.extend(["IBErrorCodes", "get_error_manager"])
-except ImportError as e:
-    print(f"Warning: SpyderU17_IBErrorCodes import failed: {e}")
-
 # SpyderU18_DependencyAnalyzer - DEPENDENCY ANALYSIS
 try:
     from .SpyderU18_DependencyAnalyzer import DependencyAnalyzer
