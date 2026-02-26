@@ -141,18 +141,21 @@ class CircuitBreakerMonitor(QWidget):
         dot.setStyleSheet(f"color: {color}; font-size: 18px;")
         return dot
 
-    def _make_header(self, text: str, color: str = "#888888") -> QLabel:
+    def _make_header(self, text: str, color: str = "#888888", left: bool = False) -> QLabel:
         lbl = QLabel(text)
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setAlignment(
+            (Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            if left else Qt.AlignmentFlag.AlignCenter
+        )
         lbl.setStyleSheet(
-            f"color: {color}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
+            f"color: {color}; font-size: 12px; font-weight: normal; letter-spacing: 1px;"
         )
         return lbl
 
     def _make_service(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        lbl.setStyleSheet("color: #cccccc; font-size: 11px;")
+        lbl.setStyleSheet("color: #cccccc; font-size: 13px; font-weight: normal;")
         return lbl
 
     # ------------------------------------------------------------------
@@ -169,7 +172,13 @@ class CircuitBreakerMonitor(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
 
         # ── Column headers (row 0) ─────────────────────────────────
-        grid.addWidget(self._make_header("CIRCUIT BREAKER STATUS", "#aaaaaa"), 0, 0)
+        # "CIRCUIT BREAKER STATUS" – left-aligned, white, larger
+        title_lbl = QLabel("CIRCUIT BREAKER STATUS")
+        title_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        title_lbl.setStyleSheet(
+            "color: #ffffff; font-size: 13px; font-weight: normal; letter-spacing: 1px;"
+        )
+        grid.addWidget(title_lbl, 0, 0)
         grid.addWidget(self._make_header("NORMAL",   self.COLOR_NORMAL),   0, 1)
         grid.addWidget(self._make_header("RECOVERY", self.COLOR_RECOVERY), 0, 2)
         grid.addWidget(self._make_header("BLOCKED",  self.COLOR_BLOCKED),  0, 3)
@@ -203,8 +212,8 @@ class CircuitBreakerMonitor(QWidget):
                 "blocked":  dot_blocked,
             }
 
-        # Column proportions
-        grid.setColumnStretch(0, 3)
+        # Column proportions: smaller label col so dots sit closer/left
+        grid.setColumnStretch(0, 2)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 1)
         grid.setColumnStretch(3, 1)
