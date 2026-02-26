@@ -2731,10 +2731,10 @@ class SpyderTradingDashboard(QMainWindow):
             }}
             QHeaderView::section {{
                 background-color: {COLORS["panel"]};
-                color: {COLORS["text_dim"]};
+                color: {COLORS["text"]};
                 border: 1px solid {COLORS["border"]};
                 padding: 2px;
-                font-size: 10px;
+                font-size: 12px;
                 font-weight: normal;
             }}
             QScrollBar:vertical {{
@@ -3806,11 +3806,13 @@ class SpyderTradingDashboard(QMainWindow):
 
         for strat in test_strategies:
             # Build strategy header text
+            status_label = "OPEN" if strat["status"] == "OPEN" else "CLOSED"
             header_text = (
                 f"{strat['timestamp']}  |  "
-                f"AI-TRIGGERED STRATEGY : {strat['strategy']}  |  "
-                f"Net: {strat['net_pnl']} ({strat['pct_return']})  |  "
-                f"DTE: {strat['dte']}"
+                f"STRATEGY AI-TRIGGERED : {strat['strategy']}  |  "
+                f"DTE: {strat['dte']}  |  "
+                f"STATUS: {status_label}  |  "
+                f"NET P&L  {strat['net_pnl']}  ({strat['pct_return']})"
             )
 
             # Create top-level strategy item (spans all columns via col 0)
@@ -3858,12 +3860,16 @@ class SpyderTradingDashboard(QMainWindow):
                 leg_item.setText(5, leg["pnl"])
                 leg_item.setText(6, leg["status"])
 
-                # Set base text color for all columns
+                # Set base text color and center-align all columns
                 text_color = QColor(COLORS["text"])
                 for col in range(7):
                     leg_item.setForeground(col, text_color)
+                    leg_item.setTextAlignment(
+                        col,
+                        Qt.AlignmentFlag.AlignCenter,
+                    )
 
-                # Right-justify dollar amount columns (COST, P&L)
+                # Override: right-justify dollar amount columns (COST, P&L)
                 leg_item.setTextAlignment(
                     4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                 )
