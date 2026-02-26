@@ -2073,9 +2073,9 @@ class SpyderTradingDashboard(QMainWindow):
         center_container.setSpacing(20)
 
         # SPY timeframe label (moved from chart title)
-        spy_label = QLabel("SPY - 5 Min")
+        spy_label = QLabel("SPY - 5 MIN")
         spy_label.setStyleSheet(
-            f"color: {COLORS['text']}; font-weight: bold; font-size: 13px;"
+            f"color: {COLORS['text']}; font-size: 13px;"
         )
         center_container.addWidget(spy_label)
 
@@ -3821,7 +3821,7 @@ class SpyderTradingDashboard(QMainWindow):
             status_label = "OPEN" if strat["status"] == "OPEN" else "CLOSED"
             header_text = (
                 f"{strat['timestamp']}  |  "
-                f"STRATEGY AI-TRIGGERED : {strat['strategy']}  |  "
+                f"STRATEGY TRIGGERED BY AI : {strat['strategy']}  |  "
                 f"DTE: {strat['dte']:02d}  |  "
                 f"STATUS: {status_label}  |  "
                 f"NET P&L  {strat['net_pnl']}  ({strat['pct_return']})"
