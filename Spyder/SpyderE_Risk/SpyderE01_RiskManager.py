@@ -406,11 +406,12 @@ class RiskManager:
                     )
 
                 # Check margin usage
-                if risk_metrics.margin_used / (risk_metrics.margin_used + risk_metrics.margin_available) > self.config.risk_limits['max_margin_usage']:
+                total_margin = risk_metrics.margin_used + risk_metrics.margin_available
+                if total_margin > 0 and risk_metrics.margin_used / total_margin > self.config.risk_limits['max_margin_usage']:
                     return RiskCheckResponse(
                         result=RiskCheckResult.WARNING,
                         order_id=order.order_id,
-                        reason=f"Margin usage {risk_metrics.margin_used / (risk_metrics.margin_used + risk_metrics.margin_available):.2%} exceeds maximum {self.config.risk_limits['max_margin_usage']:.2%}",
+                        reason=f"Margin usage {risk_metrics.margin_used / total_margin:.2%} exceeds maximum {self.config.risk_limits['max_margin_usage']:.2%}",
                         risk_metrics=risk_metrics
                     )
 

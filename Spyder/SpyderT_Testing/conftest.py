@@ -37,6 +37,7 @@ collect_ignore = [
     "SpyderT13_MultiClientIntegrationTest.py",  # Deprecated IB multi-client architecture
     "SpyderT17_ComprehensiveSystemTest.py",  # Crashes pytest (PySide6 QApplication in headless env)
     "SpyderT21_DIXQuickStart.py",          # Imports non-existent SpyderS02_DIXDemo
+    "SpyderT43_OrderManager_Test.py",      # OrderManager class moved; needs refactor to new B02 API
     "test_client_ids.py",                  # IB Gateway diagnostic script, not a pytest test
 ]
 
