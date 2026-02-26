@@ -113,25 +113,11 @@ try:
 except ImportError:
     pass
 
-# Broker modules (critical for testing race condition fix)
+# Broker modules — B01_SpyderClient and B05_ConnectionManager removed (IB Gateway)
+# Tradier API integration is handled by SpyderB40_TradierClient
 has_broker_modules = False
-get_spyder_client: Any = None
-get_connection_manager: Any = None
-IBConfig: type | None = None
-ConnectionConfig: type | None = None
-
-try:
-    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import get_spyder_client, IBConfig
-    from Spyder.SpyderB_Broker.SpyderB05_ConnectionManager import (
-        get_connection_manager,
-        ConnectionConfig,
-    )
-
-    has_broker_modules = True
-    print("✅ Broker modules loaded successfully!")
-except ImportError as e:
-    print(f"Warning: Broker modules not available: {e}")
-    HAS_1039_MANAGER = False
+get_spyder_client = None
+get_connection_manager = None
 
 # Real Trading Dashboard (SpyderG05)
 has_trading_dashboard = False
@@ -188,15 +174,9 @@ class SpyderConfig:
         self.version: str = "1.0"
         self.debug_mode: bool = False  # PRODUCTION MODE
 
-        # Broker connection settings with PROVEN race condition fix
-        self.ib_host: str = "127.0.0.1"
-        self.ib_port: int = 4002  # Paper trading port
+        # Broker connection settings (Tradier API via SpyderB40_TradierClient)
         self.master_client_id: int = 2
         self.connection_timeout: float = 20.0
-
-        # PROVEN race condition fix settings
-        self.enable_race_condition_fix: bool = True
-        self.race_condition_delay: float = 1.0  # Proven 1.0 second delay
 
         # GUI settings
         self.enable_gui: bool = True
@@ -207,7 +187,6 @@ class SpyderConfig:
         self.log_level: int = logging.ERROR  # Only errors in production
         self.log_to_file: bool = True
         self.log_dir: Path = project_root / "logs"
-        self.reduce_ib_logging: bool = True  # Suppress excessive IB API logs
 
         # Operation modes
         self.headless_mode: bool = False
@@ -354,8 +333,7 @@ class SpyderMainWindow(_BaseWidget):  # type: ignore[misc]
 - Source: {status.get("source", "Unknown")}
 - Connected: {status.get("connected", False)}
 - Client ID: {self.spyder_app.config.master_client_id}
-- Host: {self.spyder_app.config.ib_host}:{self.spyder_app.config.ib_port}
-- Race Condition Fix: {status.get("race_condition_fix_applied", False)}
+- Broker: Tradier API (SpyderB40_TradierClient)
 
 Account Info:
 - Accounts: {account_info.get("accounts", "N/A")}
@@ -464,25 +442,10 @@ class SpyderApplication:
                     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
                 )
 
-            # CRITICAL: Suppress excessive IB API logging to prevent Gateway flooding
-            # ib_async logging configuration removed - now using Web API
-            # Legacy ib_async modules have been migrated to IBKR Client Portal Web API
-            # No logging configuration needed for Web API (uses standard Python logging)
-
-                # Reduce dashboard worker logging (but allow chart creation messages)
+            # Reduce dashboard worker logging (but allow chart creation messages)
                 logging.getLogger("SpyderG_GUI.SpyderG05_TradingDashboard").setLevel(
                     logging.INFO  # Changed from WARNING to see chart messages
                 )
-
-                # PRODUCTION: Disable health monitor test connections
-                logging.getLogger(
-                    "SpyderU_Utilities.SpyderU31_GatewayHealthMonitor"
-                ).setLevel(
-                    logging.CRITICAL  # Only critical errors
-                )
-
-                print("🔇 Reduced IB API logging to prevent Gateway flooding")
-                print("🛡️ Production mode: Test client connections disabled")
 
         except Exception as e:
             print(f"Warning: Could not setup advanced logging: {e}")
@@ -520,7 +483,7 @@ class SpyderApplication:
                 "🔄 Dashboard will auto-connect via polling timer when available"
             )
 
-            self.client = None  # Will be set by set_ib_client() when available
+            self.client = None  # Tradier client (set by dashboard connection)
 
             self.logger.info("✅ Core systems initialized successfully!")
             return True
@@ -739,12 +702,7 @@ def main() -> int:
         f"{'✅' if has_qt else '❌'} PySide6: {'Available' if has_qt else 'Not available'}"
     )
 
-    if not has_broker_modules:
-        print("\n⚠️ WARNING: Broker modules not available!")
-        print("The race condition fix cannot be tested without broker modules.")
-        print("Expected modules:")
-        print("- SpyderB_Broker/SpyderB01_SpyderClient.py")
-        print("- SpyderB_Broker/SpyderB05_ConnectionManager.py")
+    # Broker: Tradier API (SpyderB40_TradierClient) — IB Gateway removed
 
     # Parse command line arguments
     import argparse

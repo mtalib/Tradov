@@ -5,7 +5,7 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderC_MarketData
 Module: SpyderC02_HistoricalData.py
-Purpose: Historical data retrieval and storage (ib_async compatible)
+Purpose: Historical data retrieval and storage (Databento/Tradier compatible)
 
 Author: Mohamed Talib
 Year Created: 2025
@@ -54,14 +54,10 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 
-# Migrated from ib_async to IBKR Web API
-try:
-    from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
-    Contract = IBContract  # Alias for backward compatibility
-except ImportError:
-    IBContract = None
-    SecurityType = None
-    Contract = None
+# B10_IBDataTypes removed (IB Gateway) — use Databento for historical data
+IBContract = None  # type: ignore
+SecurityType = None  # type: ignore
+Contract = None  # type: ignore
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -72,10 +68,8 @@ from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 from Spyder.SpyderH_Storage.SpyderH03_MarketDataCache import MarketDataCache
 
-try:
-    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-except ImportError:
-    SpyderClient = None
+# B01_SpyderClient removed (IB Gateway) — Tradier via SpyderB40_TradierClient
+SpyderClient = None  # type: ignore
 
 # ==============================================================================
 # CONSTANTS

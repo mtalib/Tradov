@@ -5,7 +5,7 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderC_MarketData
 Module: SpyderC20_MarketDataHub.py
-Purpose: Centralized IBKR market data subscription and distribution hub (ib_async compatible)
+Purpose: Centralized market data subscription and distribution hub (Databento/Tradier)
 
 Author: Mohamed Talib
 Year Created: 2025
@@ -60,21 +60,15 @@ import pandas as pd
 # ==============================================================================
 from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventManager, EventType
 
-try:
-    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-except ImportError:
-    SpyderClient = None
+# B01_SpyderClient removed (IB Gateway) — Databento via SpyderC26_DatabentoClient
+SpyderClient = None  # type: ignore
 
-try:
-    from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
-except ImportError:
-    ContractBuilder = None
+# B06_ContractBuilder removed (IB Gateway)
+ContractBuilder = None  # type: ignore
 
-try:
-    from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import SecurityType, TickType
-except ImportError:
-    SecurityType = None
-    TickType = None
+# B10_IBDataTypes removed (IB Gateway)
+SecurityType = None  # type: ignore
+TickType = None  # type: ignore
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
@@ -505,35 +499,19 @@ class MarketDataHub:
             return None
 
     def _build_stock_contract(self, symbol: str, spec: Dict[str, Any]) -> Any:
-        """Build a stock contract"""
-        from ib_async import Stock
-
-        return Stock(
-            symbol=symbol,
-            exchange=spec.get("exchange", "SMART"),
-            currency=spec.get("currency", "USD"),
-        )
+        """Build a stock contract (legacy IB method — not used after IB Gateway removal)"""
+        self.logger.warning("_build_stock_contract: ib_async removed, returning None")
+        return None
 
     def _build_index_contract(self, symbol: str, spec: Dict[str, Any]) -> Any:
-        """Build an index contract"""
-        from ib_async import Index
-
-        return Index(
-            symbol=spec.get("symbol", symbol),
-            exchange=spec.get("exchange", "CBOE"),
-            currency=spec.get("currency", "USD"),
-        )
+        """Build an index contract (legacy IB method — not used after IB Gateway removal)"""
+        self.logger.warning("_build_index_contract: ib_async removed, returning None")
+        return None
 
     def _build_future_contract(self, symbol: str, spec: Dict[str, Any]) -> Any:
-        """Build a futures contract"""
-        from ib_async import Future
-
-        return Future(
-            symbol=spec.get("symbol", symbol.replace("/", "")),
-            exchange=spec.get("exchange", "CME"),
-            currency=spec.get("currency", "USD"),
-            localSymbol=spec.get("localSymbol", ""),
-        )
+        """Build a futures contract (legacy IB method — not used after IB Gateway removal)"""
+        self.logger.warning("_build_future_contract: ib_async removed, returning None")
+        return None
 
     # ==========================================================================
     # PRIVATE METHODS - SUBSCRIPTION MANAGEMENT

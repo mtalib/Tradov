@@ -5,7 +5,7 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderC_MarketData
 Module: SpyderC03_OptionChain.py
-Purpose: Options chain data management (ib_async compatible)
+Purpose: Options chain data management (Tradier API compatible)
 
 Author: Mohamed Talib
 Year Created: 2025
@@ -26,11 +26,10 @@ Last Updated: 2025-08-22 Time: 14:40:00
     - Internal: Greeks calculations (SpyderF06_GreeksCalculator)
 
 Module Description:
-    This module manages option chain data for the Spyder trading system. It fetches
-    and maintains real-time option chains, calculates Greeks, tracks open interest
-    and volume, and provides option selection utilities based on various criteria
-    such as delta, gamma, and probability metrics. Updated to use ib_async for
-    IB Gateway 10.37 compatibility.
+    Options chain data for the Spyder trading system. Fetches and maintains
+    real-time option chains, calculates Greeks, tracks open interest and volume,
+    and provides option selection utilities based on delta, gamma, and probability
+    metrics. Data sourced from Tradier API (SpyderB40_TradierClient).
 """
 
 # ==============================================================================
@@ -53,10 +52,8 @@ import pandas as pd
 import numpy as np
 from scipy.stats import norm
 
-# ⚠️ DEPRECATED: ib_async Contract import is legacy code
-# TODO: Replace with Tradier API for option chains
-# See: SpyderB40_TradierClient.get_options_chain()
-from ib_async import Contract
+# ib_async Contract removed — use Tradier API (SpyderB40_TradierClient.get_options_chain())
+Contract = None  # type: ignore
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -67,16 +64,12 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 
-try:
-    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-except ImportError:
-    SpyderClient = None
+# B01_SpyderClient removed (IB Gateway) — Tradier via SpyderB40_TradierClient
+SpyderClient = None  # type: ignore
 
-try:
-    from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder, OptionRight
-except ImportError:
-    ContractBuilder = None
-    OptionRight = None
+# B06_ContractBuilder removed (IB Gateway)
+ContractBuilder = None  # type: ignore
+OptionRight = None  # type: ignore
 
 try:
     from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
@@ -159,9 +152,9 @@ class OptionContract:
     time_value: Optional[float] = None
     moneyness: Optional[float] = None
     
-    # IB specific
+    # IB specific (legacy, unused after IB Gateway removal)
     contract_id: Optional[int] = None
-    ib_contract: Optional[Contract] = None
+    ib_contract: Optional[Any] = None
     ticker_id: Optional[int] = None
     last_update: datetime.datetime = field(default_factory=datetime.datetime.now)
     

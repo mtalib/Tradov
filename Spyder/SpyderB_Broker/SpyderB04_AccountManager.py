@@ -173,30 +173,26 @@ except ImportError:
                 except Exception as e:
                     logging.getLogger(__name__).error(f"Event handler error: {e}")
 
-# SpyderClient - SAFE IMPORT (should work with our fixed version)
-try:
-    from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-    HAS_SPYDER_CLIENT = True
-except ImportError:
-    HAS_SPYDER_CLIENT = False
-    
-    # Fallback client
-    class SpyderClient:
-        def __init__(self, config=None):
-            self.config = config
-            self._connected = False
-            
-        def is_connected(self):
-            return self._connected
-            
-        def get_managed_accounts(self):
-            return ["DU5361048"] if self._connected else []
-            
-        def get_positions(self):
-            return []
-            
-        def get_account_values(self, account=None):
-            return {}
+# SpyderClient (B01_SpyderClient removed — IB Gateway) — use Tradier via SpyderB40_TradierClient
+HAS_SPYDER_CLIENT = False
+
+class SpyderClient:
+    """Fallback stub — replace with TradierClient for real account data."""
+    def __init__(self, config=None):
+        self.config = config
+        self._connected = False
+        
+    def is_connected(self):
+        return self._connected
+        
+    def get_managed_accounts(self):
+        return []
+        
+    def get_positions(self):
+        return []
+        
+    def get_account_values(self, account=None):
+        return {}
 
 # ==============================================================================
 # CONSTANTS AND CONFIGURATION
