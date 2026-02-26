@@ -339,7 +339,7 @@ class FactorDataProvider:
     # ==============================================================================
     # CORE FACTOR DATA METHODS
     # ==============================================================================
-    def get_factor_model_data(
+    async def get_factor_model_data(
         self,
         model_name: str,
         start_date: Optional[datetime] = None,

@@ -2023,4 +2023,15 @@ class GreeksCalculator:
         theta = (term1 + term2 + term3) / DAYS_IN_YEAR
         return theta
     
-    def _calculate_put_theta
+    def _calculate_put_theta(self, S: float, K: float, r: float, q: float,
+                            sigma: float, T: float, d1: float, d2: float) -> float:
+        """Calculate theta for put option."""
+        if T <= 0:
+            return 0.0
+
+        term1 = -S * np.exp(-q * T) * norm.pdf(d1) * sigma / (2 * np.sqrt(T))
+        term2 = -q * S * np.exp(-q * T) * norm.cdf(-d1)
+        term3 = r * K * np.exp(-r * T) * norm.cdf(-d2)
+
+        theta = (term1 + term2 + term3) / DAYS_IN_YEAR
+        return theta

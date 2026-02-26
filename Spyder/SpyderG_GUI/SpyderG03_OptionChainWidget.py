@@ -31,16 +31,11 @@ from datetime import datetime, date
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtWidgets import (
-
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QLabel, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPointF
 from PySide6.QtGui import QFont, QPalette, QColor, QPen, QBrush, QPixmap
-    QLabel, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox
-)
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QBrush, QFont
 import numpy as np
 
 # ==============================================================================
@@ -118,7 +113,7 @@ class OptionChainWidget(QWidget):
 
     def __init__(self, event_manager: EventManager, parent=None):
         super().__init__(parent)
-    self.event_manager = event_manager
+        self.event_manager = event_manager
         self.logger = SpyderLogger.get_logger(__name__)
 
         # Data storage
@@ -145,19 +140,19 @@ class OptionChainWidget(QWidget):
     def setup_ui(self):
         """Setup the user interface"""
         layout = QVBoxLayout()
-    layout.setSpacing(5)
+        layout.setSpacing(5)
 
         # Control panel
         control_panel = self._create_control_panel()
-    layout.addWidget(control_panel)
+        layout.addWidget(control_panel)
 
         # Option chain display
         self.chain_table = self._create_chain_table()
-    layout.addWidget(self.chain_table)
+        layout.addWidget(self.chain_table)
 
         # Summary panel
         summary_panel = self._create_summary_panel()
-    layout.addWidget(summary_panel)
+        layout.addWidget(summary_panel)
 
         self.setLayout(layout)
 
@@ -175,21 +170,21 @@ class OptionChainWidget(QWidget):
         ]
 
         table.setColumnCount(len(columns))
-    table.setHorizontalHeaderLabels(columns)
+        table.setHorizontalHeaderLabels(columns)
 
         # Configure table
         table.setAlternatingRowColors(True)
-    table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-    table.horizontalHeader().setStretchLastSection(False)
-    table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.horizontalHeader().setStretchLastSection(False)
+        table.verticalHeader().setVisible(False)
 
         # Set column widths
         for i in range(len(columns)):
             if "Strike" in columns[i]:
                 table.setColumnWidth(i, 80)
-        elif "Vol" in columns[i] or "OI" in columns[i]:
+            elif "Vol" in columns[i] or "OI" in columns[i]:
                 table.setColumnWidth(i, 60)
-        else:
+            else:
                 table.setColumnWidth(i, 70)
 
         # Connect selection signal
@@ -200,22 +195,22 @@ class OptionChainWidget(QWidget):
     def _create_control_panel(self) -> QWidget:
         """Create control panel for option chain"""
         panel = QGroupBox("Option Chain Controls")
-    layout = QHBoxLayout()
+        layout = QHBoxLayout()
 
         # Add controls here
 
         panel.setLayout(layout)
-    return panel
+        return panel
 
     def _create_summary_panel(self) -> QWidget:
         """Create summary information panel"""
         panel = QGroupBox("Summary")
-    layout = QHBoxLayout()
+        layout = QHBoxLayout()
 
         # Add summary widgets here
 
         panel.setLayout(layout)
-    return panel
+        return panel
 
     def _register_event_handlers(self):
         """Register event handlers"""
@@ -224,8 +219,8 @@ class OptionChainWidget(QWidget):
     def start_updates(self):
         """Start periodic updates"""
         self.update_timer = QTimer()
-    self.update_timer.timeout.connect(self._update_display)
-    self.update_timer.start(UPDATE_INTERVAL)
+        self.update_timer.timeout.connect(self._update_display)
+        self.update_timer.start(UPDATE_INTERVAL)
 
     def _update_display(self):
         """Update the option chain display"""

@@ -580,5 +580,59 @@ class AdvancedOptionsFlowAnalyzer:
     def identify_smart_money(self) -> List[SmartMoneyFlow]:
         """
         Identify potential smart money flows.
-        
+
+        Analyzes recent option flow data for characteristics indicating
+        institutional or informed trading activity.
+
         Returns:
+            List of SmartMoneyFlow objects with classification details.
+        """
+        smart_flows: List[SmartMoneyFlow] = []
+
+        try:
+            with self._lock:
+                recent_flows = list(self.flow_buffer)
+
+            for flow in recent_flows:
+                indicators: List[str] = []
+
+                # Large notional value
+                if hasattr(flow, 'premium') and flow.premium and flow.premium > 100000:
+                    indicators.append('large_premium')
+
+                # Unusual volume relative to open interest
+                if (hasattr(flow, 'volume') and hasattr(flow, 'open_interest')
+                        and flow.open_interest and flow.open_interest > 0):
+                    vol_oi = flow.volume / flow.open_interest
+                    if vol_oi > 2.0:
+                        indicators.append('high_vol_oi_ratio')
+
+                # Sweep detection (aggressive fills across exchanges)
+                if hasattr(flow, 'condition') and flow.condition in ('sweep', 'SWEEP', 'S'):
+                    indicators.append('sweep_order')
+
+                # Out-of-the-money with short expiry
+                if (hasattr(flow, 'days_to_expiry') and flow.days_to_expiry
+                        and flow.days_to_expiry <= 7
+                        and hasattr(flow, 'moneyness')
+                        and flow.moneyness and abs(flow.moneyness) > 0.03):
+                    indicators.append('short_dated_otm')
+
+                if len(indicators) >= 2:
+                    confidence = min(1.0, len(indicators) * 0.25)
+                    smart_flow = SmartMoneyFlow(
+                        flow=flow,
+                        indicators=indicators,
+                        repeat_trader=False,
+                        historical_accuracy=None,
+                        follow_confidence=confidence
+                    )
+                    smart_flows.append(smart_flow)
+
+            self.logger.info(f"Identified {len(smart_flows)} smart money flows "
+                           f"from {len(recent_flows)} recent flows")
+
+        except Exception as e:
+            self.logger.error(f"Error identifying smart money flows: {e}")
+
+        return smart_flows
