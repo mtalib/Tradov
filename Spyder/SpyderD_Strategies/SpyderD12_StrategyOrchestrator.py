@@ -1427,6 +1427,66 @@ class StrategyOrchestrator:
             'mean_confidence': float(np.mean([r['confidence'] for r in results if r.get('status') == 'completed'])),
         }
 
+    # --------------------------------------------------------------------------
+    # RISKFOLIO-LIB: STRATEGY WEIGHT OPTIMIZATION
+    # --------------------------------------------------------------------------
+
+    def optimize_strategy_weights_riskfolio(
+        self,
+        strategy_returns: pd.DataFrame,
+        risk_measure: str = 'CVaR',
+        objective: str = 'max_sharpe',
+    ) -> Dict[str, Any]:
+        """
+        Optimize strategy weights using RiskFolio-Lib with risk constraints.
+
+        Replaces equal-weight or heuristic allocation with institutional-grade
+        optimization using CVaR, HRP, or risk parity.
+
+        Args:
+            strategy_returns: DataFrame of strategy returns (columns = strategies).
+            risk_measure: Risk measure ('MV', 'CVaR', 'CDaR', 'MDD').
+            objective: Optimization objective ('max_sharpe', 'min_risk', 'risk_parity').
+
+        Returns:
+            Optimized strategy weights and portfolio statistics.
+        """
+        try:
+            import riskfolio as rp
+        except ImportError:
+            self.logger.warning("riskfolio not installed — using equal weights")
+            n = strategy_returns.shape[1]
+            return {'weights': {col: 1.0 / n for col in strategy_returns.columns},
+                    '_backend': 'fallback'}
+
+        port = rp.Portfolio(returns=strategy_returns)
+        port.assets_stats(method_mu='hist', method_cov='ledoit_wolf')
+
+        weights = None
+        if objective == 'risk_parity':
+            weights = port.rp_optimization(
+                model='Classic', rm=risk_measure, rf=0.05 / 252, b=None)
+        else:
+            obj_map = {'max_sharpe': 'Sharpe', 'min_risk': 'MinRisk'}
+            rp_obj = obj_map.get(objective, 'Sharpe')
+            weights = port.optimization(
+                model='Classic', rm=risk_measure, obj=rp_obj, rf=0.05 / 252)
+
+        if weights is not None and not weights.empty:
+            weight_dict = {col: float(weights.loc[col].iloc[0]) for col in weights.index}
+            self.logger.info(f"RiskFolio strategy weights ({objective}/{risk_measure}): "
+                             f"{weight_dict}")
+            return {
+                'weights': weight_dict,
+                'objective': objective,
+                'risk_measure': risk_measure,
+                '_backend': 'riskfolio',
+            }
+
+        n = strategy_returns.shape[1]
+        return {'weights': {col: 1.0 / n for col in strategy_returns.columns},
+                '_backend': 'fallback'}
+
 # ==============================================================================
 # PYQT6 ORCHESTRATOR DASHBOARD
 # ==============================================================================

@@ -529,6 +529,41 @@ class RenaissancePositionSizer:
 
         return pd.DataFrame(data)
 
+    # --------------------------------------------------------------------------
+    # EMPYRICAL-VALIDATED SHARPE
+    # --------------------------------------------------------------------------
+
+    def compute_empyrical_sharpe(self, returns: pd.Series,
+                                  risk_free_rate: float = 0.05) -> Dict[str, float]:
+        """
+        Compute Sharpe ratio using empyrical instead of manual mean/std.
+
+        Replaces the hand-rolled calculation for institutional accuracy.
+
+        Args:
+            returns: Daily return series.
+            risk_free_rate: Annual risk-free rate.
+
+        Returns:
+            Dictionary with validated Sharpe, Sortino, and related metrics.
+        """
+        try:
+            import empyrical
+        except ImportError:
+            sharpe = float(returns.mean() / (returns.std() + 1e-8) * np.sqrt(252))
+            return {'sharpe_ratio': sharpe, '_backend': 'fallback'}
+
+        rf_daily = risk_free_rate / 252
+        return {
+            'sharpe_ratio': float(empyrical.sharpe_ratio(returns, risk_free=rf_daily)),
+            'sortino_ratio': float(empyrical.sortino_ratio(returns)),
+            'annual_return': float(empyrical.annual_return(returns)),
+            'annual_volatility': float(empyrical.annual_volatility(returns)),
+            'max_drawdown': float(empyrical.max_drawdown(returns)),
+            'calmar_ratio': float(empyrical.calmar_ratio(returns)),
+            '_backend': 'empyrical',
+        }
+
 
 # ==============================================================================
 # FACTORY FUNCTION

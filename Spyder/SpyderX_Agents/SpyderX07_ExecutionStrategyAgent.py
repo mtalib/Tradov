@@ -677,6 +677,122 @@ Provide a JSON response with:
                 self.config[key] = value
                 self.logger.info(f"Updated config: {key} = {value}")
 
+    # --------------------------------------------------------------------------
+    # STABLE-BASELINES3: RL EXECUTION STRATEGY
+    # --------------------------------------------------------------------------
+
+    def create_execution_rl_env(self):
+        """
+        Create an RL environment for TWAP/VWAP execution scheduling.
+
+        The agent learns optimal order slicing and timing to minimize
+        market impact and improve execution quality.
+
+        Returns:
+            gym.Env instance for SB3 training.
+        """
+        try:
+            import gymnasium as gym
+            from gymnasium import spaces
+        except ImportError:
+            try:
+                import gym
+                from gym import spaces
+            except ImportError:
+                self.logger.warning("gym/gymnasium not installed")
+                return None
+
+        import numpy as _np
+
+        class ExecutionEnvironment(gym.Env):
+            """
+            RL environment for order execution optimization.
+
+            Observation: [remaining_qty_pct, time_remaining_pct, spread,
+                         volume_ratio, volatility, vwap_deviation,
+                         momentum, inventory_risk]
+            Action: 0=wait, 1=small_slice, 2=medium_slice, 3=large_slice, 4=aggressive
+            Reward: -market_impact - timing_risk + execution_improvement
+            """
+            metadata = {'render_modes': []}
+
+            def __init__(self):
+                super().__init__()
+                self.observation_space = spaces.Box(
+                    low=-5.0, high=5.0, shape=(8,), dtype=_np.float32)
+                self.action_space = spaces.Discrete(5)
+                self.step_count = 0
+                self.max_steps = 78  # ~6.5 hours in 5-min bars
+
+            def reset(self, seed=None, options=None):
+                super().reset(seed=seed)
+                self.step_count = 0
+                self.remaining_qty = 1.0
+                self._state = _np.array([
+                    1.0,                           # remaining_qty_pct
+                    1.0,                           # time_remaining_pct
+                    _np.random.uniform(0.01, 0.05), # spread
+                    _np.random.uniform(0.5, 2.0),  # volume_ratio
+                    _np.random.uniform(0.1, 0.4),  # volatility
+                    0.0,                           # vwap_deviation
+                    _np.random.uniform(-0.5, 0.5), # momentum
+                    0.0,                           # inventory_risk
+                ], dtype=_np.float32)
+                return self._state, {}
+
+            def step(self, action):
+                self.step_count += 1
+                slice_sizes = [0, 0.05, 0.15, 0.30, 0.50]
+                slice_pct = slice_sizes[action]
+                executed = min(slice_pct, self.remaining_qty)
+                self.remaining_qty -= executed
+
+                # Market impact model
+                impact = executed * self._state[2] * (1 + executed * 5)
+                timing_risk = self.remaining_qty * self._state[4] * 0.01
+
+                reward = -impact * 100 - timing_risk * 50
+                if self.remaining_qty <= 0.01:
+                    reward += 10  # completion bonus
+
+                # Evolve state
+                self._state[0] = self.remaining_qty
+                self._state[1] = max(0, 1 - self.step_count / self.max_steps)
+                self._state[3] = _np.clip(
+                    self._state[3] + _np.random.normal(0, 0.1), 0.1, 5.0)
+                self._state[5] += _np.random.normal(0, 0.01)
+                self._state[7] = self.remaining_qty * self._state[4]
+
+                done = self.step_count >= self.max_steps or self.remaining_qty <= 0.01
+                return self._state.copy(), float(reward), done, False, {}
+
+        return ExecutionEnvironment()
+
+    def train_execution_policy(self, total_timesteps: int = 50000) -> Optional[Any]:
+        """
+        Train a PPO policy for TWAP/VWAP execution optimization.
+
+        Args:
+            total_timesteps: Training steps.
+
+        Returns:
+            Trained SB3 model or None.
+        """
+        env = self.create_execution_rl_env()
+        if env is None:
+            return None
+
+        try:
+            from stable_baselines3 import PPO
+            model = PPO('MlpPolicy', env, verbose=0,
+                       learning_rate=3e-4, n_steps=2048)
+            model.learn(total_timesteps=total_timesteps)
+            self.logger.info(f"Execution RL policy trained: {total_timesteps} steps")
+            return model
+        except ImportError:
+            self.logger.warning("stable-baselines3 not installed")
+            return None
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================

@@ -823,6 +823,65 @@ class StrategyComparisonAnalyzer:
         self.logger.info(f"Comparison report exported to {output_path}")
         return output_path
 
+    # --------------------------------------------------------------------------
+    # PYFOLIO / EMPYRICAL INTEGRATION
+    # --------------------------------------------------------------------------
+
+    def generate_round_trip_analysis(self, strategy_returns: Dict[str, pd.Series],
+                                     benchmark_returns: Optional[pd.Series] = None,
+                                     ) -> Dict[str, Dict[str, Any]]:
+        """
+        Generate round-trip tear sheet analysis per strategy using empyrical.
+
+        Args:
+            strategy_returns: {strategy_name: returns_series} mapping.
+            benchmark_returns: Optional benchmark series for alpha/beta.
+
+        Returns:
+            Dictionary of strategy metrics for head-to-head comparison.
+        """
+        try:
+            import empyrical
+        except ImportError:
+            self.logger.warning("empyrical not installed — skipping round-trip analysis")
+            return {}
+
+        rf_daily = 0.05 / 252
+        result: Dict[str, Dict[str, Any]] = {}
+
+        for name, returns in strategy_returns.items():
+            if len(returns) < 20:
+                continue
+
+            metrics = {
+                'sharpe_ratio': float(empyrical.sharpe_ratio(returns, risk_free=rf_daily)),
+                'sortino_ratio': float(empyrical.sortino_ratio(returns)),
+                'calmar_ratio': float(empyrical.calmar_ratio(returns)),
+                'max_drawdown': float(empyrical.max_drawdown(returns)),
+                'annual_return': float(empyrical.annual_return(returns)),
+                'annual_volatility': float(empyrical.annual_volatility(returns)),
+                'omega_ratio': float(empyrical.omega_ratio(returns)),
+                'tail_ratio': float(empyrical.tail_ratio(returns)),
+                'stability': float(empyrical.stability_of_timeseries(returns)),
+                'var_95': float(np.percentile(returns, 5)),
+                'win_rate': float((returns > 0).sum() / len(returns)),
+            }
+
+            if benchmark_returns is not None:
+                idx = returns.index.intersection(benchmark_returns.index)
+                if len(idx) > 10:
+                    r, b = returns.loc[idx], benchmark_returns.loc[idx]
+                    metrics['alpha'] = float(empyrical.alpha(r, b, rf_daily))
+                    metrics['beta'] = float(empyrical.beta(r, b))
+
+            result[name] = metrics
+
+        # Rank by Sharpe
+        ranked = sorted(result.items(), key=lambda x: x[1].get('sharpe_ratio', 0), reverse=True)
+        self.logger.info(f"Round-trip analysis: {len(result)} strategies, "
+                         f"best={ranked[0][0] if ranked else 'N/A'}")
+        return result
+
 
 # ==============================================================================
 # MODULE EXPORTS

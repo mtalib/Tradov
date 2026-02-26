@@ -1370,6 +1370,73 @@ class CapitalAllocator:
         for sid, allocation in self.strategy_allocations.items():
             self.strategy_positions[sid] = allocation * new_capital
 
+    # --------------------------------------------------------------------------
+    # RISKFOLIO-LIB: RISK PARITY & RISK BUDGETING
+    # --------------------------------------------------------------------------
+
+    def optimize_allocation_riskfolio(
+        self,
+        returns_data: pd.DataFrame,
+        mode: str = 'risk_parity',
+        risk_budget: Optional[Dict[str, float]] = None,
+    ) -> Dict[str, float]:
+        """
+        Optimize capital allocation using RiskFolio-Lib.
+
+        Supports risk parity, risk budgeting, and HRP allocation modes
+        that go beyond the existing scipy-based mean-variance approach.
+
+        Args:
+            returns_data: DataFrame of strategy returns (columns = strategies).
+            mode: One of 'risk_parity', 'risk_budgeting', 'hrp', 'max_sharpe', 'min_cvar'.
+            risk_budget: Strategy risk budget {name: fraction} for 'risk_budgeting' mode.
+
+        Returns:
+            Dictionary of optimal weights per strategy.
+        """
+        try:
+            import riskfolio as rp
+        except ImportError:
+            self.logger.warning("riskfolio not installed — using equal weight fallback")
+            n = returns_data.shape[1]
+            return {col: 1.0 / n for col in returns_data.columns}
+
+        port = rp.Portfolio(returns=returns_data)
+        port.assets_stats(method_mu='hist', method_cov='ledoit_wolf')
+
+        weights = None
+        if mode == 'hrp':
+            weights = port.optimization(
+                model='HRP', codependence='pearson', rm='MV',
+                rf=0.05 / 252, linkage='single', leaf_order=True)
+        elif mode == 'risk_parity':
+            weights = port.rp_optimization(
+                model='Classic', rm='MV', rf=0.05 / 252, b=None)
+        elif mode == 'risk_budgeting' and risk_budget is not None:
+            budget_series = pd.Series(risk_budget).reindex(returns_data.columns).fillna(
+                1.0 / returns_data.shape[1])
+            budget_series = budget_series / budget_series.sum()
+            weights = port.rp_optimization(
+                model='Classic', rm='MV', rf=0.05 / 252,
+                b=budget_series.values.reshape(-1, 1))
+        elif mode == 'max_sharpe':
+            weights = port.optimization(
+                model='Classic', rm='MV', obj='Sharpe', rf=0.05 / 252)
+        elif mode == 'min_cvar':
+            weights = port.optimization(
+                model='Classic', rm='CVaR', obj='MinRisk', rf=0.05 / 252)
+        else:
+            weights = port.rp_optimization(
+                model='Classic', rm='MV', rf=0.05 / 252, b=None)
+
+        if weights is not None and not weights.empty:
+            result = {col: float(weights.loc[col].iloc[0]) for col in weights.index}
+            self.logger.info(f"RiskFolio allocation ({mode}): {len(result)} strategies")
+            return result
+
+        n = returns_data.shape[1]
+        return {col: 1.0 / n for col in returns_data.columns}
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================

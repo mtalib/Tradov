@@ -479,6 +479,53 @@ class BacktestEngine:
         print("⚠️  Use PAPER TRADING for performance validation!")
         print("="*80 + "\n")
 
+    # --------------------------------------------------------------------------
+    # PYFOLIO / EMPYRICAL TEAR SHEET
+    # --------------------------------------------------------------------------
+
+    def generate_post_backtest_tearsheet(self, returns: pd.Series,
+                                          benchmark_returns: Optional[pd.Series] = None,
+                                          ) -> Dict[str, Any]:
+        """
+        Generate tear sheet after backtest completion using empyrical.
+
+        Args:
+            returns: Strategy daily return series from backtest.
+            benchmark_returns: Optional benchmark for alpha/beta.
+
+        Returns:
+            Dictionary of institutional performance metrics.
+        """
+        try:
+            import empyrical
+        except ImportError:
+            return {'status': 'empyrical_not_installed'}
+
+        rf_daily = 0.05 / 252
+        metrics = {
+            'annual_return': float(empyrical.annual_return(returns)),
+            'annual_volatility': float(empyrical.annual_volatility(returns)),
+            'sharpe_ratio': float(empyrical.sharpe_ratio(returns, risk_free=rf_daily)),
+            'sortino_ratio': float(empyrical.sortino_ratio(returns)),
+            'calmar_ratio': float(empyrical.calmar_ratio(returns)),
+            'max_drawdown': float(empyrical.max_drawdown(returns)),
+            'omega_ratio': float(empyrical.omega_ratio(returns)),
+            'stability': float(empyrical.stability_of_timeseries(returns)),
+            'tail_ratio': float(empyrical.tail_ratio(returns)),
+            'cumulative_return': float(empyrical.cum_returns_final(returns)),
+            'downside_risk': float(empyrical.downside_risk(returns)),
+        }
+
+        if benchmark_returns is not None:
+            idx = returns.index.intersection(benchmark_returns.index)
+            if len(idx) > 10:
+                r, b = returns.loc[idx], benchmark_returns.loc[idx]
+                metrics['alpha'] = float(empyrical.alpha(r, b, rf_daily))
+                metrics['beta'] = float(empyrical.beta(r, b))
+                metrics['information_ratio'] = float(empyrical.excess_sharpe(r, b))
+
+        return metrics
+
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================

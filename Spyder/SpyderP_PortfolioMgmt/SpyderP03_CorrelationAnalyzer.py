@@ -496,6 +496,55 @@ class CorrelationAnalyzer:
             self.error_handler.handle_error(e, f"Failed to import correlation data from {file_path}")
             return False
 
+    # --------------------------------------------------------------------------
+    # RISKFOLIO-LIB: ROBUST COVARIANCE ESTIMATION
+    # --------------------------------------------------------------------------
+
+    def compute_robust_covariance(
+        self,
+        returns_data: pd.DataFrame,
+        method: str = 'ledoit_wolf',
+    ) -> Dict[str, Any]:
+        """
+        Compute robust covariance matrix using RiskFolio-Lib's estimators.
+
+        Replaces naive sample covariance with shrinkage estimators
+        that are more stable for portfolio optimization.
+
+        Args:
+            returns_data: DataFrame of asset returns.
+            method: Covariance method: 'ledoit_wolf', 'oas', 'shrunk', 'hist'.
+
+        Returns:
+            Dictionary with covariance matrix and metadata.
+        """
+        try:
+            import riskfolio as rp
+        except ImportError:
+            self.logger.warning("riskfolio not installed — using sample covariance")
+            cov = returns_data.cov()
+            return {'covariance': cov.to_dict(), 'method': 'sample', '_backend': 'fallback'}
+
+        port = rp.Portfolio(returns=returns_data)
+        port.assets_stats(method_mu='hist', method_cov=method)
+
+        cov_matrix = port.cov
+        mu = port.mu
+
+        result = {
+            'covariance': cov_matrix.to_dict() if isinstance(cov_matrix, pd.DataFrame) else {},
+            'expected_returns': mu.to_dict() if isinstance(mu, pd.DataFrame) else {},
+            'method': method,
+            'n_assets': returns_data.shape[1],
+            'n_observations': returns_data.shape[0],
+            'condition_number': float(np.linalg.cond(cov_matrix)) if cov_matrix is not None else 0,
+            '_backend': 'riskfolio',
+        }
+
+        self.logger.info(f"Robust covariance ({method}): {returns_data.shape[1]} assets, "
+                         f"cond={result['condition_number']:.1f}")
+        return result
+
 
 # ==============================================================================
 # UTILITY FUNCTIONS

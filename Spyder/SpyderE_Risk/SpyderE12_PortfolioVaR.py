@@ -1260,6 +1260,74 @@ class PortfolioVaR:
                           f"{computation_time:.2f}s")
         return results
 
+    # --------------------------------------------------------------------------
+    # RISKFOLIO-LIB: EXTENDED RISK MEASURES
+    # --------------------------------------------------------------------------
+
+    def compute_extended_risk_measures(
+        self,
+        returns_data: pd.DataFrame,
+        confidence: float = 0.95,
+    ) -> Dict[str, Any]:
+        """
+        Compute extended risk measures using RiskFolio-Lib.
+
+        Adds CDaR (Conditional Drawdown at Risk), EVaR (Entropic VaR),
+        and UCI (Ulcer Index) beyond standard VaR/CVaR.
+
+        Args:
+            returns_data: DataFrame of portfolio returns.
+            confidence: Confidence level for risk measures.
+
+        Returns:
+            Dictionary of extended risk measures.
+        """
+        try:
+            import riskfolio as rp
+        except ImportError:
+            self.logger.warning("riskfolio not installed — using basic risk measures")
+            return {'status': 'riskfolio_not_installed'}
+
+        port = rp.Portfolio(returns=returns_data)
+        port.assets_stats(method_mu='hist', method_cov='ledoit_wolf')
+
+        alpha = 1 - confidence
+        risk_measures = {}
+
+        # Compute equal-weight portfolio risk for each measure
+        n = returns_data.shape[1]
+        equal_weights = np.ones((n, 1)) / n
+
+        measures = ['MV', 'CVaR', 'CDaR', 'UCI', 'MDD']
+        measure_names = {
+            'MV': 'mean_variance',
+            'CVaR': 'conditional_var',
+            'CDaR': 'conditional_drawdown_at_risk',
+            'UCI': 'ulcer_index',
+            'MDD': 'max_drawdown',
+        }
+
+        for rm in measures:
+            try:
+                opt_weights = port.optimization(
+                    model='Classic', rm=rm, obj='MinRisk',
+                    rf=0.05 / 252, hist=True)
+                if opt_weights is not None and not opt_weights.empty:
+                    risk_measures[f'{measure_names[rm]}_optimal_weights'] = {
+                        col: float(opt_weights.loc[col].iloc[0])
+                        for col in opt_weights.index
+                    }
+            except Exception as e:
+                self.logger.debug(f"Risk measure {rm} failed: {e}")
+                risk_measures[f'{measure_names[rm]}_optimal_weights'] = None
+
+        risk_measures['confidence'] = confidence
+        risk_measures['n_assets'] = n
+        risk_measures['_backend'] = 'riskfolio'
+
+        self.logger.info(f"Extended risk measures: {len(measures)} computed")
+        return risk_measures
+
 
 # ==============================================================================
 # FACTORY FUNCTION

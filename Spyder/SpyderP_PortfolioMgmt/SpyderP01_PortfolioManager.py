@@ -1732,6 +1732,85 @@ class PortfolioManager:
         except Exception as e:
             self.error_handler.handle_error(e, "_consider_volatility_hedge")
 
+    # --------------------------------------------------------------------------
+    # RISKFOLIO-LIB: DEFAULT OPTIMIZATION BACKEND
+    # --------------------------------------------------------------------------
+
+    def optimize_portfolio_riskfolio(
+        self,
+        returns_data: pd.DataFrame,
+        objective: str = 'max_sharpe',
+        risk_measure: str = 'CVaR',
+        max_weight: float = 0.30,
+    ) -> Dict[str, Any]:
+        """
+        Wire RiskFolio-Lib as the default portfolio optimization backend.
+
+        Provides CVaR, HRP, risk parity, and Black-Litterman optimization
+        modes that complement the existing scipy-based approach.
+
+        Args:
+            returns_data: DataFrame of asset returns (columns = assets).
+            objective: 'max_sharpe', 'min_risk', 'max_return', 'risk_parity', 'hrp'.
+            risk_measure: Risk measure for optimization ('MV', 'CVaR', 'CDaR', 'MDD').
+            max_weight: Maximum weight per asset.
+
+        Returns:
+            Optimized weights and portfolio statistics.
+        """
+        try:
+            import riskfolio as rp
+        except ImportError:
+            self.logger.warning("riskfolio not installed")
+            n = returns_data.shape[1]
+            return {'weights': {col: 1.0 / n for col in returns_data.columns},
+                    '_backend': 'fallback'}
+
+        port = rp.Portfolio(returns=returns_data)
+        port.assets_stats(method_mu='hist', method_cov='ledoit_wolf')
+
+        weights = None
+        if objective == 'hrp':
+            weights = port.optimization(
+                model='HRP', codependence='pearson', rm=risk_measure,
+                rf=0.05 / 252, linkage='single', leaf_order=True)
+        elif objective == 'risk_parity':
+            weights = port.rp_optimization(
+                model='Classic', rm=risk_measure, rf=0.05 / 252, b=None)
+        else:
+            obj_map = {'max_sharpe': 'Sharpe', 'min_risk': 'MinRisk',
+                       'max_return': 'MaxRet'}
+            rp_obj = obj_map.get(objective, 'Sharpe')
+            weights = port.optimization(
+                model='Classic', rm=risk_measure, obj=rp_obj, rf=0.05 / 252)
+
+        if weights is not None and not weights.empty:
+            weight_dict = {col: float(weights.loc[col].iloc[0]) for col in weights.index}
+            # Compute portfolio stats
+            port_ret = sum(weight_dict.get(c, 0) * returns_data[c].mean()
+                          for c in returns_data.columns) * 252
+            port_vol = float(np.sqrt(
+                np.array([weight_dict.get(c, 0) for c in returns_data.columns]).T @
+                returns_data.cov().values * 252 @
+                np.array([weight_dict.get(c, 0) for c in returns_data.columns])))
+
+            result = {
+                'weights': weight_dict,
+                'expected_return': float(port_ret),
+                'expected_volatility': port_vol,
+                'sharpe_ratio': float(port_ret / (port_vol + 1e-8)),
+                'objective': objective,
+                'risk_measure': risk_measure,
+                '_backend': 'riskfolio',
+            }
+            self.logger.info(f"RiskFolio optimization ({objective}/{risk_measure}): "
+                             f"Sharpe={result['sharpe_ratio']:.4f}")
+            return result
+
+        n = returns_data.shape[1]
+        return {'weights': {col: 1.0 / n for col in returns_data.columns},
+                '_backend': 'fallback'}
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================

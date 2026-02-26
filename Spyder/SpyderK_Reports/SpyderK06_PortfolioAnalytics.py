@@ -1364,6 +1364,66 @@ class PortfolioAnalytics:
         html += "</table>"
         return html
 
+    # --------------------------------------------------------------------------
+    # PYFOLIO / EMPYRICAL INTEGRATION
+    # --------------------------------------------------------------------------
+
+    def generate_pyfolio_tearsheet(self, returns: pd.Series,
+                                   benchmark_returns: Optional[pd.Series] = None,
+                                   ) -> Dict[str, Any]:
+        """
+        Generate institutional-grade portfolio analytics using PyFolio/empyrical.
+
+        Args:
+            returns: Strategy daily return series.
+            benchmark_returns: Optional benchmark return series.
+
+        Returns:
+            Dictionary of institutional performance metrics.
+        """
+        try:
+            import empyrical
+        except ImportError:
+            self.logger.warning("empyrical not installed — using fallback")
+            return self._fallback_portfolio_metrics(returns)
+
+        rf_daily = 0.05 / 252
+        metrics: Dict[str, Any] = {
+            'annual_return': float(empyrical.annual_return(returns)),
+            'annual_volatility': float(empyrical.annual_volatility(returns)),
+            'sharpe_ratio': float(empyrical.sharpe_ratio(returns, risk_free=rf_daily)),
+            'sortino_ratio': float(empyrical.sortino_ratio(returns)),
+            'calmar_ratio': float(empyrical.calmar_ratio(returns)),
+            'max_drawdown': float(empyrical.max_drawdown(returns)),
+            'omega_ratio': float(empyrical.omega_ratio(returns)),
+            'tail_ratio': float(empyrical.tail_ratio(returns)),
+            'stability': float(empyrical.stability_of_timeseries(returns)),
+            'var_95': float(np.percentile(returns, 5)),
+            'cumulative_return': float(empyrical.cum_returns_final(returns)),
+        }
+
+        if benchmark_returns is not None:
+            idx = returns.index.intersection(benchmark_returns.index)
+            if len(idx) > 10:
+                r, b = returns.loc[idx], benchmark_returns.loc[idx]
+                metrics['alpha'] = float(empyrical.alpha(r, b, rf_daily))
+                metrics['beta'] = float(empyrical.beta(r, b))
+                metrics['information_ratio'] = float(empyrical.excess_sharpe(r, b))
+                metrics['capture_ratio'] = float(empyrical.capture(r, b))
+
+        self.logger.info(f"PyFolio tearsheet: Sharpe={metrics['sharpe_ratio']:.4f}")
+        return metrics
+
+    def _fallback_portfolio_metrics(self, returns: pd.Series) -> Dict[str, Any]:
+        """Fallback metrics without empyrical."""
+        cum = (1 + returns).cumprod()
+        return {
+            'annual_return': float(cum.iloc[-1] ** (252 / len(returns)) - 1),
+            'sharpe_ratio': float(returns.mean() / (returns.std() + 1e-8) * np.sqrt(252)),
+            'max_drawdown': float(((cum - cum.expanding().max()) / cum.expanding().max()).min()),
+            '_backend': 'fallback',
+        }
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================

@@ -857,6 +857,60 @@ class UnifiedSharpeDashboard:
 </html>
 """
 
+    # --------------------------------------------------------------------------
+    # EMPYRICAL VALIDATED SHARPE
+    # --------------------------------------------------------------------------
+
+    def compute_validated_sharpe(self, returns: pd.Series,
+                                 rolling_window: int = 63,
+                                 risk_free_rate: float = 0.05,
+                                 ) -> Dict[str, Any]:
+        """
+        Compute validated Sharpe ratio using empyrical library.
+
+        Replaces hand-rolled Sharpe calculation with the institutional-grade
+        empyrical implementation for accuracy and consistency.
+
+        Args:
+            returns: Strategy daily return series.
+            rolling_window: Rolling Sharpe window in trading days.
+            risk_free_rate: Annual risk-free rate.
+
+        Returns:
+            Dictionary with overall and rolling Sharpe metrics.
+        """
+        try:
+            import empyrical
+        except ImportError:
+            self.logger.warning("empyrical not installed — using manual Sharpe")
+            sharpe = float(returns.mean() / (returns.std() + 1e-8) * np.sqrt(252))
+            return {'sharpe_ratio': sharpe, '_backend': 'fallback'}
+
+        rf_daily = risk_free_rate / 252
+
+        overall_sharpe = float(empyrical.sharpe_ratio(returns, risk_free=rf_daily))
+
+        # Rolling Sharpe via empyrical
+        try:
+            rolling_sharpe = empyrical.roll_sharpe_ratio(
+                returns, rolling_window=rolling_window, risk_free=rf_daily)
+            rolling_dict = {str(k): float(v) for k, v in rolling_sharpe.dropna().items()}
+        except Exception:
+            rolling_dict = {}
+
+        result = {
+            'sharpe_ratio': overall_sharpe,
+            'sortino_ratio': float(empyrical.sortino_ratio(returns)),
+            'rolling_sharpe': rolling_dict,
+            'rolling_window': rolling_window,
+            'max_rolling_sharpe': float(max(rolling_dict.values())) if rolling_dict else 0,
+            'min_rolling_sharpe': float(min(rolling_dict.values())) if rolling_dict else 0,
+            '_backend': 'empyrical',
+        }
+
+        self.logger.info(f"Validated Sharpe: {overall_sharpe:.4f} (empyrical)")
+        return result
+
 # ==============================================================================
 # MODULE EXPORTS
 # ==============================================================================

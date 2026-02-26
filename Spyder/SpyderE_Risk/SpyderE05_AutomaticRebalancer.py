@@ -633,6 +633,119 @@ class SpyderAutomaticRebalancer:
         self.monitoring_active = False
         logger.info("Stopping automatic Greek rebalancing monitor")
 
+    # --------------------------------------------------------------------------
+    # STABLE-BASELINES3: RL COST-AWARE REBALANCING
+    # --------------------------------------------------------------------------
+
+    def create_rebalancing_rl_env(self):
+        """
+        Create an RL environment for cost-aware rebalancing scheduling.
+
+        The agent learns WHEN to rebalance by weighing tracking error
+        against transaction costs and market impact.
+
+        Returns:
+            gym.Env instance for training with SB3 PPO/SAC.
+        """
+        try:
+            import gymnasium as gym
+            from gymnasium import spaces
+        except ImportError:
+            try:
+                import gym
+                from gym import spaces
+            except ImportError:
+                logger.warning("gym/gymnasium not installed — RL env unavailable")
+                return None
+
+        class RebalancingEnvironment(gym.Env):
+            """
+            RL environment for rebalancing schedule optimization.
+
+            Observation: [tracking_error, portfolio_drift, days_since_rebal,
+                         market_vol, spread_cost, time_of_day_norm]
+            Action: 0=hold, 1=partial_rebalance, 2=full_rebalance
+            Reward: -tracking_error - transaction_cost + risk_reduction
+            """
+            metadata = {'render_modes': []}
+
+            def __init__(self):
+                super().__init__()
+                self.observation_space = spaces.Box(
+                    low=-5.0, high=5.0, shape=(6,), dtype=np.float32)
+                self.action_space = spaces.Discrete(3)
+                self.step_count = 0
+                self.max_steps = 252
+                self._state = np.zeros(6, dtype=np.float32)
+
+            def reset(self, seed=None, options=None):
+                super().reset(seed=seed)
+                self.step_count = 0
+                self._state = np.array([
+                    np.random.uniform(0, 0.05),   # tracking_error
+                    np.random.uniform(0, 0.1),    # portfolio_drift
+                    0.0,                           # days_since_rebal
+                    np.random.uniform(0.1, 0.4),  # market_vol
+                    np.random.uniform(0.001, 0.01), # spread_cost
+                    np.random.uniform(0, 1),       # time_of_day
+                ], dtype=np.float32)
+                return self._state, {}
+
+            def step(self, action):
+                self.step_count += 1
+                tracking_error = self._state[0]
+                drift = self._state[1]
+                spread = self._state[4]
+
+                if action == 0:  # hold
+                    cost = 0
+                    self._state[0] += np.random.uniform(0, 0.005)
+                    self._state[1] += np.random.uniform(0, 0.01)
+                    self._state[2] += 1
+                elif action == 1:  # partial rebalance
+                    cost = spread * 0.5
+                    self._state[0] *= 0.5
+                    self._state[1] *= 0.5
+                    self._state[2] = 0
+                else:  # full rebalance
+                    cost = spread * 1.0
+                    self._state[0] = np.random.uniform(0, 0.005)
+                    self._state[1] = np.random.uniform(0, 0.01)
+                    self._state[2] = 0
+
+                reward = -tracking_error * 10 - cost * 100 - drift * 5
+                self._state[3] = np.clip(
+                    self._state[3] + np.random.normal(0, 0.02), 0.05, 0.8)
+                done = self.step_count >= self.max_steps
+                return self._state.copy(), float(reward), done, False, {}
+
+        return RebalancingEnvironment()
+
+    def train_rebalancing_policy(self, total_timesteps: int = 50000) -> Optional[Any]:
+        """
+        Train a PPO policy for cost-aware rebalancing.
+
+        Args:
+            total_timesteps: Training steps.
+
+        Returns:
+            Trained SB3 model or None if unavailable.
+        """
+        env = self.create_rebalancing_rl_env()
+        if env is None:
+            return None
+
+        try:
+            from stable_baselines3 import PPO
+            model = PPO('MlpPolicy', env, verbose=0,
+                       learning_rate=3e-4, n_steps=2048)
+            model.learn(total_timesteps=total_timesteps)
+            logger.info(f"Rebalancing RL policy trained: {total_timesteps} steps")
+            return model
+        except ImportError:
+            logger.warning("stable-baselines3 not installed")
+            return None
+
 
 async def main():
     """Example usage of automatic rebalancer."""

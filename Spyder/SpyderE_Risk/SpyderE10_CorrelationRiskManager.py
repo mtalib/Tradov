@@ -1664,6 +1664,68 @@ class CorrelationRiskManager:
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")
 
+    # --------------------------------------------------------------------------
+    # RISKFOLIO-LIB: ROBUST CORRELATION FOR BREAKDOWN DETECTION
+    # --------------------------------------------------------------------------
+
+    def compute_robust_correlation(
+        self,
+        returns_data: pd.DataFrame,
+        method: str = 'ledoit_wolf',
+    ) -> Dict[str, Any]:
+        """
+        Compute robust correlation using RiskFolio-Lib's covariance estimators.
+
+        Shrinkage estimators are more stable during correlation breakdowns
+        than naive sample correlation matrices.
+
+        Args:
+            returns_data: DataFrame of asset returns.
+            method: Estimation method ('ledoit_wolf', 'oas', 'shrunk').
+
+        Returns:
+            Robust correlation matrix and stability diagnostics.
+        """
+        try:
+            import riskfolio as rp
+        except ImportError:
+            self.logger.warning("riskfolio not installed — using sample correlation")
+            corr = returns_data.corr()
+            return {'correlation': corr.to_dict(), '_backend': 'fallback'}
+
+        port = rp.Portfolio(returns=returns_data)
+        port.assets_stats(method_mu='hist', method_cov=method)
+
+        cov_matrix = port.cov
+        if isinstance(cov_matrix, pd.DataFrame):
+            # Convert covariance to correlation
+            std = np.sqrt(np.diag(cov_matrix.values))
+            d_inv = np.diag(1.0 / (std + 1e-12))
+            corr_matrix = pd.DataFrame(
+                d_inv @ cov_matrix.values @ d_inv,
+                index=cov_matrix.index, columns=cov_matrix.columns)
+        else:
+            corr_matrix = returns_data.corr()
+
+        # Stability diagnostics
+        eigenvalues = np.linalg.eigvalsh(corr_matrix.values)
+        condition_number = float(eigenvalues[-1] / (eigenvalues[0] + 1e-12))
+
+        result = {
+            'correlation': corr_matrix.to_dict(),
+            'method': method,
+            'condition_number': condition_number,
+            'eigenvalue_ratio': float(eigenvalues[-1] / (eigenvalues[-2] + 1e-12)),
+            'min_eigenvalue': float(eigenvalues[0]),
+            'max_eigenvalue': float(eigenvalues[-1]),
+            'is_well_conditioned': condition_number < 100,
+            'n_assets': returns_data.shape[1],
+            '_backend': 'riskfolio',
+        }
+
+        self.logger.info(f"Robust correlation ({method}): cond={condition_number:.1f}")
+        return result
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================

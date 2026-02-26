@@ -1032,239 +1032,125 @@ class GreekLimitsManager:
             pass
             
         except Exception as e:
-            self.error_handler#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-SPYDER - Automated SPY Options Trading System
+            self.error_handler.handle_error(e, {
+                'method': '_check_correlation_breakdown'
+            })
 
-Module: SpyderE03_GreekLimitsManager.py (Enhanced with Dynamic Risk Adaptation)
-Group: E (Risk Management)
-Purpose: Real-time Greek limits monitoring with adaptive risk management
+    # --------------------------------------------------------------------------
+    # STABLE-BASELINES3: RL DYNAMIC GREEK LIMIT ADJUSTMENT
+    # --------------------------------------------------------------------------
 
-Description:
-    Enhanced Greek limits manager that dynamically adapts risk thresholds based
-    on market conditions, volatility regimes, and real-time market data. Features
-    include VIX-based limit adjustments, regime-aware risk scaling, correlation
-    breakdowns detection, and predictive risk modeling. The system integrates
-    with SPYDER's ML modules for intelligent risk adaptation and provides
-    institutional-grade risk management with 5-second monitoring intervals.
+    def create_greek_limits_rl_env(self):
+        """
+        Create an RL environment for dynamic Greek limit adjustment.
 
-Spyder Version: 1.0
-Author: Mohamed Talib
-Created: 2025-06-13
-Enhanced: 2025-07-01
-Version: 1.5
-"""
+        The agent learns to adapt Greek limits based on market regime,
+        VIX level, and recent P&L to balance risk and opportunity.
 
-# ==============================================================================
-# STANDARD IMPORTS
-# ==============================================================================
-import threading
-import time
-import asyncio
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from collections import defaultdict, deque
-import json
-import math
-import copy
+        Returns:
+            gym.Env instance for training with SB3 PPO.
+        """
+        try:
+            import gymnasium as gym
+            from gymnasium import spaces
+        except ImportError:
+            try:
+                import gym
+                from gym import spaces
+            except ImportError:
+                self.logger.warning("gym/gymnasium not installed")
+                return None
 
-# ==============================================================================
-# THIRD-PARTY IMPORTS
-# ==============================================================================
-import numpy as np
-import pandas as pd
-from scipy import stats
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import IsolationForest
+        import numpy as _np
 
-# ==============================================================================
-# LOCAL IMPORTS
+        class GreekLimitsEnvironment(gym.Env):
+            """
+            RL environment for Greek limit adjustment.
 
-# Local AlertLevel definition for compatibility
-class AlertLevel:
-    """Alert severity levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+            Observation: [delta_exposure, gamma_exposure, vega_exposure,
+                         theta_exposure, vix_level, regime_id, recent_pnl,
+                         portfolio_value_norm]
+            Action: Continuous box [delta_limit_adj, gamma_limit_adj,
+                    vega_limit_adj, theta_limit_adj] in [-1, 1]
+            Reward: risk_adjusted_pnl - limit_violation_penalty
+            """
+            metadata = {'render_modes': []}
 
-# ==============================================================================
+            def __init__(self):
+                super().__init__()
+                self.observation_space = spaces.Box(
+                    low=-5.0, high=5.0, shape=(8,), dtype=_np.float32)
+                self.action_space = spaces.Box(
+                    low=-1.0, high=1.0, shape=(4,), dtype=_np.float32)
+                self.step_count = 0
+                self.max_steps = 252
 
-# Local AlertLevel definition for compatibility
-class AlertLevel:
-    """Alert severity levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+            def reset(self, seed=None, options=None):
+                super().reset(seed=seed)
+                self.step_count = 0
+                self._state = _np.array([
+                    _np.random.uniform(-1, 1),     # delta_exposure
+                    _np.random.uniform(0, 0.5),    # gamma_exposure
+                    _np.random.uniform(-0.5, 0.5), # vega_exposure
+                    _np.random.uniform(-0.3, 0),   # theta_exposure
+                    _np.random.uniform(12, 35),     # VIX
+                    float(_np.random.randint(0, 4)), # regime
+                    0.0,                            # recent PnL
+                    1.0,                            # portfolio norm
+                ], dtype=_np.float32)
+                return self._state, {}
 
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+            def step(self, action):
+                self.step_count += 1
+                vix = self._state[4]
+                greeks = self._state[:4]
 
-# Local AlertLevel definition for compatibility
-class AlertLevel:
-    """Alert severity levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+                # Adjusted limits based on action
+                base_limits = _np.array([0.3, 0.1, 0.2, 0.15])
+                adj_limits = base_limits * (1 + action * 0.5)
 
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+                violations = _np.maximum(0, _np.abs(greeks) - adj_limits)
+                violation_penalty = float(violations.sum()) * 10
 
-# Local AlertLevel definition for compatibility
-class AlertLevel:
-    """Alert severity levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+                # Simulate PnL
+                pnl = float(_np.random.normal(0.001, 0.02))
+                self._state[6] = pnl
 
-from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
+                # Tighter limits in high-VIX = lower violations but less opportunity
+                opportunity_cost = float(_np.mean(_np.maximum(0, base_limits - adj_limits))) * 5
 
-# Local AlertLevel definition for compatibility
-class AlertLevel:
-    """Alert severity levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+                reward = pnl * 100 - violation_penalty - opportunity_cost
 
+                # Evolve state
+                self._state[:4] += _np.random.normal(0, 0.05, 4).astype(_np.float32)
+                self._state[4] = _np.clip(vix + _np.random.normal(0, 1), 10, 80)
 
+                done = self.step_count >= self.max_steps
+                return self._state.copy(), float(reward), done, False, {}
 
-# Local AlertLevel definition for compatibility
-class AlertLevel:
-    """Alert severity levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+        return GreekLimitsEnvironment()
 
-# Optional ML imports for enhanced features
-try:
-    from SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-    from SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector
-    ML_AVAILABLE = True
-except ImportError:
-    ML_AVAILABLE = False
+    def train_greek_limits_policy(self, total_timesteps: int = 50000) -> Optional[Any]:
+        """
+        Train a PPO policy for dynamic Greek limit adjustment.
 
-# Alert manager integration
-try:
-    # from SpyderJ_Alerts.SpyderJ01_AlertManager import get_alert_manager  # Disabled for migration
-    ALERTS_AVAILABLE = True
-except ImportError:
-    ALERTS_AVAILABLE = False
+        Args:
+            total_timesteps: Training steps.
 
-# ==============================================================================
-# ENHANCED CONSTANTS
-# ==============================================================================
-# Base institutional limits (per $1M portfolio)
-DEFAULT_LIMITS = {
-    'delta': 50.0,
-    'gamma': 50.0, 
-    'vega': 200.0,
-    'theta': -100.0,  # Negative theta is profit for premium sellers
-    'rho': 25.0
-}
+        Returns:
+            Trained SB3 model or None.
+        """
+        env = self.create_greek_limits_rl_env()
+        if env is None:
+            return None
 
-# Dynamic adjustment parameters
-VIX_ADJUSTMENT_SCALE = 0.02  # 2% per VIX point above/below 20
-REGIME_MULTIPLIERS = {
-    'low_volatility': 0.8,
-    'normal': 1.0,
-    'high_volatility': 1.5,
-    'crisis': 2.0,
-    'trending': 1.2,
-    'mean_reverting': 0.9
-}
-
-# Monitoring intervals
-MONITORING_INTERVAL = 5  # seconds
-CORRELATION_CHECK_INTERVAL = 60  # seconds
-REGIME_UPDATE_INTERVAL = 300  # 5 minutes
-
-# Risk escalation levels
-ESCALATION_LEVELS = {
-    'green': 0.7,   # 70% of limit
-    'yellow': 0.85, # 85% of limit
-    'orange': 0.95, # 95% of limit
-    'red': 1.0      # At limit
-}
-
-# ==============================================================================
-# ENHANCED ENUMS
-# ==============================================================================
-class RiskLevel(Enum):
-    """Risk escalation levels."""
-    GREEN = "green"
-    YELLOW = "yellow"
-    ORANGE = "orange"
-    RED = "red"
-    CRITICAL = "critical"  # Beyond limits
-
-class MarketRegime(Enum):
-    """Market regime types for risk adaptation."""
-    LOW_VOLATILITY = "low_volatility"
-    NORMAL = "normal"
-    HIGH_VOLATILITY = "high_volatility"
-    CRISIS = "crisis"
-    TRENDING = "trending"
-    MEAN_REVERTING = "mean_reverting"
-    UNCERTAIN = "uncertain"
-
-class AdjustmentTrigger(Enum):
-    """Triggers for limit adjustments."""
-    VIX_CHANGE = "vix_change"
-    REGIME_CHANGE = "regime_change"
-    CORRELATION_BREAKDOWN = "correlation_breakdown"
-    VOLATILITY_SPIKE = "volatility_spike"
-    MANUAL_OVERRIDE = "manual_override"
-    STRESS_TEST = "stress_test"
-
-# ==============================================================================
-# ENHANCED DATA STRUCTURES
-# ==============================================================================
-@dataclass
-class DynamicGreekLimits:
-    """Dynamic Greek limits that adapt to market conditions."""
-    base_limits: Dict[str, float]
-    current_limits: Dict[str, float]
-    adjustment_factors: Dict[str, float]
-    last_updated: datetime
-    regime: MarketRegime
-    vix_level: float
-    adjustment_history: List[Dict[str, Any]] = field(default_factory=list)
-    
-    def apply_adjustment(self, greek: str, factor: float, trigger: AdjustmentTrigger) -> None:
-        """Apply adjustment to specific Greek limit."""
-        old_limit = self.current_limits.get(greek, 0)
-        new_limit = self.base_limits[greek] * factor
-        self.current_limits[greek] = new_limit
-        self.adjustment_factors[greek] = factor
-        
-        # Log adjustment
-        self.adjustment_history.append({
-            'timestamp': datetime.now(),
-            'greek': greek,
-            'old_limit': old_limit,
-            'new_limit': new_limit,
-            'factor': factor,
-            'trigger': trigger.value
-        })
-        
-        self.last_updated = datetime.now()
-
-@dataclass
-class GreekExposure:
-    """Current Greek exposure for a strategy/position."""
-    strategy_id: str
-    delta: float = 0.0
-    gamma: float = 0.0
-    vega: float = 0.0
-    theta: float = 0.0
-    rho: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
-    position_count: int = 0
-    total_notional: float = 0.0
-
-# @dataclass  # Fixed potential syntax issue
+        try:
+            from stable_baselines3 import PPO
+            model = PPO('MlpPolicy', env, verbose=0,
+                       learning_rate=3e-4, n_steps=2048)
+            model.learn(total_timesteps=total_timesteps)
+            self.logger.info(f"Greek limits RL policy trained: {total_timesteps} steps")
+            return model
+        except ImportError:
+            self.logger.warning("stable-baselines3 not installed")
+            return None

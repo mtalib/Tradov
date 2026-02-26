@@ -1040,6 +1040,126 @@ class MarketImpactModel:
         self.impact_cache.clear()
         self.logger.info("Impact cache cleared")
 
+    # --------------------------------------------------------------------------
+    # STABLE-BASELINES3: RL OPTIMAL EXECUTION TRAJECTORY
+    # --------------------------------------------------------------------------
+
+    def create_impact_rl_env(self):
+        """
+        Create an RL environment for optimal execution trajectory.
+
+        The agent learns to minimize total market impact by choosing
+        execution speed and order aggressiveness over time.
+
+        Returns:
+            gym.Env instance for SB3 training.
+        """
+        try:
+            import gymnasium as gym
+            from gymnasium import spaces
+        except ImportError:
+            try:
+                import gym
+                from gym import spaces
+            except ImportError:
+                self.logger.warning("gym/gymnasium not installed")
+                return None
+
+        import numpy as _np
+
+        class MarketImpactEnvironment(gym.Env):
+            """
+            RL environment for market impact minimization.
+
+            Observation: [remaining_shares_pct, urgency, current_spread,
+                         realized_impact, volume_participation, price_momentum,
+                         time_elapsed_pct, volatility]
+            Action: Continuous [execution_rate] in [0, 1]
+            Reward: -permanent_impact - temporary_impact - opportunity_cost
+            """
+            metadata = {'render_modes': []}
+
+            def __init__(self):
+                super().__init__()
+                self.observation_space = spaces.Box(
+                    low=-5.0, high=5.0, shape=(8,), dtype=_np.float32)
+                self.action_space = spaces.Box(
+                    low=0.0, high=1.0, shape=(1,), dtype=_np.float32)
+                self.step_count = 0
+                self.max_steps = 78
+                self.total_impact = 0
+
+            def reset(self, seed=None, options=None):
+                super().reset(seed=seed)
+                self.step_count = 0
+                self.remaining = 1.0
+                self.total_impact = 0
+                self._state = _np.array([
+                    1.0,                           # remaining_shares
+                    _np.random.uniform(0.3, 1.0),  # urgency
+                    _np.random.uniform(0.01, 0.05), # spread
+                    0.0,                           # realized_impact
+                    0.0,                           # volume_participation
+                    _np.random.uniform(-0.3, 0.3), # momentum
+                    0.0,                           # time_elapsed
+                    _np.random.uniform(0.1, 0.4),  # volatility
+                ], dtype=_np.float32)
+                return self._state, {}
+
+            def step(self, action):
+                self.step_count += 1
+                rate = float(action[0])
+                executed = min(rate * 0.1, self.remaining)
+                self.remaining -= executed
+
+                # Almgren-Chriss impact model
+                permanent = 0.5 * executed * self._state[7]  # sigma * executed
+                temporary = executed * self._state[2] * (1 + 3 * rate)
+                opportunity = self.remaining * self._state[7] * 0.005
+
+                self.total_impact += permanent + temporary
+                reward = -(permanent + temporary + opportunity) * 100
+
+                if self.remaining <= 0.01:
+                    reward += 20  # completion bonus
+
+                self._state[0] = self.remaining
+                self._state[3] = self.total_impact
+                self._state[4] = rate
+                self._state[6] = self.step_count / self.max_steps
+                self._state[2] = _np.clip(
+                    self._state[2] + _np.random.normal(0, 0.002), 0.005, 0.1)
+
+                done = self.step_count >= self.max_steps or self.remaining <= 0.01
+                return self._state.copy(), float(reward), done, False, {}
+
+        return MarketImpactEnvironment()
+
+    def train_impact_policy(self, total_timesteps: int = 50000) -> Optional[Any]:
+        """
+        Train a SAC policy for optimal execution trajectory.
+
+        Args:
+            total_timesteps: Training steps.
+
+        Returns:
+            Trained SB3 model or None.
+        """
+        env = self.create_impact_rl_env()
+        if env is None:
+            return None
+
+        try:
+            from stable_baselines3 import SAC
+            model = SAC('MlpPolicy', env, verbose=0,
+                       learning_rate=3e-4, buffer_size=100000)
+            model.learn(total_timesteps=total_timesteps)
+            self.logger.info(f"Impact RL policy trained (SAC): {total_timesteps} steps")
+            return model
+        except ImportError:
+            self.logger.warning("stable-baselines3 not installed")
+            return None
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================
