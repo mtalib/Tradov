@@ -3852,13 +3852,24 @@ class SpyderTradingDashboard(QMainWindow):
                 leg_item.setText(5, leg["pnl"])
                 leg_item.setText(6, leg["status"])
 
-                # Color the P&L
+                # Set base text color for all columns
+                text_color = QColor(COLORS["text"])
+                for col in range(7):
+                    leg_item.setForeground(col, text_color)
+
+                # Override P&L color: green positive, red negative
                 if leg["pnl"].startswith("+"):
                     leg_item.setForeground(5, QColor(COLORS["positive"]))
                 else:
                     leg_item.setForeground(5, QColor(COLORS["negative"]))
 
-                # Color the status
+                # Override cost color: green credit, red debit
+                if leg["cost"].startswith("+"):
+                    leg_item.setForeground(4, QColor(COLORS["positive"]))
+                else:
+                    leg_item.setForeground(4, QColor(COLORS["negative"]))
+
+                # Override status color
                 if leg["status"] == "OPEN":
                     leg_item.setForeground(6, QColor(COLORS["positive"]))
                 else:
