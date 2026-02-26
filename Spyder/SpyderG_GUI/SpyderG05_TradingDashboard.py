@@ -2688,7 +2688,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Leg-level columns under each strategy header
         # 7th empty column absorbs stretch so P&L stays next to COST
-        columns = ["LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L", ""]
+        columns = ["     LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L", ""]
         tree.setColumnCount(len(columns))
         tree.setHeaderLabels(columns)
 
@@ -3812,7 +3812,7 @@ class SpyderTradingDashboard(QMainWindow):
             header_text = (
                 f"{strat['timestamp']}  |  "
                 f"STRATEGY AI-TRIGGERED : {strat['strategy']}  |  "
-                f"DTE: {strat['dte']}  |  "
+                f"DTE: {strat['dte']:02d}  |  "
                 f"STATUS: {status_label}  |  "
                 f"NET P&L  {strat['net_pnl']}  ({strat['pct_return']})"
             )
