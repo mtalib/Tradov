@@ -89,12 +89,25 @@ except ImportError:
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient, IBConfig
+try:
+    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient, IBConfig
+except ImportError:
+    SpyderClient = None
+    IBConfig = None
+
 from Spyder.SpyderB_Broker.SpyderB02_OrderManager import OrderManager, OrderRequest
 from Spyder.SpyderB_Broker.SpyderB03_PositionTracker import PositionTracker
 from Spyder.SpyderB_Broker.SpyderB04_AccountManager import AccountManager
-from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
-from Spyder.SpyderB_Broker.SpyderB05_ConnectionManager import ConnectionManager
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
+except ImportError:
+    ContractBuilder = None
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB05_ConnectionManager import ConnectionManager
+except ImportError:
+    ConnectionManager = None
 
 # Try to import event management
 try:

@@ -55,9 +55,13 @@ import pandas as pd
 import numpy as np
 
 # Migrated from ib_async to IBKR Web API
-from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
-# Alias for backward compatibility
-Contract = IBContract
+try:
+    from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
+    Contract = IBContract  # Alias for backward compatibility
+except ImportError:
+    IBContract = None
+    SecurityType = None
+    Contract = None
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -67,7 +71,11 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
 from Spyder.SpyderH_Storage.SpyderH03_MarketDataCache import MarketDataCache
-from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
+except ImportError:
+    SpyderClient = None
 
 # ==============================================================================
 # CONSTANTS

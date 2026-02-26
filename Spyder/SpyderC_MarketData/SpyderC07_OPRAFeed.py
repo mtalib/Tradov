@@ -80,7 +80,12 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import TimeFrame
 from Spyder.SpyderU_Utilities.SpyderU16_TechnicalAnalysis import ImpliedVolatilityCalculator
 from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
-from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import IBClient
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import IBClient
+except ImportError:
+    IBClient = None
+
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
 # ==============================================================================

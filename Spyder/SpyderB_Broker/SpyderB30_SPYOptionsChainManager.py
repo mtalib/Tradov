@@ -72,12 +72,20 @@ import pandas as pd
 
 # ✅ MIGRATION COMPLETE: Now using internal data types instead of ib_async
 # ib_async has been replaced with IBContract (Web API compatible)
-from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
-from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder  # DEPRECATED - legacy only
+try:
+    from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import IBContract, SecurityType
+    Contract = IBContract  # Backward compatibility alias
+    ib_async_AVAILABLE = True
+except ImportError:
+    IBContract = None
+    SecurityType = None
+    Contract = None
+    ib_async_AVAILABLE = False
 
-# Backward compatibility: Create aliases for migrated code
-Contract = IBContract
-ib_async_AVAILABLE = True  # Migration complete - using Web API data types
+try:
+    from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder  # DEPRECATED - legacy only
+except ImportError:
+    ContractBuilder = None
 
 # NOTE: For new development, use:
 # - SpyderB40_TradierClient for order execution
