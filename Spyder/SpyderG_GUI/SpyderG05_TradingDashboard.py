@@ -2219,6 +2219,15 @@ class SpyderTradingDashboard(QMainWindow):
 
         layout.addLayout(button_layout)
 
+        # Circuit Breaker Monitor — directly below trading buttons
+        if circuit_breaker_monitor_available:
+            try:
+                circuit_breaker_widget = create_circuit_breaker_monitor(parent=self)
+                circuit_breaker_widget.setMaximumHeight(120)
+                layout.addWidget(circuit_breaker_widget)
+            except Exception as e:
+                print(f"⚠️ Failed to create circuit breaker monitor: {e}")
+
         # Account info
         account_group = QGroupBox("")
         account_layout = QVBoxLayout()
@@ -2354,15 +2363,6 @@ class SpyderTradingDashboard(QMainWindow):
 
         risk_group.setLayout(risk_layout)
         layout.addWidget(risk_group)
-
-        # Circuit Breaker Monitor (NEW)
-        if circuit_breaker_monitor_available:
-            try:
-                circuit_breaker_widget = create_circuit_breaker_monitor(parent=self)
-                circuit_breaker_widget.setMaximumHeight(350)
-                layout.addWidget(circuit_breaker_widget)
-            except Exception as e:
-                print(f"⚠️ Failed to create circuit breaker monitor: {e}")
 
         # Autonomous AI Activity
         auto_group = QGroupBox("AUTONOMOUS AI ACTIVITY")
