@@ -92,6 +92,8 @@ from PySide6.QtWidgets import (
     QStyle,
     QMessageBox,
     QMenu,
+    QTreeWidget,
+    QTreeWidgetItem,
 )
 from PySide6.QtCore import (
     Qt,
@@ -2111,10 +2113,11 @@ class SpyderTradingDashboard(QMainWindow):
         # Positions table
         positions_group = QGroupBox("ORDERS && POSITIONS")
         positions_layout = QVBoxLayout()
+        positions_layout.setContentsMargins(2, 2, 2, 2)
 
         self.positions_table = self.create_positions_table()
-        self.positions_table.setMaximumHeight(190)
-        self.positions_table.setMinimumHeight(190)
+        self.positions_table.setMaximumHeight(220)
+        self.positions_table.setMinimumHeight(220)
         positions_layout.addWidget(self.positions_table)
 
         positions_group.setLayout(positions_layout)
@@ -2679,40 +2682,46 @@ class SpyderTradingDashboard(QMainWindow):
         self.figure.tight_layout()
         self.canvas.draw()
 
-    def create_positions_table(self) -> QTableWidget:
-        """Create enhanced positions table with DTE, %RET, and AUTO columns"""
-        table = QTableWidget()
+    def create_positions_table(self) -> QTreeWidget:
+        """Create positions tree with strategy headers and expandable trade legs."""
+        tree = QTreeWidget()
 
-        columns = [
-            "DATE",
-            "SYMBOL",
-            "CNTR",
-            "STRIKES",
-            "EXPIRY",
-            "DTE",
-            "STRATEGY",
-            "STATUS",
-            "COST",
-            "P&L",
-            "%RET",
-            "AUTO",
-        ]
+        # Leg-level columns under each strategy header
+        columns = ["LEG", "STRIKE", "CNTR", "EXPIRY", "COST", "P&L", "STATUS"]
+        tree.setColumnCount(len(columns))
+        tree.setHeaderLabels(columns)
 
-        table.setColumnCount(len(columns))
-        table.setHorizontalHeaderLabels(columns)
-        table.verticalHeader().setVisible(False)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        table.customContextMenuRequested.connect(self._positions_context_menu)
-        table.setStyleSheet(
+        tree.setAlternatingRowColors(False)
+        tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
+        tree.setRootIsDecorated(True)
+        tree.setAnimated(True)
+        tree.setIndentation(18)
+        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tree.customContextMenuRequested.connect(self._positions_context_menu)
+        tree.setStyleSheet(
             f"""
-            QTableWidget {{
+            QTreeWidget {{
                 font-size: 11px;
-                gridline-color: {COLORS["border"]};
+                background-color: {COLORS["background"]};
+                border: none;
+                outline: none;
             }}
-            QTableWidget::item:selected {{
+            QTreeWidget::item {{
+                padding: 2px 4px;
+                border-bottom: 1px solid {COLORS["border"]};
+            }}
+            QTreeWidget::item:selected {{
                 background-color: #2a3a4a;
+            }}
+            QTreeWidget::branch:has-children:!has-siblings:closed,
+            QTreeWidget::branch:closed:has-children:has-siblings {{
+                image: none;
+                border-image: none;
+            }}
+            QTreeWidget::branch:open:has-children:!has-siblings,
+            QTreeWidget::branch:open:has-children:has-siblings {{
+                image: none;
+                border-image: none;
             }}
             QHeaderView::section {{
                 background-color: {COLORS["panel"]};
@@ -2729,33 +2738,31 @@ class SpyderTradingDashboard(QMainWindow):
         """
         )
 
-        # Set column widths
-        table.setColumnWidth(0, 60)   # DATE
-        table.setColumnWidth(1, 50)   # SYMBOL
-        table.setColumnWidth(2, 38)   # CNTR
-        table.setColumnWidth(3, 140)  # STRIKES
-        table.setColumnWidth(4, 58)   # EXPIRY
-        table.setColumnWidth(5, 35)   # DTE
-        table.setColumnWidth(6, 120)  # STRATEGY
-        table.setColumnWidth(7, 65)   # STATUS
-        table.setColumnWidth(8, 80)   # COST
-        table.setColumnWidth(9, 80)   # P&L
-        table.setColumnWidth(10, 50)  # %RET
-        table.setColumnWidth(11, 90)  # AUTO
+        # Set column widths for leg rows
+        tree.setColumnWidth(0, 90)   # LEG
+        tree.setColumnWidth(1, 80)   # STRIKE
+        tree.setColumnWidth(2, 45)   # CNTR
+        tree.setColumnWidth(3, 65)   # EXPIRY
+        tree.setColumnWidth(4, 90)   # COST
+        tree.setColumnWidth(5, 90)   # P&L
+        tree.setColumnWidth(6, 70)   # STATUS
 
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        table.verticalHeader().setDefaultSectionSize(22)
-        table.setMinimumHeight(190)
-        table.setMaximumHeight(190)
+        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        return table
+        return tree
 
     def _positions_context_menu(self, pos):
-        """Show right-click context menu for positions table."""
-        row = self.positions_table.rowAt(pos.y())
-        if row < 0:
+        """Show right-click context menu for positions tree."""
+        item = self.positions_table.itemAt(pos)
+        if not item:
             return
+
+        # Determine if this is a strategy header or a leg
+        is_strategy = item.parent() is None
+        strategy_item = item if is_strategy else item.parent()
+        strategy_name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or ""
+        status = strategy_item.data(1, Qt.ItemDataRole.UserRole) or ""
 
         menu = QMenu(self)
         menu.setStyleSheet(
@@ -2777,70 +2784,68 @@ class SpyderTradingDashboard(QMainWindow):
         """
         )
 
-        # Get position data from the row
-        status_item = self.positions_table.item(row, 7)
-        status = status_item.text() if status_item else ""
-        strategy_item = self.positions_table.item(row, 6)
-        strategy = strategy_item.text() if strategy_item else ""
-
         if status == "OPEN":
             close_action = menu.addAction("\u274c  Close Position")
-            close_action.triggered.connect(lambda: self._on_close_position(row))
+            close_action.triggered.connect(
+                lambda: self._on_close_position(strategy_item)
+            )
 
             roll_action = menu.addAction("\U0001f504  Roll Forward")
-            roll_action.triggered.connect(lambda: self._on_roll_position(row))
+            roll_action.triggered.connect(
+                lambda: self._on_roll_position(strategy_item)
+            )
 
             adjust_action = menu.addAction("\u2699\ufe0f  Adjust Strikes")
-            adjust_action.triggered.connect(lambda: self._on_adjust_position(row))
+            adjust_action.triggered.connect(
+                lambda: self._on_adjust_position(strategy_item)
+            )
 
             menu.addSeparator()
 
-        view_action = menu.addAction("\U0001f4cb  View Leg Details")
-        view_action.triggered.connect(lambda: self._on_view_legs(row))
+        if is_strategy:
+            expand_action = menu.addAction(
+                "\u25b8  Collapse" if item.isExpanded() else "\u25be  Expand"
+            )
+            expand_action.triggered.connect(
+                lambda: item.setExpanded(not item.isExpanded())
+            )
 
-        copy_action = menu.addAction("\U0001f4cb  Copy Row")
-        copy_action.triggered.connect(lambda: self._on_copy_row(row))
+        copy_action = menu.addAction("\U0001f4cb  Copy Details")
+        copy_action.triggered.connect(
+            lambda: self._on_copy_strategy(strategy_item)
+        )
 
         menu.exec(self.positions_table.viewport().mapToGlobal(pos))
 
-    def _on_close_position(self, row: int):
+    def _on_close_position(self, strategy_item: QTreeWidgetItem):
         """Handle close position from context menu."""
-        strikes_item = self.positions_table.item(row, 3)
-        strikes = strikes_item.text() if strikes_item else "unknown"
-        self.add_system_log(f"Close requested for row {row + 1}: {strikes}")
+        name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or "unknown"
+        self.add_system_log(f"Close requested: {name}")
 
-    def _on_roll_position(self, row: int):
+    def _on_roll_position(self, strategy_item: QTreeWidgetItem):
         """Handle roll forward from context menu."""
-        strikes_item = self.positions_table.item(row, 3)
-        strikes = strikes_item.text() if strikes_item else "unknown"
-        self.add_system_log(f"Roll forward requested for row {row + 1}: {strikes}")
+        name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or "unknown"
+        self.add_system_log(f"Roll forward requested: {name}")
 
-    def _on_adjust_position(self, row: int):
+    def _on_adjust_position(self, strategy_item: QTreeWidgetItem):
         """Handle adjust strikes from context menu."""
-        strikes_item = self.positions_table.item(row, 3)
-        strikes = strikes_item.text() if strikes_item else "unknown"
-        self.add_system_log(f"Adjust strikes requested for row {row + 1}: {strikes}")
+        name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or "unknown"
+        self.add_system_log(f"Adjust strikes requested: {name}")
 
-    def _on_view_legs(self, row: int):
-        """Handle view leg details from context menu."""
-        strikes_item = self.positions_table.item(row, 3)
-        strategy_item = self.positions_table.item(row, 6)
-        strikes = strikes_item.text() if strikes_item else "N/A"
-        strategy = strategy_item.text() if strategy_item else "N/A"
-        self.add_system_log(f"Leg details: {strategy} @ {strikes}")
-
-    def _on_copy_row(self, row: int):
-        """Copy position row data to clipboard."""
-        parts = []
-        for col in range(self.positions_table.columnCount()):
-            item = self.positions_table.item(row, col)
-            parts.append(item.text() if item else "")
-        text = "\t".join(parts)
+    def _on_copy_strategy(self, strategy_item: QTreeWidgetItem):
+        """Copy strategy and leg details to clipboard."""
+        lines = [strategy_item.text(0)]
+        for i in range(strategy_item.childCount()):
+            child = strategy_item.child(i)
+            parts = [child.text(c) for c in range(self.positions_table.columnCount())]
+            lines.append("    " + "\t".join(parts))
+        text = "\n".join(lines)
         from PySide6.QtWidgets import QApplication as _QApp
         clipboard = _QApp.clipboard()
         if clipboard:
             clipboard.setText(text)
-            self.add_system_log(f"Copied row {row + 1} to clipboard")
+            name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or "strategy"
+            self.add_system_log(f"Copied {name} to clipboard")
 
     def create_pnl_table(self) -> QTableWidget:
         """Create P&L performance table (UNCHANGED)"""
@@ -3750,108 +3755,128 @@ class SpyderTradingDashboard(QMainWindow):
                         )
 
     def load_test_data(self):
-        """Load test positions data with DTE, %RET, and AUTO columns"""
-        test_positions = [
+        """Load test strategy groups with expandable trade legs."""
+        test_strategies = [
             {
-                "date": "08/18",
-                "symbol": "SPY",
-                "contracts": "10",
-                "strikes": "584P/586C",
-                "expiry": "08/23",
-                "dte": "5",
-                "strategy": "Iron Condor",
+                "timestamp": "2026-02-25 18:47",
+                "strategy": "IRON CONDOR",
                 "status": "OPEN",
-                "cost": "-$2,350",
-                "pnl": "+$435",
+                "net_pnl": "+$435",
                 "pct_return": "+18.5%",
-                "auto_status": "AI MANAGED",
+                "dte": 5,
+                "legs": [
+                    {"leg": "Sell Put", "strike": "$580P", "cntr": "10", "expiry": "03/07", "cost": "-$1,200", "pnl": "+$180", "status": "OPEN"},
+                    {"leg": "Buy Put", "strike": "$575P", "cntr": "10", "expiry": "03/07", "cost": "+$850", "pnl": "-$45", "status": "OPEN"},
+                    {"leg": "Sell Call", "strike": "$595C", "cntr": "10", "expiry": "03/07", "cost": "-$1,100", "pnl": "+$220", "status": "OPEN"},
+                    {"leg": "Buy Call", "strike": "$600C", "cntr": "10", "expiry": "03/07", "cost": "+$800", "pnl": "+$80", "status": "OPEN"},
+                ],
             },
             {
-                "date": "08/18",
-                "symbol": "SPY",
-                "contracts": "5",
-                "strikes": "588C",
-                "expiry": "08/30",
-                "dte": "12",
-                "strategy": "Covered Call",
+                "timestamp": "2026-02-25 18:47",
+                "strategy": "COVERED CALL",
                 "status": "OPEN",
-                "cost": "+$425",
-                "pnl": "+$125",
+                "net_pnl": "+$125",
                 "pct_return": "+29.4%",
-                "auto_status": "AI MANAGED",
+                "dte": 12,
+                "legs": [
+                    {"leg": "Sell Call", "strike": "$588C", "cntr": "5", "expiry": "03/14", "cost": "+$425", "pnl": "+$125", "status": "OPEN"},
+                ],
             },
             {
-                "date": "08/17",
-                "symbol": "SPY",
-                "contracts": "20",
-                "strikes": "582P/584P/586C/588C",
-                "expiry": "08/25",
-                "dte": "0",
-                "strategy": "Iron Butterfly",
+                "timestamp": "2026-02-24 14:22",
+                "strategy": "IRON BUTTERFLY",
                 "status": "CLOSED",
-                "cost": "-$4,200",
-                "pnl": "+$1,250",
+                "net_pnl": "+$1,250",
                 "pct_return": "+29.8%",
-                "auto_status": "AI CLOSED",
+                "dte": 0,
+                "legs": [
+                    {"leg": "Sell Put", "strike": "$584P", "cntr": "20", "expiry": "02/28", "cost": "-$2,100", "pnl": "+$620", "status": "CLOSED"},
+                    {"leg": "Buy Put", "strike": "$582P", "cntr": "20", "expiry": "02/28", "cost": "+$1,500", "pnl": "-$120", "status": "CLOSED"},
+                    {"leg": "Sell Call", "strike": "$586C", "cntr": "20", "expiry": "02/28", "cost": "-$2,100", "pnl": "+$650", "status": "CLOSED"},
+                    {"leg": "Buy Call", "strike": "$588C", "cntr": "20", "expiry": "02/28", "cost": "+$1,500", "pnl": "+$100", "status": "CLOSED"},
+                ],
             },
         ]
 
-        for i, pos in enumerate(test_positions):
-            self.positions_table.insertRow(i)
-            self.positions_table.setItem(i, 0, QTableWidgetItem(pos["date"]))
-            self.positions_table.setItem(i, 1, QTableWidgetItem(pos["symbol"]))
-            self.positions_table.setItem(i, 2, QTableWidgetItem(pos["contracts"]))
-            self.positions_table.setItem(i, 3, QTableWidgetItem(pos["strikes"]))
-            self.positions_table.setItem(i, 4, QTableWidgetItem(pos["expiry"]))
+        for strat in test_strategies:
+            # Build strategy header text
+            header_text = (
+                f"{strat['timestamp']}  |  "
+                f"AI-TRIGGERED STRATEGY : {strat['strategy']}  |  "
+                f"Net: {strat['net_pnl']} ({strat['pct_return']})  |  "
+                f"DTE: {strat['dte']}"
+            )
 
-            # DTE column — color-code: red <3, warning <7, normal otherwise
-            dte_item = QTableWidgetItem(pos["dte"])
-            dte_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            dte_val = int(pos["dte"])
+            # Create top-level strategy item (spans all columns via col 0)
+            strategy_item = QTreeWidgetItem(self.positions_table)
+            strategy_item.setText(0, header_text)
+            # Store metadata for context menu
+            strategy_item.setData(0, Qt.ItemDataRole.UserRole, strat["strategy"])
+            strategy_item.setData(1, Qt.ItemDataRole.UserRole, strat["status"])
+
+            # Style the header row
+            header_font = QFont("monospace", 10)
+            header_font.setBold(True)
+            strategy_item.setFont(0, header_font)
+
+            if strat["status"] == "OPEN":
+                header_color = QColor(COLORS["automation_active"])
+            else:
+                header_color = QColor(COLORS["text_dim"])
+            strategy_item.setForeground(0, header_color)
+
+            # DTE color in header
+            dte_val = strat["dte"]
             if dte_val == 0:
-                dte_item.setForeground(QColor(COLORS["text_dim"]))
+                dte_color = QColor(COLORS["text_dim"])
             elif dte_val <= 2:
-                dte_item.setForeground(QColor(COLORS["negative"]))
+                dte_color = QColor(COLORS["negative"])
             elif dte_val <= 7:
-                dte_item.setForeground(QColor(COLORS["warning"]))
+                dte_color = QColor(COLORS["warning"])
             else:
-                dte_item.setForeground(QColor(COLORS["text"]))
-            self.positions_table.setItem(i, 5, dte_item)
+                dte_color = QColor(COLORS["positive"])
 
-            self.positions_table.setItem(i, 6, QTableWidgetItem(pos["strategy"]))
+            # Set background for strategy header row
+            header_bg = QColor("#1a1a2e")
+            for col in range(self.positions_table.columnCount()):
+                strategy_item.setBackground(col, QBrush(header_bg))
 
-            status_item = QTableWidgetItem(pos["status"])
-            if pos["status"] == "OPEN":
-                status_item.setForeground(QColor(COLORS["positive"]))
-            else:
-                status_item.setForeground(QColor(COLORS["neutral"]))
-            self.positions_table.setItem(i, 7, status_item)
+            # Add leg rows as children
+            for leg in strat["legs"]:
+                leg_item = QTreeWidgetItem(strategy_item)
+                leg_item.setText(0, leg["leg"])
+                leg_item.setText(1, leg["strike"])
+                leg_item.setText(2, leg["cntr"])
+                leg_item.setText(3, leg["expiry"])
+                leg_item.setText(4, leg["cost"])
+                leg_item.setText(5, leg["pnl"])
+                leg_item.setText(6, leg["status"])
 
-            self.positions_table.setItem(i, 8, QTableWidgetItem(pos["cost"]))
+                # Color the P&L
+                if leg["pnl"].startswith("+"):
+                    leg_item.setForeground(5, QColor(COLORS["positive"]))
+                else:
+                    leg_item.setForeground(5, QColor(COLORS["negative"]))
 
-            pnl_item = QTableWidgetItem(pos["pnl"])
-            if pos["pnl"].startswith("+"):
-                pnl_item.setForeground(QColor(COLORS["positive"]))
-            else:
-                pnl_item.setForeground(QColor(COLORS["negative"]))
-            self.positions_table.setItem(i, 9, pnl_item)
+                # Color the status
+                if leg["status"] == "OPEN":
+                    leg_item.setForeground(6, QColor(COLORS["positive"]))
+                else:
+                    leg_item.setForeground(6, QColor(COLORS["text_dim"]))
 
-            # %RET column — green positive, red negative
-            ret_item = QTableWidgetItem(pos["pct_return"])
-            ret_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            if pos["pct_return"].startswith("+"):
-                ret_item.setForeground(QColor(COLORS["positive"]))
-            else:
-                ret_item.setForeground(QColor(COLORS["negative"]))
-            self.positions_table.setItem(i, 10, ret_item)
+            # Expand OPEN strategies by default, collapse CLOSED
+            strategy_item.setExpanded(strat["status"] == "OPEN")
 
-            # AUTO column — cyan for managed, dim for closed
-            auto_item = QTableWidgetItem(pos["auto_status"])
-            if "MANAGED" in pos["auto_status"]:
-                auto_item.setForeground(QColor(COLORS["automation_active"]))
-            else:
-                auto_item.setForeground(QColor(COLORS["text_dim"]))
-            self.positions_table.setItem(i, 11, auto_item)
+        # Make strategy header span all columns visually
+        self.positions_table.setFirstColumnSpanned(
+            0, self.positions_table.rootIndex(), True
+        )
+        self.positions_table.setFirstColumnSpanned(
+            1, self.positions_table.rootIndex(), True
+        )
+        self.positions_table.setFirstColumnSpanned(
+            2, self.positions_table.rootIndex(), True
+        )
 
     def load_default_risk_parameters(self):
         """Load default risk parameters"""
