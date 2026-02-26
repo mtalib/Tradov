@@ -117,6 +117,10 @@ class AllocationMethod(Enum):
     MAX_SHARPE = "MAXIMUM_SHARPE"
     HIERARCHICAL = "HIERARCHICAL_RISK_PARITY"
     DYNAMIC = "DYNAMIC_ADAPTIVE"
+    RISKFOLIO_RP = "RISKFOLIO_RISK_PARITY"
+    RISKFOLIO_HRP = "RISKFOLIO_HRP"
+    RISKFOLIO_SHARPE = "RISKFOLIO_MAX_SHARPE"
+    RISKFOLIO_CVAR = "RISKFOLIO_MIN_CVAR"
 
 class MarketRegime(Enum):
     """Market regime classification"""
@@ -786,6 +790,25 @@ class CapitalAllocator:
         elif method == AllocationMethod.HIERARCHICAL:
             allocations = self.calculate_hierarchical_risk_parity(active_strategies)
             
+        elif method.name.startswith('RISKFOLIO'):
+            # Route to RiskFolio-Lib optimization
+            mode_map = {
+                AllocationMethod.RISKFOLIO_RP: 'risk_parity',
+                AllocationMethod.RISKFOLIO_HRP: 'hrp',
+                AllocationMethod.RISKFOLIO_SHARPE: 'max_sharpe',
+                AllocationMethod.RISKFOLIO_CVAR: 'min_cvar',
+            }
+            returns_data = self._get_strategy_returns(active_strategies)
+            if returns_data is not None and not returns_data.empty:
+                allocations = self.optimize_allocation_riskfolio(
+                    returns_data=returns_data,
+                    mode=mode_map.get(method, 'risk_parity')
+                )
+            else:
+                self.logger.warning("Insufficient returns data for RiskFolio — falling back to equal weight")
+                n = len(active_strategies)
+                allocations = {sid: 1/n for sid in active_strategies}
+            
         else:  # DYNAMIC
             allocations = self._dynamic_allocation(active_strategies)
             
@@ -971,6 +994,46 @@ class CapitalAllocator:
             self.logger.error(f"Rebalancing failed: {e}")
             return False
             
+    # ==========================================================================
+    # DATA HELPERS
+    # ==========================================================================
+
+    def _get_strategy_returns(self, strategy_ids: List[str]) -> Optional[pd.DataFrame]:
+        """
+        Get daily return series for strategies.
+
+        Pulls from the strategy performance history stored in
+        ``self.strategy_metrics``.  Falls back to ``None``
+        if insufficient data is available.
+
+        Args:
+            strategy_ids: List of strategy identifiers.
+
+        Returns:
+            DataFrame with strategies as columns and dates as index,
+            or None if data is unavailable.
+        """
+        try:
+            frames = {}
+            for sid in strategy_ids:
+                metrics = self.strategy_metrics.get(sid)
+                if metrics and hasattr(metrics, 'daily_returns'):
+                    returns = metrics.daily_returns
+                    if isinstance(returns, pd.Series) and len(returns) > 5:
+                        frames[sid] = returns
+                elif metrics and hasattr(metrics, 'return_history'):
+                    returns = pd.Series(metrics.return_history)
+                    if len(returns) > 5:
+                        frames[sid] = returns
+
+            if len(frames) < 2:
+                return None
+
+            return pd.DataFrame(frames).dropna()
+        except Exception as e:
+            self.logger.warning(f"Failed to build strategy returns matrix: {e}")
+            return None
+
     # ==========================================================================
     # RISK MANAGEMENT
     # ==========================================================================

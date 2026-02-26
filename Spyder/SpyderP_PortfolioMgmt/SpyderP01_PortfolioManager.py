@@ -124,6 +124,7 @@ class AllocationMethod(Enum):
     VOLATILITY_ADJUSTED = "volatility_adjusted"
     KELLY_CRITERION = "kelly_criterion"
     MAX_DIVERSIFICATION = "max_diversification"
+    RISKFOLIO_OPTIMIZED = "riskfolio_optimized"
 
 class RebalanceReason(Enum):
     """Reasons for portfolio rebalancing"""
@@ -1152,6 +1153,8 @@ class PortfolioManager:
                 return self._calculate_volatility_adjusted_allocations()
             elif self.allocation_method == AllocationMethod.KELLY_CRITERION:
                 return self._calculate_kelly_allocations()
+            elif self.allocation_method == AllocationMethod.RISKFOLIO_OPTIMIZED:
+                return self._calculate_riskfolio_allocations()
             else:
                 return self._calculate_risk_parity_allocations()  # Default
                 
@@ -1306,6 +1309,60 @@ class PortfolioManager:
         except Exception as e:
             self.error_handler.handle_error(e, "_calculate_kelly_allocations")
             return {sid: alloc.current_allocation for sid, alloc in self.strategy_allocations.items()}
+
+    def _calculate_riskfolio_allocations(self) -> Dict[str, float]:
+        """
+        Calculate allocations using RiskFolio-Lib optimization.
+
+        Builds a returns matrix from strategy allocation history and
+        delegates to ``optimize_portfolio_riskfolio``.  Falls back to
+        risk parity if insufficient data is available.
+
+        Returns:
+            Dictionary of strategy allocations.
+        """
+        try:
+            # Build returns data from strategy allocations
+            frames = {}
+            for sid, alloc in self.strategy_allocations.items():
+                if hasattr(alloc, 'return_history') and len(getattr(alloc, 'return_history', [])) > 5:
+                    frames[sid] = pd.Series(alloc.return_history)
+                elif hasattr(alloc, 'daily_returns') and isinstance(alloc.daily_returns, pd.Series):
+                    if len(alloc.daily_returns) > 5:
+                        frames[sid] = alloc.daily_returns
+
+            if len(frames) < 2:
+                self.logger.info("Insufficient data for RiskFolio — falling back to risk parity")
+                return self._calculate_risk_parity_allocations()
+
+            returns_data = pd.DataFrame(frames).dropna()
+            if len(returns_data) < 10:
+                return self._calculate_risk_parity_allocations()
+
+            result = self.optimize_portfolio_riskfolio(
+                returns_data=returns_data,
+                objective='max_sharpe',
+                risk_measure='CVaR'
+            )
+
+            weights = result.get('weights', {})
+            if not weights:
+                return self._calculate_risk_parity_allocations()
+
+            # Apply constraints
+            target_sum = 1.0 - MIN_CASH_RESERVE
+            total = sum(weights.values())
+            if total > 0:
+                for sid in weights:
+                    weights[sid] = (weights[sid] / total) * target_sum
+                    weights[sid] = max(MIN_STRATEGY_ALLOCATION,
+                                      min(MAX_STRATEGY_ALLOCATION, weights[sid]))
+
+            return weights
+
+        except Exception as e:
+            self.error_handler.handle_error(e, "_calculate_riskfolio_allocations")
+            return self._calculate_risk_parity_allocations()
 
     # ==========================================================================
     # PRIVATE METHODS - CALCULATIONS

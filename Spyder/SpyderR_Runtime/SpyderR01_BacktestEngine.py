@@ -246,6 +246,13 @@ class BacktestEngine:
             # Finalize results
             results = self._finalize_results(results)
             
+            # Generate institutional-grade tearsheet if returns available
+            if hasattr(results, 'equity_curve') and len(results.equity_curve) > 1:
+                daily_returns = results.equity_curve.pct_change().dropna()
+                if len(daily_returns) > 0:
+                    results.tearsheet = self.generate_post_backtest_tearsheet(daily_returns)
+                    self.logger.info("Post-backtest tearsheet generated")
+            
             # Print summary focused on logic testing
             self._print_logic_test_summary(results)
             
