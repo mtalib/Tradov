@@ -2710,9 +2710,9 @@ class SpyderTradingDashboard(QMainWindow):
 
         tree.setAlternatingRowColors(False)
         tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
-        tree.setRootIsDecorated(True)
+        tree.setRootIsDecorated(False)
         tree.setAnimated(True)
-        tree.setIndentation(18)
+        tree.setIndentation(20)
         tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tree.customContextMenuRequested.connect(self._positions_context_menu)
         tree.setStyleSheet(
