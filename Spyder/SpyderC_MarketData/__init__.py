@@ -4,16 +4,17 @@
 SPYDER - Automated SPY Options Trading System
 
 Package: SpyderC_MarketData
-Purpose: Market Data Management (Polygon.io Integration)
+Purpose: Market Data Management (Databento + Polygon.io Legacy)
 
 This package handles all market data operations including real-time feeds,
 historical data, option chains, and market internals.
 
-Primary Data Source: Polygon.io WebSocket + REST API
+Primary Data Source: Databento (OPRA.PILLAR dataset)
+Legacy Data Source: Polygon.io WebSocket + REST API
 
 Author: Mohamed Talib
 Date: 2025-06-24
-Version: 2.0 - Tradier/Polygon Migration
+Version: 4.0.0 - Provider Abstraction Layer
 """
 
 # ==============================================================================
@@ -21,13 +22,39 @@ Version: 2.0 - Tradier/Polygon Migration
 # ==============================================================================
 __all__ = []
 
-# DataFeed module
+# DataFeed module (provider-abstracted)
 try:
-    from .SpyderC01_DataFeed import DataFeedManager, get_data_feed_manager
+    from .SpyderC01_DataFeed import (
+        DataFeedManager,
+        DataFeed,
+        get_data_feed_manager,
+        MarketTick,
+        DataFeedConfig,
+        DataFeedStatus,
+        DataSource,
+        MarketDataProvider,
+        DatabentoProvider,
+        PolygonProvider,
+        create_provider,
+        SYMBOL_GROUPS,
+    )
 
-    __all__.extend(["DataFeedManager", "get_data_feed_manager"])
-except ImportError:
-    print("Warning: SpyderC01_DataFeed not fully available")
+    __all__.extend([
+        "DataFeedManager",
+        "DataFeed",
+        "get_data_feed_manager",
+        "MarketTick",
+        "DataFeedConfig",
+        "DataFeedStatus",
+        "DataSource",
+        "MarketDataProvider",
+        "DatabentoProvider",
+        "PolygonProvider",
+        "create_provider",
+        "SYMBOL_GROUPS",
+    ])
+except ImportError as e:
+    print(f"Warning: SpyderC01_DataFeed not fully available: {e}")
 
 # Historical Data module
 try:
@@ -86,7 +113,7 @@ except ImportError:
     print("Warning: SpyderC08_SPYFeed not available")
 
 # ==============================================================================
-# POLYGON.IO DATA HANDLER (PRIMARY DATA SOURCE)
+# POLYGON.IO DATA HANDLER (LEGACY DATA SOURCE)
 # ==============================================================================
 try:
     from .SpyderC25_PolygonDataHandler import (
@@ -107,8 +134,45 @@ except ImportError as e:
     print(f"Warning: SpyderC25_PolygonDataHandler not available: {e}")
 
 # ==============================================================================
+# DATABENTO DATA CLIENT (PRIMARY DATA SOURCE — REPLACING POLYGON.IO)
+# ==============================================================================
+try:
+    from .SpyderC26_DatabentoClient import (
+        DatabentoClient,
+        MarketDataUpdate as DatabentoMarketUpdate,
+        InstrumentDefinition,
+        BandwidthTracker,
+        ConnectionStatus as DatabentoConnectionStatus,
+        DatabentoSchema,
+        SymbolFormat,
+        convert_symbol,
+        databento_to_tradier,
+        tradier_to_databento,
+        is_option_symbol,
+        create_databento_client_from_env,
+        create_databento_qt_bridge,
+    )
+    __all__.extend([
+        "DatabentoClient",
+        "DatabentoMarketUpdate",
+        "InstrumentDefinition",
+        "BandwidthTracker",
+        "DatabentoConnectionStatus",
+        "DatabentoSchema",
+        "SymbolFormat",
+        "convert_symbol",
+        "databento_to_tradier",
+        "tradier_to_databento",
+        "is_option_symbol",
+        "create_databento_client_from_env",
+        "create_databento_qt_bridge",
+    ])
+except ImportError as e:
+    print(f"Warning: SpyderC26_DatabentoClient not available: {e}")
+
+# ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
 __package_name__ = "SpyderC_MarketData"
-__description__ = "Market Data Management (Polygon.io)"
-__version__ = "2.0.0"
+__description__ = "Market Data Management — Provider Abstraction (Databento + Polygon.io Legacy)"
+__version__ = "4.0.0"

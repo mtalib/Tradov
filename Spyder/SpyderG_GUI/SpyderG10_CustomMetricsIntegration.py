@@ -6,16 +6,33 @@ SPYDER - Autonomous Options Trading System
 Spyder Version: 1.0
 Module: SpyderG10_CustomMetricsIntegration.py
 Group: G (GUI/User Interface)
-Purpose: Dashboard integration for Client 10 (Custom Metrics)
+Purpose: [DEPRECATED] Dashboard integration for Client 10 (Custom Metrics)
 Author: Mohamed Talib
 Date Created: 2025-08-12
-Last Updated: 2025-08-12 Time: 18:00:00
+Last Updated: 2026-02-25 Time: 21:45:00
 
-Description:
-    Integrates Client 10 (Custom Metrics) with the trading dashboard.
-    Handles the display and updates of GEX, DEX, OGL, DIX, and SWAN metrics
-    in the Market Overview panel and Prometheus Metrics table.
+DEPRECATION NOTICE:
+    This module is DEPRECATED as of the Tradier+Databento migration (Feb 2026).
+    It was designed for Client 10 (Custom Metrics) from
+    SpyderB19_Client10Configuration, which used the IB Gateway multi-client
+    architecture. That architecture no longer exists.
+
+    Custom metrics (GEX, DEX, OGL, DIX, SWAN) should now be sourced from:
+    - SpyderC26_DatabentoClient for market data
+    - SpyderN_OptionsAnalytics for options-derived metrics
+    - SpyderF_Analysis for technical indicators
+
+    This module is preserved for backward compatibility only.
 """
+
+import warnings
+warnings.warn(
+    "SpyderG10_CustomMetricsIntegration is DEPRECATED. "
+    "The system has migrated from IBKR Client 10 (SpyderB19_Client10Configuration) "
+    "to Tradier API + Databento. Use SpyderN_OptionsAnalytics for custom metrics.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # ==============================================================================
 # STANDARD IMPORTS

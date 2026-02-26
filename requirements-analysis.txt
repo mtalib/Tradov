@@ -8,3 +8,8 @@ holidays>=0.13
 pandas_market_calendars>=1.6.0
 yfinance>=0.1.70
 alpha_vantage>=2.3.0
+
+# Institutional Portfolio Analytics
+pyfolio-reloaded>=0.9.5
+empyrical-reloaded>=0.5.7
+riskfolio-lib>=6.0.0

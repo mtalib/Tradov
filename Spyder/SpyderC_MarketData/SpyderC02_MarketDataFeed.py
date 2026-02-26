@@ -70,7 +70,11 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # Import Connect API
-from Spyder.SpyderB_Broker.SpyderB01_ConnectAPI import ConnectAPI, MessageType
+try:
+    from Spyder.SpyderB_Broker.SpyderB01_ConnectAPI import ConnectAPI, MessageType
+except ImportError:
+    ConnectAPI = None
+    MessageType = None
 
 # ==============================================================================
 # CONSTANTS

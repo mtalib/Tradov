@@ -89,12 +89,25 @@ except ImportError:
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient, IBConfig
-from Spyder.SpyderB_Broker.SpyderB02_OrderManager import OrderManager, OrderRequest, OrderAction, OrderType
+try:
+    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient, IBConfig
+except ImportError:
+    SpyderClient = None
+    IBConfig = None
+
+from Spyder.SpyderB_Broker.SpyderB02_OrderManager import OrderManager, OrderRequest
 from Spyder.SpyderB_Broker.SpyderB03_PositionTracker import PositionTracker
 from Spyder.SpyderB_Broker.SpyderB04_AccountManager import AccountManager
-from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
-from Spyder.SpyderB_Broker.SpyderB05_ConnectionManager import ConnectionManager
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
+except ImportError:
+    ContractBuilder = None
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB05_ConnectionManager import ConnectionManager
+except ImportError:
+    ConnectionManager = None
 
 # Try to import event management
 try:
@@ -660,20 +673,20 @@ class TestOrderManagement(SpyderBrokerTestBase):
     def setUp(self):
         """Set up order management tests."""
         super().setUp()
-        self.order_manager = OrderManager(self.spyder_client, self.event_manager)
+        self.order_manager = OrderManager()
     
     def test_order_creation(self):
         """Test order creation and validation."""
         # Create a basic buy order
         order_request = OrderRequest(
             symbol='SPY',
-            action=OrderAction.BUY,
+            side='buy',
             quantity=100,
-            order_type=OrderType.MARKET
+            order_type='market'
         )
         
         self.assertEqual(order_request.symbol, 'SPY')
-        self.assertEqual(order_request.action, OrderAction.BUY)
+        self.assertEqual(order_request.side, 'buy')
         self.assertEqual(order_request.quantity, 100)
         
         logger.info("✅ Order creation test passed")

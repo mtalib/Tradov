@@ -1210,6 +1210,191 @@ class RealTimeStressTesting:
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")
 
+    # ==========================================================================
+    # RAY DISTRIBUTED COMPUTING (Phase 3)
+    # ==========================================================================
+
+    def run_distributed_monte_carlo(self, portfolio: 'PortfolioSnapshot',
+                                     iterations: int = MONTE_CARLO_ITERATIONS,
+                                     time_horizon_days: int = 1,
+                                     num_cpus: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Run Monte Carlo stress simulation distributed across Ray workers.
+
+        Partitions iterations across workers for near-linear speedup on
+        large simulation counts.
+
+        Args:
+            portfolio: Current portfolio snapshot.
+            iterations: Total number of Monte Carlo iterations.
+            time_horizon_days: Simulation time horizon.
+            num_cpus: Number of CPUs to allocate.
+
+        Returns:
+            Combined simulation results with risk metrics.
+        """
+        try:
+            import ray
+        except ImportError:
+            self.logger.warning("Ray not available, falling back to sequential Monte Carlo")
+            return self.run_monte_carlo_simulation(portfolio, iterations, time_horizon_days)
+
+        import multiprocessing as mproc
+        if not ray.is_initialized():
+            ray.init(num_cpus=num_cpus or mproc.cpu_count(), ignore_reinit_error=True)
+
+        n_workers = num_cpus or mproc.cpu_count()
+        chunk_size = iterations // n_workers
+        remainder = iterations % n_workers
+
+        # Serialize portfolio data for workers
+        portfolio_data = {
+            'portfolio_value': portfolio.portfolio_value,
+            'total_delta': portfolio.total_delta,
+            'total_gamma': portfolio.total_gamma,
+            'total_vega': portfolio.total_vega,
+            'total_theta': portfolio.total_theta,
+            'positions': {k: dict(v) for k, v in portfolio.positions.items()},
+        }
+        portfolio_ref = ray.put(portfolio_data)
+
+        @ray.remote
+        def _monte_carlo_chunk(portfolio_ref, n_iterations: int,
+                                time_horizon: int, seed: int) -> List[float]:
+            """Run a chunk of Monte Carlo iterations on a Ray worker."""
+            import numpy as _np
+            _np.random.seed(seed)
+
+            pdata = portfolio_ref
+            pv = pdata['portfolio_value']
+            delta = pdata['total_delta']
+            vega = pdata['total_vega']
+
+            pnl_results = []
+            for _ in range(n_iterations):
+                # Random market scenario
+                equity_shock = _np.random.normal(0, 0.02 * _np.sqrt(time_horizon))
+                vol_shock = _np.random.normal(0, 0.05)
+
+                # P&L from Greeks-based approximation
+                pnl = (delta * pv * equity_shock +
+                       vega * vol_shock * 100 +
+                       _np.random.normal(0, pv * 0.001))
+                pnl_results.append(float(pnl))
+
+            return pnl_results
+
+        self.logger.info(f"Ray Monte Carlo: {iterations} iterations across {n_workers} workers")
+        start_time = time.time()
+
+        futures = []
+        for i in range(n_workers):
+            n = chunk_size + (1 if i < remainder else 0)
+            futures.append(_monte_carlo_chunk.remote(
+                portfolio_ref, n, time_horizon_days, seed=42 + i
+            ))
+
+        chunk_results = ray.get(futures)
+        pnl_distribution = []
+        for chunk in chunk_results:
+            pnl_distribution.extend(chunk)
+
+        pnl_array = np.array(pnl_distribution)
+        computation_time = time.time() - start_time
+
+        results = {
+            'simulation_stats': {
+                'iterations': len(pnl_distribution),
+                'time_horizon_days': time_horizon_days,
+                'computation_time': computation_time,
+                'portfolio_value': portfolio.portfolio_value,
+                'backend': 'ray',
+                'num_workers': n_workers,
+            },
+            'pnl_statistics': {
+                'mean': float(np.mean(pnl_array)),
+                'std': float(np.std(pnl_array)),
+                'min': float(np.min(pnl_array)),
+                'max': float(np.max(pnl_array)),
+                'median': float(np.median(pnl_array)),
+            },
+            'risk_metrics': {
+                'var_95': float(np.percentile(pnl_array, 5)),
+                'var_99': float(np.percentile(pnl_array, 1)),
+                'var_999': float(np.percentile(pnl_array, 0.1)),
+                'expected_shortfall_95': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 5)])),
+                'expected_shortfall_99': float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 1)])),
+            },
+            'distribution_data': pnl_distribution,
+        }
+
+        self.logger.info(f"Ray Monte Carlo complete: {iterations} iterations in {computation_time:.2f}s, "
+                          f"VaR99=${results['risk_metrics']['var_99']:,.0f}")
+        return results
+
+    def run_distributed_stress_scenarios(self, portfolio: 'PortfolioSnapshot',
+                                          scenario_ids: Optional[List[str]] = None,
+                                          num_cpus: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Run multiple stress scenarios in parallel via Ray.
+
+        Args:
+            portfolio: Current portfolio snapshot.
+            scenario_ids: Specific scenarios to run (None = all).
+            num_cpus: Number of CPUs to allocate.
+
+        Returns:
+            List of scenario results.
+        """
+        try:
+            import ray
+        except ImportError:
+            self.logger.warning("Ray not available for distributed stress scenarios")
+            return []
+
+        import multiprocessing as mproc
+        if not ray.is_initialized():
+            ray.init(num_cpus=num_cpus or mproc.cpu_count(), ignore_reinit_error=True)
+
+        scenarios_to_run = scenario_ids or list(self.scenarios.keys())
+        scenario_data = [
+            {
+                'scenario_id': sid,
+                'equity_shock': self.scenarios[sid].equity_shock if sid in self.scenarios else -0.05,
+                'vix_level': self.scenarios[sid].vix_level if sid in self.scenarios else 30,
+                'name': self.scenarios[sid].name if sid in self.scenarios else sid,
+            }
+            for sid in scenarios_to_run if sid in self.scenarios
+        ]
+
+        portfolio_data = {
+            'portfolio_value': portfolio.portfolio_value,
+            'total_delta': portfolio.total_delta,
+            'total_vega': portfolio.total_vega,
+        }
+        portfolio_ref = ray.put(portfolio_data)
+        scenario_ref = ray.put(scenario_data)
+
+        @ray.remote
+        def _evaluate_scenario(portfolio_ref, scenario: dict) -> Dict:
+            """Evaluate a single stress scenario on a Ray worker."""
+            pdata = portfolio_ref
+            pnl = (pdata['total_delta'] * pdata['portfolio_value'] * scenario['equity_shock'] +
+                   pdata['total_vega'] * (scenario['vix_level'] - 20) * 10)
+            return {
+                'scenario_id': scenario['scenario_id'],
+                'scenario_name': scenario['name'],
+                'portfolio_pnl': float(pnl),
+                'pnl_percentage': float(pnl / pdata['portfolio_value']) if pdata['portfolio_value'] else 0,
+                'status': 'completed',
+            }
+
+        futures = [_evaluate_scenario.remote(portfolio_ref, s) for s in scenario_data]
+        results = ray.get(futures)
+
+        self.logger.info(f"Ray stress scenarios: {len(results)} completed")
+        return results
+
 # ==============================================================================
 # MODULE FUNCTIONS
 # ==============================================================================

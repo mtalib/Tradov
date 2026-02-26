@@ -220,9 +220,9 @@ class TestOrderPlacement:
 
         assert order["order"]["id"] == 123456
         # Verify POST request was made
-        assert mock_request.call_args[0][0] == "POST"
+        assert mock_request.call_args.kwargs["method"] == "POST"
         # Verify order parameters
-        call_data = mock_request.call_args[1]["data"]
+        call_data = mock_request.call_args.kwargs["data"]
         assert call_data["symbol"] == "SPY"
         assert call_data["quantity"] == 10
         assert call_data["type"] == "market"
@@ -243,7 +243,7 @@ class TestOrderPlacement:
             limit_price=450.50
         )
 
-        call_data = mock_request.call_args[1]["data"]
+        call_data = mock_request.call_args.kwargs["data"]
         assert call_data["type"] == "limit"
         assert call_data["price"] == 450.50
 
@@ -258,7 +258,7 @@ class TestOrderPlacement:
         result = tradier_client.cancel_order(order_id=123456)
 
         assert result["order"]["status"] == "cancelled"
-        assert mock_request.call_args[0][0] == "DELETE"
+        assert mock_request.call_args.kwargs["method"] == "DELETE"
 
     @patch('requests.Session.request')
     def test_get_order_status(self, mock_request, tradier_client):
@@ -320,7 +320,7 @@ class TestMarketData:
         tradier_client.get_quotes(["SPY", "QQQ", "IWM"])
 
         # Verify symbols are joined with comma
-        call_params = mock_request.call_args[1]["params"]
+        call_params = mock_request.call_args.kwargs["params"]
         assert "SPY,QQQ,IWM" in call_params["symbols"]
 
 

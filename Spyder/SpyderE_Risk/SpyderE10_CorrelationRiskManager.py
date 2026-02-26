@@ -236,7 +236,6 @@ class CorrelationBreakdown:
     """Correlation breakdown event detection"""
     event_id: str
     start_time: datetime
-    end_time: Optional[datetime] = None
     
     # Breakdown metrics
     pre_breakdown_correlation: float
@@ -252,6 +251,9 @@ class CorrelationBreakdown:
     # Impact assessment
     portfolio_impact: float             # Portfolio risk increase
     diversification_loss: float         # Diversification benefit lost
+    
+    # Optional fields (must come after required fields)
+    end_time: Optional[datetime] = None
     
     def is_active(self) -> bool:
         """Check if breakdown event is still active"""

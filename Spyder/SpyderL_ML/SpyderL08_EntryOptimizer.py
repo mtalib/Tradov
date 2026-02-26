@@ -55,8 +55,29 @@ import optuna
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingCalendar
-from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer, FeatureSet
-from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier, RegimeType, MarketRegime
+
+try:
+    from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer, FeatureSet
+except ImportError:
+    FeatureEngineer = None  # type: ignore
+    FeatureSet = None  # type: ignore
+
+try:
+    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier, RegimeType, MarketRegime
+except ImportError:
+    RegimeClassifier = None  # type: ignore
+    RegimeType = None  # type: ignore
+    MarketRegime = None  # type: ignore
+
+# Reinforcement Learning (optional)
+try:
+    import gym
+    from gym import spaces
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    HAS_SB3 = True
+except ImportError:
+    HAS_SB3 = False
 
 OPTIMAL_ENTRY_WINDOWS = {
     'morning': (time(10, 15), time(11, 40)),  # Primary window
@@ -139,6 +160,132 @@ class OptimizationResult:
     optimization_history: List[Dict[str, Any]] = field(default_factory=list)
 
 # ==============================================================================
+# RL ENVIRONMENT — ENTRY TIMING
+# ==============================================================================
+if HAS_SB3:
+    class EntryTimingEnvironment(gym.Env):
+        """
+        RL environment for entry timing decisions.
+
+        The agent learns when to enter trades by observing technical
+        indicators, options features, and recent opportunity costs.
+        Unlike supervised ML that predicts "will this trade be profitable?",
+        RL learns sequential patience — "should I enter now or wait for a
+        better opportunity tomorrow?"
+
+        Observation (8-dim):
+            [RSI, MACD_signal, BB_position, volume_ratio, IV_rank,
+             days_waiting, opportunity_cost, spread_premium]
+
+        Actions (4 discrete):
+            0=wait, 1=enter_small (0.5x), 2=enter_full (1x),
+            3=enter_aggressive (1.5x)
+
+        Reward:
+            wait → small patience penalty (-0.001)
+            enter → simulated trade PnL (realized after hold period)
+        """
+
+        SIZE_MULTIPLIERS = [0.0, 0.5, 1.0, 1.5]
+
+        def __init__(
+            self,
+            historical_features: Optional[pd.DataFrame] = None,
+            episode_length: int = 60,
+            hold_period: int = 5,
+            patience_cost: float = 0.001,
+        ):
+            super().__init__()
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32
+            )
+            self.action_space = spaces.Discrete(4)
+
+            self.episode_length = episode_length
+            self.hold_period = hold_period
+            self.patience_cost = patience_cost
+
+            if historical_features is not None and len(historical_features) > 0:
+                self.features_data = historical_features
+            else:
+                self.features_data = self._generate_synthetic_features()
+
+            self.current_step = 0
+            self.start_idx = 0
+            self.cumulative_pnl = 0.0
+            self.days_waiting = 0
+            self.trades_taken = 0
+
+        def reset(self) -> np.ndarray:
+            max_start = max(0, len(self.features_data) - self.episode_length - self.hold_period - 1)
+            self.start_idx = np.random.randint(0, max(1, max_start))
+            self.current_step = 0
+            self.cumulative_pnl = 0.0
+            self.days_waiting = 0
+            self.trades_taken = 0
+            return self._get_obs()
+
+        def step(self, action: int):
+            idx = self.start_idx + self.current_step
+            row = self.features_data.iloc[idx]
+
+            size_mult = self.SIZE_MULTIPLIERS[action]
+
+            if action == 0:  # Wait
+                reward = -self.patience_cost
+                self.days_waiting += 1
+            else:  # Enter trade
+                # Simulate trade: look ahead hold_period days
+                future_idx = min(idx + self.hold_period, len(self.features_data) - 1)
+                future_row = self.features_data.iloc[future_idx]
+                trade_return = future_row.get('future_return', np.random.normal(0, 0.02))
+                reward = float(trade_return * size_mult)
+                self.cumulative_pnl += reward
+                self.days_waiting = 0
+                self.trades_taken += 1
+
+            self.current_step += 1
+            done = self.current_step >= self.episode_length
+            obs = self._get_obs()
+
+            info = {
+                'action': ['wait', 'enter_small', 'enter_full', 'enter_aggressive'][action],
+                'cumulative_pnl': self.cumulative_pnl,
+                'trades_taken': self.trades_taken,
+            }
+            return obs, float(reward), done, info
+
+        def _get_obs(self) -> np.ndarray:
+            idx = min(self.start_idx + self.current_step, len(self.features_data) - 1)
+            row = self.features_data.iloc[idx]
+            return np.array([
+                row.get('rsi', 50.0) / 100.0,
+                row.get('macd_signal', 0.0),
+                row.get('bb_position', 0.5),
+                row.get('volume_ratio', 1.0),
+                row.get('iv_rank', 0.5),
+                self.days_waiting / 20.0,
+                self.cumulative_pnl,  # opportunity cost proxy
+                row.get('spread_premium', 0.0),
+            ], dtype=np.float32)
+
+        @staticmethod
+        def _generate_synthetic_features(n: int = 2000) -> pd.DataFrame:
+            rsi = np.random.uniform(20, 80, n)
+            macd = np.random.normal(0, 0.5, n)
+            bb_pos = np.random.uniform(0, 1, n)
+            vol_ratio = np.random.uniform(0.5, 2.0, n)
+            iv_rank = np.random.uniform(0, 1, n)
+            spread_prem = np.random.uniform(0, 0.05, n)
+            future_ret = np.random.normal(0.001, 0.02, n)
+            return pd.DataFrame({
+                'rsi': rsi, 'macd_signal': macd, 'bb_position': bb_pos,
+                'volume_ratio': vol_ratio, 'iv_rank': iv_rank,
+                'spread_premium': spread_prem, 'future_return': future_ret,
+            })
+
+
+# ==============================================================================
 # ENTRY OPTIMIZER CLASS
 # ==============================================================================
 class EntryOptimizer:
@@ -189,9 +336,9 @@ class EntryOptimizer:
         self.calendar = TradingCalendar()
         
         self.logger.info("EntryOptimizer initialized")
-    
+
     def _initialize_models(self) -> None:
-        """Initialize ML models"""
+        """Initialize ML models (and optional RL model)."""
         # Random Forest
         self.models['rf'] = RandomForestClassifier(
             n_estimators=200,
@@ -233,6 +380,82 @@ class EntryOptimizer:
             early_stopping=True,
             random_state=42
         )
+
+        # RL Entry Timing model (optional)
+        self._rl_entry_model = None
+        self._rl_entry_enabled = HAS_SB3
+        self._load_rl_entry_model()
+
+    def _load_rl_entry_model(self, model_path: Optional[str] = None) -> None:
+        """Load pre-trained RL entry timing model if available."""
+        if not HAS_SB3:
+            self._rl_entry_enabled = False
+            return
+        try:
+            if model_path:
+                self._rl_entry_model = PPO.load(model_path)
+                self.logger.info(f"RL entry timing model loaded from {model_path}")
+            else:
+                import os
+                default_path = "models/rl/entry_timing/entry_timing_PPO_final"
+                if os.path.exists(default_path + ".zip"):
+                    self._rl_entry_model = PPO.load(default_path)
+                    self.logger.info("RL entry timing model loaded from default path")
+                else:
+                    self._rl_entry_enabled = False
+        except Exception as e:
+            self._rl_entry_enabled = False
+            self.logger.warning(f"Failed to load RL entry model: {e}")
+
+    def _get_rl_entry_adjustment(
+        self,
+        feature_set: FeatureSet,
+        confidence: float,
+    ) -> Tuple[float, float]:
+        """
+        Query RL model for entry timing adjustment.
+
+        Args:
+            feature_set: Current feature set.
+            confidence: Ensemble confidence.
+
+        Returns:
+            (adjusted_confidence, size_multiplier) — RL may boost or
+            suppress the ensemble's confidence and adjust position size.
+        """
+        if not self._rl_entry_enabled or self._rl_entry_model is None:
+            return confidence, 1.0
+
+        try:
+            features = feature_set.features
+            obs = np.array([
+                features.get('rsi_14', 50.0) / 100.0,
+                features.get('macd_signal', 0.0),
+                features.get('bb_position', 0.5),
+                features.get('volume_ratio', 1.0),
+                features.get('iv_rank', 0.5),
+                len(self.entry_history) / 20.0,
+                0.0,  # opportunity cost placeholder
+                features.get('spread_premium', 0.0),
+            ], dtype=np.float32)
+
+            action, _ = self._rl_entry_model.predict(obs, deterministic=True)
+            action = int(action)
+
+            # Map action to adjustment
+            # 0=wait (suppress), 1=small, 2=full, 3=aggressive
+            size_multipliers = [0.0, 0.5, 1.0, 1.5]
+            size_mult = size_multipliers[action]
+
+            if action == 0:
+                # RL says wait — reduce confidence
+                return confidence * 0.3, 0.0
+            else:
+                return confidence, size_mult
+
+        except Exception as e:
+            self.logger.warning(f"RL entry adjustment failed: {e}")
+            return confidence, 1.0
     
     # ==========================================================================
     # PUBLIC METHODS - PREDICTION
@@ -317,6 +540,20 @@ class EntryOptimizer:
             )
             
             # Create opportunity
+            # Apply RL adjustment if available
+            rl_confidence, rl_size_mult = self._get_rl_entry_adjustment(
+                current_features, confidence
+            )
+            if rl_confidence != confidence:
+                self.logger.debug(
+                    f"RL adjusted entry: confidence {confidence:.2f}→{rl_confidence:.2f}, "
+                    f"size_mult={rl_size_mult:.1f}"
+                )
+                confidence = rl_confidence
+                # Re-evaluate signal with adjusted confidence
+                if confidence < CONFIDENCE_THRESHOLD:
+                    signal = EntrySignal.NEUTRAL
+
             opportunity = EntryOpportunity(
                 timestamp=current_features.timestamp,
                 signal=signal,
@@ -328,7 +565,8 @@ class EntryOptimizer:
                 reasons=reasons,
                 metadata={
                     'model_predictions': predictions,
-                    'regime_confidence': regime.confidence
+                    'regime_confidence': regime.confidence,
+                    'rl_size_multiplier': rl_size_mult if self._rl_entry_enabled else 1.0,
                 }
             )
             

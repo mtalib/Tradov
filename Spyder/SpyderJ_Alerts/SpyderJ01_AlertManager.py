@@ -54,9 +54,15 @@ from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, NotificationError
+from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+try:
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import NotificationError
+except ImportError:
+    class NotificationError(Exception):
+        """Fallback NotificationError."""
+        pass
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
-from Spyder.SpyderU_Utilities.SpyderU07_Constants import AlertLevel
+# AlertLevel is defined locally below
 
 try:
     from SpyderL_ML.SpyderL01_MLPredictor import MLPredictor
@@ -300,34 +306,18 @@ class AlertManager:
                     'underlying_price_change', 'gamma_exposure', 'time_to_expiry',
                     'iv_change', 'delta_exposure', 'price_velocity'
                 ],
-
-except Exception as e:
-    recommendations = ["Error generating recommendations"]
-    print(f"Warning: Error generating recommendations: {e}")
                 PredictionType.VOLATILITY_SPIKE: [
                     'vix_level', 'vix_change', 'iv_rank', 'volume_ratio',
                     'price_volatility', 'options_volume'
                 ],
-
-except Exception as e:
-    recommendations = ["Error generating recommendations"]
-    print(f"Warning: Error generating recommendations: {e}")
                 PredictionType.OPTIMAL_EXIT: [
                     'current_pnl', 'theta_decay', 'time_to_expiry', 'iv_percentile',
                     'profit_velocity', 'risk_adjusted_return'
                 ],
-
-except Exception as e:
-    recommendations = ["Error generating recommendations"]
-    print(f"Warning: Error generating recommendations: {e}")
                 PredictionType.GAMMA_RISK: [
                     'gamma_exposure', 'price_change', 'gamma_rate_change',
                     'underlying_velocity', 'position_concentration'
                 ]
-
-except Exception as e:
-    recommendations = ["Error generating recommendations"]
-    print(f"Warning: Error generating recommendations: {e}")
             }
             
             features = feature_sets.get(prediction_type, [
@@ -803,7 +793,6 @@ except Exception as e:
                     "Set tighter stop losses",
                     "Monitor price movements closely",
                 ]
-
-except Exception as e:
-    recommendations = ["Error generating recommendations"]
-    print(f"Warning: Error generating recommendations: {e}")
+        except Exception as e:
+            recommendations = ["Error generating recommendations"]
+            self.logger.warning(f"Error generating recommendations: {e}")

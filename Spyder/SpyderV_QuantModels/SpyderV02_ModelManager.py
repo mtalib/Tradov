@@ -66,6 +66,23 @@ try:
 except ImportError:
     print("Warning: Consolidated V-series modules not available")
     CONSOLIDATED_MODULES_AVAILABLE = False
+    # Define fallback types so class definitions don't fail
+    RiskParameters = None  # type: ignore
+    RiskMetrics = None  # type: ignore
+    SpyderRiskManager = None  # type: ignore
+    SpyderPricingEngine = None  # type: ignore
+    OptionContract = None  # type: ignore
+    PricingParameters = None  # type: ignore
+    PricingResult = None  # type: ignore
+    SpyderVolatilityEngine = None  # type: ignore
+    VolatilityRequest = None  # type: ignore
+    VolatilityResult = None  # type: ignore
+    SpyderAdvancedModels = None  # type: ignore
+    AdvancedModelRequest = None  # type: ignore
+    AdvancedModelResult = None  # type: ignore
+    SpyderAIModels = None  # type: ignore
+    PricingRequest = None  # type: ignore
+    TradingSignal = None  # type: ignore
 
 try:
     from SpyderB08_MultiClientDataManager import MultiClientDataManager

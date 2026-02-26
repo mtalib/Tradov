@@ -21,10 +21,26 @@ Change Log:
 """
 
 # ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
+import os
+import sys
+from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import Enum
+from collections import defaultdict
+
+# ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from OPRA feeds for ultra-fast decision making. It includes delta-neutral
+import numpy as np
+import pandas as pd
 
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
     BaseStrategy, TradingSignal, SignalType, SignalStrength,
     StrategyPosition, PositionType, PositionState,
     EventManager, RiskProfile, Event, EventType

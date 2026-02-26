@@ -27,7 +27,8 @@ This package contains all core modules organized by functionality:
 - SpyderT_Testing: Testing utilities and frameworks
 - SpyderU_Utilities: Common utilities and helpers
 - SpyderV_QuantModels: Quantitative models and analytics
-- SpyderX_Agents: AI agents and automation
+- SpyderX_Agents: AI agents and automation (on-demand, stateless)
+- SpyderY_AutoAgents: Autonomous LLM-powered agents (24/7, persistent)
 - SpyderZ_Communication: Communication protocols and APIs
 """
 

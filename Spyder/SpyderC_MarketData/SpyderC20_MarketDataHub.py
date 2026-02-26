@@ -59,9 +59,23 @@ import pandas as pd
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderA_Core.SpyderA05_EventManager import Event, EventManager, EventType
-from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
-from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import SecurityType, TickType
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
+except ImportError:
+    SpyderClient = None
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder
+except ImportError:
+    ContractBuilder = None
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB10_IBDataTypes import SecurityType, TickType
+except ImportError:
+    SecurityType = None
+    TickType = None
+
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils

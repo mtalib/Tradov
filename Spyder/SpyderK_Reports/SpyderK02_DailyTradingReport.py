@@ -52,11 +52,18 @@ import xlsxwriter
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
+from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 from Spyder.SpyderB_Broker.SpyderB03_PositionTracker import PositionTracker
 from Spyder.SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetricsCalculator
 from Spyder.SpyderJ_Alerts.SpyderJ02_EmailNotifier import EmailNotifier
+
+# Institutional Analytics
+try:
+    import empyrical
+    HAS_EMPYRICAL = True
+except ImportError:
+    HAS_EMPYRICAL = False
 
 REPORT_TEMPLATES_DIR = Path("templates/reports")
 REPORT_OUTPUT_DIR = Path("reports/daily")
@@ -126,6 +133,9 @@ class DailyReportData:
     # Alerts
     risk_violations: List[str] = field(default_factory=list)
     system_alerts: List[str] = field(default_factory=list)
+    
+    # Institutional Metrics (empyrical-validated)
+    institutional_metrics: Dict[str, float] = field(default_factory=dict)
 
 @dataclass
 class TradeDetail:
@@ -323,6 +333,9 @@ class DailyTradingReport:
         report_data.risk_violations = alerts['risk_violations']
         report_data.system_alerts = alerts['system_alerts']
         
+        # Institutional metrics (empyrical-validated)
+        report_data.institutional_metrics = self._generate_institutional_metrics(report_date)
+        
         return report_data
     
     # ==========================================================================
@@ -431,6 +444,66 @@ class DailyTradingReport:
             'trades': strategy_trades,
             'win_rate': strategy_win_rate
         }
+    
+    def _generate_institutional_metrics(self, report_date: date) -> Dict[str, Any]:
+        """
+        Generate empyrical-validated institutional performance metrics.
+        
+        Uses empyrical library for industry-standard risk/return calculations
+        that match institutional reporting requirements.
+        
+        Args:
+            report_date: Date for metrics computation.
+            
+        Returns:
+            Dict of validated performance metrics.
+        """
+        metrics = {'source': 'empyrical', 'available': HAS_EMPYRICAL}
+        
+        if not HAS_EMPYRICAL:
+            return metrics
+        
+        try:
+            # Get historical returns from DAL
+            returns_data = self.dal.get_returns(
+                end_date=report_date, lookback_days=252
+            )
+            
+            if returns_data is None or len(returns_data) < 10:
+                metrics['error'] = 'Insufficient return history'
+                return metrics
+            
+            returns = pd.Series(returns_data) if not isinstance(returns_data, pd.Series) else returns_data
+            
+            # Rolling metrics (last 30 days)
+            if len(returns) >= 30:
+                recent = returns.iloc[-30:]
+                metrics['rolling_30d_sharpe'] = float(empyrical.sharpe_ratio(recent, period='daily'))
+                metrics['rolling_30d_sortino'] = float(empyrical.sortino_ratio(recent, period='daily'))
+                metrics['rolling_30d_volatility'] = float(empyrical.annual_volatility(recent, period='daily'))
+                metrics['rolling_30d_max_dd'] = float(empyrical.max_drawdown(recent))
+            
+            # Full period metrics
+            metrics['annual_return'] = float(empyrical.annual_return(returns, period='daily'))
+            metrics['annual_volatility'] = float(empyrical.annual_volatility(returns, period='daily'))
+            metrics['sharpe_ratio'] = float(empyrical.sharpe_ratio(returns, period='daily'))
+            metrics['sortino_ratio'] = float(empyrical.sortino_ratio(returns, period='daily'))
+            metrics['calmar_ratio'] = float(empyrical.calmar_ratio(returns, period='daily'))
+            metrics['omega_ratio'] = float(empyrical.omega_ratio(returns))
+            metrics['max_drawdown'] = float(empyrical.max_drawdown(returns))
+            metrics['stability'] = float(empyrical.stability_of_timeseries(returns))
+            metrics['tail_ratio'] = float(empyrical.tail_ratio(returns))
+            metrics['var_5'] = float(empyrical.value_at_risk(returns, cutoff=0.05))
+            metrics['cvar_5'] = float(empyrical.conditional_value_at_risk(returns, cutoff=0.05))
+            metrics['cumulative_return'] = float(empyrical.cum_returns_final(returns))
+            
+            self.logger.info(f"Institutional metrics generated: Sharpe={metrics['sharpe_ratio']:.3f}")
+            
+        except Exception as e:
+            self.logger.error(f"Error generating institutional metrics: {e}")
+            metrics['error'] = str(e)
+        
+        return metrics
     
     def _calculate_risk_metrics(self, report_date: date) -> Dict[str, float]:
         """Calculate portfolio risk metrics"""

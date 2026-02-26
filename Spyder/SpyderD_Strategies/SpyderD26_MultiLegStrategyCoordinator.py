@@ -67,6 +67,16 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import *
 
+# Reinforcement Learning (optional)
+try:
+    import gym
+    from gym import spaces
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    HAS_SB3 = True
+except ImportError:
+    HAS_SB3 = False
+
 # Integration imports
 try:
     from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import get_unified_regime_engine, MarketRegime
@@ -1103,6 +1113,137 @@ class MultiLegStrategyConstructor:
             return 0.65
 
 # ==============================================================================
+# RL ENVIRONMENT — STRATEGY MORPHING / ADJUSTMENT
+# ==============================================================================
+if HAS_SB3:
+    class StrategyMorphEnvironment(gym.Env):
+        """
+        RL environment for multi-leg strategy adjustment decisions.
+
+        The agent observes an active multi-leg position's P&L, Greeks,
+        time-to-expiration, and volatility context, then decides whether
+        to hold, close, roll, or convert to a different spread structure.
+
+        Observation (12-dim):
+            [pnl_pct, days_held_norm, dte_norm, net_delta, net_gamma,
+             net_theta, net_vega, iv_rank, vix_change, underlying_move,
+             strategy_encoding, pop_estimate]
+
+        Actions (7 discrete, matching AdjustmentAction enum):
+            0=hold, 1=roll_untested_side, 2=add_extra_wings,
+            3=convert_to_butterfly, 4=convert_to_condor,
+            5=close_threatened_side, 6=roll_entire_position
+        """
+
+        ACTION_NAMES = [
+            'hold', 'roll_untested_side', 'add_extra_wings',
+            'convert_to_butterfly', 'convert_to_condor',
+            'close_threatened_side', 'roll_entire_position',
+        ]
+
+        STRATEGY_ENCODINGS = {
+            'iron_condor': 0.0,
+            'iron_butterfly': 0.2,
+            'jade_lizard': 0.4,
+            'big_lizard': 0.6,
+            'broken_wing_butterfly': 0.8,
+            'double_diagonal': 1.0,
+        }
+
+        def __init__(self, episode_length: int = 30):
+            super().__init__()
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(12,), dtype=np.float32
+            )
+            self.action_space = spaces.Discrete(7)
+            self.episode_length = episode_length
+
+            self.current_step = 0
+            self.position_pnl = 0.0
+            self.max_credit = 1.0
+            self.total_dte = 30
+            self.strategy_type = 'iron_condor'
+            self.cumulative_reward = 0.0
+
+        def reset(self) -> np.ndarray:
+            self.current_step = 0
+            self.position_pnl = 0.0
+            self.max_credit = np.random.uniform(1.0, 5.0)
+            self.total_dte = np.random.randint(14, 45)
+            strategies = list(self.STRATEGY_ENCODINGS.keys())
+            self.strategy_type = strategies[np.random.randint(0, len(strategies))]
+            self.cumulative_reward = 0.0
+            self._iv_rank = np.random.uniform(0.3, 0.9)
+            self._vix = np.random.uniform(12, 40)
+            self._underlying = np.random.uniform(400, 600)
+            self._delta = np.random.uniform(-0.1, 0.1)
+            self._gamma = np.random.uniform(-0.05, 0.05)
+            self._theta = np.random.uniform(0.0, 0.5)
+            self._vega = np.random.uniform(-15, 15)
+            return self._get_obs()
+
+        def step(self, action: int):
+            # Simulate market dynamics
+            underlying_move = np.random.normal(0, 0.01)
+            vix_change = np.random.normal(0, 0.02)
+            self._iv_rank = np.clip(self._iv_rank + np.random.normal(0, 0.02), 0, 1)
+            self._vix = max(8, self._vix + vix_change * self._vix)
+            self._underlying *= (1 + underlying_move)
+
+            # Greeks evolve
+            self._delta += underlying_move * self._gamma * 100
+            self._theta *= max(0.9, 1.0 - 1.0 / max(1, self.total_dte - self.current_step))
+
+            # Compute P&L change from theta + delta exposure
+            pnl_change = self._theta * 0.05 - abs(self._delta) * abs(underlying_move) * self._underlying
+            self.position_pnl += pnl_change
+
+            # Reward based on action quality
+            if action == 0:  # Hold
+                reward = float(pnl_change / max(0.1, self.max_credit))
+            elif action in [1, 2, 3, 4]:  # Adjust
+                adjustment_cost = np.random.uniform(0.05, 0.15) * self.max_credit
+                adjustment_benefit = abs(self._delta) * 0.5  # Reduce delta
+                self._delta *= 0.5  # Adjustments reduce delta
+                reward = float((adjustment_benefit - adjustment_cost) / max(0.1, self.max_credit))
+            elif action == 5:  # Close threatened side
+                close_benefit = max(0, self.position_pnl * 0.3)
+                reward = float(close_benefit / max(0.1, self.max_credit) - 0.1)
+            else:  # Roll entire
+                roll_cost = np.random.uniform(0.1, 0.3) * self.max_credit
+                roll_benefit = self._theta * 0.3 + self.max_credit * 0.1
+                reward = float((roll_benefit - roll_cost) / max(0.1, self.max_credit))
+
+            self.cumulative_reward += reward
+            self.current_step += 1
+            done = self.current_step >= self.episode_length
+
+            info = {
+                'action': self.ACTION_NAMES[action],
+                'pnl': self.position_pnl,
+                'cumulative_reward': self.cumulative_reward,
+            }
+            return self._get_obs(), float(reward), done, info
+
+        def _get_obs(self) -> np.ndarray:
+            remaining_dte = max(0, self.total_dte - self.current_step)
+            return np.array([
+                self.position_pnl / max(0.1, self.max_credit),  # pnl_pct
+                self.current_step / max(1, self.episode_length),  # days_held_norm
+                remaining_dte / 45.0,  # dte_norm
+                self._delta,
+                self._gamma,
+                self._theta,
+                self._vega / 15.0,
+                self._iv_rank,
+                0.0,  # vix_change (latest)
+                0.0,  # underlying_move (latest)
+                self.STRATEGY_ENCODINGS.get(self.strategy_type, 0.0),
+                0.65,  # pop_estimate placeholder
+            ], dtype=np.float32)
+
+
+# ==============================================================================
 # MAIN MULTI-LEG STRATEGY COORDINATOR
 # ==============================================================================
 class MultiLegStrategyCoordinator:
@@ -1170,8 +1311,103 @@ class MultiLegStrategyCoordinator:
         
         # Threading
         self._lock = threading.RLock()
-        
+
+        # RL strategy morph model (optional)
+        self._rl_morph_model = None
+        self._rl_morph_enabled = HAS_SB3
+        self._load_rl_morph_model()
+
         self.logger.info("MultiLegStrategyCoordinator initialized successfully")
+
+    def _load_rl_morph_model(self, model_path: Optional[str] = None) -> None:
+        """Load pre-trained RL strategy morphing model if available."""
+        if not HAS_SB3:
+            self._rl_morph_enabled = False
+            return
+        try:
+            if model_path:
+                self._rl_morph_model = PPO.load(model_path)
+                self.logger.info(f"RL morph model loaded from {model_path}")
+            else:
+                default_path = "models/rl/strategy_morph/strategy_morph_PPO_final"
+                if os.path.exists(default_path + ".zip"):
+                    self._rl_morph_model = PPO.load(default_path)
+                    self.logger.info("RL morph model loaded from default path")
+                else:
+                    self._rl_morph_enabled = False
+        except Exception as e:
+            self._rl_morph_enabled = False
+            self.logger.warning(f"Failed to load RL morph model: {e}")
+
+    def _get_rl_adjustment_recommendation(
+        self,
+        position: 'MultiLegPosition',
+        market_analysis: 'MarketEnvironmentAnalysis',
+    ) -> Optional[AdjustmentAction]:
+        """
+        Query RL model for position adjustment recommendation.
+
+        Args:
+            position: Active multi-leg position.
+            market_analysis: Current market environment analysis.
+
+        Returns:
+            AdjustmentAction if RL recommends one, None if hold or disabled.
+        """
+        if not self._rl_morph_enabled or self._rl_morph_model is None:
+            return None
+
+        try:
+            remaining_dte = max(0, MAX_DTE_MULTILEG - position.days_held)
+            strategy_enc = {
+                MultiLegStrategyType.IRON_CONDOR: 0.0,
+                MultiLegStrategyType.IRON_BUTTERFLY: 0.2,
+                MultiLegStrategyType.JADE_LIZARD: 0.4,
+                MultiLegStrategyType.BIG_LIZARD: 0.6,
+                MultiLegStrategyType.BROKEN_WING_BUTTERFLY: 0.8,
+                MultiLegStrategyType.DOUBLE_DIAGONAL: 1.0,
+            }.get(position.strategy_structure.strategy_type, 0.0)
+
+            obs = np.array([
+                position.unrealized_pnl / max(0.1, position.entry_net_credit),
+                position.days_held / 45.0,
+                remaining_dte / 45.0,
+                position.current_delta,
+                position.current_gamma,
+                position.current_theta,
+                position.current_vega / 15.0,
+                market_analysis.iv_rank,
+                (market_analysis.vix_level - position.vix_at_entry) / max(1.0, position.vix_at_entry),
+                (market_analysis.underlying_price - position.underlying_price_at_entry)
+                    / position.underlying_price_at_entry,
+                strategy_enc,
+                market_analysis.iv_percentile,
+            ], dtype=np.float32)
+
+            action, _ = self._rl_morph_model.predict(obs, deterministic=True)
+            action = int(action)
+
+            if action == 0:
+                return None  # Hold
+
+            action_map = {
+                1: AdjustmentAction.ROLL_UNTESTED_SIDE,
+                2: AdjustmentAction.ADD_EXTRA_WINGS,
+                3: AdjustmentAction.CONVERT_TO_BUTTERFLY,
+                4: AdjustmentAction.CONVERT_TO_CONDOR,
+                5: AdjustmentAction.CLOSE_THREATENED_SIDE,
+                6: AdjustmentAction.ROLL_ENTIRE_POSITION,
+            }
+            recommended = action_map.get(action)
+            if recommended:
+                self.logger.info(
+                    f"RL recommends {recommended.value} for position {position.position_id}"
+                )
+            return recommended
+
+        except Exception as e:
+            self.logger.warning(f"RL adjustment recommendation failed: {e}")
+            return None
     
     # ==========================================================================
     # PUBLIC METHODS - MAIN INTERFACE

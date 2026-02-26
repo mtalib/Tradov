@@ -6,31 +6,34 @@ SPYDER - Autonomous Options Trading System
 Spyder Version: 1.0
 Module: SpyderG07_PrometheusMetricsDisplay.py
 Group: G (GUI/User Interface)
-Purpose: GUI display widget for Prometheus metrics from SpyderB15
+Purpose: [DEPRECATED] GUI display widget for Prometheus metrics from SpyderB15
 Author: Mohamed Talib
 Date Created: 2025-08-07
-Last Updated: 2025-01-22 Time: 16:00:00
+Last Updated: 2026-02-25 Time: 21:45:00
 
-Description:
-    This module provides the GUI display widget for Prometheus metrics collected
-    by SpyderB15_PrometheusMetrics.py. It displays real-time client connections,
-    system resource usage, and API metrics in the trading dashboard. This widget
-    connects to the backend B15 module to receive live metrics data and provides
-    visual representation of all 10 client connections and system performance.
+DEPRECATION NOTICE:
+    This module is DEPRECATED as of the Tradier+Databento migration (Feb 2026).
+    It was designed to display Prometheus metrics from SpyderB15_PrometheusMetrics
+    for 10 IB Gateway clients matching SpyderB08_MultiClientDataManager,
+    which no longer exists.
 
-    FIXED: Updated to use 1-10 client range matching SpyderB08_MultiClientDataManager.py.
-    Client 1 = Order Execution (HIGHEST PRIORITY), Client 2 = Administrative.
+    The system now uses:
+    - SpyderB40_TradierClient for order execution (single REST API)
+    - SpyderC26_DatabentoClient for market data (WebSocket)
+    - SpyderG05_ConnectAPIStatus for connection status display
+    - SpyderM_Monitoring for system health metrics
 
-Key Features:
-    - Displays metrics from SpyderB15_PrometheusMetrics backend
-    - Real-time client status monitoring (Clients 1-10 + Prometheus metrics)
-    - Active client count tracking from B15 data
-    - Memory and CPU usage from actual system metrics
-    - API calls per second tracking from B15
-    - Color-coded status indicators based on thresholds
-    - Automatic refresh synchronized with B15 updates
-    - Thread-safe communication with backend module
+    This module is preserved for backward compatibility only.
 """
+
+import warnings
+warnings.warn(
+    "SpyderG07_PrometheusMetricsDisplay is DEPRECATED. "
+    "The system has migrated from IBKR (SpyderB15 Prometheus, 10-client IB Gateway) "
+    "to Tradier API. Use SpyderG05_ConnectAPIStatus and SpyderM_Monitoring instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # ==============================================================================
 # STANDARD IMPORTS

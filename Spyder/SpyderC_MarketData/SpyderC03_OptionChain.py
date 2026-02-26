@@ -66,9 +66,22 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
-from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
-from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder, OptionRight
-from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
+except ImportError:
+    SpyderClient = None
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB06_ContractBuilder import ContractBuilder, OptionRight
+except ImportError:
+    ContractBuilder = None
+    OptionRight = None
+
+try:
+    from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
+except ImportError:
+    GreeksCalculator = None
 
 # ==============================================================================
 # CONSTANTS

@@ -70,8 +70,17 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # Import Connect API
-from Spyder.SpyderB_Broker.SpyderB01_ConnectAPI import ConnectAPI, MessageType
-from Spyder.SpyderB_Broker.SpyderB02_OrderManager import Order, OrderState
+try:
+    from Spyder.SpyderB_Broker.SpyderB01_ConnectAPI import ConnectAPI, MessageType
+except ImportError:
+    ConnectAPI = None
+    MessageType = None
+
+try:
+    from Spyder.SpyderB_Broker.SpyderB02_OrderManager import Order, OrderState
+except ImportError:
+    Order = None
+    OrderState = None
 
 # ==============================================================================
 # CONSTANTS
@@ -350,7 +359,7 @@ class RiskManager:
                 ))
 
                 # Calculate new position size
-                if order.side.value == "BUY":
+                if order.side.lower() in ("buy", "buy_to_open", "buy_to_close"):
                     new_position_size = current_position.quantity + order.quantity
                 else:
                     new_position_size = current_position.quantity - order.quantity

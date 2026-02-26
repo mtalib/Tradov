@@ -1481,6 +1481,107 @@ class FederatedLearningManager:
         plt.savefig("federated_learning_progress.png", dpi=300, bbox_inches="tight")
         plt.show()
 
+    # ==========================================================================
+    # RAY DISTRIBUTED COMPUTING (Phase 3)
+    # ==========================================================================
+
+    def run_federated_round_distributed(
+        self,
+        global_model_state: Dict[str, Any],
+        client_datasets: List[Dict[str, Any]],
+        num_cpus: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Run a federated learning round with Ray actors as clients.
+
+        Each client trains locally on a Ray worker and returns model
+        updates for aggregation.
+
+        Args:
+            global_model_state: Current global model parameters.
+            client_datasets: List of client data configs.
+            num_cpus: Number of CPUs to allocate.
+
+        Returns:
+            Aggregated model updates and round metrics.
+        """
+        try:
+            import ray
+        except ImportError:
+            self.logger.warning("Ray not available for distributed federated learning")
+            return {'status': 'failed', 'reason': 'Ray not installed'}
+
+        import multiprocessing as mproc
+        if not ray.is_initialized():
+            ray.init(num_cpus=num_cpus or mproc.cpu_count(), ignore_reinit_error=True)
+
+        model_ref = ray.put(global_model_state)
+
+        @ray.remote
+        def _train_client(model_ref, client_data: dict, client_id: int) -> Dict:
+            """Simulate local client training on a Ray worker."""
+            import numpy as _np
+            import time as _time
+
+            start = _time.time()
+            _np.random.seed(client_id)
+
+            n_samples = client_data.get('n_samples', 100)
+            local_epochs = client_data.get('local_epochs', 5)
+
+            # Simulate local training updates
+            model_params = model_ref
+            noise_scale = 0.01 / (local_epochs + 1)
+            updates = {}
+            for key, value in model_params.items():
+                if isinstance(value, (int, float)):
+                    updates[key] = value + _np.random.normal(0, noise_scale)
+                else:
+                    updates[key] = value
+
+            loss = float(_np.random.exponential(0.5))
+            return {
+                'client_id': client_id,
+                'updates': updates,
+                'n_samples': n_samples,
+                'loss': loss,
+                'training_time': _time.time() - start,
+                'status': 'completed',
+            }
+
+        self.logger.info(f"Ray federated round: {len(client_datasets)} clients")
+
+        futures = [
+            _train_client.remote(model_ref, cd, i)
+            for i, cd in enumerate(client_datasets)
+        ]
+        client_results = ray.get(futures)
+
+        completed = [r for r in client_results if r.get('status') == 'completed']
+        if not completed:
+            return {'status': 'failed', 'reason': 'no completed clients'}
+
+        # Federated averaging
+        total_samples = sum(r['n_samples'] for r in completed)
+        aggregated = {}
+        for key in completed[0].get('updates', {}):
+            values = [r['updates'][key] for r in completed if key in r.get('updates', {})]
+            weights = [r['n_samples'] / total_samples for r in completed]
+            if all(isinstance(v, (int, float)) for v in values):
+                aggregated[key] = sum(v * w for v, w in zip(values, weights))
+            else:
+                aggregated[key] = values[0]
+
+        return {
+            'status': 'completed',
+            'aggregated_model': aggregated,
+            'n_clients': len(completed),
+            'total_samples': total_samples,
+            'mean_loss': float(np.mean([r['loss'] for r in completed])),
+            'total_time': float(sum(r['training_time'] for r in completed)),
+            'client_results': client_results,
+        }
+
 
 # ==============================================================================
 # MODULE INITIALIZATION

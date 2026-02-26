@@ -139,12 +139,18 @@ SpyderTradingDashboard: type | None = None
 
 try:
     from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
-    from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
 
     has_trading_dashboard = True
     print("✅ Real Trading Dashboard (G05) loaded successfully!")
 except ImportError as e:
     print(f"Warning: Trading Dashboard not available: {e}")
+
+# GUI log handler (optional — dashboard works without it)
+setup_gui_logging: Any = None
+try:
+    from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
+except ImportError as e:
+    print(f"Warning: GUI log handler not available: {e}")
 
 # Working Trading Dashboard (fallback)
 has_working_dashboard = False

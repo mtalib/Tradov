@@ -56,8 +56,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
-from Spyder.SpyderB_Broker.SpyderB01_SpyderClient import IBClient
-from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeed
+from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeed, get_data_feed_manager
 from Spyder.SpyderC_MarketData.SpyderC02_HistoricalData import HistoricalDataManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
@@ -243,13 +242,13 @@ class FuturesBasisAnalyzer:
     fair value calculations, and real-time monitoring.
     """
     
-    def __init__(self, ib_client: Optional[IBClient] = None, config: Optional[Dict] = None):
+    def __init__(self, config: Optional[Dict] = None, provider: Optional[str] = None):
         """
         Initialize futures basis analyzer.
         
         Args:
-            ib_client: Interactive Brokers client for live data
             config: Configuration dictionary
+            provider: Market data provider name (e.g. 'databento', 'polygon')
         """
         # Core components
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
@@ -260,7 +259,7 @@ class FuturesBasisAnalyzer:
         
         # Configuration
         self.config = config or {}
-        self.ib_client = ib_client
+        self.provider = provider
         
         # Data storage
         self.current_es_data: Optional[ESFuturesData] = None
@@ -269,8 +268,8 @@ class FuturesBasisAnalyzer:
         self.basis_history: deque = deque(maxlen=HISTORICAL_BASIS_DAYS * 1440)  # Minute data
         
         # Market data components
-        self.data_feed = DataFeed(ib_client) if ib_client else None
-        self.historical_manager = HistoricalDataManager(ib_client) if ib_client else None
+        self.data_feed = get_data_feed_manager(provider=provider)
+        self.historical_manager = HistoricalDataManager() if provider else None
         
         # Analysis components
         self.fair_value_calculator = FairValueCalculator()
@@ -332,7 +331,7 @@ class FuturesBasisAnalyzer:
         """
         try:
             # Update ES futures data
-            if self.ib_client:
+            if self.data_feed:
                 es_data = self._fetch_live_es_data()
                 spy_data = self._fetch_live_spy_data()
             else:
@@ -1238,19 +1237,19 @@ class DividendTracker:
 # MODULE FUNCTIONS
 # ==============================================================================
 
-def create_futures_basis_analyzer(ib_client: Optional[IBClient] = None, 
-                                 config: Optional[Dict] = None) -> FuturesBasisAnalyzer:
+def create_futures_basis_analyzer(config: Optional[Dict] = None,
+                                 provider: Optional[str] = None) -> FuturesBasisAnalyzer:
     """
     Factory function to create futures basis analyzer.
     
     Args:
-        ib_client: IB client instance
         config: Configuration dictionary
+        provider: Market data provider name (e.g. 'databento', 'polygon')
         
     Returns:
         Configured FuturesBasisAnalyzer instance
     """
-    return FuturesBasisAnalyzer(ib_client, config)
+    return FuturesBasisAnalyzer(config=config, provider=provider)
 
 def calculate_theoretical_basis(spy_price: float, interest_rate: float, 
                               dividend_yield: float, days_to_expiry: int) -> float:

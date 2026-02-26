@@ -53,7 +53,23 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils, MarketSession
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import TimeFrame
-from Spyder.SpyderU_Utilities.SpyderU13_TechnicalIndicators import MovingAverageType, RSI, BollingerBands
+try:
+    from Spyder.SpyderU_Utilities.SpyderU13_TechnicalIndicators import MAType as MovingAverageType
+except ImportError:
+    from enum import Enum
+    class MovingAverageType(Enum):
+        SMA = "sma"
+        EMA = "ema"
+        WMA = "wma"
+
+try:
+    from Spyder.SpyderU_Utilities.SpyderU13_TechnicalIndicators import TechnicalIndicators
+    _ti = TechnicalIndicators()
+    RSI = _ti.calculate_rsi  # type: ignore
+    BollingerBands = _ti.calculate_bollinger_bands  # type: ignore
+except ImportError:
+    RSI = None  # type: ignore
+    BollingerBands = None  # type: ignore
 from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager, MarketTick
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
@@ -127,6 +143,16 @@ class TermStructureState(Enum):
 
 class VIXSignal(Enum):
     """VIX-based trading signals."""
+
+
+class VIXRegime(Enum):
+    """VIX regime classification (compatibility alias)."""
+    ULTRA_LOW = "ultra_low"     # VIX < 12
+    LOW = "low"                 # VIX 12-18
+    NORMAL = "normal"           # VIX 18-25
+    ELEVATED = "elevated"       # VIX 25-32
+    HIGH = "high"               # VIX 32-45
+    EXTREME = "extreme"         # VIX > 45
     VOLATILITY_EXPANSION = "vol_expansion"
     VOLATILITY_CONTRACTION = "vol_contraction"
     MEAN_REVERSION = "mean_reversion"

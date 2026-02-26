@@ -279,10 +279,16 @@ async def acquire_polygon(tier: str = "starter"):
     await _global_limiters.acquire(service)
 
 
+async def acquire_databento():
+    """Acquire token for Databento API call."""
+    await _global_limiters.acquire("databento")
+
+
 __all__ = [
     "RateLimiter",
     "MultiRateLimiter",
     "rate_limit",
     "acquire_tradier",
     "acquire_polygon",
+    "acquire_databento",
 ]

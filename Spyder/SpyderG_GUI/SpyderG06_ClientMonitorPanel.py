@@ -7,22 +7,34 @@ SPYDER - Autonomous Options Trading System
 Spyder Version: 1.0
 Module: SpyderG06_ClientMonitorPanel.py
 Group: G (GUI/Dashboard)
-Purpose: Bottom panel widget showing System Health and Prometheus Metrics
+Purpose: [DEPRECATED] Bottom panel widget showing System Health and Prometheus Metrics
 Author: Mohamed Talib
 Date Created: 2025-01-11
-Last Updated: 2025-01-22 Time: 16:30:00
+Last Updated: 2026-02-25 Time: 21:45:00
 
-Description:
-    This module provides the bottom panel widget for the Spyder Trading Dashboard
-    displaying System Health indicators and Prometheus Metrics for all 10 IB Gateway
-    clients. It creates a properly formatted panel with System Health on the left
-    and correctly numbered Prometheus client metrics on the right, with proper
-    title display without clipping.
+DEPRECATION NOTICE:
+    This module is DEPRECATED as of the Tradier+Databento migration (Feb 2026).
+    It was designed to monitor 10 IB Gateway clients matching
+    SpyderB08_MultiClientDataManager, which no longer exists.
 
-    FIXED: Updated to use 1-10 client range matching SpyderB08_MultiClientDataManager.py.
-    Client 1 = Order Execution (HIGHEST PRIORITY), Client 2 = Administrative.
+    The system now uses:
+    - SpyderB40_TradierClient for order execution (single REST API)
+    - SpyderC26_DatabentoClient for market data (WebSocket)
+    - SpyderG05_ConnectAPIStatus for connection status display
+
+    This module is preserved for backward compatibility only.
+    All classes return no-op stubs.
 ===============================================================================
 """
+
+import warnings
+warnings.warn(
+    "SpyderG06_ClientMonitorPanel is DEPRECATED. "
+    "The system has migrated from IBKR (10-client IB Gateway) to Tradier API "
+    "for order execution. Use SpyderG05_ConnectAPIStatus instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # ==============================================================================
 # STANDARD IMPORTS

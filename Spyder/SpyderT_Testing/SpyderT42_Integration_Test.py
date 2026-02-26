@@ -5,29 +5,29 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderT_Testing
 Module: SpyderT42_Integration_Test.py
-Purpose: Integration tests for Tradier + Polygon end-to-end workflow
+Purpose: Integration tests for Tradier + Databento end-to-end workflow
 
-Author: Claude (Maestro)
+Author: GitHub Copilot
 Year Created: 2025
-Last Updated: 2025-11-18 Time: 20:15:00
+Last Updated: 2026-02-25 Time: 20:00:00
 
 Description:
-    End-to-end integration tests for the Tradier + Polygon migration.
-    Tests the complete data flow from Polygon → Strategy → Tradier execution.
+    End-to-end integration tests for the Tradier + Databento migration.
+    Tests the complete data flow from Databento → Strategy → Tradier execution.
 
 Usage:
-    pytest SpyderT_Testing/SpyderT42_Integration_Test.py -v --tb=short
+    pytest Spyder/SpyderT_Testing/SpyderT42_Integration_Test.py -v --tb=short
 
 Requirements:
     - Valid TRADIER_API_KEY and TRADIER_ACCOUNT_ID in environment
-    - Valid POLYGON_API_KEY in environment
+    - Valid DATABENTO_API_KEY in environment (for Databento tests)
     - TRADING_MODE=paper (sandbox) for testing
 """
 
 import pytest
 import os
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 # Import modules under test
 from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
@@ -37,17 +37,17 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     OrderType
 )
 
-# Conditional Polygon import (requires Qt)
+# Conditional Databento import
 try:
-    from SpyderC_MarketData.SpyderC25_PolygonDataHandler import (
-        PolygonDataHandler,
+    from Spyder.SpyderC_MarketData.SpyderC26_DatabentoClient import (
+        DatabentoClient,
         MarketDataUpdate,
-        MessageType,
-        ConnectionStatus
+        ConnectionStatus,
+        DatabentoSchema,
     )
-    HAS_POLYGON = True
+    HAS_DATABENTO = True
 except ImportError:
-    HAS_POLYGON = False
+    HAS_DATABENTO = False
 
 
 # ==============================================================================
@@ -57,11 +57,18 @@ except ImportError:
 @pytest.fixture
 def integration_env_vars():
     """Check for integration test environment variables."""
-    required_vars = ["TRADIER_API_KEY", "TRADIER_ACCOUNT_ID", "POLYGON_API_KEY"]
+    required_vars = ["TRADIER_API_KEY", "TRADIER_ACCOUNT_ID"]
     missing = [var for var in required_vars if not os.getenv(var)]
 
     if missing:
         pytest.skip(f"Integration test requires: {', '.join(missing)}")
+
+
+@pytest.fixture
+def databento_env_vars():
+    """Check for Databento integration test environment variables."""
+    if not os.getenv("DATABENTO_API_KEY"):
+        pytest.skip("Integration test requires: DATABENTO_API_KEY")
 
 
 @pytest.fixture
@@ -75,15 +82,13 @@ def tradier_client(integration_env_vars):
 
 
 @pytest.fixture
-def polygon_handler(integration_env_vars):
-    """Create Polygon data handler for integration testing."""
-    if not HAS_POLYGON:
-        pytest.skip("Polygon handler requires PySide6")
+def databento_client(databento_env_vars):
+    """Create Databento client for integration testing."""
+    if not HAS_DATABENTO:
+        pytest.skip("DatabentoClient not available")
 
-    return PolygonDataHandler(
-        api_key=os.getenv("POLYGON_API_KEY"),
-        symbols=["SPY"],
-        subscribe_trades=True
+    return DatabentoClient(
+        api_key=os.getenv("DATABENTO_API_KEY"),
     )
 
 
@@ -148,47 +153,63 @@ class TestTradierIntegration:
 
 
 # ==============================================================================
-# POLYGON INTEGRATION TESTS
+# DATABENTO INTEGRATION TESTS
 # ==============================================================================
 
-@pytest.mark.skipif(not HAS_POLYGON, reason="Requires PySide6")
-class TestPolygonIntegration:
-    """Integration tests for Polygon.io API."""
+@pytest.mark.skipif(not HAS_DATABENTO, reason="Requires databento SDK")
+class TestDatabentoIntegration:
+    """Integration tests for Databento market data API."""
 
+    @pytest.mark.databento
+    @pytest.mark.network
+    def test_databento_client_init(self, databento_client):
+        """Test DatabentoClient initializes with valid API key."""
+        assert databento_client.api_key != ""
+        assert databento_client.dataset == "OPRA.PILLAR"
+        assert databento_client.status == ConnectionStatus.DISCONNECTED
+
+    @pytest.mark.databento
+    @pytest.mark.network
     @pytest.mark.slow
-    def test_polygon_connection(self, polygon_handler):
-        """Test Polygon WebSocket connection."""
-        # This test requires running Qt event loop
-        # In practice, you'd use pytest-qt for this
-        pytest.skip("Requires Qt event loop - run manually")
+    def test_databento_test_connection(self, databento_client):
+        """Test Databento connection validation."""
+        result = databento_client.test_connection()
+        assert isinstance(result, dict)
 
-    def test_polygon_data_normalization(self):
-        """Test Polygon data normalization."""
-        # Mock data from Polygon
-        mock_trade_data = {
-            "ev": "T",
-            "sym": "SPY",
-            "p": 450.25,
-            "s": 100,
-            "t": 1700000000000,
-            "x": 4
-        }
+    @pytest.mark.databento
+    @pytest.mark.network
+    @pytest.mark.slow
+    def test_databento_historical_bars(self, databento_client):
+        """Test fetching historical OHLCV bars from Databento."""
+        df = databento_client.get_historical_bars(
+            symbol="SPY",
+            start="2026-01-02",
+            end="2026-01-03",
+            schema="ohlcv-1m",
+        )
+        if df is not None:
+            assert len(df) > 0
 
-        # Create MarketDataUpdate
+    def test_databento_data_normalization(self):
+        """Test Databento data normalization to MarketDataUpdate."""
         update = MarketDataUpdate(
-            symbol=mock_trade_data["sym"],
-            timestamp=mock_trade_data["t"],
-            message_type=MessageType.TRADE,
+            symbol="SPY",
+            timestamp_ns=1_700_000_000_000_000_000,
+            schema="mbp-1",
             data={
-                "price": mock_trade_data["p"],
-                "size": mock_trade_data["s"],
-                "exchange": mock_trade_data["x"]
-            }
+                "bid_px": 585.23,
+                "ask_px": 585.27,
+                "bid_sz": 500,
+                "ask_sz": 300,
+            },
+            underlying="SPY",
+            is_option=False,
         )
 
         assert update.symbol == "SPY"
-        assert update.data["price"] == 450.25
-        assert update.message_type == MessageType.TRADE
+        assert update.data["bid_px"] == 585.23
+        assert update.schema == "mbp-1"
+        assert not update.is_option
 
 
 # ==============================================================================
@@ -196,7 +217,7 @@ class TestPolygonIntegration:
 # ==============================================================================
 
 class TestEndToEndWorkflow:
-    """Test complete data flow: Polygon → Strategy → Tradier."""
+    """Test complete data flow: Databento → Strategy → Tradier."""
 
     def test_data_to_execution_latency(self, tradier_client):
         """Test latency from market data to order placement."""

@@ -1137,6 +1137,129 @@ class PortfolioVaR:
         
         self.logger.info("Portfolio VaR shutdown complete")
 
+    # ==========================================================================
+    # RAY DISTRIBUTED COMPUTING (Phase 3)
+    # ==========================================================================
+
+    def calculate_distributed_monte_carlo_var(
+        self,
+        returns: np.ndarray,
+        confidence_level: float = 0.99,
+        n_simulations: int = MONTE_CARLO_SIMULATIONS,
+        num_cpus: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Calculate Monte Carlo VaR using Ray distributed computing.
+
+        Distributes simulation batches across Ray workers for near-linear
+        speedup on large simulation counts.
+
+        Args:
+            returns: Historical return series.
+            confidence_level: VaR confidence level (e.g., 0.99).
+            n_simulations: Total number of Monte Carlo simulations.
+            num_cpus: Number of CPUs to allocate.
+
+        Returns:
+            Dictionary with VaR, CVaR, and distribution statistics.
+        """
+        try:
+            import ray
+        except ImportError:
+            self.logger.warning("Ray not available, using sequential Monte Carlo VaR")
+            var, cvar = self._calculate_monte_carlo_var(returns, confidence_level)
+            return {'var': var, 'cvar': cvar, 'backend': 'sequential'}
+
+        import multiprocessing as mproc
+        if not ray.is_initialized():
+            ray.init(num_cpus=num_cpus or mproc.cpu_count(), ignore_reinit_error=True)
+
+        n_workers = num_cpus or mproc.cpu_count()
+        chunk_size = n_simulations // n_workers
+        remainder = n_simulations % n_workers
+
+        # Fit distribution parameters once
+        mean_ret = float(np.mean(returns))
+        std_ret = float(np.std(returns))
+        jb_stat, jb_pvalue = jarque_bera(returns)
+        use_t = jb_pvalue < 0.05
+
+        if use_t:
+            from scipy.stats import t as t_dist
+            df_t, loc_t, scale_t = t_dist.fit(returns)
+            dist_params = {'type': 't', 'df': df_t, 'loc': loc_t, 'scale': scale_t}
+        else:
+            dist_params = {'type': 'normal', 'mean': mean_ret, 'std': std_ret}
+
+        params_ref = ray.put(dist_params)
+
+        @ray.remote
+        def _simulate_var_chunk(params_ref, n_sims: int, seed: int) -> List[float]:
+            """Generate Monte Carlo VaR simulations on a Ray worker."""
+            import numpy as _np
+            _np.random.seed(seed)
+            params = params_ref
+
+            if params['type'] == 't':
+                from scipy.stats import t as _t
+                sims = _t.rvs(params['df'], loc=params['loc'],
+                              scale=params['scale'], size=n_sims)
+            else:
+                sims = _np.random.normal(params['mean'], params['std'], n_sims)
+
+            return sims.tolist()
+
+        self.logger.info(f"Ray VaR: {n_simulations} simulations across {n_workers} workers")
+        import time
+        start_time = time.time()
+
+        futures = []
+        for i in range(n_workers):
+            n = chunk_size + (1 if i < remainder else 0)
+            futures.append(_simulate_var_chunk.remote(params_ref, n, seed=42 + i))
+
+        chunk_results = ray.get(futures)
+        all_sims = []
+        for chunk in chunk_results:
+            all_sims.extend(chunk)
+
+        sim_array = np.sort(np.array(all_sims))
+        var_index = int((1 - confidence_level) * len(sim_array))
+        var_value = float(sim_array[var_index])
+        cvar_value = float(np.mean(sim_array[:var_index])) if var_index > 0 else var_value
+
+        computation_time = time.time() - start_time
+
+        results = {
+            'var': var_value,
+            'cvar': cvar_value,
+            'confidence_level': confidence_level,
+            'n_simulations': len(all_sims),
+            'distribution_type': dist_params['type'],
+            'backend': 'ray',
+            'num_workers': n_workers,
+            'computation_time': computation_time,
+            'percentiles': {
+                'p1': float(np.percentile(sim_array, 1)),
+                'p5': float(np.percentile(sim_array, 5)),
+                'p10': float(np.percentile(sim_array, 10)),
+                'p50': float(np.percentile(sim_array, 50)),
+                'p90': float(np.percentile(sim_array, 90)),
+                'p95': float(np.percentile(sim_array, 95)),
+                'p99': float(np.percentile(sim_array, 99)),
+            },
+            'statistics': {
+                'mean': float(np.mean(sim_array)),
+                'std': float(np.std(sim_array)),
+                'skew': float(pd.Series(sim_array).skew()),
+                'kurtosis': float(pd.Series(sim_array).kurtosis()),
+            },
+        }
+
+        self.logger.info(f"Ray VaR complete: VaR={var_value:.4f}, CVaR={cvar_value:.4f}, "
+                          f"{computation_time:.2f}s")
+        return results
+
 
 # ==============================================================================
 # FACTORY FUNCTION

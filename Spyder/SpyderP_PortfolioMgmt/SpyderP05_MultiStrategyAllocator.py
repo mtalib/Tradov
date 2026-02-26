@@ -52,6 +52,13 @@ from scipy.stats import norm, pearsonr
 import scipy.cluster.hierarchy as sch
 from sklearn.covariance import LedoitWolf
 
+# Institutional Portfolio Analytics
+try:
+    import riskfolio as rp
+    HAS_RISKFOLIO = True
+except ImportError:
+    HAS_RISKFOLIO = False
+
 # ==============================================================================
 # SPYDER IMPORTS
 # ==============================================================================
@@ -815,27 +822,93 @@ class MultiStrategyAllocator:
         )
     
     def _get_covariance_matrix(self, strategies: List[str]) -> np.ndarray:
-        """Get covariance matrix for given strategies"""
-        # Use stored covariance if available
-        if self.covariance_matrix is not None:
-            # Extract relevant submatrix
-            # This is simplified - would need proper indexing
-            n = len(strategies)
-            return np.eye(n) * 0.01  # Placeholder
+        """Get robust covariance matrix for given strategies.
         
-        # Calculate from returns
-        returns_data = []
-        for strategy in strategies:
-            if strategy in self.strategy_returns:
-                returns_data.append(list(self.strategy_returns[strategy]))
-        
-        if len(returns_data) > 0:
-            returns_array = np.array(returns_data).T
-            return np.cov(returns_array, rowvar=False) * 252  # Annualized
-        
-        # Default: diagonal matrix
+        Uses RiskFolio-Lib Ledoit-Wolf estimation when available,
+        falls back to sklearn LedoitWolf, then to sample covariance.
+        """
         n = len(strategies)
-        return np.eye(n) * 0.01
+        
+        # Collect strategy returns
+        returns_data = []
+        valid_strategies = []
+        for strategy in strategies:
+            if strategy in self.strategy_returns and len(self.strategy_returns[strategy]) >= 30:
+                returns_data.append(list(self.strategy_returns[strategy]))
+                valid_strategies.append(strategy)
+        
+        if len(returns_data) < 2:
+            # Not enough data — use diagonal matrix with historical vol
+            diag_vals = []
+            for strategy in strategies:
+                if strategy in self.strategy_returns and len(self.strategy_returns[strategy]) >= 5:
+                    vol = np.var(list(self.strategy_returns[strategy])) * 252
+                    diag_vals.append(max(vol, 0.001))
+                else:
+                    diag_vals.append(0.01)
+            return np.diag(diag_vals)
+        
+        # Align returns to equal length
+        min_len = min(len(r) for r in returns_data)
+        returns_array = np.array([r[-min_len:] for r in returns_data]).T  # (T, N)
+        
+        # Try RiskFolio-Lib first (institutional-grade)
+        if HAS_RISKFOLIO and returns_array.shape[0] >= 30:
+            try:
+                returns_df = pd.DataFrame(
+                    returns_array,
+                    columns=valid_strategies
+                )
+                port = rp.Portfolio(returns=returns_df)
+                port.assets_stats(
+                    method_mu='hist',
+                    method_cov='ledoit_wolf'
+                )
+                cov = port.cov.values * 252  # Annualize
+                
+                # Pad with diagonal for missing strategies
+                if len(valid_strategies) < n:
+                    full_cov = np.eye(n) * 0.01
+                    idx_map = {s: i for i, s in enumerate(strategies)}
+                    for i, si in enumerate(valid_strategies):
+                        for j, sj in enumerate(valid_strategies):
+                            full_cov[idx_map[si], idx_map[sj]] = cov[i, j]
+                    return full_cov
+                
+                return cov
+            except Exception:
+                pass  # Fall through to sklearn
+        
+        # Sklearn Ledoit-Wolf fallback
+        try:
+            lw = LedoitWolf()
+            lw.fit(returns_array)
+            cov = lw.covariance_ * 252  # Annualize
+            
+            if len(valid_strategies) < n:
+                full_cov = np.eye(n) * 0.01
+                idx_map = {s: i for i, s in enumerate(strategies)}
+                for i, si in enumerate(valid_strategies):
+                    for j, sj in enumerate(valid_strategies):
+                        full_cov[idx_map[si], idx_map[sj]] = cov[i, j]
+                return full_cov
+            
+            return cov
+        except Exception:
+            pass
+        
+        # Final fallback: sample covariance
+        cov = np.cov(returns_array, rowvar=False) * 252
+        
+        if len(valid_strategies) < n:
+            full_cov = np.eye(n) * 0.01
+            idx_map = {s: i for i, s in enumerate(strategies)}
+            for i, si in enumerate(valid_strategies):
+                for j, sj in enumerate(valid_strategies):
+                    full_cov[idx_map[si], idx_map[sj]] = cov[i, j]
+            return full_cov
+        
+        return cov
     
     def _get_correlation_matrix(self, strategies: List[str]) -> np.ndarray:
         """Get correlation matrix for given strategies"""
