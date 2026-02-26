@@ -51,7 +51,7 @@ class CircuitBreakerConfig:
     """Configuration for circuit breaker"""
     failure_threshold: int = 5  # Failures before opening
     recovery_timeout: float = 60.0  # Seconds before testing recovery
-    success_threshold: int = 2  # Successes in HALF_OPEN before closing
+    success_threshold: int = 1  # Successes in HALF_OPEN before closing
     timeout: Optional[float] = None  # Per-call timeout
 
 
@@ -82,9 +82,10 @@ class CircuitBreaker:
         self,
         failure_threshold: int = 5,
         recovery_timeout: float = 60.0,
-        success_threshold: int = 2,
+        success_threshold: int = 1,
         timeout: Optional[float] = None,
-        name: Optional[str] = None
+        name: Optional[str] = None,
+        expected_exception: Optional[type] = None
     ):
         """
         Initialize circuit breaker.
@@ -95,6 +96,7 @@ class CircuitBreaker:
             success_threshold: Successes needed to close circuit
             timeout: Per-call timeout in seconds
             name: Breaker name for logging
+            expected_exception: Exception type to catch (default: all)
         """
         self.config = CircuitBreakerConfig(
             failure_threshold=failure_threshold,
@@ -109,6 +111,7 @@ class CircuitBreaker:
         self.success_count = 0
         self.last_failure_time: Optional[float] = None
         self.lock = threading.Lock()
+        self.expected_exception = expected_exception or Exception
 
         logger.info(f"{self.name} initialized (threshold={failure_threshold}, timeout={recovery_timeout}s)")
 
@@ -136,8 +139,8 @@ class CircuitBreaker:
                     logger.info(f"{self.name} entering HALF_OPEN state")
                 else:
                     raise CircuitBreakerError(
-                        f"{self.name} is OPEN (too many failures, "
-                        f"retry in {self._time_until_retry():.1f}s)"
+                        f"Circuit is OPEN: {self.name} "
+                        f"(retry in {self._time_until_retry():.1f}s)"
                     )
 
         # Execute function
@@ -220,7 +223,7 @@ class CircuitBreaker:
                     self.success_count = 0
                 else:
                     raise CircuitBreakerError(
-                        f"{self.name} is OPEN (retry in {self._time_until_retry():.1f}s)"
+                        f"Circuit is OPEN: {self.name} (retry in {self._time_until_retry():.1f}s)"
                     )
         return self
 
@@ -256,6 +259,16 @@ class CircuitBreaker:
     def is_closed(self) -> bool:
         """Check if circuit is closed"""
         return self.state == CircuitState.CLOSED
+
+    @property
+    def failure_threshold(self) -> int:
+        """Get failure threshold from config."""
+        return self.config.failure_threshold
+
+    @property
+    def recovery_timeout(self) -> float:
+        """Get recovery timeout from config."""
+        return self.config.recovery_timeout
 
     def reset(self):
         """Manually reset circuit breaker"""

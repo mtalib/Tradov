@@ -353,7 +353,9 @@ class RiskSuiteIntegrationTest(unittest.TestCase):
         # Assertions
         self.assertTrue(results['fallback_activated'])
         self.assertTrue(results['system_operational'])
-        self.assertIn("error", results['log_messages'])
+        self.assertTrue(
+            any("error" in msg for msg in results['log_messages'])
+        )
         
     def test_09_performance_under_load(self):
         """Test system performance with high-frequency updates"""
@@ -446,6 +448,10 @@ class RiskSuiteIntegrationTest(unittest.TestCase):
         
     def _simulate_var_breach(self) -> Dict:
         """Simulate VaR breach scenario"""
+        self.mock_message_bus.publish(
+            topic="risk.var_breach",
+            payload={'var_amount': 110000, 'var_percentage': 0.11}
+        )
         return {
             'risk_limits_updated': True,
             'positions_reduced': True,

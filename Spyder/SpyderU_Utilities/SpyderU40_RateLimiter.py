@@ -38,15 +38,20 @@ class TokenBucket:
 
     Attributes:
         capacity: Maximum tokens in bucket
-        tokens: Current token count
         fill_rate: Tokens added per second
+        tokens: Current token count (defaults to capacity)
         last_update: Last time tokens were added
     """
     capacity: float
-    tokens: float
     fill_rate: float
+    tokens: float = None
     last_update: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def __post_init__(self):
+        """Set tokens to capacity if not specified."""
+        if self.tokens is None:
+            self.tokens = self.capacity
 
     def consume(self, tokens: float = 1.0) -> bool:
         """
@@ -134,8 +139,29 @@ class RateLimiter:
         # Create token bucket
         self.bucket = TokenBucket(
             capacity=self.burst_size,
-            tokens=self.burst_size,
-            fill_rate=requests_per_second
+            fill_rate=requests_per_second,
+            tokens=self.burst_size
+        )
+
+    @classmethod
+    def from_per_minute(
+        cls,
+        requests_per_minute: float,
+        burst_size: Optional[float] = None
+    ) -> 'RateLimiter':
+        """
+        Create rate limiter from requests per minute.
+
+        Args:
+            requests_per_minute: Maximum requests per minute
+            burst_size: Maximum burst size
+
+        Returns:
+            RateLimiter instance
+        """
+        return cls(
+            requests_per_second=requests_per_minute / 60.0,
+            burst_size=burst_size
         )
 
     async def acquire(self, tokens: float = 1.0):
@@ -175,8 +201,28 @@ class MultiRateLimiter:
     """
 
     def __init__(self):
-        self.limiters: Dict[str, RateLimiter] = {}
+        self._limiters: Dict[str, RateLimiter] = {}
+        self._defaults: Dict[str, dict] = {}
         self.lock = threading.Lock()
+
+    def register_default(
+        self,
+        name: str,
+        requests_per_second: float,
+        burst_size: Optional[float] = None
+    ):
+        """
+        Register a default configuration for lazy initialization.
+
+        Args:
+            name: Limit name
+            requests_per_second: Maximum requests per second
+            burst_size: Maximum burst size
+        """
+        self._defaults[name] = {
+            'requests_per_second': requests_per_second,
+            'burst_size': burst_size
+        }
 
     def add_limit(
         self,
@@ -193,33 +239,57 @@ class MultiRateLimiter:
             burst_size: Maximum burst size
         """
         with self.lock:
-            self.limiters[name] = RateLimiter(requests_per_second, burst_size)
+            self._limiters[name] = RateLimiter(requests_per_second, burst_size)
 
     async def acquire(self, name: str, tokens: float = 1.0):
         """
         Acquire tokens from named limit.
 
+        Lazily initializes from registered defaults if not yet created.
+
         Args:
             name: Limit name
             tokens: Number of tokens to acquire
         """
-        if name not in self.limiters:
-            raise ValueError(f"Unknown rate limit: {name}")
+        if name not in self._limiters:
+            if name in self._defaults:
+                self.add_limit(name, **self._defaults[name])
+            else:
+                raise ValueError(f"Unknown rate limit: {name}")
 
-        await self.limiters[name].acquire(tokens)
+        await self._limiters[name].acquire(tokens)
+
+    def get_stats(self) -> Dict[str, dict]:
+        """
+        Get statistics for all rate limiters.
+
+        Returns:
+            Dictionary mapping service names to their stats.
+        """
+        stats = {}
+        with self.lock:
+            for name, limiter in self._limiters.items():
+                stats[name] = {
+                    'tokens': limiter.bucket.tokens,
+                    'capacity': limiter.bucket.capacity,
+                    'fill_rate': limiter.bucket.fill_rate
+                }
+        return stats
 
 
 # Global rate limiters for common services
 _global_limiters = MultiRateLimiter()
 
-# Configure for known APIs
-_global_limiters.add_limit("tradier", requests_per_second=10, burst_size=20)
-_global_limiters.add_limit("polygon_rest", requests_per_second=0.08)  # 5 per minute
-_global_limiters.add_limit("polygon_business", requests_per_second=1.67)  # 100 per minute
+# Register default configurations (lazy-initialized on first use)
+_global_limiters.register_default("tradier", requests_per_second=10, burst_size=20)
+_global_limiters.register_default("polygon_starter", requests_per_second=5.0/60.0, burst_size=1)  # 5 per minute
+_global_limiters.register_default("polygon_business", requests_per_second=100.0/60.0, burst_size=5)  # 100 per minute
+_global_limiters.register_default("databento", requests_per_second=10)
 
 
 def rate_limit(
     requests_per_second: Optional[float] = None,
+    burst_size: Optional[float] = None,
     service: Optional[str] = None
 ):
     """
@@ -227,6 +297,7 @@ def rate_limit(
 
     Args:
         requests_per_second: Rate limit (creates new limiter)
+        burst_size: Maximum burst size (defaults to requests_per_second)
         service: Use global limiter for service name
 
     Examples:
@@ -241,7 +312,7 @@ def rate_limit(
     def decorator(func):
         # Create limiter if needed
         if requests_per_second is not None:
-            limiter = RateLimiter(requests_per_second)
+            limiter = RateLimiter(requests_per_second, burst_size=burst_size)
         elif service:
             limiter = None  # Will use global
         else:
@@ -275,7 +346,7 @@ async def acquire_polygon(tier: str = "starter"):
     Args:
         tier: "starter" or "business"
     """
-    service = "polygon_rest" if tier == "starter" else "polygon_business"
+    service = "polygon_starter" if tier == "starter" else "polygon_business"
     await _global_limiters.acquire(service)
 
 
@@ -285,6 +356,7 @@ async def acquire_databento():
 
 
 __all__ = [
+    "TokenBucket",
     "RateLimiter",
     "MultiRateLimiter",
     "rate_limit",

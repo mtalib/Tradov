@@ -26,6 +26,22 @@ from datetime import datetime, date
 
 
 # ==============================================================================
+# COLLECTION CONFIGURATION
+# ==============================================================================
+# Skip test files that reference unimplemented or removed modules.
+# These files crash on import before any skip markers can take effect.
+collect_ignore = [
+    "SpyderT02_BrokerTestSuite.py",       # References removed IB Gateway modules (B01, B05)
+    "SpyderT03_BlackSwanValidator.py",     # Imports unimplemented S06-S11 Black Swan modules
+    "SpyderT07_AdvancedEvolutionPush.py",  # Standalone script, not a pytest module
+    "SpyderT13_MultiClientIntegrationTest.py",  # Deprecated IB multi-client architecture
+    "SpyderT17_ComprehensiveSystemTest.py",  # Crashes pytest (PySide6 QApplication in headless env)
+    "SpyderT21_DIXQuickStart.py",          # Imports non-existent SpyderS02_DIXDemo
+    "test_client_ids.py",                  # IB Gateway diagnostic script, not a pytest test
+]
+
+
+# ==============================================================================
 # TRADIER FIXTURES
 # ==============================================================================
 
