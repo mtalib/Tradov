@@ -2072,6 +2072,17 @@ class SpyderTradingDashboard(QMainWindow):
         center_container = QHBoxLayout()
         center_container.setSpacing(20)
 
+        # SPY timeframe label (moved from chart title)
+        spy_label = QLabel("SPY - 5 Min")
+        spy_label.setStyleSheet(
+            f"color: {COLORS['text']}; font-weight: bold; font-size: 13px;"
+        )
+        center_container.addWidget(spy_label)
+
+        separator_label0 = QLabel("|")
+        separator_label0.setStyleSheet(f"color: {COLORS['text_dim']};")
+        center_container.addWidget(separator_label0)
+
         regime_section = QHBoxLayout()
         regime_section.setSpacing(5)
         regime_label = QLabel("MARKET REGIME: ")
@@ -2656,8 +2667,7 @@ class SpyderTradingDashboard(QMainWindow):
             len(dates), s3, f" S3: {s3:.2f}", color="#FF1744", fontsize=8, va="center"
         )
 
-        # Styling
-        ax.set_title("SPY - 5 min", color=COLORS["text"], fontsize=12, pad=10)
+        # Styling (title moved to regime bar)
         ax.set_xlim(-1, len(dates))
         ax.grid(True, alpha=0.2, color=COLORS["grid"], zorder=0)
 
