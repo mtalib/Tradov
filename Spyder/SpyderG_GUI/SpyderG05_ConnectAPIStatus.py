@@ -729,9 +729,6 @@ class BrokerStatusWidget(QWidget):
             self.logger.error(f"Error stopping status widget: {e}")
 
 
-# Backward-compatible alias
-ConnectAPIStatusWidget = BrokerStatusWidget
-
 
 # ==============================================================================
 # MODULE FUNCTIONS

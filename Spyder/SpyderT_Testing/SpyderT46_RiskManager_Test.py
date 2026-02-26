@@ -31,7 +31,6 @@ Change Log:
 import asyncio
 import os
 import sys
-import types
 import unittest
 from datetime import datetime
 from enum import Enum, auto
@@ -39,15 +38,11 @@ from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # ==============================================================================
-# MOCK ConnectAPI / MessageType before importing RiskManager
+# MOCK CLASSES for ConnectAPI and OrderManager
 # ==============================================================================
-# SpyderB01_ConnectAPI was removed (IB Gateway deprecated).  The RiskManager
-# module does a try/except import and sets ConnectAPI=None, MessageType=None
-# when it fails, which then crashes _register_handlers.  We inject a fake
-# module into sys.modules so the import succeeds.
-
-_mock_b01 = types.ModuleType("Spyder.SpyderB_Broker.SpyderB01_ConnectAPI")
-
+# E01_RiskManager accepts a ConnectAPI instance but B01_ConnectAPI has been
+# removed (IB Gateway deprecated). We pass mock objects directly to the
+# RiskManager constructor instead of injecting into sys.modules.
 
 class _MockMessageType(Enum):
     POSITION_UPDATE = auto()
@@ -70,14 +65,6 @@ class _MockConnectAPI:
         pass
 
 
-_mock_b01.ConnectAPI = _MockConnectAPI
-_mock_b01.MessageType = _MockMessageType
-sys.modules["Spyder.SpyderB_Broker.SpyderB01_ConnectAPI"] = _mock_b01
-
-# Also mock B02 OrderManager (optional import in E01)
-_mock_b02 = types.ModuleType("Spyder.SpyderB_Broker.SpyderB02_OrderManager")
-
-
 class _MockOrder:
     def __init__(self, **kw):
         for k, v in kw.items():
@@ -90,17 +77,8 @@ class _MockOrderState(Enum):
     CANCELLED = auto()
 
 
-_mock_b02.Order = _MockOrder
-_mock_b02.OrderState = _MockOrderState
-sys.modules["Spyder.SpyderB_Broker.SpyderB02_OrderManager"] = _mock_b02
-
-# Force reload E01 so it picks up the mocked modules
-import importlib
-if "Spyder.SpyderE_Risk.SpyderE01_RiskManager" in sys.modules:
-    importlib.reload(sys.modules["Spyder.SpyderE_Risk.SpyderE01_RiskManager"])
-
 # ==============================================================================
-# LOCAL IMPORTS (after mocks are in place)
+# LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
     DEFAULT_RISK_LIMITS,
@@ -113,6 +91,12 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
     RiskMetrics,
     create_risk_manager,
 )
+
+# Patch MessageType into the E01 module so _register_handlers uses our enum
+# (E01 sets MessageType=None because B01_ConnectAPI no longer exists; tests
+# pass _MockConnectAPI which expects a real enum as the handler key.)
+import Spyder.SpyderE_Risk.SpyderE01_RiskManager as _e01_mod
+_e01_mod.MessageType = _MockMessageType
 
 
 # ==============================================================================

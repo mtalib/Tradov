@@ -186,22 +186,6 @@ except ImportError as e:
     _log_import_status("SpyderB04_AccountManager", False, str(e))
     AccountManager = None
 
-# Contract Builder (B06) - Needs refactoring for Tradier symbol format
-try:
-    from .SpyderB06_ContractBuilder import ContractBuilder
-    _log_import_status("SpyderB06_ContractBuilder", True)
-except ImportError as e:
-    _log_import_status("SpyderB06_ContractBuilder", False, str(e))
-    ContractBuilder = None
-
-# Market Data Manager (B07) - Needs refactoring to use Polygon
-try:
-    from .SpyderB07_MarketDataManager import MarketDataManager
-    _log_import_status("SpyderB07_MarketDataManager", True)
-except ImportError as e:
-    _log_import_status("SpyderB07_MarketDataManager", False, str(e))
-    MarketDataManager = None
-
 # ==============================================================================
 # UTILITY MODULES
 # ==============================================================================

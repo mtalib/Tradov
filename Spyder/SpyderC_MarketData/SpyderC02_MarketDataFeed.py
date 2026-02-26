@@ -69,12 +69,10 @@ from threading import Lock, Event as ThreadEvent, RLock
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
-# Import Connect API
-try:
-    from Spyder.SpyderB_Broker.SpyderB01_ConnectAPI import ConnectAPI, MessageType
-except ImportError:
-    ConnectAPI = None
-    MessageType = None
+# ConnectAPI / MessageType: removed with IB Gateway (SpyderB01_ConnectAPI deleted).
+# Databento integration uses SpyderC26_DatabentoClient directly.
+ConnectAPI = None
+MessageType = None
 
 # ==============================================================================
 # CONSTANTS

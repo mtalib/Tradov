@@ -5,42 +5,78 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderX_Unknown
 Module: config_template.py
-Purpose: Configuration package for Spyder trading system.
+Purpose: Configuration template for Spyder trading system (Tradier + Databento).
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-02-26 Time: 12:00:00
 
 Module Description:
-    Configuration package for Spyder trading system.
-
-Change Log:
-    2026-01-16:
-        - Applied standard Python formatting
-        - Updated module header and structure
+    Template configuration for Spyder trading system.
+    Copy config_template.py to config.py and fill in your API keys.
+    Never commit real credentials — use environment variables via .env.
 """
 
-except ImportError:
-    # Fallback to template if config.py doesn't exist
-    from .config_template import IB_CONFIG, TRADING_CONFIG
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
+import os
 
-    print(
-        "Warning: Using template config. Copy config_template.py to config.py and update with your values."
-    )
+__all__ = ["TRADIER_CONFIG", "DATABENTO_CONFIG", "TRADING_CONFIG"]
 
-__all__ = ["IB_CONFIG", "TRADING_CONFIG"]
-
-# Configuration file - fill in your actual values
-IB_CONFIG = {
-    "account": "DU123456",  # Replace with your paper trading account
-    "username": "your_username",  # Replace with your IB username
-    "password": "your_password",  # Replace with your IB password
-    "port": 7497,  # TWS Paper Trading (use 7496 for live)
-    "clientId": 1,
+# ==============================================================================
+# TRADIER BROKER CONFIGURATION
+# ==============================================================================
+TRADIER_CONFIG = {
+    "api_key": os.environ.get("TRADIER_API_KEY", ""),
+    "account_id": os.environ.get("TRADIER_ACCOUNT_ID", ""),
+    "environment": os.environ.get("TRADIER_ENVIRONMENT", "sandbox"),  # sandbox | production
+    "sandbox_url": "https://sandbox.tradier.com/v1",
+    "live_url": "https://api.tradier.com/v1",
+    "timeout": 30,
+    "max_retries": 3,
+    "retry_delay": 1.0,
+    "requests_per_second": 10,
 }
 
+# ==============================================================================
+# DATABENTO MARKET DATA CONFIGURATION
+# ==============================================================================
+DATABENTO_CONFIG = {
+    "api_key": os.environ.get("DATABENTO_API_KEY", ""),
+    "dataset": os.environ.get("DATABENTO_DATASET", "OPRA.PILLAR"),
+    "live_schema": "mbp-1",
+    "historical_schema": "ohlcv-1m",
+    "default_underlyings": ["SPY"],
+    "reconnect_delay": 5,
+    "max_reconnect_attempts": 10,
+    "max_daily_gb": 5.0,
+    "warn_gb_threshold": 3.0,
+}
+
+# ==============================================================================
+# TRADING CONFIGURATION
+# ==============================================================================
 TRADING_CONFIG = {
-    "max_position_size": 10000,
-    "max_daily_loss": 500,
-    "trading_hours": {"start": "09:30", "end": "16:00"},
+    "risk_limits": {
+        "max_position_size": 10000,
+        "max_contracts_per_trade": 10,
+        "max_daily_loss": 500,
+        "max_daily_trades": 20,
+        "max_open_positions": 5,
+    },
+    "trading_hours": {
+        "pre_market_start": "08:00",
+        "market_open": "09:30",
+        "market_close": "16:00",
+        "after_hours_end": "17:00",
+        "timezone": "US/Eastern",
+    },
+    "spy_options": {
+        "min_days_to_expiry": 0,
+        "max_days_to_expiry": 45,
+        "min_option_volume": 100,
+        "min_open_interest": 50,
+        "strike_range_percent": 2.0,
+    },
 }

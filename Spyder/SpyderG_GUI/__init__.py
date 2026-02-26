@@ -125,13 +125,12 @@ print(f"✅ SpyderG_GUI: {successful_imports} components loaded successfully")
 try:
     from .SpyderG05_ConnectAPIStatus import (
         BrokerStatusWidget,
-        ConnectAPIStatusWidget,
         StatusConfig,
         StatusLevel,
         create_status_widget,
     )
     __all__.extend([
-        "BrokerStatusWidget", "ConnectAPIStatusWidget",
+        "BrokerStatusWidget",
         "StatusConfig", "StatusLevel", "create_status_widget",
     ])
     print("✅ SpyderG_GUI: BrokerStatusWidget loaded successfully")
