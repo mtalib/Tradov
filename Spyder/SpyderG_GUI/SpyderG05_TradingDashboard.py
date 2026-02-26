@@ -2744,9 +2744,6 @@ class SpyderTradingDashboard(QMainWindow):
         """
         )
 
-        # Stop last column from stretching to fill remaining space
-        tree.header().setStretchLastSection(False)
-
         # Set column widths for leg rows
         tree.setColumnWidth(0, 85)   # LEG (wider to account for tree indentation)
         tree.setColumnWidth(1, 80)   # STRIKE
@@ -3870,12 +3867,12 @@ class SpyderTradingDashboard(QMainWindow):
                         Qt.AlignmentFlag.AlignCenter,
                     )
 
-                # Override: right-justify dollar amount columns (COST, P&L)
+                # Override: right-justify COST, left-justify P&L (so it sits next to COST)
                 leg_item.setTextAlignment(
                     4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                 )
                 leg_item.setTextAlignment(
-                    5, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                    5, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
                 )
 
                 # Override P&L color: green positive, red negative
