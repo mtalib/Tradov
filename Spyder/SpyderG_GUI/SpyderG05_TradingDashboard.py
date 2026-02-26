@@ -2687,9 +2687,15 @@ class SpyderTradingDashboard(QMainWindow):
         tree = QTreeWidget()
 
         # Leg-level columns under each strategy header
-        columns = ["LEG", "STRIKE", "CNTR", "EXPIRY", "COST", "P&L", "STATUS"]
+        columns = ["LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L", "STATUS"]
         tree.setColumnCount(len(columns))
         tree.setHeaderLabels(columns)
+
+        # Center-align all header labels
+        for col in range(len(columns)):
+            tree.headerItem().setTextAlignment(
+                col, Qt.AlignmentFlag.AlignCenter
+            )
 
         tree.setAlternatingRowColors(False)
         tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
@@ -2729,7 +2735,7 @@ class SpyderTradingDashboard(QMainWindow):
                 border: 1px solid {COLORS["border"]};
                 padding: 2px;
                 font-size: 10px;
-                font-weight: bold;
+                font-weight: normal;
             }}
             QScrollBar:vertical {{
                 width: 8px;
@@ -2741,7 +2747,7 @@ class SpyderTradingDashboard(QMainWindow):
         # Set column widths for leg rows
         tree.setColumnWidth(0, 90)   # LEG
         tree.setColumnWidth(1, 80)   # STRIKE
-        tree.setColumnWidth(2, 45)   # CNTR
+        tree.setColumnWidth(2, 45)   # CONT
         tree.setColumnWidth(3, 65)   # EXPIRY
         tree.setColumnWidth(4, 90)   # COST
         tree.setColumnWidth(5, 90)   # P&L
@@ -3856,6 +3862,14 @@ class SpyderTradingDashboard(QMainWindow):
                 text_color = QColor(COLORS["text"])
                 for col in range(7):
                     leg_item.setForeground(col, text_color)
+
+                # Right-justify dollar amount columns (COST, P&L)
+                leg_item.setTextAlignment(
+                    4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                )
+                leg_item.setTextAlignment(
+                    5, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                )
 
                 # Override P&L color: green positive, red negative
                 if leg["pnl"].startswith("+"):
