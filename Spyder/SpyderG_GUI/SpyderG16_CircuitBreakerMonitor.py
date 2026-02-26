@@ -97,281 +97,168 @@ except ImportError:
 
 class CircuitBreakerMonitor(QWidget):
     """
-    Circuit Breaker Status Monitor Widget.
+    Compact traffic-light grid Circuit Breaker Status Monitor.
 
-    Displays real-time status of Tradier and Databento circuit breakers with
-    visual indicators, statistics, and manual control capabilities.
+    Layout:
+        CIRCUIT BREAKER STATUS  |  NORMAL  |  RECOVERY  |  BLOCKED
+        TRADIER API             |    ●     |     ●      |    ●
+        DATABENTO               |    ●     |     ●      |    ●
+
+    Active column dot is lit (green/orange/red); inactive dots are dim gray.
+    Maps: CLOSED→NORMAL, HALF_OPEN→RECOVERY, OPEN→BLOCKED.
     """
 
+    # Traffic-light colors
+    COLOR_NORMAL   = "#00C853"   # green
+    COLOR_RECOVERY = "#FF9800"   # orange
+    COLOR_BLOCKED  = "#F44336"   # red
+    COLOR_DIM      = "#2a2a2a"   # inactive dot
+
     # Signals
-    reset_requested = Signal(str)  # breaker_name
+    reset_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # State tracking
-        self.breaker_states = {
-            "tradier": CircuitState.CLOSED,
-            "databento": CircuitState.CLOSED
-        }
+        # {breaker_id: {"normal": QLabel, "recovery": QLabel, "blocked": QLabel}}
+        self._dots: dict = {}
 
-        # Setup UI
         self.setup_ui()
 
-        # Setup update timer (update every 1 second)
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_display)
         self.update_timer.start(1000)
 
-        # Initial update
         self.update_display()
 
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _make_dot(self, color: str) -> QLabel:
+        """Return a circular dot QLabel."""
+        dot = QLabel("●")
+        dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dot.setStyleSheet(f"color: {color}; font-size: 18px;")
+        return dot
+
+    def _make_header(self, text: str, color: str = "#888888") -> QLabel:
+        lbl = QLabel(text)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet(
+            f"color: {color}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
+        )
+        return lbl
+
+    def _make_service(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        lbl.setStyleSheet("color: #cccccc; font-size: 11px;")
+        return lbl
+
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
     def setup_ui(self):
-        """Setup the user interface"""
+        """Build the compact traffic-light grid."""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(4, 4, 4, 4)
+        main_layout.setSpacing(2)
 
-        # Title
-        title_label = QLabel("🔒 Circuit Breaker Status")
-        title_font = QFont()
-        title_font.setPointSize(12)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
+        grid = QGridLayout()
+        grid.setSpacing(0)
+        grid.setContentsMargins(0, 0, 0, 0)
 
-        # Separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        main_layout.addWidget(separator)
+        # ── Column headers (row 0) ─────────────────────────────────
+        grid.addWidget(self._make_header("CIRCUIT BREAKER STATUS", "#aaaaaa"), 0, 0)
+        grid.addWidget(self._make_header("NORMAL",   self.COLOR_NORMAL),   0, 1)
+        grid.addWidget(self._make_header("RECOVERY", self.COLOR_RECOVERY), 0, 2)
+        grid.addWidget(self._make_header("BLOCKED",  self.COLOR_BLOCKED),  0, 3)
 
-        # Circuit breaker panels
-        self.tradier_panel = self.create_breaker_panel("Tradier API", "tradier")
-        self.databento_panel = self.create_breaker_panel("Databento", "databento")
+        # Thin separator line
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #333333;")
+        grid.addWidget(sep, 1, 0, 1, 4)
 
-        main_layout.addWidget(self.tradier_panel)
-        main_layout.addWidget(self.databento_panel)
+        # ── Service rows ───────────────────────────────────────────
+        services = [
+            ("tradier",   "TRADIER API", 2),
+            ("databento", "DATABENTO",   3),
+        ]
 
-        # Add stretch to push everything to the top
+        for breaker_id, label_text, row in services:
+            grid.addWidget(self._make_service(label_text), row, 0)
+
+            dot_normal   = self._make_dot(self.COLOR_NORMAL)   # starts lit (CLOSED)
+            dot_recovery = self._make_dot(self.COLOR_DIM)
+            dot_blocked  = self._make_dot(self.COLOR_DIM)
+
+            grid.addWidget(dot_normal,   row, 1)
+            grid.addWidget(dot_recovery, row, 2)
+            grid.addWidget(dot_blocked,  row, 3)
+
+            self._dots[breaker_id] = {
+                "normal":   dot_normal,
+                "recovery": dot_recovery,
+                "blocked":  dot_blocked,
+            }
+
+        # Column proportions
+        grid.setColumnStretch(0, 3)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+        grid.setColumnStretch(3, 1)
+
+        main_layout.addLayout(grid)
         main_layout.addStretch()
 
-    def create_breaker_panel(self, service_name: str, breaker_id: str) -> QGroupBox:
-        """Create a circuit breaker status panel"""
-        panel = QGroupBox(f"🔌 {service_name}")
-        panel_layout = QGridLayout()
-        panel_layout.setSpacing(8)
-
-        # State indicator
-        state_label = QLabel("State:")
-        state_label.setStyleSheet("font-weight: bold;")
-        state_value = QLabel("CLOSED")
-        state_value.setObjectName(f"{breaker_id}_state")
-        state_value.setStyleSheet("padding: 5px; border-radius: 3px; font-weight: bold;")
-        self.update_state_label(state_value, CircuitState.CLOSED)
-
-        panel_layout.addWidget(state_label, 0, 0)
-        panel_layout.addWidget(state_value, 0, 1)
-
-        # Failure count with progress bar
-        failure_label = QLabel("Failures:")
-        failure_count = QLabel("0 / 5")
-        failure_count.setObjectName(f"{breaker_id}_failures")
-
-        failure_progress = QProgressBar()
-        failure_progress.setObjectName(f"{breaker_id}_failure_progress")
-        failure_progress.setRange(0, 5)  # Will be updated with actual threshold
-        failure_progress.setValue(0)
-        failure_progress.setTextVisible(False)
-        failure_progress.setMaximumHeight(15)
-
-        panel_layout.addWidget(failure_label, 1, 0)
-        panel_layout.addWidget(failure_count, 1, 1)
-        panel_layout.addWidget(failure_progress, 1, 2)
-
-        # Success count
-        success_label = QLabel("Successes:")
-        success_count = QLabel("0")
-        success_count.setObjectName(f"{breaker_id}_successes")
-
-        panel_layout.addWidget(success_label, 2, 0)
-        panel_layout.addWidget(success_count, 2, 1, 1, 2)
-
-        # Recovery timeout (shown only when OPEN)
-        recovery_label = QLabel("Recovery in:")
-        recovery_label.setObjectName(f"{breaker_id}_recovery_label")
-        recovery_time = QLabel("--")
-        recovery_time.setObjectName(f"{breaker_id}_recovery_time")
-
-        panel_layout.addWidget(recovery_label, 3, 0)
-        panel_layout.addWidget(recovery_time, 3, 1, 1, 2)
-
-        # Reset button
-        reset_btn = QPushButton("🔄 Reset")
-        reset_btn.setObjectName(f"{breaker_id}_reset_btn")
-        reset_btn.clicked.connect(lambda: self.reset_breaker(breaker_id))
-        reset_btn.setMaximumWidth(100)
-        reset_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #FF9800;
-                color: white;
-                border: none;
-                padding: 5px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-            QPushButton:pressed {
-                background-color: #E65100;
-            }
-        """)
-
-        panel_layout.addWidget(reset_btn, 4, 0, 1, 3, Qt.AlignmentFlag.AlignCenter)
-
-        # Set column stretch
-        panel_layout.setColumnStretch(1, 1)
-        panel_layout.setColumnStretch(2, 2)
-
-        panel.setLayout(panel_layout)
-        return panel
-
+    # ------------------------------------------------------------------
+    # Update logic
+    # ------------------------------------------------------------------
     def update_display(self):
-        """Update circuit breaker status display"""
-        if not CIRCUIT_BREAKERS_AVAILABLE:
-            return
+        """Poll breakers and refresh dots."""
+        self._refresh_breaker("tradier",   tradier_breaker)
+        self._refresh_breaker("databento", databento_breaker)
 
-        # Update Tradier breaker
-        self.update_breaker_display("tradier", tradier_breaker)
-
-        # Update Databento breaker
-        self.update_breaker_display("databento", databento_breaker)
-
-    def update_breaker_display(self, breaker_id: str, breaker):
-        """Update display for a specific circuit breaker"""
+    def _refresh_breaker(self, breaker_id: str, breaker):
+        """Light the correct dot for a single breaker."""
         try:
             stats = breaker.get_stats()
-
-            # Update state
             state = stats.get("state", CircuitState.CLOSED)
-            state_label = self.findChild(QLabel, f"{breaker_id}_state")
-            if state_label:
-                state_label.setText(state)
-                self.update_state_label(state_label, state)
+        except Exception:
+            state = CircuitState.CLOSED
 
-            # Update failure count
-            failure_count = stats.get("failure_count", 0)
-            failure_threshold = stats.get("failure_threshold", 5)
-            failure_label = self.findChild(QLabel, f"{breaker_id}_failures")
-            if failure_label:
-                failure_label.setText(f"{failure_count} / {failure_threshold}")
+        dots = self._dots.get(breaker_id)
+        if not dots:
+            return
 
-            # Update failure progress bar
-            failure_progress = self.findChild(QProgressBar, f"{breaker_id}_failure_progress")
-            if failure_progress:
-                failure_progress.setRange(0, failure_threshold)
-                failure_progress.setValue(failure_count)
-
-                # Color code based on threshold
-                if failure_count == 0:
-                    color = "#4CAF50"  # Green
-                elif failure_count < failure_threshold * 0.5:
-                    color = "#8BC34A"  # Light green
-                elif failure_count < failure_threshold * 0.8:
-                    color = "#FF9800"  # Orange
-                else:
-                    color = "#F44336"  # Red
-
-                failure_progress.setStyleSheet(f"""
-                    QProgressBar {{
-                        border: 1px solid #555;
-                        border-radius: 3px;
-                        background-color: #333;
-                    }}
-                    QProgressBar::chunk {{
-                        background-color: {color};
-                        border-radius: 2px;
-                    }}
-                """)
-
-            # Update success count
-            success_count = stats.get("success_count", 0)
-            success_label = self.findChild(QLabel, f"{breaker_id}_successes")
-            if success_label:
-                success_label.setText(str(success_count))
-
-            # Update recovery timeout (only if OPEN)
-            recovery_label = self.findChild(QLabel, f"{breaker_id}_recovery_label")
-            recovery_time_label = self.findChild(QLabel, f"{breaker_id}_recovery_time")
-
-            if state == CircuitState.OPEN:
-                last_failure = stats.get("last_failure_time")
-                recovery_timeout = stats.get("recovery_timeout", 60.0)
-
-                if last_failure and recovery_label and recovery_time_label:
-                    elapsed = (datetime.now() - last_failure).total_seconds()
-                    remaining = max(0, recovery_timeout - elapsed)
-
-                    recovery_label.setVisible(True)
-                    recovery_time_label.setVisible(True)
-                    recovery_time_label.setText(f"{int(remaining)}s")
-            else:
-                if recovery_label and recovery_time_label:
-                    recovery_label.setVisible(False)
-                    recovery_time_label.setVisible(False)
-
-            # Track state changes
-            self.breaker_states[breaker_id] = state
-
-        except Exception as e:
-            print(f"Error updating {breaker_id} breaker display: {e}")
-
-    def update_state_label(self, label: QLabel, state: str):
-        """Update state label with appropriate styling"""
         if state == CircuitState.CLOSED:
-            label.setStyleSheet("""
-                background-color: #4CAF50;
-                color: white;
-                padding: 5px;
-                border-radius: 3px;
-                font-weight: bold;
-            """)
-        elif state == CircuitState.OPEN:
-            label.setStyleSheet("""
-                background-color: #F44336;
-                color: white;
-                padding: 5px;
-                border-radius: 3px;
-                font-weight: bold;
-            """)
+            dots["normal"].setStyleSheet(  f"color: {self.COLOR_NORMAL};   font-size: 18px;")
+            dots["recovery"].setStyleSheet(f"color: {self.COLOR_DIM};      font-size: 18px;")
+            dots["blocked"].setStyleSheet( f"color: {self.COLOR_DIM};      font-size: 18px;")
         elif state == CircuitState.HALF_OPEN:
-            label.setStyleSheet("""
-                background-color: #FF9800;
-                color: white;
-                padding: 5px;
-                border-radius: 3px;
-                font-weight: bold;
-            """)
+            dots["normal"].setStyleSheet(  f"color: {self.COLOR_DIM};      font-size: 18px;")
+            dots["recovery"].setStyleSheet(f"color: {self.COLOR_RECOVERY}; font-size: 18px;")
+            dots["blocked"].setStyleSheet( f"color: {self.COLOR_DIM};      font-size: 18px;")
+        else:  # OPEN
+            dots["normal"].setStyleSheet(  f"color: {self.COLOR_DIM};      font-size: 18px;")
+            dots["recovery"].setStyleSheet(f"color: {self.COLOR_DIM};      font-size: 18px;")
+            dots["blocked"].setStyleSheet( f"color: {self.COLOR_BLOCKED};  font-size: 18px;")
+
+    # ------------------------------------------------------------------
+    # Legacy stubs (kept so external callers don't break)
+    # ------------------------------------------------------------------
+    def update_state_label(self, label: QLabel, state: str):
+        pass
 
     def reset_breaker(self, breaker_id: str):
-        """Reset a circuit breaker manually"""
+        """Reset a circuit breaker manually."""
         try:
-            if breaker_id == "tradier":
-                import asyncio
-                asyncio.create_task(tradier_breaker.reset())
-                print(f"✅ {breaker_id.title()} circuit breaker reset")
-            elif breaker_id == "databento":
-                import asyncio
-                asyncio.create_task(databento_breaker.reset())
-                print(f"✅ {breaker_id.title()} circuit breaker reset")
-
-            # Emit signal
+            import asyncio
+            breaker = tradier_breaker if breaker_id == "tradier" else databento_breaker
+            asyncio.create_task(breaker.reset())
             self.reset_requested.emit(breaker_id)
-
-            # Force immediate update
             self.update_display()
-
         except Exception as e:
             print(f"❌ Error resetting {breaker_id} circuit breaker: {e}")
 
