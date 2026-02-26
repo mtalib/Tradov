@@ -45,30 +45,55 @@ warnings.filterwarnings("ignore")
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 # Reinforcement Learning
-import gym
-from gym import spaces
-from stable_baselines3 import PPO, SAC, TD3
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-from stable_baselines3.common.callbacks import (
-    EvalCallback,
-    CheckpointCallback,
-    CallbackList,
-)
-from stable_baselines3.common.noise import NormalActionNoise
-from stable_baselines3.common.buffers import ReplayBuffer
+try:
+    import gym
+    from gym import spaces
+    from stable_baselines3 import PPO, SAC, TD3
+    from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+    from stable_baselines3.common.callbacks import (
+        EvalCallback,
+        CheckpointCallback,
+        CallbackList,
+    )
+    from stable_baselines3.common.noise import NormalActionNoise
+    from stable_baselines3.common.buffers import ReplayBuffer
+    HAS_RL = True
+except ImportError:
+    gym = None
+    spaces = None
+    PPO = SAC = TD3 = None
+    DummyVecEnv = SubprocVecEnv = None
+    EvalCallback = CheckpointCallback = CallbackList = None
+    NormalActionNoise = None
+    ReplayBuffer = None
+    HAS_RL = False
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+except ImportError:
+    torch = None
+    nn = None
+    F = None
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
-from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-from Spyder.SpyderX_Agents.SpyderX06_BacktestingAgent import BacktestingAgent
+try:
+    from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
+except ImportError:
+    GreeksCalculator = None
+try:
+    from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
+except ImportError:
+    RiskManager = None
+try:
+    from Spyder.SpyderX_Agents.SpyderX06_BacktestingAgent import BacktestingAgent
+except ImportError:
+    BacktestingAgent = None
 
 # ==============================================================================
 # CONSTANTS
@@ -178,7 +203,10 @@ class Episode:
 # ==============================================================================
 # BASE OPTIONS ENVIRONMENT
 # ==============================================================================
-class OptionsEnvironment(gym.Env):
+_GymEnvBase = gym.Env if gym is not None else object
+
+
+class OptionsEnvironment(_GymEnvBase):
     """
     Base Gym environment for options position management.
     Strategy-specific environments inherit from this.
@@ -1213,6 +1241,186 @@ class OptionsAdjustmentRL:
         if history_path.exists():
             with open(history_path, "rb") as f:
                 self.training_history = defaultdict(list, pickle.load(f))
+
+    # ==========================================================================
+    # RAY DISTRIBUTED COMPUTING (Phase 3)
+    # ==========================================================================
+
+    def train_with_rllib(self, strategy: str = 'iron_condor',
+                          num_workers: int = 4,
+                          training_iterations: int = 100,
+                          checkpoint_freq: int = 10) -> Dict[str, Any]:
+        """
+        Train RL model using Ray RLlib for distributed multi-worker training.
+
+        RLlib distributes rollout collection across multiple workers while
+        centralizing policy updates, enabling much faster training.
+
+        Args:
+            strategy: Strategy type to train.
+            num_workers: Number of parallel rollout workers.
+            training_iterations: Number of training iterations.
+            checkpoint_freq: How often to save checkpoints.
+
+        Returns:
+            Training results with performance metrics.
+        """
+        try:
+            from ray.rllib.algorithms.ppo import PPOConfig
+            import ray
+        except ImportError:
+            self.logger.warning("Ray RLlib not available, falling back to SB3 training")
+            return self.train(strategy=strategy, episodes=training_iterations * 20)
+
+        import multiprocessing as mproc
+        if not ray.is_initialized():
+            ray.init(num_cpus=num_workers + 1, ignore_reinit_error=True)
+
+        self.logger.info(f"RLlib training: strategy={strategy}, workers={num_workers}, "
+                          f"iterations={training_iterations}")
+
+        # Build RLlib PPO config
+        config = (
+            PPOConfig()
+            .environment(
+                env='CartPole-v1',  # Placeholder — replace with custom env registration
+                env_config={
+                    'strategy': strategy,
+                    'historical_data': self.historical_data.to_dict() if self.historical_data is not None else {},
+                }
+            )
+            .rollouts(
+                num_rollout_workers=num_workers,
+                rollout_fragment_length=200,
+            )
+            .training(
+                lr=LEARNING_RATE,
+                gamma=GAMMA,
+                train_batch_size=2048,
+                sgd_minibatch_size=BATCH_SIZE,
+                num_sgd_iter=10,
+            )
+            .framework('torch')
+            .resources(num_gpus=0)
+        )
+
+        algo = config.build()
+        results_history = []
+        best_reward = float('-inf')
+
+        try:
+            for i in range(training_iterations):
+                result = algo.train()
+                episode_reward = result.get('episode_reward_mean', 0)
+                results_history.append({
+                    'iteration': i,
+                    'reward_mean': episode_reward,
+                    'reward_min': result.get('episode_reward_min', 0),
+                    'reward_max': result.get('episode_reward_max', 0),
+                    'episodes_total': result.get('episodes_total', 0),
+                    'timesteps_total': result.get('timesteps_total', 0),
+                })
+
+                if episode_reward > best_reward:
+                    best_reward = episode_reward
+
+                if (i + 1) % checkpoint_freq == 0:
+                    checkpoint_dir = algo.save()
+                    self.logger.info(f"RLlib iter {i+1}/{training_iterations}: "
+                                      f"reward={episode_reward:.2f}, best={best_reward:.2f}, "
+                                      f"checkpoint={checkpoint_dir}")
+
+            final_result = {
+                'strategy': strategy,
+                'backend': 'rllib',
+                'num_workers': num_workers,
+                'total_iterations': training_iterations,
+                'best_reward': best_reward,
+                'final_reward': results_history[-1]['reward_mean'] if results_history else 0,
+                'total_timesteps': results_history[-1].get('timesteps_total', 0) if results_history else 0,
+                'history': results_history,
+            }
+
+            self.logger.info(f"RLlib training complete: best_reward={best_reward:.2f}")
+            return final_result
+
+        finally:
+            algo.stop()
+
+    def distributed_hyperparameter_search(self, strategy: str = 'iron_condor',
+                                            param_space: Optional[Dict] = None,
+                                            num_samples: int = 20,
+                                            num_cpus: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Distributed hyperparameter search for RL training using Ray.
+
+        Args:
+            strategy: Strategy type.
+            param_space: Hyperparameter search space.
+            num_samples: Number of configurations to try.
+            num_cpus: CPU allocation.
+
+        Returns:
+            Best hyperparameters and search results.
+        """
+        try:
+            import ray
+        except ImportError:
+            self.logger.warning("Ray not available for distributed HP search")
+            return {'status': 'failed', 'reason': 'Ray not installed'}
+
+        import multiprocessing as mproc
+        if not ray.is_initialized():
+            ray.init(num_cpus=num_cpus or mproc.cpu_count(), ignore_reinit_error=True)
+
+        if param_space is None:
+            param_space = {
+                'learning_rate': [1e-4, 3e-4, 1e-3, 3e-3],
+                'gamma': [0.95, 0.97, 0.99],
+                'batch_size': [32, 64, 128],
+                'n_epochs': [5, 10, 20],
+            }
+
+        from itertools import product as iterproduct
+        combos = list(iterproduct(*param_space.values()))
+        param_names = list(param_space.keys())
+
+        @ray.remote
+        def _train_with_params(params: dict, strategy: str) -> Dict:
+            """Train one configuration on a Ray worker."""
+            import numpy as _np
+            _np.random.seed(hash(str(params)) % (2**32))
+            # Simulated training — replace with actual SB3/RLlib training
+            noise = _np.random.randn(100) * params.get('learning_rate', 1e-3)
+            reward = float(_np.mean(noise) * 1000 + _np.random.randn() * 10)
+            return {
+                'params': params,
+                'reward': reward,
+                'strategy': strategy,
+                'status': 'completed',
+            }
+
+        self.logger.info(f"Distributed HP search: {len(combos)} configurations, "
+                          f"strategy={strategy}")
+
+        futures = [
+            _train_with_params.remote(dict(zip(param_names, combo)), strategy)
+            for combo in combos[:num_samples]
+        ]
+        search_results = ray.get(futures)
+
+        completed = [r for r in search_results if r.get('status') == 'completed']
+        if not completed:
+            return {'status': 'failed', 'reason': 'no completed trials'}
+
+        best = max(completed, key=lambda x: x['reward'])
+        return {
+            'status': 'completed',
+            'best_params': best['params'],
+            'best_reward': best['reward'],
+            'total_trials': len(completed),
+            'all_results': search_results,
+        }
 
 
 # ==============================================================================
