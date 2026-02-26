@@ -91,6 +91,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QStyle,
     QMessageBox,
+    QMenu,
 )
 from PySide6.QtCore import (
     Qt,
@@ -2679,7 +2680,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.canvas.draw()
 
     def create_positions_table(self) -> QTableWidget:
-        """Create positions table (UNCHANGED)"""
+        """Create enhanced positions table with DTE, %RET, and AUTO columns"""
         table = QTableWidget()
 
         columns = [
@@ -2688,10 +2689,13 @@ class SpyderTradingDashboard(QMainWindow):
             "CNTR",
             "STRIKES",
             "EXPIRY",
+            "DTE",
             "STRATEGY",
             "STATUS",
             "COST",
             "P&L",
+            "%RET",
+            "AUTO",
         ]
 
         table.setColumnCount(len(columns))
@@ -2699,10 +2703,24 @@ class SpyderTradingDashboard(QMainWindow):
         table.verticalHeader().setVisible(False)
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        table.customContextMenuRequested.connect(self._positions_context_menu)
         table.setStyleSheet(
             f"""
             QTableWidget {{
                 font-size: 11px;
+                gridline-color: {COLORS["border"]};
+            }}
+            QTableWidget::item:selected {{
+                background-color: #2a3a4a;
+            }}
+            QHeaderView::section {{
+                background-color: {COLORS["panel"]};
+                color: {COLORS["text_dim"]};
+                border: 1px solid {COLORS["border"]};
+                padding: 2px;
+                font-size: 10px;
+                font-weight: bold;
             }}
             QScrollBar:vertical {{
                 width: 8px;
@@ -2712,23 +2730,117 @@ class SpyderTradingDashboard(QMainWindow):
         )
 
         # Set column widths
-        table.setColumnWidth(0, 75)  # DATE
-        table.setColumnWidth(1, 55)  # SYMBOL
-        table.setColumnWidth(2, 45)  # CNTR
+        table.setColumnWidth(0, 60)   # DATE
+        table.setColumnWidth(1, 50)   # SYMBOL
+        table.setColumnWidth(2, 38)   # CNTR
         table.setColumnWidth(3, 140)  # STRIKES
-        table.setColumnWidth(4, 70)  # EXPIRY
-        table.setColumnWidth(5, 155)  # STRATEGY
-        table.setColumnWidth(6, 75)  # STATUS
-        table.setColumnWidth(7, 95)  # COST
-        table.setColumnWidth(8, 95)  # P&L
+        table.setColumnWidth(4, 58)   # EXPIRY
+        table.setColumnWidth(5, 35)   # DTE
+        table.setColumnWidth(6, 120)  # STRATEGY
+        table.setColumnWidth(7, 65)   # STATUS
+        table.setColumnWidth(8, 80)   # COST
+        table.setColumnWidth(9, 80)   # P&L
+        table.setColumnWidth(10, 50)  # %RET
+        table.setColumnWidth(11, 90)  # AUTO
 
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         table.verticalHeader().setDefaultSectionSize(22)
         table.setMinimumHeight(190)
         table.setMaximumHeight(190)
 
         return table
+
+    def _positions_context_menu(self, pos):
+        """Show right-click context menu for positions table."""
+        row = self.positions_table.rowAt(pos.y())
+        if row < 0:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            f"""
+            QMenu {{
+                background-color: {COLORS["panel"]};
+                color: {COLORS["text"]};
+                border: 1px solid {COLORS["border"]};
+                padding: 4px;
+            }}
+            QMenu::item:selected {{
+                background-color: #2a3a4a;
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background: {COLORS["border"]};
+                margin: 4px 8px;
+            }}
+        """
+        )
+
+        # Get position data from the row
+        status_item = self.positions_table.item(row, 7)
+        status = status_item.text() if status_item else ""
+        strategy_item = self.positions_table.item(row, 6)
+        strategy = strategy_item.text() if strategy_item else ""
+
+        if status == "OPEN":
+            close_action = menu.addAction("\u274c  Close Position")
+            close_action.triggered.connect(lambda: self._on_close_position(row))
+
+            roll_action = menu.addAction("\U0001f504  Roll Forward")
+            roll_action.triggered.connect(lambda: self._on_roll_position(row))
+
+            adjust_action = menu.addAction("\u2699\ufe0f  Adjust Strikes")
+            adjust_action.triggered.connect(lambda: self._on_adjust_position(row))
+
+            menu.addSeparator()
+
+        view_action = menu.addAction("\U0001f4cb  View Leg Details")
+        view_action.triggered.connect(lambda: self._on_view_legs(row))
+
+        copy_action = menu.addAction("\U0001f4cb  Copy Row")
+        copy_action.triggered.connect(lambda: self._on_copy_row(row))
+
+        menu.exec(self.positions_table.viewport().mapToGlobal(pos))
+
+    def _on_close_position(self, row: int):
+        """Handle close position from context menu."""
+        strikes_item = self.positions_table.item(row, 3)
+        strikes = strikes_item.text() if strikes_item else "unknown"
+        self.add_system_log(f"Close requested for row {row + 1}: {strikes}")
+
+    def _on_roll_position(self, row: int):
+        """Handle roll forward from context menu."""
+        strikes_item = self.positions_table.item(row, 3)
+        strikes = strikes_item.text() if strikes_item else "unknown"
+        self.add_system_log(f"Roll forward requested for row {row + 1}: {strikes}")
+
+    def _on_adjust_position(self, row: int):
+        """Handle adjust strikes from context menu."""
+        strikes_item = self.positions_table.item(row, 3)
+        strikes = strikes_item.text() if strikes_item else "unknown"
+        self.add_system_log(f"Adjust strikes requested for row {row + 1}: {strikes}")
+
+    def _on_view_legs(self, row: int):
+        """Handle view leg details from context menu."""
+        strikes_item = self.positions_table.item(row, 3)
+        strategy_item = self.positions_table.item(row, 6)
+        strikes = strikes_item.text() if strikes_item else "N/A"
+        strategy = strategy_item.text() if strategy_item else "N/A"
+        self.add_system_log(f"Leg details: {strategy} @ {strikes}")
+
+    def _on_copy_row(self, row: int):
+        """Copy position row data to clipboard."""
+        parts = []
+        for col in range(self.positions_table.columnCount()):
+            item = self.positions_table.item(row, col)
+            parts.append(item.text() if item else "")
+        text = "\t".join(parts)
+        from PySide6.QtWidgets import QApplication as _QApp
+        clipboard = _QApp.clipboard()
+        if clipboard:
+            clipboard.setText(text)
+            self.add_system_log(f"Copied row {row + 1} to clipboard")
 
     def create_pnl_table(self) -> QTableWidget:
         """Create P&L performance table (UNCHANGED)"""
@@ -3638,7 +3750,7 @@ class SpyderTradingDashboard(QMainWindow):
                         )
 
     def load_test_data(self):
-        """Load test positions data"""
+        """Load test positions data with DTE, %RET, and AUTO columns"""
         test_positions = [
             {
                 "date": "08/18",
@@ -3646,10 +3758,12 @@ class SpyderTradingDashboard(QMainWindow):
                 "contracts": "10",
                 "strikes": "584P/586C",
                 "expiry": "08/23",
+                "dte": "5",
                 "strategy": "Iron Condor",
                 "status": "OPEN",
                 "cost": "-$2,350",
                 "pnl": "+$435",
+                "pct_return": "+18.5%",
                 "auto_status": "AI MANAGED",
             },
             {
@@ -3658,10 +3772,12 @@ class SpyderTradingDashboard(QMainWindow):
                 "contracts": "5",
                 "strikes": "588C",
                 "expiry": "08/30",
+                "dte": "12",
                 "strategy": "Covered Call",
                 "status": "OPEN",
                 "cost": "+$425",
                 "pnl": "+$125",
+                "pct_return": "+29.4%",
                 "auto_status": "AI MANAGED",
             },
             {
@@ -3670,10 +3786,12 @@ class SpyderTradingDashboard(QMainWindow):
                 "contracts": "20",
                 "strikes": "582P/584P/586C/588C",
                 "expiry": "08/25",
+                "dte": "0",
                 "strategy": "Iron Butterfly",
                 "status": "CLOSED",
                 "cost": "-$4,200",
                 "pnl": "+$1,250",
+                "pct_return": "+29.8%",
                 "auto_status": "AI CLOSED",
             },
         ]
@@ -3685,27 +3803,55 @@ class SpyderTradingDashboard(QMainWindow):
             self.positions_table.setItem(i, 2, QTableWidgetItem(pos["contracts"]))
             self.positions_table.setItem(i, 3, QTableWidgetItem(pos["strikes"]))
             self.positions_table.setItem(i, 4, QTableWidgetItem(pos["expiry"]))
-            self.positions_table.setItem(i, 5, QTableWidgetItem(pos["strategy"]))
+
+            # DTE column — color-code: red <3, warning <7, normal otherwise
+            dte_item = QTableWidgetItem(pos["dte"])
+            dte_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            dte_val = int(pos["dte"])
+            if dte_val == 0:
+                dte_item.setForeground(QColor(COLORS["text_dim"]))
+            elif dte_val <= 2:
+                dte_item.setForeground(QColor(COLORS["negative"]))
+            elif dte_val <= 7:
+                dte_item.setForeground(QColor(COLORS["warning"]))
+            else:
+                dte_item.setForeground(QColor(COLORS["text"]))
+            self.positions_table.setItem(i, 5, dte_item)
+
+            self.positions_table.setItem(i, 6, QTableWidgetItem(pos["strategy"]))
 
             status_item = QTableWidgetItem(pos["status"])
             if pos["status"] == "OPEN":
                 status_item.setForeground(QColor(COLORS["positive"]))
             else:
                 status_item.setForeground(QColor(COLORS["neutral"]))
-            self.positions_table.setItem(i, 6, status_item)
+            self.positions_table.setItem(i, 7, status_item)
 
-            self.positions_table.setItem(i, 7, QTableWidgetItem(pos["cost"]))
+            self.positions_table.setItem(i, 8, QTableWidgetItem(pos["cost"]))
 
             pnl_item = QTableWidgetItem(pos["pnl"])
             if pos["pnl"].startswith("+"):
                 pnl_item.setForeground(QColor(COLORS["positive"]))
             else:
                 pnl_item.setForeground(QColor(COLORS["negative"]))
-            self.positions_table.setItem(i, 8, pnl_item)
+            self.positions_table.setItem(i, 9, pnl_item)
 
+            # %RET column — green positive, red negative
+            ret_item = QTableWidgetItem(pos["pct_return"])
+            ret_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if pos["pct_return"].startswith("+"):
+                ret_item.setForeground(QColor(COLORS["positive"]))
+            else:
+                ret_item.setForeground(QColor(COLORS["negative"]))
+            self.positions_table.setItem(i, 10, ret_item)
+
+            # AUTO column — cyan for managed, dim for closed
             auto_item = QTableWidgetItem(pos["auto_status"])
-            auto_item.setForeground(QColor(COLORS["automation_active"]))
-            self.positions_table.setItem(i, 9, auto_item)
+            if "MANAGED" in pos["auto_status"]:
+                auto_item.setForeground(QColor(COLORS["automation_active"]))
+            else:
+                auto_item.setForeground(QColor(COLORS["text_dim"]))
+            self.positions_table.setItem(i, 11, auto_item)
 
     def load_default_risk_parameters(self):
         """Load default risk parameters"""
