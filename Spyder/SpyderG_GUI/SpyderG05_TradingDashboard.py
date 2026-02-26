@@ -2744,8 +2744,11 @@ class SpyderTradingDashboard(QMainWindow):
         """
         )
 
+        # Stop last column from stretching to fill remaining space
+        tree.header().setStretchLastSection(False)
+
         # Set column widths for leg rows
-        tree.setColumnWidth(0, 70)   # LEG
+        tree.setColumnWidth(0, 85)   # LEG (wider to account for tree indentation)
         tree.setColumnWidth(1, 80)   # STRIKE
         tree.setColumnWidth(2, 45)   # CONT
         tree.setColumnWidth(3, 65)   # EXPIRY
