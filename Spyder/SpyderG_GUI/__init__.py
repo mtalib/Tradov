@@ -37,7 +37,7 @@ Key Features:
     • System monitoring dashboard
 """
 
-__version__ = "2.1.0"
+__version__ = "3.0.0"
 __all__ = []
 
 # Import application manager first
@@ -77,7 +77,8 @@ modules_to_import = [
     ("SpyderG02_GUIEntry", "gui_main"),
     ("SpyderG03_OptionChainWidget", "OptionChainWidget"),
     ("SpyderG04_ChartWidget", "ChartWidget"),
-    ("SpyderG05_TradingDashboard", "SpyderTradingDashboard"),
+    # G05_TradingDashboard imported lazily to avoid circular imports
+    # Use create_trading_dashboard() or import directly when needed
     (
         "SpyderG06_RiskParametersDialog",
         ["RiskParametersDialog", "show_risk_parameters_dialog"],
@@ -119,6 +120,34 @@ for module_info in modules_to_import:
         print(f"⚠️ SpyderG_GUI: {module_name} not available: {e}")
 
 print(f"✅ SpyderG_GUI: {successful_imports} components loaded successfully")
+
+# Import broker status widget (Tradier + Databento)
+try:
+    from .SpyderG05_ConnectAPIStatus import (
+        BrokerStatusWidget,
+        ConnectAPIStatusWidget,
+        StatusConfig,
+        StatusLevel,
+        create_status_widget,
+    )
+    __all__.extend([
+        "BrokerStatusWidget", "ConnectAPIStatusWidget",
+        "StatusConfig", "StatusLevel", "create_status_widget",
+    ])
+    print("✅ SpyderG_GUI: BrokerStatusWidget loaded successfully")
+except Exception as e:
+    print(f"⚠️ SpyderG_GUI: BrokerStatusWidget not available: {e}")
+
+# Import circuit breaker monitor
+try:
+    from .SpyderG16_CircuitBreakerMonitor import (
+        CircuitBreakerMonitor,
+        create_circuit_breaker_monitor,
+    )
+    __all__.extend(["CircuitBreakerMonitor", "create_circuit_breaker_monitor"])
+    print("✅ SpyderG_GUI: CircuitBreakerMonitor loaded successfully")
+except Exception as e:
+    print(f"⚠️ SpyderG_GUI: CircuitBreakerMonitor not available: {e}")
 
 
 # Add convenience functions for safe widget creation

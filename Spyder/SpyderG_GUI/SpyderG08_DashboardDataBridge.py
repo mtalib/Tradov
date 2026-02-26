@@ -5,18 +5,32 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderG_GUI
 Module: SpyderG08_DashboardDataBridge.py
-Purpose: Fixed dashboard data bridge connecting MarketDataManager to TradingDashboard
+Purpose: [DEPRECATED] Dashboard data bridge connecting MarketDataManager to TradingDashboard
 Author: Mohamed Talib
-Year Created: 2025 
-Last Updated: 2025-08-19 Time: 15:20:00  
+Year Created: 2025
+Last Updated: 2026-02-25 Time: 21:45:00
 
-Module Description:
-    Streamlined data bridge that connects the fixed MarketDataManager (with working
-    FROZEN/DELAYED data) to the TradingDashboard. Solves the cached data issue by
-    providing real-time data flow, proper percentage calculations, and thread-safe
-    updates. Focuses on the essential data connection without over-engineering.
+DEPRECATION NOTICE:
+    This module is DEPRECATED as of the Tradier+Databento migration (Feb 2026).
+    It bridged SpyderB07_MarketDataManager and SpyderB01_SpyderClient (IB Gateway)
+    to the TradingDashboard. Both B07 and B01 are deprecated.
 
+    The system now uses:
+    - SpyderC01_DataFeed for market data provider abstraction
+    - SpyderC26_DatabentoClient for real-time/historical market data
+    - SpyderB40_TradierClient for quotes and order execution
+
+    This module is preserved for backward compatibility only.
 """
+
+import warnings
+warnings.warn(
+    "SpyderG08_DashboardDataBridge is DEPRECATED. "
+    "The system has migrated from SpyderB07_MarketDataManager/SpyderB01_SpyderClient "
+    "to SpyderC01_DataFeed and SpyderC26_DatabentoClient for market data.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # ==============================================================================
 # STANDARD IMPORTS

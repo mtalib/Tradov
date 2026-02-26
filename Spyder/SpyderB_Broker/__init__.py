@@ -24,9 +24,9 @@ Module Description:
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================
-__version__ = "3.0.0"
+__version__ = "5.0.0"
 __author__ = "Mohamed Talib"
-__description__ = "SPYDER Broker Package - Tradier API Integration"
+__description__ = "SPYDER Broker Package - Tradier API (OrderManager + Multileg + SSE)"
 
 # ==============================================================================
 # STANDARD IMPORTS
@@ -99,13 +99,22 @@ try:
         OrderSide,
         OrderType,
         OrderDuration,
-        TradierError,
+        OrderClass,
+        TradierAPIError,
         TradierAuthenticationError,
         TradierValidationError,
         TradierServerError,
         TradierRateLimitError,
+        OptionLeg,
+        GreekData,
+        AccountEvent,
+        TradierAccountStream,
+        build_option_symbol,
+        parse_option_symbol,
         create_tradier_client_from_env,
     )
+    # Alias for backward compatibility
+    TradierError = TradierAPIError
     _log_import_status("SpyderB40_TradierClient", True)
 except ImportError as e:
     _log_import_status("SpyderB40_TradierClient", False, str(e))
@@ -114,25 +123,52 @@ except ImportError as e:
     OrderSide = None
     OrderType = None
     OrderDuration = None
+    OrderClass = None
+    TradierAPIError = None
     TradierError = None
     TradierAuthenticationError = None
     TradierValidationError = None
     TradierServerError = None
     TradierRateLimitError = None
+    OptionLeg = None
+    GreekData = None
+    AccountEvent = None
+    TradierAccountStream = None
+    build_option_symbol = None
+    parse_option_symbol = None
     create_tradier_client_from_env = None
 
 # ==============================================================================
 # SUPPORTING MODULES (TO BE REFACTORED FOR TRADIER)
 # ==============================================================================
 
-# Order Manager (B02) - Needs refactoring to use TradierClient
+# Order Manager (B02) - Tradier-powered order orchestration
 try:
-    from .SpyderB02_OrderManager import OrderManager, OrderRequest
+    from .SpyderB02_OrderManager import (
+        OrderManager,
+        Order,
+        OrderRequest,
+        OrderResult,
+        OrderState,
+        OrderStatus,
+        ExecutionReport,
+        SecurityType,
+        create_order_manager,
+        get_order_manager,
+    )
     _log_import_status("SpyderB02_OrderManager", True)
 except ImportError as e:
     _log_import_status("SpyderB02_OrderManager", False, str(e))
     OrderManager = None
+    Order = None
     OrderRequest = None
+    OrderResult = None
+    OrderState = None
+    OrderStatus = None
+    ExecutionReport = None
+    SecurityType = None
+    create_order_manager = None
+    get_order_manager = None
 
 # Position Tracker (B03) - Needs refactoring to use Tradier positions
 try:
@@ -277,18 +313,34 @@ if TradierClient:
         "OrderSide",
         "OrderType",
         "OrderDuration",
+        "OrderClass",
+        "TradierAPIError",
         "TradierError",
         "TradierAuthenticationError",
         "TradierValidationError",
         "TradierServerError",
         "TradierRateLimitError",
+        "OptionLeg",
+        "GreekData",
+        "AccountEvent",
+        "TradierAccountStream",
+        "build_option_symbol",
+        "parse_option_symbol",
         "create_tradier_client_from_env",
     ])
 
 # Add other available components
 for component_name in [
     "OrderManager",
+    "Order",
     "OrderRequest",
+    "OrderResult",
+    "OrderState",
+    "OrderStatus",
+    "ExecutionReport",
+    "SecurityType",
+    "create_order_manager",
+    "get_order_manager",
     "PositionTracker",
     "AccountManager",
     "ContractBuilder",

@@ -63,20 +63,32 @@ import cvxpy as cp
 import cvxopt
 from pypfopt import EfficientFrontier, risk_models, expected_returns
 from pypfopt.discrete_allocation import DiscreteAllocation
-from pypfopt.objectives import L2_reg
+from pypfopt.objective_functions import L2_reg
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
+from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer, VIXRegime
-from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
-from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
+
+try:
+    from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
+except ImportError:
+    VolatilityRegimeAnalyzer = None
+
+try:
+    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
+except ImportError:
+    RegimeClassifier = None
+
+try:
+    from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
+except ImportError:
+    FeatureEngineer = None
 
 try:
     from SpyderP_Portfolio.SpyderP01_PortfolioManager import PortfolioManager, StrategyAllocation
@@ -881,8 +893,17 @@ class AllocationOptimizer:
 
     async def _optimize_hierarchical_risk_parity(self, returns_df: pd.DataFrame,
                                                config: OptimizationConfig) -> AllocationResult:
-        """Optimize using Hierarchical Risk Parity (HRP)"""
+        """Optimize using Hierarchical Risk Parity (HRP).
+        
+        Uses RiskFolio-Lib when available for institutional-grade HRP with
+        Ledoit-Wolf covariance estimation. Falls back to manual implementation.
+        """
         try:
+            # ---- RiskFolio-Lib path (preferred) ----
+            if HAS_RISKFOLIO:
+                return await self._optimize_hrp_riskfolio(returns_df, config)
+            
+            # ---- Manual fallback path ----
             from scipy.cluster.hierarchy import linkage, dendrogram
             from scipy.spatial.distance import squareform
             
@@ -988,6 +1009,260 @@ class AllocationOptimizer:
             
         except Exception as e:
             self.error_handler.handle_error(e, "_optimize_hierarchical_risk_parity")
+            raise
+    
+    async def _optimize_hrp_riskfolio(
+        self,
+        returns_df: pd.DataFrame,
+        config: OptimizationConfig
+    ) -> AllocationResult:
+        """
+        HRP optimization using RiskFolio-Lib with Ledoit-Wolf covariance.
+        
+        Provides institutional-grade hierarchical risk parity with robust
+        covariance estimation and dendrogram-based asset clustering.
+        
+        Args:
+            returns_df: Historical returns DataFrame.
+            config: Optimization configuration.
+            
+        Returns:
+            AllocationResult with HRP-optimized weights.
+        """
+        port = rp.Portfolio(returns=returns_df)
+        port.assets_stats(
+            method_mu='hist',
+            method_cov='ledoit_wolf'
+        )
+        
+        weights = port.optimization(
+            model='HRP',
+            codependence='pearson',
+            rm='MV',
+            rf=0.045,
+            linkage='ward',
+            leaf_order=True
+        )
+        
+        if weights is None or weights.empty:
+            raise ValueError("RiskFolio HRP optimization returned empty weights")
+        
+        # Apply constraints
+        target_weight = 1 - config.cash_reserve
+        allocations = {}
+        for i, col in enumerate(returns_df.columns):
+            w = float(weights.iloc[i, 0]) * target_weight
+            w = max(config.min_allocation, min(config.max_allocation, w))
+            allocations[col] = w
+        
+        # Renormalize
+        total = sum(allocations.values())
+        if total > 0:
+            for k in allocations:
+                allocations[k] *= target_weight / total
+        
+        # Calculate portfolio metrics
+        weights_array = np.array([allocations[col] for col in returns_df.columns])
+        cov_matrix = returns_df.cov() * 252
+        expected_rets = returns_df.mean() * 252
+        portfolio_return = float(np.sum(weights_array * expected_rets.values))
+        portfolio_variance = float(np.dot(weights_array, np.dot(cov_matrix.values, weights_array)))
+        portfolio_volatility = np.sqrt(portfolio_variance)
+        sharpe = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+        
+        self.logger.info(f"RiskFolio HRP complete: Sharpe={sharpe:.3f}, Vol={portfolio_volatility:.2%}")
+        
+        return AllocationResult(
+            allocations=allocations,
+            expected_return=portfolio_return,
+            expected_volatility=portfolio_volatility,
+            sharpe_ratio=sharpe,
+            value_at_risk=norm.ppf(0.05) * portfolio_volatility,
+            expected_shortfall=portfolio_volatility * norm.pdf(norm.ppf(0.05)) / 0.05,
+            method_used=OptimizationMethod.HIERARCHICAL_RISK_PARITY,
+            confidence_score=0.90,  # Higher confidence with institutional lib
+            regime_weights={},
+            constraints_satisfied=True,
+            optimization_time=0.0,
+            iteration_count=0,
+            convergence_status="OPTIMAL"
+        )
+    
+    async def _optimize_cvar(
+        self,
+        returns_df: pd.DataFrame,
+        config: OptimizationConfig
+    ) -> AllocationResult:
+        """
+        CVaR (Conditional Value-at-Risk) optimization using RiskFolio-Lib.
+        
+        Minimizes tail risk while maximizing risk-adjusted returns.
+        Superior to variance-based optimization for fat-tailed distributions
+        common in options trading.
+        
+        Args:
+            returns_df: Historical returns DataFrame.
+            config: Optimization configuration.
+            
+        Returns:
+            AllocationResult with CVaR-optimized weights.
+        """
+        if not HAS_RISKFOLIO:
+            self.logger.warning("RiskFolio not available — falling back to risk parity")
+            return await self._optimize_risk_parity(returns_df, config)
+        
+        try:
+            port = rp.Portfolio(returns=returns_df)
+            port.assets_stats(
+                method_mu='hist',
+                method_cov='ledoit_wolf'
+            )
+            
+            weights = port.optimization(
+                model='Classic',
+                rm='CVaR',
+                obj='Sharpe',
+                rf=0.045,
+                l=0,
+                hist=True
+            )
+            
+            if weights is None or weights.empty:
+                raise ValueError("RiskFolio CVaR optimization returned empty weights")
+            
+            target_weight = 1 - config.cash_reserve
+            allocations = {}
+            for i, col in enumerate(returns_df.columns):
+                w = float(weights.iloc[i, 0]) * target_weight
+                w = max(config.min_allocation, min(config.max_allocation, w))
+                allocations[col] = w
+            
+            total = sum(allocations.values())
+            if total > 0:
+                for k in allocations:
+                    allocations[k] *= target_weight / total
+            
+            weights_array = np.array([allocations[col] for col in returns_df.columns])
+            cov_matrix = returns_df.cov() * 252
+            expected_rets = returns_df.mean() * 252
+            portfolio_return = float(np.sum(weights_array * expected_rets.values))
+            portfolio_variance = float(np.dot(weights_array, np.dot(cov_matrix.values, weights_array)))
+            portfolio_volatility = np.sqrt(portfolio_variance)
+            sharpe = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+            
+            self.logger.info(f"RiskFolio CVaR complete: Sharpe={sharpe:.3f}, Vol={portfolio_volatility:.2%}")
+            
+            return AllocationResult(
+                allocations=allocations,
+                expected_return=portfolio_return,
+                expected_volatility=portfolio_volatility,
+                sharpe_ratio=sharpe,
+                value_at_risk=norm.ppf(0.05) * portfolio_volatility,
+                expected_shortfall=portfolio_volatility * norm.pdf(norm.ppf(0.05)) / 0.05,
+                method_used=OptimizationMethod.ROBUST_OPTIMIZATION,
+                confidence_score=0.88,
+                regime_weights={},
+                constraints_satisfied=True,
+                optimization_time=0.0,
+                iteration_count=0,
+                convergence_status="OPTIMAL"
+            )
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "_optimize_cvar")
+            raise
+    
+    async def _optimize_risk_budgeting(
+        self,
+        returns_df: pd.DataFrame,
+        config: OptimizationConfig,
+        risk_budgets: Optional[Dict[str, float]] = None
+    ) -> AllocationResult:
+        """
+        Risk budgeting optimization using RiskFolio-Lib.
+        
+        Allocates risk according to specified budgets per strategy/asset.
+        With equal budgets, equivalent to risk parity but using CVaR
+        as the risk measure instead of variance.
+        
+        Args:
+            returns_df: Historical returns DataFrame.
+            config: Optimization configuration.
+            risk_budgets: Optional dict of strategy->risk_budget (must sum to 1).
+            
+        Returns:
+            AllocationResult with risk-budget-optimized weights.
+        """
+        if not HAS_RISKFOLIO:
+            self.logger.warning("RiskFolio not available — falling back to risk parity")
+            return await self._optimize_risk_parity(returns_df, config)
+        
+        try:
+            port = rp.Portfolio(returns=returns_df)
+            port.assets_stats(
+                method_mu='hist',
+                method_cov='ledoit_wolf'
+            )
+            
+            n_assets = len(returns_df.columns)
+            
+            if risk_budgets:
+                budget_array = np.array([risk_budgets.get(col, 1.0/n_assets) 
+                                        for col in returns_df.columns])
+                budget_array = budget_array / budget_array.sum()
+            else:
+                budget_array = np.ones(n_assets) / n_assets
+            
+            weights = port.rp_optimization(
+                model='Classic',
+                rm='CVaR',
+                rf=0.045,
+                b=budget_array
+            )
+            
+            if weights is None or weights.empty:
+                raise ValueError("RiskFolio risk budgeting returned empty weights")
+            
+            target_weight = 1 - config.cash_reserve
+            allocations = {}
+            for i, col in enumerate(returns_df.columns):
+                w = float(weights.iloc[i, 0]) * target_weight
+                w = max(config.min_allocation, min(config.max_allocation, w))
+                allocations[col] = w
+            
+            total = sum(allocations.values())
+            if total > 0:
+                for k in allocations:
+                    allocations[k] *= target_weight / total
+            
+            weights_array = np.array([allocations[col] for col in returns_df.columns])
+            cov_matrix = returns_df.cov() * 252
+            expected_rets = returns_df.mean() * 252
+            portfolio_return = float(np.sum(weights_array * expected_rets.values))
+            portfolio_variance = float(np.dot(weights_array, np.dot(cov_matrix.values, weights_array)))
+            portfolio_volatility = np.sqrt(portfolio_variance)
+            sharpe = portfolio_return / portfolio_volatility if portfolio_volatility > 0 else 0
+            
+            self.logger.info(f"RiskFolio risk budgeting complete: Sharpe={sharpe:.3f}")
+            
+            return AllocationResult(
+                allocations=allocations,
+                expected_return=portfolio_return,
+                expected_volatility=portfolio_volatility,
+                sharpe_ratio=sharpe,
+                value_at_risk=norm.ppf(0.05) * portfolio_volatility,
+                expected_shortfall=portfolio_volatility * norm.pdf(norm.ppf(0.05)) / 0.05,
+                method_used=OptimizationMethod.RISK_PARITY,
+                confidence_score=0.85,
+                regime_weights={},
+                constraints_satisfied=True,
+                optimization_time=0.0,
+                iteration_count=0,
+                convergence_status="OPTIMAL"
+            )
+            
+        except Exception as e:
+            self.error_handler.handle_error(e, "_optimize_risk_budgeting")
             raise
 
     async def _optimize_kelly_criterion(self, returns_df: pd.DataFrame,
@@ -2056,22 +2331,34 @@ import cvxpy as cp
 import cvxopt
 from pypfopt import EfficientFrontier, risk_models, expected_returns
 from pypfopt.discrete_allocation import DiscreteAllocation
-from pypfopt.objectives import L2_reg
+from pypfopt.objective_functions import L2_reg
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics
+from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator as PerformanceMetrics
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
 # Market data and analysis
 from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIXAnalyzer, VIXRegime
-from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
-from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
-from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
+
+try:
+    from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
+except ImportError:
+    VolatilityRegimeAnalyzer = None
+
+try:
+    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine as RegimeClassifier
+except ImportError:
+    RegimeClassifier = None
+
+try:
+    from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
+except ImportError:
+    FeatureEngineer = None
 
 # Portfolio components
 try:

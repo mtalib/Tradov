@@ -106,7 +106,7 @@ if __name__ == "__main__":
         print("  • Prometheus metrics monitoring")
         print("  • Real-time data integration")
         print("  • Professional dark theme")
-        print("  • IB Gateway connectivity")
+        print("  • Tradier broker connectivity")
         print("  • Automated trading controls")
         print("\nNo functionality has been lost!")
     else:

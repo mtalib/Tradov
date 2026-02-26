@@ -12,7 +12,7 @@ Last Updated: 2025-11-25 Time: 12:00:00
 
 Module Description:
     Real-time circuit breaker monitoring widget for the Spyder trading dashboard.
-    Displays status, statistics, and manual control for Tradier and Polygon.io
+    Displays status, statistics, and manual control for Tradier and Databento
     circuit breakers with visual indicators and health metrics.
 
 Key Features:
@@ -49,7 +49,7 @@ from PySide6.QtGui import QFont, QColor, QPalette
 # ==============================================================================
 try:
     from SpyderU_Utilities.SpyderU41_CircuitBreaker import (
-        tradier_breaker, polygon_breaker, CircuitState
+        tradier_breaker, CircuitState
     )
     CIRCUIT_BREAKERS_AVAILABLE = True
 except ImportError:
@@ -81,7 +81,15 @@ except ImportError:
             self.state = CircuitState.CLOSED
 
     tradier_breaker = MockCircuitBreaker("tradier")
-    polygon_breaker = MockCircuitBreaker("polygon")
+
+# Try to import Databento breaker (may not exist yet)
+try:
+    from SpyderU_Utilities.SpyderU41_CircuitBreaker import databento_breaker
+except ImportError:
+    if CIRCUIT_BREAKERS_AVAILABLE:
+        databento_breaker = MockCircuitBreaker("databento")  # type: ignore[misc]
+    else:
+        databento_breaker = MockCircuitBreaker("databento")
 
 # ==============================================================================
 # CIRCUIT BREAKER MONITOR WIDGET
@@ -91,7 +99,7 @@ class CircuitBreakerMonitor(QWidget):
     """
     Circuit Breaker Status Monitor Widget.
 
-    Displays real-time status of Tradier and Polygon circuit breakers with
+    Displays real-time status of Tradier and Databento circuit breakers with
     visual indicators, statistics, and manual control capabilities.
     """
 
@@ -104,7 +112,7 @@ class CircuitBreakerMonitor(QWidget):
         # State tracking
         self.breaker_states = {
             "tradier": CircuitState.CLOSED,
-            "polygon": CircuitState.CLOSED
+            "databento": CircuitState.CLOSED
         }
 
         # Setup UI
@@ -141,10 +149,10 @@ class CircuitBreakerMonitor(QWidget):
 
         # Circuit breaker panels
         self.tradier_panel = self.create_breaker_panel("Tradier API", "tradier")
-        self.polygon_panel = self.create_breaker_panel("Polygon.io", "polygon")
+        self.databento_panel = self.create_breaker_panel("Databento", "databento")
 
         main_layout.addWidget(self.tradier_panel)
-        main_layout.addWidget(self.polygon_panel)
+        main_layout.addWidget(self.databento_panel)
 
         # Add stretch to push everything to the top
         main_layout.addStretch()
@@ -237,8 +245,8 @@ class CircuitBreakerMonitor(QWidget):
         # Update Tradier breaker
         self.update_breaker_display("tradier", tradier_breaker)
 
-        # Update Polygon breaker
-        self.update_breaker_display("polygon", polygon_breaker)
+        # Update Databento breaker
+        self.update_breaker_display("databento", databento_breaker)
 
     def update_breaker_display(self, breaker_id: str, breaker):
         """Update display for a specific circuit breaker"""
@@ -353,9 +361,9 @@ class CircuitBreakerMonitor(QWidget):
                 import asyncio
                 asyncio.create_task(tradier_breaker.reset())
                 print(f"✅ {breaker_id.title()} circuit breaker reset")
-            elif breaker_id == "polygon":
+            elif breaker_id == "databento":
                 import asyncio
-                asyncio.create_task(polygon_breaker.reset())
+                asyncio.create_task(databento_breaker.reset())
                 print(f"✅ {breaker_id.title()} circuit breaker reset")
 
             # Emit signal

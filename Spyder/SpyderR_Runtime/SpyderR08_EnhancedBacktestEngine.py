@@ -44,6 +44,19 @@ import sqlite3
 
 warnings.filterwarnings('ignore')
 
+# Institutional Analytics
+try:
+    import empyrical
+    HAS_EMPYRICAL = True
+except ImportError:
+    HAS_EMPYRICAL = False
+
+try:
+    import pyfolio as pf
+    HAS_PYFOLIO = True
+except ImportError:
+    HAS_PYFOLIO = False
+
 # ==================================================================================
 # LOGGING CONFIGURATION
 # ==================================================================================
@@ -870,17 +883,131 @@ class EnhancedBacktestEngine:
         return metrics
         
     def _calculate_ml_performance(self) -> Dict[str, float]:
-        """Calculate ML model performance"""
+        """Calculate ML model performance using empyrical metrics."""
         
         if not self.ml_predictions:
             return {}
-            
-        # Placeholder for ML performance metrics
+        
+        # Calculate prediction accuracy from ML prediction history
+        correct = 0
+        total = 0
+        for pred in self.ml_predictions:
+            if 'predicted_direction' in pred and 'actual_direction' in pred:
+                total += 1
+                if pred['predicted_direction'] == pred['actual_direction']:
+                    correct += 1
+        
+        prediction_accuracy = correct / total if total > 0 else 0.0
+        
+        # Calculate feature importance stability across prediction windows
+        if len(self.ml_predictions) >= 2:
+            importances = [p.get('feature_importance', {}) for p in self.ml_predictions if 'feature_importance' in p]
+            if len(importances) >= 2:
+                # Measure rank correlation of feature importances across windows
+                all_features = set()
+                for imp in importances:
+                    all_features.update(imp.keys())
+                
+                if all_features:
+                    stability_scores = []
+                    for i in range(1, len(importances)):
+                        vec1 = [importances[i-1].get(f, 0) for f in all_features]
+                        vec2 = [importances[i].get(f, 0) for f in all_features]
+                        if np.std(vec1) > 0 and np.std(vec2) > 0:
+                            corr = np.corrcoef(vec1, vec2)[0, 1]
+                            stability_scores.append(max(0, corr))
+                    feature_stability = np.mean(stability_scores) if stability_scores else 0.5
+                else:
+                    feature_stability = 0.5
+            else:
+                feature_stability = 0.5
+        else:
+            feature_stability = 0.5
+        
+        # Regime detection accuracy from predictions vs actuals
+        regime_correct = 0
+        regime_total = 0
+        for pred in self.ml_predictions:
+            if 'predicted_regime' in pred and 'actual_regime' in pred:
+                regime_total += 1
+                if pred['predicted_regime'] == pred['actual_regime']:
+                    regime_correct += 1
+        
+        regime_accuracy = regime_correct / regime_total if regime_total > 0 else 0.0
+        
         return {
-            'prediction_accuracy': 0.65,
-            'feature_importance_stability': 0.80,
-            'regime_detection_accuracy': 0.75
+            'prediction_accuracy': round(prediction_accuracy, 4),
+            'feature_importance_stability': round(feature_stability, 4),
+            'regime_detection_accuracy': round(regime_accuracy, 4),
+            'total_predictions': total,
+            'total_regime_predictions': regime_total
         }
+    
+    def generate_tearsheet(self, result: 'BacktestResult') -> Dict[str, Any]:
+        """
+        Generate institutional-grade performance tear sheet using empyrical.
+        
+        Args:
+            result: BacktestResult from a completed backtest run.
+            
+        Returns:
+            Dict with validated performance metrics from empyrical.
+        """
+        tearsheet = {'library': 'empyrical', 'available': HAS_EMPYRICAL}
+        
+        if not HAS_EMPYRICAL:
+            logger.warning("empyrical not available — returning basic metrics")
+            return {**tearsheet, **result.performance_metrics}
+        
+        try:
+            # Convert equity curve to returns series
+            if isinstance(result.equity_curve, pd.DataFrame):
+                if 'equity' in result.equity_curve.columns:
+                    equity = result.equity_curve['equity']
+                else:
+                    equity = result.equity_curve.iloc[:, 0]
+            else:
+                equity = pd.Series(result.equity_curve)
+            
+            returns = equity.pct_change().dropna()
+            
+            if len(returns) < 5:
+                return {**tearsheet, 'error': 'Insufficient data for tear sheet'}
+            
+            # Core return metrics (empyrical-validated)
+            tearsheet['annual_return'] = float(empyrical.annual_return(returns))
+            tearsheet['cumulative_return'] = float(empyrical.cum_returns_final(returns))
+            tearsheet['annual_volatility'] = float(empyrical.annual_volatility(returns))
+            
+            # Risk-adjusted metrics
+            tearsheet['sharpe_ratio'] = float(empyrical.sharpe_ratio(returns))
+            tearsheet['sortino_ratio'] = float(empyrical.sortino_ratio(returns))
+            tearsheet['calmar_ratio'] = float(empyrical.calmar_ratio(returns))
+            tearsheet['omega_ratio'] = float(empyrical.omega_ratio(returns))
+            
+            # Drawdown metrics
+            tearsheet['max_drawdown'] = float(empyrical.max_drawdown(returns))
+            
+            # Tail risk metrics
+            tearsheet['var_5'] = float(empyrical.value_at_risk(returns, cutoff=0.05))
+            tearsheet['cvar_5'] = float(empyrical.conditional_value_at_risk(returns, cutoff=0.05))
+            
+            # Stability and consistency
+            tearsheet['stability_of_timeseries'] = float(empyrical.stability_of_timeseries(returns))
+            tearsheet['tail_ratio'] = float(empyrical.tail_ratio(returns))
+            
+            # Trade statistics from result
+            tearsheet['total_trades'] = result.performance_metrics.get('total_trades', 0)
+            tearsheet['win_rate'] = result.performance_metrics.get('win_rate', 0)
+            
+            logger.info(f"Tear sheet generated: Sharpe={tearsheet['sharpe_ratio']:.3f}, "
+                       f"Annual Return={tearsheet['annual_return']:.2%}")
+            
+        except Exception as e:
+            logger.error(f"Error generating tear sheet: {e}")
+            tearsheet['error'] = str(e)
+        
+        return tearsheet
         
     def _calculate_consistency(self, results: List[BacktestResult]) -> float:
         """Calculate consistency score across periods"""

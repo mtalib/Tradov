@@ -21,9 +21,15 @@ Change Log:
 """
 
 # ==============================================================================
-# LOCAL IMPORTS
+# STANDARD IMPORTS
 # ==============================================================================
-from SpyderG_GUI.SpyderG99_GUILogHandler import GUILogHandler
+import logging
+from typing import Optional, Set
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+from PySide6.QtCore import QObject, Signal, Qt
 
 class GUILogHandler(QObject, logging.Handler):
     """

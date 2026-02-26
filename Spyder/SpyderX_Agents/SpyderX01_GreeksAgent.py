@@ -80,14 +80,24 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import (
-    calculate_option_greeks,
-    black_scholes_price,
-)
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
-    get_time_to_expiration,
-    is_market_open,
-)
+# Optional Greeks calculation imports (functions may not exist in U06 yet)
+try:
+    from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import (
+        calculate_option_greeks,
+        black_scholes_price,
+    )
+except ImportError:
+    calculate_option_greeks = None  # type: ignore
+    black_scholes_price = None  # type: ignore
+
+try:
+    from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
+        get_time_to_expiration,
+        is_market_open,
+    )
+except ImportError:
+    get_time_to_expiration = None  # type: ignore
+    is_market_open = None  # type: ignore
 
 # ==============================================================================
 # CONSTANTS
@@ -2519,14 +2529,24 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import (
-    calculate_option_greeks,
-    black_scholes_price,
-)
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
-    get_time_to_expiration,
-    is_market_open,
-)
+# Optional Greeks calculation imports (functions may not exist in U06 yet)
+try:
+    from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import (
+        calculate_option_greeks,
+        black_scholes_price,
+    )
+except ImportError:
+    calculate_option_greeks = None  # type: ignore
+    black_scholes_price = None  # type: ignore
+
+try:
+    from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
+        get_time_to_expiration,
+        is_market_open,
+    )
+except ImportError:
+    get_time_to_expiration = None  # type: ignore
+    is_market_open = None  # type: ignore
 
 # ==============================================================================
 # CONSTANTS

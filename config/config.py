@@ -54,7 +54,36 @@ TRADIER_CONFIG = {
 }
 
 # ==============================================================================
-# POLYGON.IO API CONFIGURATION
+# DATABENTO API CONFIGURATION
+# ==============================================================================
+DATABENTO_CONFIG = {
+    "api_key": os.environ.get("DATABENTO_API_KEY", ""),
+
+    # Dataset for options (OPRA.PILLAR for US equity options)
+    "dataset": os.environ.get("DATABENTO_DATASET", "OPRA.PILLAR"),
+
+    # Default schemas for different use cases
+    "live_schema": os.environ.get("DATABENTO_LIVE_SCHEMA", "mbp-1"),
+    "historical_schema": os.environ.get("DATABENTO_HIST_SCHEMA", "ohlcv-1m"),
+
+    # Subscription Settings
+    "subscribe_trades": os.environ.get("DATABENTO_SUBSCRIBE_TRADES", "true").lower() == "true",
+    "subscribe_quotes": os.environ.get("DATABENTO_SUBSCRIBE_QUOTES", "true").lower() == "true",
+
+    # Default underlyings (will subscribe to all options for these)
+    "default_underlyings": os.environ.get("DATABENTO_UNDERLYINGS", "SPY").split(","),
+
+    # Connection Settings
+    "reconnect_delay": 5,
+    "max_reconnect_attempts": 10,
+
+    # Cost Controls (Databento charges per GB streamed)
+    "max_daily_gb": float(os.environ.get("DATABENTO_MAX_DAILY_GB", "5.0")),
+    "warn_gb_threshold": float(os.environ.get("DATABENTO_WARN_GB", "3.0")),
+}
+
+# ==============================================================================
+# POLYGON.IO API CONFIGURATION (LEGACY — migrating to Databento)
 # ==============================================================================
 POLYGON_CONFIG = {
     "api_key": os.environ.get("POLYGON_API_KEY", ""),
@@ -88,7 +117,7 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
 REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
 
 # Provider Selection
-DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "polygon")  # polygon
+DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "databento")  # databento, polygon (legacy)
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 
 # ==============================================================================
@@ -258,6 +287,8 @@ def get_active_config():
         "data_provider": DATA_PROVIDER,
         "tradier_url": tradier_url,
         "tradier_account_id": TRADIER_CONFIG["account_id"],
+        "databento_dataset": DATABENTO_CONFIG["dataset"],
+        "databento_live_schema": DATABENTO_CONFIG["live_schema"],
         "polygon_ws_url": POLYGON_CONFIG["ws_url"],
         "requires_confirmation": REQUIRE_LIVE_CONFIRMATION if mode == "live" else False,
     }
@@ -273,9 +304,13 @@ def validate_config():
     if not TRADIER_CONFIG["account_id"]:
         errors.append("TRADIER_ACCOUNT_ID not set in .env")
 
-    # Check Polygon configuration
-    if not POLYGON_CONFIG["api_key"]:
-        errors.append("POLYGON_API_KEY not set in .env")
+    # Check market data configuration (Databento or Polygon)
+    if DATA_PROVIDER == "databento":
+        if not DATABENTO_CONFIG["api_key"]:
+            errors.append("DATABENTO_API_KEY not set in .env")
+    elif DATA_PROVIDER == "polygon":
+        if not POLYGON_CONFIG["api_key"]:
+            errors.append("POLYGON_API_KEY not set in .env")
 
     # Check trading mode
     mode = os.environ.get("TRADING_MODE", "")
@@ -315,9 +350,9 @@ def check_api_authentication():
 
 # Print configuration status on import
 if __name__ != "__main__":
-    print("SPYDER Configuration Loaded (Tradier + Polygon)")
+    print(f"SPYDER Configuration Loaded (Tradier + {DATA_PROVIDER.capitalize()})")
     print(f"   Execution: Tradier API")
-    print(f"   Market Data: Polygon.io")
+    print(f"   Market Data: {DATA_PROVIDER.capitalize()}")
     print(f"   Trading Mode: {TRADING_MODE}")
 
 if __name__ == "__main__":

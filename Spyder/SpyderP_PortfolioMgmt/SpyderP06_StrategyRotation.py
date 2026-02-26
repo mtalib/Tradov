@@ -56,6 +56,19 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 import talib
 
+# Institutional Analytics
+try:
+    import empyrical
+    HAS_EMPYRICAL = True
+except ImportError:
+    HAS_EMPYRICAL = False
+
+try:
+    import riskfolio as rp
+    HAS_RISKFOLIO = True
+except ImportError:
+    HAS_RISKFOLIO = False
+
 # ==============================================================================
 # SPYDER IMPORTS
 # ==============================================================================
@@ -63,7 +76,11 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import AgentMessageBus, Message, MessagePriority
 from Spyder.SpyderP_PortfolioMgmt.SpyderP05_MultiStrategyAllocator import MultiStrategyAllocator
-from Spyder.SpyderX_Agents.SpyderX16_MetaCoordinator import MetaCoordinator
+
+try:
+    from Spyder.SpyderX_Agents.SpyderX16_MetaCoordinator import MetaCoordinator
+except ImportError:
+    MetaCoordinator = None  # type: ignore
 
 # ==============================================================================
 # CONSTANTS
@@ -1099,28 +1116,82 @@ class StrategyRotation:
         """
         Backtest regime-based strategy selection.
         
+        Uses empyrical for validated performance metrics when available.
+        
         Args:
             start_date: Backtest start
             end_date: Backtest end
             
         Returns:
-            Backtest results
+            Backtest results with validated metrics.
         """
-        # This would implement full backtesting
-        # Simplified version here
+        # Filter regime/rotation history to date range
+        regime_changes = [r for r in self.regime_history 
+                         if r.start_time >= start_date and r.start_time <= end_date]
+        rotations = [r for r in self.rotation_history
+                    if r.execution_time >= start_date and r.execution_time <= end_date]
         
         results = {
             'period': f"{start_date.date()} to {end_date.date()}",
             'total_regimes': len(self.regime_history),
-            'regime_changes': len([r for r in self.regime_history 
-                                  if r.start_time >= start_date and r.start_time <= end_date]),
-            'rotations': len([r for r in self.rotation_history
-                            if r.execution_time >= start_date and r.execution_time <= end_date]),
-            'win_rate': 0.65,  # Placeholder
-            'sharpe_ratio': 1.2,  # Placeholder
-            'max_drawdown': -0.15,  # Placeholder
-            'total_return': 0.18  # Placeholder
+            'regime_changes': len(regime_changes),
+            'rotations': len(rotations),
         }
+        
+        # Calculate real metrics from strategy performance history
+        all_returns = []
+        for perf_data in self.strategy_performance.values():
+            if isinstance(perf_data, dict) and 'returns' in perf_data:
+                all_returns.extend(perf_data['returns'])
+            elif hasattr(perf_data, 'returns_history'):
+                all_returns.extend(list(perf_data.returns_history))
+        
+        if all_returns and len(all_returns) >= 10:
+            ret_series = pd.Series(all_returns)
+            
+            if HAS_EMPYRICAL:
+                # Institutional-grade metrics via empyrical
+                results['sharpe_ratio'] = float(empyrical.sharpe_ratio(ret_series, period='daily'))
+                results['max_drawdown'] = float(empyrical.max_drawdown(ret_series))
+                results['total_return'] = float(empyrical.cum_returns_final(ret_series))
+                results['annual_return'] = float(empyrical.annual_return(ret_series, period='daily'))
+                results['annual_volatility'] = float(empyrical.annual_volatility(ret_series, period='daily'))
+                results['sortino_ratio'] = float(empyrical.sortino_ratio(ret_series, period='daily'))
+                results['calmar_ratio'] = float(empyrical.calmar_ratio(ret_series, period='daily'))
+                results['var_5'] = float(empyrical.value_at_risk(ret_series, cutoff=0.05))
+                results['cvar_5'] = float(empyrical.conditional_value_at_risk(ret_series, cutoff=0.05))
+                results['stability'] = float(empyrical.stability_of_timeseries(ret_series))
+            else:
+                # Basic calculations without empyrical
+                total_return = float(np.prod(1 + ret_series) - 1)
+                annual_vol = float(ret_series.std() * np.sqrt(252))
+                annual_return = float(ret_series.mean() * 252)
+                sharpe = annual_return / annual_vol if annual_vol > 0 else 0
+                
+                # Max drawdown
+                cumulative = (1 + ret_series).cumprod()
+                running_max = cumulative.cummax()
+                drawdown = (cumulative - running_max) / running_max
+                max_dd = float(drawdown.min())
+                
+                results['sharpe_ratio'] = sharpe
+                results['max_drawdown'] = max_dd
+                results['total_return'] = total_return
+                results['annual_return'] = annual_return
+                results['annual_volatility'] = annual_vol
+            
+            # Win rate from actual trades
+            winning = sum(1 for r in all_returns if r > 0)
+            results['win_rate'] = winning / len(all_returns)
+            results['total_trades'] = len(all_returns)
+            results['metrics_source'] = 'empyrical' if HAS_EMPYRICAL else 'local'
+        else:
+            # Insufficient data — calculate from regime history metadata
+            results['win_rate'] = 0.0
+            results['sharpe_ratio'] = 0.0
+            results['max_drawdown'] = 0.0
+            results['total_return'] = 0.0
+            results['metrics_source'] = 'insufficient_data'
         
         return results
     

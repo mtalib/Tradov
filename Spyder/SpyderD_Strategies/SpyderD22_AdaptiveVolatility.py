@@ -44,12 +44,54 @@ from scipy import stats, optimize
 # ==============================================================================
 # SPYDER IMPORTS
 # ==============================================================================
-from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, Signal, StrategyState
-from Spyder.SpyderN_Numerical.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
-from Spyder.SpyderN_Numerical.SpyderN05_VolatilityModeling import VolatilityModeling
-from Spyder.SpyderN_Numerical.SpyderN06_StatisticalAnalysis import StatisticalAnalysis
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    BaseStrategy, TradingSignal, SignalType, SignalStrength
+)
+
+# Optional analytics imports
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    HAS_GREEKS_CALC = True
+except ImportError:
+    OptionsGreeksCalculator = None
+    HAS_GREEKS_CALC = False
+
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling
+    HAS_VOL_MODELING = True
+except ImportError:
+    VolatilityModeling = None
+    HAS_VOL_MODELING = False
+
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+
+
+@dataclass
+class Signal:
+    """Lightweight signal wrapper for adaptive volatility decisions."""
+    action: str = "HOLD"
+    strength: float = 0.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+class StrategyState(Enum):
+    """Strategy operational state."""
+    IDLE = "idle"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ERROR = "error"
+
+
+# Reinforcement Learning (optional)
+try:
+    import gym
+    from gym import spaces
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    HAS_SB3 = True
+except ImportError:
+    HAS_SB3 = False
 
 # ==============================================================================
 # CONSTANTS
@@ -165,6 +207,120 @@ class VolatilityPosition:
     days_held: int
 
 # ==============================================================================
+# RL ENVIRONMENT — VOLATILITY POSITION SIZING & OPPORTUNITY SCORING
+# ==============================================================================
+if HAS_SB3:
+    class VolSizingEnvironment(gym.Env):
+        """
+        RL environment for adaptive volatility position sizing and
+        opportunity selection.
+
+        The agent observes volatility metrics (IV, HV, VRP, term structure,
+        skew, regime) and decides position size and which opportunity to
+        prioritise. This replaces the hardcoded scoring weights in
+        ``_select_best_opportunity()`` and the trivial
+        ``_calculate_position_size()`` with a learned policy.
+
+        Observation (10-dim):
+            [iv_rank, iv_percentile, vrp, iv_hv_ratio, skew_z,
+             term_slope, regime_enc, regime_confidence,
+             signal_strength_norm, expected_edge]
+
+        Actions (5 discrete):
+            0=skip, 1=tiny (0.2x), 2=small (0.5x), 3=full (1.0x),
+            4=aggressive (1.5x)
+
+        Reward:
+            Simulated trade P&L weighted by chosen size.
+        """
+
+        SIZE_MULTIPLIERS = [0.0, 0.2, 0.5, 1.0, 1.5]
+
+        REGIME_ENCODING = {
+            'low_stable': 0.0,
+            'low_rising': 0.15,
+            'normal': 0.30,
+            'high_stable': 0.50,
+            'high_falling': 0.65,
+            'spike': 0.80,
+            'crush': 0.90,
+            'transitioning': 1.0,
+        }
+
+        def __init__(self, episode_length: int = 60):
+            super().__init__()
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(10,), dtype=np.float32
+            )
+            self.action_space = spaces.Discrete(5)
+            self.episode_length = episode_length
+            self.current_step = 0
+            self.cumulative_pnl = 0.0
+            self._data = self._generate_synthetic_data()
+
+        def reset(self) -> np.ndarray:
+            max_start = max(0, len(self._data) - self.episode_length - 1)
+            self._start = np.random.randint(0, max(1, max_start))
+            self.current_step = 0
+            self.cumulative_pnl = 0.0
+            return self._get_obs()
+
+        def step(self, action: int):
+            idx = self._start + self.current_step
+            row = self._data.iloc[idx]
+            size = self.SIZE_MULTIPLIERS[action]
+
+            if action == 0:  # Skip
+                reward = -0.001  # tiny patience cost
+            else:
+                trade_return = row.get('future_pnl', 0.0)
+                reward = float(trade_return * size)
+                self.cumulative_pnl += reward
+
+            self.current_step += 1
+            done = self.current_step >= self.episode_length
+            info = {'pnl': self.cumulative_pnl, 'size': size}
+            return self._get_obs(), float(reward), done, info
+
+        def _get_obs(self) -> np.ndarray:
+            idx = min(self._start + self.current_step, len(self._data) - 1)
+            r = self._data.iloc[idx]
+            return np.array([
+                r['iv_rank'],
+                r['iv_percentile'],
+                r['vrp'],
+                r['iv_hv_ratio'],
+                r['skew_z'],
+                r['term_slope'],
+                r['regime_enc'],
+                r['regime_confidence'],
+                r['signal_strength'],
+                r['expected_edge'],
+            ], dtype=np.float32)
+
+        @staticmethod
+        def _generate_synthetic_data(n: int = 2000) -> pd.DataFrame:
+            iv_rank = np.random.uniform(0, 1, n)
+            iv_pct = np.random.uniform(0, 1, n)
+            vrp = np.random.normal(0.05, 0.10, n)
+            iv_hv = np.random.uniform(0.6, 1.6, n)
+            skew = np.random.normal(0, 1, n)
+            term = np.random.normal(0, 0.05, n)
+            regime = np.random.uniform(0, 1, n)
+            conf = np.random.uniform(0.4, 1.0, n)
+            strength = np.random.uniform(0, 1, n)
+            edge = np.random.normal(0.02, 0.05, n)
+            future_pnl = edge + np.random.normal(0, 0.03, n)
+            return pd.DataFrame({
+                'iv_rank': iv_rank, 'iv_percentile': iv_pct, 'vrp': vrp,
+                'iv_hv_ratio': iv_hv, 'skew_z': skew, 'term_slope': term,
+                'regime_enc': regime, 'regime_confidence': conf,
+                'signal_strength': strength, 'expected_edge': edge,
+                'future_pnl': future_pnl,
+            })
+
+
+# ==============================================================================
 # MAIN STRATEGY CLASS
 # ==============================================================================
 class AdaptiveVolatilityStrategy(BaseStrategy):
@@ -213,6 +369,91 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         self.regime_model = None
         
         self.logger.info(f"{self.strategy_name} initialized")
+
+        # RL volatility sizing model (optional)
+        self._rl_vol_model = None
+        self._rl_vol_enabled = HAS_SB3
+        self._load_rl_vol_model()
+
+    def _load_rl_vol_model(self, model_path: Optional[str] = None) -> None:
+        """Load pre-trained RL volatility sizing model if available."""
+        if not HAS_SB3:
+            self._rl_vol_enabled = False
+            return
+        try:
+            import os
+            if model_path:
+                self._rl_vol_model = PPO.load(model_path)
+                self.logger.info(f"RL vol sizing model loaded from {model_path}")
+            else:
+                default_path = "models/rl/vol_sizing/vol_sizing_PPO_final"
+                if os.path.exists(default_path + ".zip"):
+                    self._rl_vol_model = PPO.load(default_path)
+                    self.logger.info("RL vol sizing model loaded from default path")
+                else:
+                    self._rl_vol_enabled = False
+        except Exception as e:
+            self._rl_vol_enabled = False
+            self.logger.warning(f"Failed to load RL vol model: {e}")
+
+    def _get_rl_position_size(
+        self,
+        metrics: 'VolatilityMetrics',
+        signal_strength: float,
+        expected_edge: float = 0.0,
+    ) -> Optional[float]:
+        """
+        Query RL model for position size recommendation.
+
+        Args:
+            metrics: Current volatility metrics.
+            signal_strength: Normalised signal strength (0–1).
+            expected_edge: Expected edge of the opportunity.
+
+        Returns:
+            Position size multiplier, or None if RL is unavailable.
+        """
+        if not self._rl_vol_enabled or self._rl_vol_model is None:
+            return None
+
+        try:
+            regime_enc = {
+                VolatilityRegime.LOW_STABLE: 0.0,
+                VolatilityRegime.LOW_RISING: 0.15,
+                VolatilityRegime.NORMAL: 0.30,
+                VolatilityRegime.HIGH_STABLE: 0.50,
+                VolatilityRegime.HIGH_FALLING: 0.65,
+                VolatilityRegime.SPIKE: 0.80,
+                VolatilityRegime.CRUSH: 0.90,
+                VolatilityRegime.TRANSITIONING: 1.0,
+            }.get(metrics.regime, 0.3)
+
+            iv_hv_ratio = (
+                metrics.implied_volatility / max(0.001, metrics.historical_volatility)
+            )
+
+            obs = np.array([
+                metrics.iv_rank,
+                metrics.iv_percentile,
+                metrics.volatility_risk_premium,
+                iv_hv_ratio,
+                metrics.skew,
+                next(iter(metrics.term_structure.values()), 0.0)
+                    if metrics.term_structure else 0.0,
+                regime_enc,
+                metrics.regime_confidence,
+                signal_strength,
+                expected_edge,
+            ], dtype=np.float32)
+
+            action, _ = self._rl_vol_model.predict(obs, deterministic=True)
+            action = int(action)
+            size_mults = [0.0, 0.2, 0.5, 1.0, 1.5]
+            return size_mults[action]
+
+        except Exception as e:
+            self.logger.warning(f"RL vol sizing failed: {e}")
+            return None
     
     def analyze_market_conditions(self, market_data: Dict[str, Any]) -> Signal:
         """
@@ -657,7 +898,16 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
             return SignalStrength.EXTREME
     
     def _calculate_position_size(self, signal_strength: float) -> float:
-        """Calculate position size based on signal strength"""
+        """Calculate position size based on signal strength (RL-enhanced)."""
+        # Try RL model first
+        if self._rl_vol_enabled and self.current_metrics is not None:
+            rl_size = self._get_rl_position_size(
+                self.current_metrics, signal_strength
+            )
+            if rl_size is not None:
+                self.logger.debug(f"RL position size: {rl_size:.2f} (signal={signal_strength:.2f})")
+                return rl_size
+        # Fallback to rule-based
         return min(1.0, max(0.2, signal_strength))
     
     def _select_best_opportunity(
@@ -665,11 +915,24 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         opportunities: List[VolatilitySignal],
         metrics: VolatilityMetrics
     ) -> VolatilitySignal:
-        """Select best trading opportunity from multiple signals"""
+        """Select best trading opportunity from multiple signals (RL-enhanced scoring)."""
         # Score each opportunity
         scored_opportunities = []
         
         for opp in opportunities:
+            # Query RL for size/skip recommendation
+            rl_size = None
+            if self._rl_vol_enabled and metrics is not None:
+                rl_size = self._get_rl_position_size(
+                    metrics,
+                    opp.strength.value / 5.0,
+                    opp.expected_edge,
+                )
+
+            if rl_size is not None and rl_size == 0.0:
+                # RL says skip this opportunity
+                continue
+
             score = 0.0
             
             # Weight by signal strength
@@ -690,9 +953,17 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
                 score *= 1.1
             elif metrics.iv_rank < 30 and opp.direction == "LONG":
                 score *= 1.1
+
+            # RL size boost: larger recommended size = higher score
+            if rl_size is not None:
+                score *= (0.5 + rl_size)  # range [0.7 .. 2.0]
             
             scored_opportunities.append((opp, score))
         
+        if not scored_opportunities:
+            # All filtered out by RL — return first opportunity as fallback
+            return opportunities[0]
+
         # Return highest scoring opportunity
         return max(scored_opportunities, key=lambda x: x[1])[0]
     

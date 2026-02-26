@@ -76,7 +76,7 @@ try:
     )
 
     CORRELATION_ANALYZER_AVAILABLE = True
-except ImportError as e:
+except Exception as e:
     print(f"⚠️ SpyderP03_CorrelationAnalyzer not available: {e}")
     CORRELATION_ANALYZER_AVAILABLE = False
 

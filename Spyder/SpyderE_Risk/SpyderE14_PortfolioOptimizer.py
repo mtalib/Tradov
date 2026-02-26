@@ -51,6 +51,13 @@ from sklearn.metrics import mean_squared_error
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Institutional Portfolio Analytics
+try:
+    import riskfolio as rp
+    HAS_RISKFOLIO = True
+except ImportError:
+    HAS_RISKFOLIO = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -114,6 +121,9 @@ class OptimizationMethod(Enum):
     ROBUST_OPTIMIZATION = "robust_optimization"  # Robust optimization
     MACHINE_LEARNING = "machine_learning"     # ML-driven optimization
     MULTI_OBJECTIVE = "multi_objective"       # Multi-objective optimization
+    HIERARCHICAL_RISK_PARITY = "hrp"          # RiskFolio HRP
+    CVAR_OPTIMIZATION = "cvar_optimization"   # RiskFolio CVaR optimization
+    RISK_BUDGETING = "risk_budgeting"         # RiskFolio risk budgeting
 
 class OptimizationObjective(Enum):
     """Optimization objectives"""
@@ -335,9 +345,9 @@ class PortfolioPerformanceAttribution:
     factor_contributions: Dict[str, float] = field(default_factory=dict)
     
     # Optimization effectiveness
-    optimization_success_rate: float     # % of optimizations that improved performance
-    rebalancing_effectiveness: float     # Avg benefit per rebalancing
-    cost_efficiency: float               # Return per unit of transaction cost
+    optimization_success_rate: float = 0.0     # % of optimizations that improved performance
+    rebalancing_effectiveness: float = 0.0     # Avg benefit per rebalancing
+    cost_efficiency: float = 0.0               # Return per unit of transaction cost
 
 @dataclass
 class OptimizationParameters:
@@ -603,6 +613,12 @@ class PortfolioOptimizer:
             elif params.method == OptimizationMethod.MULTI_OBJECTIVE:
                 optimal_weights = await self._optimize_multi_objective(
                     expected_returns, covariance_matrix, params
+                )
+            elif params.method in (OptimizationMethod.HIERARCHICAL_RISK_PARITY,
+                                   OptimizationMethod.CVAR_OPTIMIZATION,
+                                   OptimizationMethod.RISK_BUDGETING):
+                optimal_weights = await self._optimize_with_riskfolio(
+                    returns_data, params
                 )
             else:
                 # Default to mean variance
@@ -1597,6 +1613,106 @@ class PortfolioOptimizer:
     # ==========================================================================
     # PRIVATE METHODS - Utility Functions
     # ==========================================================================
+    
+    async def _optimize_with_riskfolio(
+        self,
+        returns_data: pd.DataFrame,
+        parameters: 'OptimizationParameters'
+    ) -> Dict[str, float]:
+        """
+        Optimize portfolio using RiskFolio-Lib institutional methods.
+        
+        Supports Hierarchical Risk Parity (HRP), CVaR optimization,
+        and risk budgeting with Ledoit-Wolf covariance estimation.
+        
+        Args:
+            returns_data: Historical returns DataFrame.
+            parameters: Optimization parameters including method selection.
+            
+        Returns:
+            Dict mapping asset names to optimal weights.
+        """
+        if not HAS_RISKFOLIO:
+            self.logger.warning("RiskFolio-Lib not available — falling back to mean-variance")
+            expected_returns = await self._calculate_expected_returns(returns_data, parameters)
+            covariance_matrix = await self._calculate_covariance_matrix(returns_data, parameters)
+            return await self._optimize_mean_variance(expected_returns, covariance_matrix, parameters)
+        
+        try:
+            # Create RiskFolio Portfolio object
+            port = rp.Portfolio(returns=returns_data)
+            
+            # Calculate asset statistics with Ledoit-Wolf covariance
+            port.assets_stats(
+                method_mu='hist',       # Historical mean
+                method_cov='ledoit_wolf' # Ledoit-Wolf shrinkage estimator
+            )
+            
+            asset_names = returns_data.columns.tolist()
+            
+            if parameters.method == OptimizationMethod.HIERARCHICAL_RISK_PARITY:
+                # Hierarchical Risk Parity — no covariance inversion needed
+                weights = port.optimization(
+                    model='HRP',
+                    codependence='pearson',
+                    rm='MV',              # Risk measure: variance
+                    rf=DEFAULT_RISK_FREE_RATE,
+                    linkage='single',
+                    leaf_order=True
+                )
+                
+            elif parameters.method == OptimizationMethod.CVAR_OPTIMIZATION:
+                # CVaR (Conditional Value-at-Risk) optimization
+                weights = port.optimization(
+                    model='Classic',
+                    rm='CVaR',           # Risk measure: Conditional VaR
+                    obj='Sharpe',        # Maximize Sharpe ratio
+                    rf=DEFAULT_RISK_FREE_RATE,
+                    l=0,                 # Risk aversion factor
+                    hist=True
+                )
+                
+            elif parameters.method == OptimizationMethod.RISK_BUDGETING:
+                # Risk budgeting — target equal risk contribution
+                n_assets = len(asset_names)
+                risk_budget = np.ones(n_assets) / n_assets  # Equal risk budget
+                
+                weights = port.rp_optimization(
+                    model='Classic',
+                    rm='CVaR',
+                    rf=DEFAULT_RISK_FREE_RATE,
+                    b=risk_budget
+                )
+            else:
+                # Default Classic optimization with variance
+                weights = port.optimization(
+                    model='Classic',
+                    rm='MV',
+                    obj='Sharpe',
+                    rf=DEFAULT_RISK_FREE_RATE,
+                    hist=True
+                )
+            
+            # Convert to dict
+            if weights is not None and not weights.empty:
+                optimal_weights = {
+                    asset_names[i]: float(weights.iloc[i, 0])
+                    for i in range(len(asset_names))
+                }
+                
+                self.logger.info(
+                    f"RiskFolio optimization ({parameters.method.value}) complete: "
+                    f"{len(optimal_weights)} assets optimized"
+                )
+                return optimal_weights
+            else:
+                self.logger.warning("RiskFolio optimization returned empty weights")
+                return self._create_equal_weights(returns_data.columns)
+                
+        except Exception as e:
+            self.logger.error(f"RiskFolio optimization error: {e}")
+            return self._create_equal_weights(returns_data.columns)
+    
     def _validate_optimization_inputs(self, returns_data: pd.DataFrame,
                                     current_weights: Optional[Dict[str, float]]) -> bool:
         """Validate optimization inputs."""

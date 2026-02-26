@@ -32,7 +32,25 @@ from typing import Any, Optional, Union
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import numpy as np
 import pandas as pd
+
+# Optional deep learning imports
+try:
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import LSTM, Dense, Dropout
+    HAS_TENSORFLOW = True
+except ImportError:
+    try:
+        from keras.models import Sequential
+        from keras.layers import LSTM, Dense, Dropout
+        HAS_TENSORFLOW = True
+    except ImportError:
+        Sequential = None  # type: ignore
+        LSTM = None  # type: ignore
+        Dense = None  # type: ignore
+        Dropout = None  # type: ignore
+        HAS_TENSORFLOW = False
 
 # ==============================================================================
 # LOCAL IMPORTS

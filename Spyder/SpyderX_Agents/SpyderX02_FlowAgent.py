@@ -55,7 +55,7 @@ except ImportError:
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled, SPYDERX_FEATURE_FLAGS
-from Spyder.SpyderM_Monitoring.SpyderM02_MigrationMonitor import get_migration_monitor
+from Spyder.SpyderM_Monitoring.SpyderM03_MigrationMonitor import get_migration_monitor
 from Spyder.SpyderN_OptionsAnalytics.SpyderN10_OptionsFlowAnalyzer import OptionsFlowAnalyzer
 
 # ==============================================================================

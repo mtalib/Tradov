@@ -8,6 +8,10 @@ lightgbm>=3.3.0
 optuna>=2.10.0
 shap>=0.40.0
 
+# Reinforcement Learning & Distributed Computing
+stable-baselines3[extra]>=2.0.0
+ray[rllib]>=2.9.0
+
 # Sentiment Analysis
 transformers>=4.20.0  # For FinBERT
 vaderSentiment>=3.3.2  # For VADER

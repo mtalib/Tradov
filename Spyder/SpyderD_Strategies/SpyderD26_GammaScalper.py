@@ -44,11 +44,54 @@ from scipy import stats
 # ==============================================================================
 # SPYDER IMPORTS
 # ==============================================================================
-from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, Signal, StrategyState
-from Spyder.SpyderN_Numerical.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
-from Spyder.SpyderN_Numerical.SpyderN05_VolatilityModeling import VolatilityModeling
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+    BaseStrategy, TradingSignal, SignalType, SignalStrength
+)
+
+# Optional analytics imports
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator
+    HAS_GREEKS_CALC = True
+except ImportError:
+    OptionsGreeksCalculator = None
+    HAS_GREEKS_CALC = False
+
+try:
+    from Spyder.SpyderN_OptionsAnalytics.SpyderN06_VolatilitySurfaceBuilder import VolatilitySurfaceBuilder as VolatilityModeling
+    HAS_VOL_MODELING = True
+except ImportError:
+    VolatilityModeling = None
+    HAS_VOL_MODELING = False
+
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+
+
+@dataclass
+class Signal:
+    """Lightweight signal wrapper for gamma scalping decisions."""
+    action: str = "HOLD"
+    strength: float = 0.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+class StrategyState(Enum):
+    """Strategy operational state."""
+    IDLE = "idle"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ERROR = "error"
+
+
+# Reinforcement Learning (optional)
+try:
+    import gym
+    from gym import spaces
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    HAS_SB3 = True
+except ImportError:
+    HAS_SB3 = False
 
 # ==============================================================================
 # CONSTANTS
@@ -172,6 +215,163 @@ class PortfolioGreeks:
     gamma_concentration: float  # Concentration risk metric
 
 # ==============================================================================
+# RL ENVIRONMENT — GAMMA HEDGING
+# ==============================================================================
+if HAS_SB3:
+    class GammaHedgingEnvironment(gym.Env):
+        """
+        RL environment for gamma scalping hedge decisions.
+
+        The agent learns optimal hedge timing based on Greeks exposure,
+        market conditions, transaction costs, and P&L tradeoffs.
+
+        Observation (8-dim):
+            [delta, gamma, vega, theta, iv_rank, realized_pnl,
+             time_since_last_hedge, hedge_cost_estimate]
+
+        Actions (5 discrete):
+            0=hold, 1=hedge_small (25%), 2=hedge_medium (50%),
+            3=hedge_full (100%), 4=reverse (overshoot hedge)
+
+        Reward:
+            P&L improvement - transaction_cost - delta_exposure_penalty
+        """
+
+        HEDGE_FRACTIONS = [0.0, 0.25, 0.50, 1.0, 1.25]
+
+        def __init__(
+            self,
+            historical_data: Optional[pd.DataFrame] = None,
+            episode_length: int = 60,
+            transaction_cost_bps: float = 5.0,
+            delta_penalty_coef: float = 0.01,
+        ):
+            super().__init__()
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32
+            )
+            self.action_space = spaces.Discrete(5)
+
+            # Params
+            self.episode_length = episode_length
+            self.tx_cost_bps = transaction_cost_bps
+            self.delta_penalty = delta_penalty_coef
+
+            # Historical data
+            if historical_data is not None and len(historical_data) > 0:
+                self.historical_data = historical_data
+            else:
+                self.historical_data = self._generate_synthetic_data()
+
+            # Episode state
+            self.current_step = 0
+            self.position_delta = 0.0
+            self.position_gamma = 0.0
+            self.position_vega = 0.0
+            self.position_theta = 0.0
+            self.cumulative_pnl = 0.0
+            self.steps_since_hedge = 0
+            self.total_tx_cost = 0.0
+
+        def reset(self) -> np.ndarray:
+            max_start = max(0, len(self.historical_data) - self.episode_length - 1)
+            self.start_idx = np.random.randint(0, max(1, max_start))
+            self.current_step = 0
+            self.cumulative_pnl = 0.0
+            self.steps_since_hedge = 0
+            self.total_tx_cost = 0.0
+
+            row = self.historical_data.iloc[self.start_idx]
+            self.position_delta = np.random.uniform(-30, 30)
+            self.position_gamma = abs(np.random.uniform(50, 150))
+            self.position_vega = np.random.uniform(-200, 200)
+            self.position_theta = -abs(np.random.uniform(10, 50))
+
+            return self._get_obs(row)
+
+        def step(self, action: int):
+            row = self.historical_data.iloc[self.start_idx + self.current_step]
+            price = row.get('close', 450.0)
+
+            # Price move
+            next_row = self.historical_data.iloc[
+                min(self.start_idx + self.current_step + 1,
+                    len(self.historical_data) - 1)
+            ]
+            price_move = next_row.get('close', price) - price
+
+            # P&L from delta
+            pnl_delta = self.position_delta * price_move
+            # P&L from gamma
+            pnl_gamma = 0.5 * self.position_gamma * (price_move ** 2)
+            # Theta decay
+            pnl_theta = self.position_theta / 252.0
+
+            step_pnl = pnl_delta + pnl_gamma + pnl_theta
+
+            # Execute hedge action
+            hedge_frac = self.HEDGE_FRACTIONS[action]
+            tx_cost = 0.0
+            if hedge_frac > 0:
+                shares_hedged = abs(self.position_delta * hedge_frac)
+                tx_cost = shares_hedged * price * self.tx_cost_bps / 10000.0
+                self.position_delta *= (1.0 - hedge_frac)
+                self.steps_since_hedge = 0
+                self.total_tx_cost += tx_cost
+            else:
+                self.steps_since_hedge += 1
+
+            # Reward: P&L - costs - exposure penalty
+            exposure_penalty = abs(self.position_delta) * self.delta_penalty
+            reward = step_pnl - tx_cost - exposure_penalty
+
+            self.cumulative_pnl += step_pnl - tx_cost
+            self.current_step += 1
+
+            # Evolve Greeks slightly
+            self.position_gamma *= np.random.uniform(0.98, 1.02)
+            self.position_theta *= np.random.uniform(0.99, 1.01)
+            self.position_delta += np.random.uniform(-2, 2)
+
+            done = self.current_step >= self.episode_length
+            obs = self._get_obs(next_row)
+
+            info = {
+                'pnl': self.cumulative_pnl,
+                'delta': self.position_delta,
+                'tx_cost': self.total_tx_cost,
+                'action_name': ['hold', 'hedge_small', 'hedge_medium',
+                                'hedge_full', 'reverse'][action],
+            }
+            return obs, float(reward), done, info
+
+        def _get_obs(self, row) -> np.ndarray:
+            iv_rank = row.get('iv_rank', 0.5)
+            return np.array([
+                self.position_delta / 100.0,
+                self.position_gamma / 100.0,
+                self.position_vega / 1000.0,
+                self.position_theta / 100.0,
+                iv_rank,
+                self.cumulative_pnl / 1000.0,
+                self.steps_since_hedge / 20.0,
+                abs(self.position_delta) * 0.05 / 100.0,  # estimated hedge cost
+            ], dtype=np.float32)
+
+        @staticmethod
+        def _generate_synthetic_data(n: int = 2000) -> pd.DataFrame:
+            dates = pd.date_range('2020-01-01', periods=n, freq='D')
+            prices = 400 + np.cumsum(np.random.randn(n) * 2)
+            prices = np.clip(prices, 100, None)
+            return pd.DataFrame({
+                'date': dates,
+                'close': prices,
+                'iv_rank': np.random.uniform(0, 1, n),
+                'implied_volatility': 0.15 + np.random.randn(n) * 0.05,
+            })
+
+
+# ==============================================================================
 # MAIN STRATEGY CLASS
 # ==============================================================================
 class GammaScalperStrategy(BaseStrategy):
@@ -238,8 +438,49 @@ class GammaScalperStrategy(BaseStrategy):
             sharpe_ratio=0
         )
         
+        # RL hedge agent (optional)
+        self._rl_hedge_model = None
+        self._rl_enabled = config.get('rl_hedge_enabled', False) and HAS_SB3
+        if self._rl_enabled:
+            self._load_rl_hedge_model(config.get('rl_model_path'))
+
         self.logger.info(f"{self.strategy_name} initialized in {self.scalping_mode} mode")
-    
+
+    def _load_rl_hedge_model(self, model_path: Optional[str] = None) -> None:
+        """Load pre-trained RL hedge timing model if available."""
+        if not HAS_SB3:
+            return
+        try:
+            if model_path:
+                self._rl_hedge_model = PPO.load(model_path)
+                self.logger.info(f"RL hedge model loaded from {model_path}")
+            else:
+                # Try default path
+                default_path = "models/rl/gamma_hedging/gamma_hedging_PPO_final"
+                import os
+                if os.path.exists(default_path + ".zip"):
+                    self._rl_hedge_model = PPO.load(default_path)
+                    self.logger.info("RL hedge model loaded from default path")
+                else:
+                    self.logger.info("No RL hedge model found — using rule-based hedging")
+        except Exception as e:
+            self.logger.warning(f"Failed to load RL hedge model: {e}")
+            self._rl_hedge_model = None
+
+    def _get_rl_hedge_observation(self, market_data: Dict[str, Any]) -> np.ndarray:
+        """Build observation vector for RL hedge agent."""
+        iv_rank = market_data.get('SPY', {}).get('iv_rank', 0.5)
+        return np.array([
+            self.portfolio_greeks.total_delta / 100.0,
+            self.portfolio_greeks.total_gamma / 100.0,
+            self.portfolio_greeks.total_vega / 1000.0,
+            self.portfolio_greeks.total_theta / 100.0,
+            iv_rank,
+            self.daily_pnl / 1000.0,
+            len(self.hedge_history) / 20.0 if self.hedge_history else 0.0,
+            abs(self.portfolio_greeks.total_delta) * 0.05 / 100.0,
+        ], dtype=np.float32)
+
     def analyze_market_conditions(self, market_data: Dict[str, Any]) -> Signal:
         """
         Analyze market for gamma scalping opportunities.
@@ -615,9 +856,28 @@ class GammaScalperStrategy(BaseStrategy):
         return contracts
     
     def _check_delta_hedge(self, market_data: Dict[str, Any]) -> Optional[Signal]:
-        """Check if delta hedge is needed"""
+        """Check if delta hedge is needed (RL-enhanced or rule-based)."""
         current_delta = self.portfolio_greeks.total_delta
-        
+
+        # RL-based hedge decision (if model available)
+        if self._rl_enabled and self._rl_hedge_model is not None:
+            try:
+                obs = self._get_rl_hedge_observation(market_data)
+                action, _ = self._rl_hedge_model.predict(obs, deterministic=True)
+                action = int(action)
+                # Actions: 0=hold, 1=hedge_small(25%), 2=hedge_medium(50%),
+                #          3=hedge_full(100%), 4=reverse(125%)
+                if action > 0:
+                    hedge_fractions = [0.0, 0.25, 0.50, 1.0, 1.25]
+                    frac = hedge_fractions[action]
+                    # Scale delta to hedge by fraction
+                    delta_to_hedge = current_delta * frac
+                    return self._create_hedge_signal(delta_to_hedge, market_data)
+                return None  # RL says hold
+            except Exception as e:
+                self.logger.warning(f"RL hedge decision failed, falling back to rules: {e}")
+
+        # Rule-based fallback
         # Check if delta exceeds threshold
         if abs(current_delta) > self.current_delta_threshold:
             return self._create_hedge_signal(current_delta, market_data)

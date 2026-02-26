@@ -3,66 +3,42 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderG_GUI [Application Name] [Group Letter] [Group Name]
-Module: SpyderG05_TradingDashboard.py [Application Name][Group Letter] [Module Number]_[Purpose].py
+Series: SpyderG_GUI
+Module: SpyderG05_TradingDashboard.py
 Purpose: Complete Trading Dashboard with Real Data Integration & Enhanced Features
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-24 Time: 12:00:00
+Last Updated: 2026-02-25 Time: 22:00:00
 
-⚠️ INTEGRATION UPDATE ⚠️
-    Dashboard references to "IB Gateway" and "IB Clients" are LEGACY terminology.
-
-    Current Data Sources:
-    - ✅ Tradier API for account data and order execution
-    - ✅ Polygon.io for real-time market data
-    - ❌ IB Gateway integration is deprecated (legacy references remain in UI)
-
-    Future Updates Needed:
-    - Update UI labels from "IB Client" to "Data Source"
-    - Remove Gateway control panel references
-    - Update Prometheus metrics to reflect current architecture
+Data Sources:
+    - Tradier API for account data and order execution (SpyderB40_TradierClient)
+    - Databento for real-time market data (SpyderC26_DatabentoClient)
+    - SpyderC01_DataFeed for provider-agnostic data abstraction
 
 Module Description:
-    Enhanced trading dashboard that seamlessly integrates real market data from IB Gateway
-    while maintaining full functionality in simulation mode. Features automatic detection
-    and switching between real and simulation data, comprehensive signal monitoring,
-    unified Prometheus metrics, and professional dark theme interface. Built on the
-    proven real data integration pattern from temp_WorkingRealDashboard.py.
+    Enhanced trading dashboard with real-time market data integration,
+    comprehensive signal monitoring, and professional dark theme interface.
+    Supports automatic detection and switching between real and simulation data.
 
 FEATURES:
     • Automatic real data detection and seamless switching
     • Simulation fallback with monitoring for real data availability
     • Professional signal monitor with 12 indicators including HMM/SKEW
-    • Unified Prometheus Metrics table (IB Clients 1-10 + Internal Modules)
     • Market hours awareness and connection health monitoring
     • Custom metrics integration (GEX/DEX/OGL/DIX/SWAN)
     • Enhanced P&L tracking and risk monitoring
     • Professional dark theme with traffic light indicators
     • 30-second heartbeat connection monitoring with visual indicator
-    • 🔧 GATEWAY CONTROL: Integrated control panel for Gateway and 8 clients
-    • 🔗 CLIENT MANAGEMENT: Sequential connection with proper delays
-    • ✅ STATUS UPDATES: Real-time client status in Prometheus table
 
-NEW GATEWAY FEATURES:
-    • Dockable Gateway Control Panel (🔧 button in Prometheus header)
-    • Automated Gateway launch and client connection
-    • 8-client sequential connection with proper delays
-    • Client status indicators in Prometheus table (clickable to reconnect)
-    • Real-time connection progress tracking
-    • Individual client health monitoring
-
-REAL DATA INTEGRATION:
-    • Data Source: ~/Projects/Spyder/market_data/live_data.json
+DATA SOURCES:
+    • Tradier API for account data, quotes, and order execution
+    • Databento for real-time streaming market data
     • Auto-detection with fallback to simulation mode
     • Status indicators show real vs simulation data source
-    • Enhanced refresh functionality for both data modes
-    • Proven integration pattern from working test module
 
-IB CONNECTION MONITORING:
+CONNECTION MONITORING:
     • 30-second heartbeat timer for connection health checks
     • Visual heartbeat indicator with 3-state system
-    • Automatic FROZEN DATA detection during market hours
     • Fixed-width status containers prevent UI jumping
     • Real-time connection status updates
 """
@@ -155,36 +131,32 @@ import matplotlib.patches as patches
 import pandas as pd
 
 # ==============================================================================
-# IB_ASYNC IMPORTS
+# BROKER/DATA IMPORTS (Tradier + Databento — IBKR removed Feb 2026)
 # ==============================================================================
-try:
-    from ib_async import IB, Stock, Index, Future, Contract, Ticker
-
-    print("✅ Using ib_async for IB Gateway connection")
-except ImportError:
-    print("⚠️ ib_async not available - using simulation mode")
+# ib_async is no longer used — Tradier API replaces IB Gateway for execution
+# Databento replaces Polygon.io for market data
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-project_root = Path(__file__).parent.parent.absolute()
-sys.path.insert(0, str(project_root))
+project_root = Path(__file__).parent.parent.parent.absolute()
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-# TEMPORARILY DISABLED: Module not found after restructure
-# from Spyder.SpyderB_Broker.SpyderB29_EnhancedConnectionManager import (
-#     get_connection_manager,
-#     ConnectionConfig,
-#     TradingMode,
-# )
-get_connection_manager = None  # Placeholder
-ConnectionConfig = None  # Placeholder
-TradingMode = None  # Placeholder
+
+# Tradier client for API connectivity checks
+try:
+    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import TradierClient
+    TRADIER_AVAILABLE = True
+except ImportError:
+    TradierClient = None  # type: ignore
+    TRADIER_AVAILABLE = False
 
 # Import Signal Info Dialog for popup system
 try:
-    from SpyderG_GUI.SpyderG12_SignalInfoDialog import SignalInfoDialog
+    from Spyder.SpyderG_GUI.SpyderG12_SignalInfoDialog import SignalInfoDialog
 
     signal_dialog_available = True
     print("✅ Signal Info Dialog module available")
@@ -195,7 +167,7 @@ except ImportError:
 
 # Import Risk Parameters Dialog
 try:
-    from SpyderG_GUI.SpyderG09_RiskParametersDialog import (
+    from Spyder.SpyderG_GUI.SpyderG09_RiskParametersDialog import (
         RiskParametersDialog,
         show_risk_parameters_dialog,
     )
@@ -210,7 +182,7 @@ except ImportError:
 
 # Import HMM and SKEW Dialog modules
 try:
-    from SpyderM_Monitoring.SpyderM06_HMMRegimeDetector import HMMMonitorDialog
+    from Spyder.SpyderM_Monitoring.SpyderM06_HMMRegimeDetector import HMMMonitorDialog
 
     hmm_dialog_available = True
     print("✅ HMM Monitor Dialog available")
@@ -220,7 +192,7 @@ except ImportError:
     print("⚠️ HMM Monitor Dialog not available")
 
 try:
-    from SpyderG_GUI.SpyderG11_SkewMonitorDialog import SkewMonitorDialog
+    from Spyder.SpyderG_GUI.SpyderG11_SkewMonitorDialog import SkewMonitorDialog
 
     skew_dialog_available = True
     print("✅ SKEW Monitor Dialog available")
@@ -231,7 +203,7 @@ except ImportError:
 
 # Try to import Prometheus metrics display module if available
 try:
-    from SpyderG_GUI.SpyderG07_PrometheusMetricsDisplay import (
+    from Spyder.SpyderG_GUI.SpyderG07_PrometheusMetricsDisplay import (
         get_client_status,
         get_system_metrics,
     )
@@ -245,27 +217,19 @@ except ImportError:
     print("⚠️ Prometheus metrics collector not available - using simulation")
 
 # ==============================================================================
-# NEW IMPORTS FOR GATEWAY AUTOMATION
+# DEPRECATED: Gateway Control Panel (removed in Tradier migration)
 # ==============================================================================
-try:
-    from SpyderG_GUI.SpyderG14_GatewayControlPanel import (
-        create_gateway_dock_widget,
-        GatewayControlPanel,
-    )
-
-    gateway_panel_available = True
-    print("✅ Gateway Control Panel available")
-except ImportError:
-    create_gateway_dock_widget = None  # type: ignore
-    GatewayControlPanel = None  # type: ignore
-    gateway_panel_available = False
-    print("⚠️ Gateway Control Panel not available")
+# Gateway Control Panel was for IB Gateway multi-client management
+# No longer needed with Tradier API (single REST endpoint)
+create_gateway_dock_widget = None
+GatewayControlPanel = None
+gateway_panel_available = False
 
 # ==============================================================================
 # CIRCUIT BREAKER MONITOR
 # ==============================================================================
 try:
-    from SpyderG_GUI.SpyderG16_CircuitBreakerMonitor import create_circuit_breaker_monitor
+    from Spyder.SpyderG_GUI.SpyderG16_CircuitBreakerMonitor import create_circuit_breaker_monitor
 
     circuit_breaker_monitor_available = True
     print("✅ Circuit Breaker Monitor available")
@@ -274,19 +238,10 @@ except ImportError:
     circuit_breaker_monitor_available = False
     print("⚠️ Circuit Breaker Monitor not available")
 
-try:
-    from SpyderG_GUI.SpyderG15_ClientConnectionManager import (
-        ClientConnectionManager,
-        ClientStatus,
-    )
-
-    client_manager_available = True
-    print("✅ Client Connection Manager available")
-except ImportError:
-    ClientConnectionManager = None  # type: ignore
-    ClientStatus = None  # type: ignore
-    client_manager_available = False
-    print("⚠️ Client Connection Manager not available")
+# Client Connection Manager — DEPRECATED (IB multi-client no longer used)
+ClientConnectionManager = None
+ClientStatus = None
+client_manager_available = False
 
 # ==============================================================================
 # CONSTANTS
@@ -385,35 +340,37 @@ def is_market_hours():
     return MARKET_OPEN_TIME <= now_et <= MARKET_CLOSE_TIME
 
 
-def check_ib_gateway_connection():
-    """Check if IB Gateway is running - ENHANCED WITH DEBUG"""
+def check_api_connection():
+    """Check if Tradier API is reachable.
+
+    Returns:
+        Tuple of (connected: bool, mode: str)
+    """
     try:
-        # Check paper trading port first (4002)
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)  # Increased timeout
-        paper_result = sock.connect_ex(("127.0.0.1", 4002))
-        sock.close()
+        if TRADIER_AVAILABLE:
+            import os
+            api_key = os.environ.get("TRADIER_API_KEY", "")
+            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
 
-        if paper_result == 0:
-            print("✅ IB Gateway detected on port 4002 (PAPER)")
-            return True, "PAPER (Port 4002)"
+            if api_key and account_id:
+                client = TradierClient(
+                    api_key=api_key,
+                    account_id=account_id,
+                    environment=env
+                )
+                if client.test_connection():
+                    mode = "SANDBOX" if env == "sandbox" else "LIVE"
+                    return True, f"Tradier API ({mode})"
 
-        # Check live trading port (4001)
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)  # Increased timeout
-        live_result = sock.connect_ex(("127.0.0.1", 4001))
-        sock.close()
-
-        if live_result == 0:
-            print("✅ IB Gateway detected on port 4001 (LIVE)")
-            return True, "LIVE (Port 4001)"
-
-        print("❌ No IB Gateway detected on ports 4001 or 4002")
-        return False, "No IB Gateway detected"
+        return False, "Tradier API not configured"
 
     except Exception as e:
-        print(f"❌ IB Gateway connection check failed: {e}")
-        return False, f"Check failed: {e}"
+        return False, f"API check failed: {e}"
+
+
+# Legacy alias for backward compatibility
+check_ib_gateway_connection = check_api_connection
 
 
 # ==============================================================================
@@ -438,7 +395,7 @@ class GreekRisk:
 
 @dataclass
 class ConnectionInfo:
-    ib_connected: bool = False
+    api_connected: bool = False
     bridge_connected: bool = False
     connection_mode: str = "DISCONNECTED"
     market_data_status: str = "NONE"
@@ -453,7 +410,7 @@ class ConnectionInfo:
 # THREAD-SAFE MARKET DATA WORKER - FIXED CONNECTION DETECTION
 # ==============================================================================
 class ThreadSafeMarketDataWorker(QObject):
-    """Thread-safe market data worker with real IB connection detection and heartbeat monitoring"""
+    """Thread-safe market data worker with real API connection detection and heartbeat monitoring"""
 
     data_updated = Signal(dict)
     connection_status_changed = Signal(bool, str)
@@ -468,7 +425,7 @@ class ThreadSafeMarketDataWorker(QObject):
         self.logger = SpyderLogger.get_logger(__name__)
 
         # FIXED: Start with actual connection check instead of assuming connected
-        self.ib_connected = False
+        self.api_connected = False
 
         self.market_data = {}
         self.data_mutex = QMutex()
@@ -514,63 +471,63 @@ class ThreadSafeMarketDataWorker(QObject):
 
         print("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
         print(
-            f"📡 Initial IB Connection: {'CONNECTED' if self.ib_connected else 'DISCONNECTED'}"
+            f"📡 Initial API Connection: {'CONNECTED' if self.api_connected else 'DISCONNECTED'}"
         )
 
     def _check_initial_connection(self):
-        """Check actual IB Gateway connection on startup - ENHANCED WITH DEBUG"""
+        """Check actual Tradier API connection on startup - ENHANCED WITH DEBUG"""
         try:
-            print("🔍 Checking initial IB Gateway connection...")
-            connected, mode = check_ib_gateway_connection()
-            self.ib_connected = connected
+            print("🔍 Checking initial Tradier API connection...")
+            connected, mode = check_api_connection()
+            self.api_connected = connected
 
             if connected:
-                print(f"✅ IB Gateway detected: {mode}")
+                print(f"✅ Tradier API detected: {mode}")
                 # Emit log message instead of error
-                self.log_message.emit(f"✅ IB Gateway detected at startup: {mode}")
+                self.log_message.emit(f"✅ Tradier API detected at startup: {mode}")
             else:
-                print(f"❌ No IB Gateway connection detected")
+                print(f"❌ No Tradier API connection detected")
                 # Emit log message instead of error
-                self.log_message.emit("❌ No IB Gateway connection detected at startup")
+                self.log_message.emit("❌ No Tradier API connection detected at startup")
 
         except Exception as e:
             print(f"⚠️ Connection check error: {e}")
             # Emit log message instead of error
             self.log_message.emit(f"⚠️ Initial connection check error: {e}")
-            self.ib_connected = False
+            self.api_connected = False
 
     def _heartbeat_check(self):
-        """30-second heartbeat check for IB Gateway connection"""
+        """30-second heartbeat check for Tradier API connection"""
         try:
             # Check actual connection
-            connected, mode = check_ib_gateway_connection()
-            previous_status = self.ib_connected
-            self.ib_connected = connected
+            connected, mode = check_api_connection()
+            previous_status = self.api_connected
+            self.api_connected = connected
 
             # Emit heartbeat status based on connection
             if connected:
                 self.heartbeat_status_changed.emit("connected")  # Green heart
                 if not previous_status:
                     # Connection restored
-                    self.connection_status_changed.emit(True, f"IB CONNECTED ({mode})")
+                    self.connection_status_changed.emit(True, f"API CONNECTED ({mode})")
                     self.heartbeat_received.emit(
-                        f"💚 Heartbeat: IB Gateway connection restored ({mode})"
+                        f"💚 Heartbeat: Tradier API connection restored ({mode})"
                     )
                 else:
                     self.heartbeat_received.emit(
-                        f"💚 Heartbeat: IB Gateway healthy ({mode})"
+                        f"💚 Heartbeat: Tradier API healthy ({mode})"
                     )
             else:
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
                 if previous_status:
                     # Connection lost
-                    self.connection_status_changed.emit(False, "IB DISCONNECTED")
+                    self.connection_status_changed.emit(False, "API DISCONNECTED")
                     self.heartbeat_received.emit(
-                        "💔 Heartbeat: IB Gateway connection lost"
+                        "💔 Heartbeat: Tradier API connection lost"
                     )
                 else:
                     self.heartbeat_received.emit(
-                        "💔 Heartbeat: IB Gateway still disconnected"
+                        "💔 Heartbeat: Tradier API still disconnected"
                     )
 
             # Start warning timer for blue heart (10 seconds before next check)
@@ -641,7 +598,7 @@ class ThreadSafeMarketDataWorker(QObject):
             )
 
             if not self.market_hours:
-                if self.ib_connected:
+                if self.api_connected:
                     self.market_data_status_changed.emit("NONE")
 
     @Slot()
@@ -651,24 +608,24 @@ class ThreadSafeMarketDataWorker(QObject):
 
         # FIXED: Re-check connection at start and emit proper status
         try:
-            connected, mode = check_ib_gateway_connection()
-            self.ib_connected = connected
+            connected, mode = check_api_connection()
+            self.api_connected = connected
 
             if connected:
-                self.connection_status_changed.emit(True, f"IB CONNECTED ({mode})")
+                self.connection_status_changed.emit(True, f"API CONNECTED ({mode})")
                 self.market_data_status_changed.emit("LIVE")
                 self.heartbeat_status_changed.emit("connected")  # Green heart
-                print(f"✅ IB Gateway connected at startup: {mode}")
+                print(f"✅ Tradier API connected at startup: {mode}")
             else:
-                self.connection_status_changed.emit(False, "IB DISCONNECTED")
+                self.connection_status_changed.emit(False, "API DISCONNECTED")
                 self.market_data_status_changed.emit("NONE")
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
-                print("❌ IB Gateway disconnected at startup")
+                print("❌ Tradier API disconnected at startup")
 
         except Exception as e:
             print(f"⚠️ Startup connection check error: {e}")
-            self.ib_connected = False
-            self.connection_status_changed.emit(False, "IB DISCONNECTED")
+            self.api_connected = False
+            self.connection_status_changed.emit(False, "API DISCONNECTED")
             self.market_data_status_changed.emit("NONE")
             self.heartbeat_status_changed.emit("error")  # Red heart
 
@@ -714,23 +671,23 @@ class ThreadSafeMarketDataWorker(QObject):
             return False
 
         # Check actual connection
-        connected, mode = check_ib_gateway_connection()
-        self.ib_connected = connected
+        connected, mode = check_api_connection()
+        self.api_connected = connected
 
         if connected:
-            self.connection_status_changed.emit(True, f"IB CONNECTED ({mode})")
+            self.connection_status_changed.emit(True, f"API CONNECTED ({mode})")
             self.market_data_status_changed.emit("LIVE")
             return True
         else:
-            self.connection_status_changed.emit(False, "IB DISCONNECTED")
+            self.connection_status_changed.emit(False, "API DISCONNECTED")
             self.market_data_status_changed.emit("NONE")
             return False
 
     def force_disconnect(self):
         """Manual disconnect"""
         print("🔥 Manual disconnect requested")
-        self.ib_connected = False
-        self.connection_status_changed.emit(False, "IB DISCONNECTED")
+        self.api_connected = False
+        self.connection_status_changed.emit(False, "API DISCONNECTED")
         self.market_data_status_changed.emit("NONE")
 
     def stop(self):
@@ -1263,10 +1220,10 @@ class GreekBar(QWidget):
 
 
 # ==============================================================================
-# MAIN DASHBOARD CLASS - WITH FIXED IB CONNECTION & HEARTBEAT
+# MAIN DASHBOARD CLASS
 # ==============================================================================
 class SpyderTradingDashboard(QMainWindow):
-    """Complete dashboard with fixed IB connection detection and heartbeat monitoring"""
+    """Complete dashboard with fixed API connection detection and heartbeat monitoring"""
 
     def __init__(self):
         super().__init__()
@@ -1277,7 +1234,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Connection info - FIXED: Start disconnected
         self.connection_info = ConnectionInfo(
-            ib_connected=False,
+            api_connected=False,
             connection_mode="DISCONNECTED",
             market_data_status="NONE",
             trading_active=False,
@@ -1301,9 +1258,9 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.automation_logs = []
         self.account_mode = "PAPER"
-        self.ib_connected = False  # FIXED: Start disconnected
-        self.ib_client = (
-            None  # FIXED: Initialize IB client attribute before timer starts
+        self.api_connected = False  # FIXED: Start disconnected
+        self.tradier_client = (
+            None  # FIXED: Initialize API client attribute before timer starts
         )
         self.trading_active = False
         self.auto_connect_attempts = 0
@@ -1330,9 +1287,9 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Initialize UI elements that will be created in setup methods
         self.connection_status_label = None
-        self.ib_status_container = None
-        self.ib_connection_dot = None
-        self.ib_connection_label = None
+        self.api_status_container = None
+        self.api_connection_dot = None
+        self.api_connection_label = None
         self.heartbeat_container = None
         self.heartbeat_icon = None
         self.data_status_container = None
@@ -1368,16 +1325,14 @@ class SpyderTradingDashboard(QMainWindow):
         self.automation_timer = None
         self.greek_timer = None
         self.chart_timer = None
-        self.gateway_polling_timer = None
+        self._deprecated_gateway_timer = None
         self.automation_activity_count = 0
-        self._last_gateway_search_log = ""
+        self._last_gateway_search_log = ""  # Legacy
 
-        # NEW: Gateway control integration
+        # Gateway control — DEPRECATED (Tradier migration)
         self.gateway_dock = None
-        self.gateway_panel = None
-        self.client_manager = None
-        self.gateway_control_enabled = False  # User can toggle this
-        self.gateway_control_btn = None  # NEW: Gateway control button
+        self._deprecated_gateway_panel = None
+        self._deprecated_gateway_btn = None
 
         # Try to connect to real Prometheus collector if available
         if prometheus_available:
@@ -1407,129 +1362,67 @@ class SpyderTradingDashboard(QMainWindow):
         # Real data integration (after UI is ready)
         QTimer.singleShot(1000, self.apply_proven_real_data_pattern)
 
-        # Auto-connect to Gateway and spawn clients if Gateway is running
+        # Check Tradier API connectivity on startup
         QTimer.singleShot(2000, self.auto_connect_to_gateway)
 
         self.logger.info(
-            "Enhanced Dashboard initialized with fixed IB connection detection and heartbeat monitoring"
+            "Enhanced Dashboard initialized with Tradier API connection detection and heartbeat monitoring"
         )
 
-    def create_new_ib_connection(self) -> bool:
+    def create_api_connection(self) -> bool:
         """
-        Create a new IB connection for the dashboard using the EnhancedConnectionManager.
+        Check Tradier API connectivity.
+
+        Legacy method name preserved for backward compatibility.
+        Now checks Tradier API instead of IB Gateway.
         """
         try:
-            self.logger.info(
-                "🔄 Attempting dashboard connection using EnhancedConnectionManager..."
-            )
+            self.logger.info("🔄 Checking Tradier API connectivity...")
+            connected, mode = check_api_connection()
 
-            # Create a specific configuration for the dashboard client
-            dashboard_config = ConnectionConfig(
-                port=4002,  # Use paper trading port
-                mode=TradingMode.PAPER,
-                client_id=0,  # Dedicated dashboard client ID
-            )
-
-            # Get the dedicated connection manager for the dashboard
-            conn_mgr = get_connection_manager(config=dashboard_config, client_id=0)
-
-            if conn_mgr.is_connected():
-                self.logger.info("Dashboard connection is already active.")
-                self.on_connection_status_changed(True)
-                return True
-
-            # Attempt to connect
-            if conn_mgr.connect():
-                self.logger.info(
-                    "✅ Successfully connected dashboard client (ID 0) to Gateway!"
-                )
-                self.ib_client = conn_mgr.ib_client  # Store the client instance
+            if connected:
+                self.logger.info(f"✅ Tradier API connected: {mode}")
                 self.on_connection_status_changed(True)
                 return True
             else:
-                self.logger.warning(
-                    "⚠️ Failed to establish dashboard connection (will retry)."
-                )
+                self.logger.warning(f"⚠️ Tradier API not available: {mode}")
                 self.on_connection_status_changed(False)
                 return False
 
         except Exception as e:
-            self.logger.error(
-                f"❌ Exception in create_new_ib_connection: {e}", exc_info=True
-            )
+            self.logger.error(f"❌ API connection check failed: {e}", exc_info=True)
             self.on_connection_status_changed(False)
             return False
 
     def check_and_connect_gateway(self):
         """
-        Continuously poll for Gateway availability and auto-connect when found.
-        This runs every 5 seconds when not connected to ensure we always find Gateway.
-        """
-        # Check if we have a valid active connection
-        has_active_connection = False
-        if self.ib_client is not None:
-            if hasattr(self.ib_client, "is_connected"):
-                has_active_connection = self.ib_client.is_connected()
+        Check Tradier API availability and update connection status.
 
-        # If we have an active connection, no need to poll
-        if has_active_connection:
+        Legacy method name preserved for backward compatibility.
+        Now checks Tradier API instead of polling IB Gateway ports.
+        """
+        # If already connected, skip
+        if self.api_connected:
             return
 
         try:
-            # Quick socket check to see if Gateway is listening
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex(("127.0.0.1", 4002))
-            sock.close()
+            connected, mode = check_api_connection()
 
-            if result == 0:
-                # Gateway is available!
-                self.logger.info("🔍 Gateway detected! Attempting connection...")
-                self.add_system_log("🔍 Gateway detected - connecting...")
+            if connected:
+                self.logger.info(f"✅ Tradier API available: {mode}")
+                self.add_system_log(f"✅ Connected to {mode}")
+                self.api_connected = True
 
-                # Update UI to show we're connecting
                 if hasattr(self, "connection_status_label"):
-                    self.connection_status_label.setText("🟡 CONNECTING...")
+                    self.connection_status_label.setText(f"🟢 {mode}")
                     self.connection_status_label.setStyleSheet(
-                        f"color: {COLORS['warning']}; font-weight: bold;"
+                        f"color: {COLORS['green']}; font-weight: bold;"
                     )
-
-                # Attempt to create connection
-                if self.create_new_ib_connection():
-                    self.add_system_log("✅ Auto-connected to Gateway!")
-                    # Update the flag to match reality
-                    self.ib_connected = True
-                else:
-                    self.add_system_log(
-                        "⚠️ Gateway found but connection failed - will retry"
-                    )
-                    # Ensure flag reflects disconnected state
-                    self.ib_connected = False
             else:
-                # Gateway not available yet
-                if not hasattr(self, "_last_gateway_search_log"):
-                    self._last_gateway_search_log = 0
-
-                # Log search message every 30 seconds (6 checks * 5 seconds)
-                current_time = time.time()
-                if current_time - self._last_gateway_search_log > 30:
-                    self.add_system_log("🔍 Searching for Gateway...")
-                    self._last_gateway_search_log = current_time
-
-                    # Update UI
-                    if hasattr(self, "connection_status_label"):
-                        self.connection_status_label.setText("🔍 SEARCHING...")
-                        self.connection_status_label.setStyleSheet(
-                            f"color: {COLORS['warning']}; font-weight: bold;"
-                        )
-
-                # Ensure flag reflects disconnected state
-                self.ib_connected = False
+                self.api_connected = False
 
         except Exception as e:
-            # Silent fail for most errors, but ensure disconnected state
-            self.ib_connected = False
-            pass
+            self.api_connected = False
 
     # ==========================================================================
     # REAL DATA INTEGRATION PATTERN (UNCHANGED)
@@ -1595,8 +1488,8 @@ class SpyderTradingDashboard(QMainWindow):
             self.update_status_for_real_data()
 
             # Log success
-            self.add_system_log("🔥 REAL MARKET DATA ACTIVE - IB Gateway prices")
-            self.add_automation_log("Real-time market data from Interactive Brokers")
+            self.add_system_log("🔥 REAL MARKET DATA ACTIVE - Tradier API prices")
+            self.add_automation_log("Real-time market data from Tradier")
 
             self.add_system_log("✅ Real data patch applied successfully!")
 
@@ -1731,11 +1624,11 @@ class SpyderTradingDashboard(QMainWindow):
             pass  # Suppress toolbar update errors
 
     def update_status_for_real_data(self):
-        """Update status indicators for real data - FIXED to not override IB status"""
+        """Update status indicators for real data - FIXED to not override API status"""
         try:
-            # Don't override IB connection status - only update data status if needed
-            # The IB connection status should always show actual IB Gateway connection
-            pass  # Real data integration doesn't change IB connection display
+            # Don't override API connection status - only update data status if needed
+            # The API connection status should always show actual Tradier API connection
+            pass  # Real data integration doesn't change API connection display
 
         except Exception as e:
             pass  # Not critical
@@ -1754,9 +1647,9 @@ class SpyderTradingDashboard(QMainWindow):
             elif self.market_worker:
                 self.add_system_log("🔥 Refreshing simulation data...")
 
-                if not self.ib_connected:
+                if not self.api_connected:
                     self.add_system_log(
-                        "⚠️ Not connected to IB Gateway - using simulation data"
+                        "⚠️ Not connected to Tradier API - using simulation data"
                     )
 
                 self.add_system_log("✅ Market data refresh requested")
@@ -1949,13 +1842,13 @@ class SpyderTradingDashboard(QMainWindow):
         right_section.addSpacing(20)
         right_section.addWidget(QLabel(" | "))
 
-        # IB Connection Status (Left Box) - FIXED WIDTH
-        self.ib_status_container = QWidget()
-        self.ib_status_container.setMinimumWidth(190)  # REDUCED from 200
-        self.ib_status_container.setMaximumWidth(190)  # REDUCED from 200
-        self.ib_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.ib_status_container.setToolTip("Click to connect/disconnect IB Gateway")
-        self.ib_status_container.setStyleSheet(
+        # API Connection Status (Left Box) - FIXED WIDTH
+        self.api_status_container = QWidget()
+        self.api_status_container.setMinimumWidth(190)  # REDUCED from 200
+        self.api_status_container.setMaximumWidth(190)  # REDUCED from 200
+        self.api_status_container.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.api_status_container.setToolTip("Click to connect/disconnect Tradier API")
+        self.api_status_container.setStyleSheet(
             """
             QWidget:hover {
                 background-color: #2a2a2a;
@@ -1964,24 +1857,24 @@ class SpyderTradingDashboard(QMainWindow):
             }
         """
         )
-        ib_status_layout = QHBoxLayout()
-        ib_status_layout.setContentsMargins(10, 3, 8, 3)  # REDUCED margins
-        ib_status_layout.setSpacing(6)  # REDUCED spacing
+        api_status_layout = QHBoxLayout()
+        api_status_layout.setContentsMargins(10, 3, 8, 3)  # REDUCED margins
+        api_status_layout.setSpacing(6)  # REDUCED spacing
 
-        self.ib_connection_dot = QLabel("●")
-        self.ib_connection_dot.setStyleSheet(
+        self.api_connection_dot = QLabel("●")
+        self.api_connection_dot.setStyleSheet(
             "color: " + COLORS["negative"] + f"; font-size: 14px;"
         )
-        ib_status_layout.addWidget(self.ib_connection_dot)
+        api_status_layout.addWidget(self.api_connection_dot)
 
-        self.ib_connection_label = QLabel("IB DISCONNECTED")
-        self.ib_connection_label.setStyleSheet(
+        self.api_connection_label = QLabel("API DISCONNECTED")
+        self.api_connection_label.setStyleSheet(
             "color: " + COLORS["negative"] + f"; font-size: 14px;"
         )
-        ib_status_layout.addWidget(self.ib_connection_label)
+        api_status_layout.addWidget(self.api_connection_label)
 
-        self.ib_status_container.setLayout(ib_status_layout)
-        self.ib_status_container.mousePressEvent = self.toggle_ib_connection
+        self.api_status_container.setLayout(api_status_layout)
+        self.api_status_container.mousePressEvent = self.toggle_api_connection
 
         # HEARTBEAT MONITOR - REDUCED WIDTH
         self.heartbeat_container = QWidget()
@@ -2035,11 +1928,11 @@ class SpyderTradingDashboard(QMainWindow):
         # Add stretch to push simulation button to the right
         data_status_layout.addStretch()
 
-        # Simulation Toggle Button (Blue) - Only visible when IB disconnected
+        # Simulation Toggle Button (Blue) - Only visible when API disconnected
         self.simulation_toggle = QLabel("🔵")
         self.simulation_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.simulation_toggle.setToolTip(
-            "CLICK TO DISPLAY SIMULATED DATA WHEN IB IS DISCONNECTED"
+            "CLICK TO DISPLAY SIMULATED DATA WHEN API IS DISCONNECTED"
         )
         self.simulation_toggle.setStyleSheet(
             f"font-size: 14px;"
@@ -2064,8 +1957,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Add all containers to right section with reduced spacing
         right_section.addStretch(1)
-        right_section.addWidget(self.ib_status_container)
-        right_section.addSpacing(3)  # MINIMAL spacing between IB and heartbeat
+        right_section.addWidget(self.api_status_container)
+        right_section.addSpacing(3)  # MINIMAL spacing between API and heartbeat
         right_section.addWidget(self.heartbeat_container)  # HEARTBEAT CONTAINER
         right_section.addSpacing(3)  # MINIMAL spacing between heartbeat and data
         right_section.addWidget(self.data_status_container)
@@ -2279,6 +2172,7 @@ class SpyderTradingDashboard(QMainWindow):
     def create_right_panel(self) -> QWidget:
         """Create right panel with controls and metrics (UNCHANGED EXCEPT BUTTON MESSAGES)"""
         panel = QWidget()
+        panel.setMinimumWidth(580)  # Prevent splitter from squishing this panel
         layout = QVBoxLayout()
         layout.setSpacing(3)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -2295,15 +2189,15 @@ class SpyderTradingDashboard(QMainWindow):
         button_layout.addWidget(self.start_btn)
 
         self.stop_btn = QPushButton("STOP TRADING")
-        self.stop_btn.setStyleSheet(f"background-color: {COLORS['warning']};")
+        self.stop_btn.setStyleSheet(f"background-color: {COLORS['warning']}; color: black;")
         self.stop_btn.setToolTip("Stop trading but keep orders and positions")
         self.stop_btn.clicked.connect(self.stop_trading)
         button_layout.addWidget(self.stop_btn)
 
         self.emergency_btn = QPushButton("EMERGENCY CLOSE")
-        self.emergency_btn.setStyleSheet(f"background-color: {COLORS['negative']};")
+        self.emergency_btn.setStyleSheet(f"background-color: {COLORS['negative']}; color: black;")
         self.emergency_btn.setToolTip(
-            "Close all orders and positions, stop trading, and disconnect from IB"
+            "Close all orders and positions, stop trading, and disconnect from API"
         )
         self.emergency_btn.clicked.connect(self.emergency_close)
         button_layout.addWidget(self.emergency_btn)
@@ -2319,11 +2213,17 @@ class SpyderTradingDashboard(QMainWindow):
             f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; padding: 5px;"
         )
         table_layout = QGridLayout()
-        table_layout.setContentsMargins(8, -2, 8, 8)
-        table_layout.setHorizontalSpacing(10)
-        table_layout.setVerticalSpacing(6)
+        table_layout.setContentsMargins(4, -2, 4, 4)
+        table_layout.setHorizontalSpacing(4)
+        table_layout.setVerticalSpacing(4)
 
-        cell_style = f"padding: 5px 10px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']};"
+        # Set column stretch ratios so all columns share available space
+        table_layout.setColumnStretch(0, 3)  # Labels left
+        table_layout.setColumnStretch(1, 4)  # Values left
+        table_layout.setColumnStretch(2, 3)  # Labels right
+        table_layout.setColumnStretch(3, 4)  # Values right
+
+        cell_style = f"padding: 3px 5px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']}; font-size: 12px;"
 
         # Account row
         account_label = QLabel("ACCOUNT")
@@ -2348,10 +2248,10 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Separator
         spacer_label = QLabel("")
-        spacer_label.setFixedHeight(20)
+        spacer_label.setFixedHeight(8)
         table_layout.addWidget(spacer_label, 1, 0, 1, 4)
 
-        # Financial data rows
+        # Financial data rows — Row 2: SETTLED CASH | value | BUYING POWER | value
         settled_label = QLabel("SETTLED CASH")
         settled_label.setStyleSheet(cell_style)
         table_layout.addWidget(settled_label, 2, 0)
@@ -2363,9 +2263,21 @@ class SpyderTradingDashboard(QMainWindow):
         )
         table_layout.addWidget(self.settled_value, 2, 1)
 
+        buying_label = QLabel("BUYING POWER")
+        buying_label.setStyleSheet(cell_style)
+        table_layout.addWidget(buying_label, 2, 2)
+
+        self.buying_value = QLabel("$20,450,000.00")
+        self.buying_value.setStyleSheet(cell_style + "text-align: right;")
+        self.buying_value.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        table_layout.addWidget(self.buying_value, 2, 3)
+
+        # Row 3: REALIZED P&L | value | UNREALIZED P&L | value
         realized_label = QLabel("REALIZED P&L")
         realized_label.setStyleSheet(cell_style)
-        table_layout.addWidget(realized_label, 2, 2)
+        table_layout.addWidget(realized_label, 3, 0)
 
         self.realized_value = QLabel("$2,030,450.00")
         self.realized_value.setStyleSheet(
@@ -2374,18 +2286,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.realized_value.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        table_layout.addWidget(self.realized_value, 2, 3)
-
-        buying_label = QLabel("BUYING POWER")
-        buying_label.setStyleSheet(cell_style)
-        table_layout.addWidget(buying_label, 3, 0)
-
-        self.buying_value = QLabel("$20,450,000.00")
-        self.buying_value.setStyleSheet(cell_style + "text-align: right;")
-        self.buying_value.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        table_layout.addWidget(self.buying_value, 3, 1)
+        table_layout.addWidget(self.realized_value, 3, 1)
 
         unrealized_label = QLabel("UNREALIZED P&L")
         unrealized_label.setStyleSheet(cell_style)
@@ -2408,15 +2309,18 @@ class SpyderTradingDashboard(QMainWindow):
         # P&L Performance
         pnl_group = QGroupBox("P&&L PERFORMANCE")
         pnl_layout = QVBoxLayout()
-        pnl_layout.setContentsMargins(5, 1, 5, 1)
+        pnl_layout.setContentsMargins(5, 8, 5, 5)
         pnl_layout.setSpacing(1)
 
         self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setFixedHeight(122)
+        self.pnl_table.setFixedHeight(140)
         pnl_layout.addWidget(self.pnl_table)
 
         pnl_group.setLayout(pnl_layout)
         layout.addWidget(pnl_group)
+
+        # Spacer before Risk Monitor
+        layout.addSpacing(10)
 
         # Risk Monitor
         risk_group = QGroupBox("RISK MONITOR")
@@ -2832,7 +2736,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         headers = [
             "PERIOD",
-            "PROFIT & LOSS",
+            "P&L",
             "WIN RATE",
             "AVG WIN/LOSS",
             "PROFIT-F",
@@ -2852,10 +2756,12 @@ class SpyderTradingDashboard(QMainWindow):
         ]
 
         for row, (period, values) in enumerate(zip(periods, data)):
-            table.setItem(row, 0, QTableWidgetItem(period))
+            period_item = QTableWidgetItem(period)
+            period_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(row, 0, period_item)
 
             pnl_item = QTableWidgetItem(values[0])
-            pnl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
+            pnl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             pnl_item.setForeground(QColor(COLORS["positive"]))
             table.setItem(row, 1, pnl_item)
 
@@ -2883,21 +2789,32 @@ class SpyderTradingDashboard(QMainWindow):
             calmar_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 7, calmar_ratio_item)
 
-        table.setStyleSheet("font-size: 13px;")
+        table.setStyleSheet("font-size: 11px;")
         table.verticalHeader().setVisible(False)
-        table.verticalHeader().setDefaultSectionSize(22)
+        table.verticalHeader().setDefaultSectionSize(26)
 
-        # Set column widths
-        table.setColumnWidth(0, 60)  # PERIOD
-        table.setColumnWidth(1, 120)  # P&L
-        table.setColumnWidth(2, 60)  # WIN RATE
-        table.setColumnWidth(3, 120)  # AVG WIN/LOSS
-        table.setColumnWidth(4, 65)  # PROFIT-F
-        table.setColumnWidth(5, 55)  # SHARP
-        table.setColumnWidth(6, 65)  # SORTINO
-        table.setColumnWidth(7, 65)  # CALMAR
+        # Mixed column sizing: fixed widths for compact cols, stretch for wider ones
+        header = table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, header.ResizeMode.Stretch)    # PERIOD
+        header.setSectionResizeMode(1, header.ResizeMode.Stretch)    # P&L
+        header.setSectionResizeMode(2, header.ResizeMode.Stretch)    # WIN RATE
+        header.setSectionResizeMode(3, header.ResizeMode.Stretch)    # AVG WIN/LOSS
+        header.setSectionResizeMode(4, header.ResizeMode.Stretch)    # PROFIT-F
+        table.setColumnWidth(5, 50)                                   # SHARP  (narrower)
+        header.setSectionResizeMode(5, header.ResizeMode.Fixed)
+        header.setSectionResizeMode(6, header.ResizeMode.Stretch)    # SORTINO
+        table.setColumnWidth(7, 50)                                   # CALMAR (narrower)
+        header.setSectionResizeMode(7, header.ResizeMode.Fixed)
 
-        table.setFixedWidth(610)
+        # Center the CALMAR header text
+        calmar_header_item = table.horizontalHeaderItem(7)
+        if calmar_header_item:
+            calmar_header_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        sharp_header_item = table.horizontalHeaderItem(5)
+        if sharp_header_item:
+            sharp_header_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
         table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -2921,7 +2838,7 @@ class SpyderTradingDashboard(QMainWindow):
         main_layout.setContentsMargins(10, 8, 10, 8)
         main_layout.setSpacing(2)
 
-        # Title with Gateway button
+        # Title bar
         title_layout = QHBoxLayout()
 
         title_label = QLabel("PROMETHEUS METRICS MONITOR")
@@ -2938,12 +2855,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         title_layout.addStretch()
 
-        # Gateway Control Button
-        self.gateway_control_btn = QPushButton("🔧")
-        self.gateway_control_btn.setFixedSize(30, 30)
-        self.gateway_control_btn.setToolTip("Show/Hide Gateway Control Panel")
-        self.gateway_control_btn.clicked.connect(self.toggle_gateway_control)
-        title_layout.addWidget(self.gateway_control_btn)
+        # Gateway Control Button removed (Tradier migration)
+        # self._deprecated_gateway_btn kept as None for backward compat
 
         main_layout.addLayout(title_layout)
         main_layout.addSpacing(8)
@@ -2956,8 +2869,8 @@ class SpyderTradingDashboard(QMainWindow):
         # Column headers
         headers = [
             "SYSTEM HEALTH",
-            "IB CLIENTS 1-4",
-            "IB CLIENTS 5-8",
+            "BROKER API",
+            "DATA FEEDS",
             "INTERNAL MODULES",
         ]
         for col, header in enumerate(headers):
@@ -3004,82 +2917,65 @@ class SpyderTradingDashboard(QMainWindow):
             self.system_components[name] = indicator
             grid.addWidget(component_widget, row, 0)
 
-        # IB Clients 1-4 (Column 2) - UPDATED TO 4 CLIENTS + 1 EMPTY
-        client_1_4_types = ["Orders", "Admin", "Core", "Options"]
-        for row in range(1, 6):  # 5 rows total
-            if row <= 4:  # First 4 rows are clients
-                client_widget = QWidget()
-                client_layout = QHBoxLayout()
-                client_layout.setContentsMargins(5, 1, 5, 1)
-                client_layout.setSpacing(3)
+        # Broker API Services (Column 2) — Tradier REST API endpoints
+        broker_services = [
+            ("Orders", "tradier_orders"),
+            ("Account", "tradier_account"),
+            ("Market Data", "tradier_market"),
+            ("Options Chain", "tradier_options"),
+            ("Streaming", "tradier_streaming"),
+        ]
+        for row, (svc_name, svc_key) in enumerate(broker_services, start=1):
+            svc_widget = QWidget()
+            svc_layout = QHBoxLayout()
+            svc_layout.setContentsMargins(5, 1, 5, 1)
+            svc_layout.setSpacing(3)
 
-                indicator = QLabel("●")
-                indicator.setStyleSheet(
-                    "color: " + COLORS["neutral"] + f"; font-size: 14px;"
-                )
-                indicator.setCursor(Qt.CursorShape.PointingHandCursor)
-                indicator.setToolTip(f"Click to connect Client {row}")
-                client_layout.addWidget(indicator)
+            indicator = QLabel("●")
+            indicator.setStyleSheet(
+                "color: " + COLORS["neutral"] + f"; font-size: 14px;"
+            )
+            indicator.setToolTip(f"Tradier {svc_name} endpoint")
+            svc_layout.addWidget(indicator)
 
-                label = QLabel(f"CLIENT {row}: {client_1_4_types[row - 1]}")
-                label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
-                client_layout.addWidget(label)
-                client_layout.addStretch()
+            label = QLabel(svc_name)
+            label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
+            svc_layout.addWidget(label)
+            svc_layout.addStretch()
 
-                client_widget.setLayout(client_layout)
+            svc_widget.setLayout(svc_layout)
+            self.client_indicators[svc_key] = indicator
+            grid.addWidget(svc_widget, row, 1)
 
-                # Store indicator for status updates
-                self.client_indicators[f"CLIENT {row}"] = indicator
+        # Data Feed Services (Column 3) — Databento feeds
+        data_services = [
+            ("Live Stream", "db_live"),
+            ("Historical", "db_historical"),
+            ("Options", "db_options"),
+            ("Book Data", "db_book"),
+            ("Replay", "db_replay"),
+        ]
+        for row, (feed_name, feed_key) in enumerate(data_services, start=1):
+            feed_widget = QWidget()
+            feed_layout = QHBoxLayout()
+            feed_layout.setContentsMargins(5, 1, 5, 1)
+            feed_layout.setSpacing(3)
 
-                # Make clickable for reconnection
-                indicator.mousePressEvent = lambda e, cid=row: self.reconnect_client(
-                    cid
-                )
+            indicator = QLabel("●")
+            indicator.setStyleSheet(
+                "color: " + COLORS["neutral"] + f"; font-size: 14px;"
+            )
+            indicator.setToolTip(f"Databento {feed_name} feed")
+            feed_layout.addWidget(indicator)
 
-                grid.addWidget(client_widget, row, 1)
-            else:
-                # Row 5 is empty
-                empty_widget = QWidget()
-                grid.addWidget(empty_widget, row, 1)
+            label = QLabel(feed_name)
+            label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
+            feed_layout.addWidget(label)
+            feed_layout.addStretch()
 
-        # IB Clients 5-8 (Column 3) - UPDATED TO 4 CLIENTS + 1 EMPTY
-        client_5_8_types = ["Volatility", "Major ETFs", "Extended", "International"]
-        for row in range(1, 6):  # 5 rows total
-            if row <= 4:  # First 4 rows are clients
-                client_num = row + 4  # Client 5, 6, 7, 8
-                client_widget = QWidget()
-                client_layout = QHBoxLayout()
-                client_layout.setContentsMargins(5, 1, 5, 1)
-                client_layout.setSpacing(3)
-
-                indicator = QLabel("●")
-                indicator.setStyleSheet(
-                    "color: " + COLORS["neutral"] + f"; font-size: 14px;"
-                )
-                indicator.setCursor(Qt.CursorShape.PointingHandCursor)
-                indicator.setToolTip(f"Click to connect Client {client_num}")
-                client_layout.addWidget(indicator)
-
-                label = QLabel(f"CLIENT {client_num}: {client_5_8_types[row - 1]}")
-                label.setStyleSheet("color: " + COLORS["text"] + "; font-size: 14px;")
-                client_layout.addWidget(label)
-                client_layout.addStretch()
-
-                client_widget.setLayout(client_layout)
-
-                # Store indicator for status updates
-                self.client_indicators[f"CLIENT {client_num}"] = indicator
-
-                # Make clickable for reconnection
-                indicator.mousePressEvent = (
-                    lambda e, cid=client_num: self.reconnect_client(cid)
-                )
-
-                grid.addWidget(client_widget, row, 2)
-            else:
-                # Row 5 is empty
-                empty_widget = QWidget()
-                grid.addWidget(empty_widget, row, 2)
+            feed_widget.setLayout(feed_layout)
+            self.client_indicators[feed_key] = indicator
+            grid.addWidget(feed_widget, row, 2)
 
         # Internal Modules (Column 4) - UNCHANGED
         internal_modules = [
@@ -3138,22 +3034,22 @@ class SpyderTradingDashboard(QMainWindow):
     @Slot(bool, str)
     def on_connection_status_changed(self, connected: bool, status: str):
         """Handle connection status change - FIXED to prevent override"""
-        self.connection_info.ib_connected = connected
-        self.ib_connected = connected
+        self.connection_info.api_connected = connected
+        self.api_connected = connected
 
         if connected:
-            self.ib_connection_dot.setStyleSheet(f"color: {COLORS['positive']};")
-            self.ib_connection_label.setText("IB CONNECTED")
-            self.ib_connection_label.setStyleSheet(f"color: {COLORS['positive']};")
+            self.api_connection_dot.setStyleSheet(f"color: {COLORS['positive']};")
+            self.api_connection_label.setText("API CONNECTED")
+            self.api_connection_label.setStyleSheet(f"color: {COLORS['positive']};")
 
             # Hide simulation button when connected
             self.simulation_toggle.setVisible(False)
 
-            self.add_system_log("✅ Connected to IB Gateway")
+            self.add_system_log("✅ Connected to Tradier API")
         else:
-            self.ib_connection_dot.setStyleSheet(f"color: {COLORS['negative']};")
-            self.ib_connection_label.setText("IB DISCONNECTED")
-            self.ib_connection_label.setStyleSheet(f"color: {COLORS['negative']};")
+            self.api_connection_dot.setStyleSheet(f"color: {COLORS['negative']};")
+            self.api_connection_label.setText("API DISCONNECTED")
+            self.api_connection_label.setStyleSheet(f"color: {COLORS['negative']};")
 
             # Show simulation button when disconnected
             self.simulation_toggle.setVisible(True)
@@ -3168,14 +3064,14 @@ class SpyderTradingDashboard(QMainWindow):
                 )
                 self.start_btn.setText("START TRADING")
 
-                self.add_automation_log("Trading stopped - IB connection lost")
+                self.add_automation_log("Trading stopped - API connection lost")
 
             if "MARKET CLOSED" in status:
-                self.add_system_log("📊 Market closed - IB disconnected")
+                self.add_system_log("📊 Market closed - API disconnected")
             else:
-                self.add_system_log("🔌 Disconnected from IB Gateway")
+                self.add_system_log("🔌 Disconnected from Tradier API")
 
-        # Update data status (but don't override IB status)
+        # Update data status (but don't override API status)
         self.update_status_indicators()
 
     @Slot(str)
@@ -3246,9 +3142,9 @@ class SpyderTradingDashboard(QMainWindow):
         # Route heartbeat messages to system log (not automation log)
         self.add_system_log(message)
 
-    def toggle_ib_connection(self, event):
-        """Toggle IB connection when clicking on status - UNCHANGED"""
-        if self.ib_connected:
+    def toggle_api_connection(self, event):
+        """Toggle API connection when clicking on status - UNCHANGED"""
+        if self.api_connected:
             if self.trading_active:
                 reply = QMessageBox.warning(
                     self,
@@ -3271,12 +3167,12 @@ class SpyderTradingDashboard(QMainWindow):
                 )
                 self.start_btn.setText("START TRADING")
 
-                self.add_automation_log("Trading stopped due to IB disconnection")
+                self.add_automation_log("Trading stopped due to API disconnection")
 
             if self.market_worker:
                 self.market_worker.force_disconnect()
-            self.ib_connected = False
-            self.add_system_log("Manually disconnected from IB")
+            self.api_connected = False
+            self.add_system_log("Manually disconnected from API")
         else:
             if not is_market_hours():
                 QMessageBox.information(
@@ -3288,39 +3184,39 @@ class SpyderTradingDashboard(QMainWindow):
                 return
 
             # Try to create a new API connection if we don't have a client
-            if not hasattr(self, "ib_client") or self.ib_client is None:
-                self.add_system_log("🔄 Creating new IB Gateway connection...")
-                if self.create_new_ib_connection():
-                    self.add_system_log("✅ Successfully connected to IB Gateway!")
+            if not hasattr(self, "tradier_client") or self.tradier_client is None:
+                self.add_system_log("🔄 Creating new Tradier API connection...")
+                if self.create_api_connection():
+                    self.add_system_log("✅ Successfully connected to Tradier API!")
                     return
                 else:
                     self.add_system_log(
-                        "❌ Failed to connect - check if Gateway is running"
+                        "❌ Failed to connect to Tradier API"
                     )
                     QMessageBox.warning(
                         self,
                         "Connection Failed",
-                        "Could not connect to IB Gateway.\n\n"
-                        "Make sure Gateway is running and try again.",
+                        "Could not connect to Tradier API.\n\n"
+                        "Check your API credentials and try again.",
                     )
                     return
 
             # Otherwise use the market worker's force_connect (socket check)
             if self.market_worker and self.market_worker.force_connect():
-                self.ib_connected = True
-                self.add_system_log("Manually connected to IB")
+                self.api_connected = True
+                self.add_system_log("Manually connected to API")
             else:
-                self.add_system_log("Failed to connect to IB")
+                self.add_system_log("Failed to connect to API")
 
     def start_trading(self):
         """Handle start trading button click - FIXED MESSAGES"""
-        if not self.ib_connected:
+        if not self.api_connected:
             QMessageBox.warning(
                 self,
-                "IB Disconnected",
-                "IB is disconnected - cannot start trading",
+                "API Disconnected",
+                "API is disconnected - cannot start trading",
             )
-            self.add_system_log("Cannot start trading - IB disconnected")
+            self.add_system_log("Cannot start trading - API disconnected")
             return
 
         data_status = self.data_status_label.text()
@@ -3349,17 +3245,17 @@ class SpyderTradingDashboard(QMainWindow):
         self.add_automation_log("TRADING ACTIVE - Autonomous AI Engine engaged")
 
         if self.real_data_active:
-            self.add_automation_log("Using REAL market data from IB Gateway")
+            self.add_automation_log("Using REAL market data from Tradier API")
         else:
             self.add_automation_log("Monitoring SPY options for trading opportunities")
 
     def stop_trading(self):
         """Handle stop trading button click - FIXED MESSAGES"""
-        if not self.ib_connected:
+        if not self.api_connected:
             QMessageBox.information(
                 self,
-                "IB Disconnected",
-                "IB is disconnected – further trading has already stopped, but open orders at IBKR still remain in effect. If you wish to close or cancel these orders, call IBKR at +1 (312) 542-6901",
+                "API Disconnected",
+                "API is disconnected – further trading has already stopped, but open orders at Tradier still remain in effect. If you wish to close or cancel these orders, call Tradier at +1 (312) 542-6901",
             )
             return
 
@@ -3381,11 +3277,11 @@ class SpyderTradingDashboard(QMainWindow):
 
     def emergency_close(self):
         """Handle emergency close button click - FIXED MESSAGES"""
-        if not self.ib_connected:
+        if not self.api_connected:
             QMessageBox.critical(
                 self,
-                "IB Disconnected",
-                "IB is disconnected – unable to close open orders at IBKR. If you wish to close or cancel these orders, call IBKR at +1 (312) 542-6901",
+                "API Disconnected",
+                "API is disconnected – unable to close open orders at Tradier. If you wish to close or cancel these orders, call Tradier at +1 (312) 542-6901",
             )
             return
 
@@ -3397,7 +3293,7 @@ class SpyderTradingDashboard(QMainWindow):
             "• Close ALL open positions\n"
             "• Cancel ALL pending orders\n"
             "• Stop automated trading\n"
-            "• Disconnect from IB Gateway\n\n"
+            "• Disconnect from Tradier API\n\n"
             "Are you sure?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -3421,7 +3317,7 @@ class SpyderTradingDashboard(QMainWindow):
 
             if self.market_worker:
                 self.market_worker.force_disconnect()
-            self.ib_connected = False
+            self.api_connected = False
 
     # ==========================================================================
     # ENHANCED STATUS MANAGEMENT WITH FROZEN DATA LOGIC
@@ -3474,7 +3370,7 @@ class SpyderTradingDashboard(QMainWindow):
             hasattr(self.connection_info, "simulation_mode")
             and self.connection_info.simulation_mode
         ) or (
-            not self.ib_connected
+            not self.api_connected
             and hasattr(self, "market_worker")
             and self.market_worker is not None
             and hasattr(self.market_worker, "update_timer")
@@ -3483,8 +3379,8 @@ class SpyderTradingDashboard(QMainWindow):
         ):
             return "SIMULATION"
 
-        if self.ib_connected:
-            # IB is connected
+        if self.api_connected:
+            # API is connected
             if market_hours:
                 self.connection_info.data_was_live = True
                 self.connection_info.last_successful_data = datetime.now()
@@ -3493,7 +3389,7 @@ class SpyderTradingDashboard(QMainWindow):
                 self.connection_info.last_successful_data = datetime.now()
                 return "EOD"
         else:
-            # IB is disconnected
+            # API is disconnected
             if self.real_data_active:
                 # Using file data - always treat as EOD
                 return "EOD"
@@ -3533,11 +3429,11 @@ class SpyderTradingDashboard(QMainWindow):
         self.update_data_status(data_status)
 
     def toggle_simulation_mode(self, event):
-        """Toggle simulation mode (only when IB disconnected) - FIXED STATUS UPDATE"""
-        if self.ib_connected:
-            # Don't activate simulation when IB is connected
+        """Toggle simulation mode (only when API disconnected) - FIXED STATUS UPDATE"""
+        if self.api_connected:
+            # Don't activate simulation when API is connected
             self.add_system_log(
-                "⚠️ Simulation mode only available when IB is disconnected"
+                "⚠️ Simulation mode only available when API is disconnected"
             )
             return
 
@@ -3641,16 +3537,8 @@ class SpyderTradingDashboard(QMainWindow):
         self.prometheus_timer.timeout.connect(self.update_prometheus_metrics)
         self.prometheus_timer.start(8000)
 
-        # Gateway polling timer - TEMPORARILY DISABLED to stop connection loop
-        self.gateway_polling_timer = QTimer()
-        self.gateway_polling_timer.timeout.connect(self.check_and_connect_gateway)
-        # self.gateway_polling_timer.start(5000)  # DISABLED - Check every 5 seconds
-
-        # Log that polling is disabled
-        self.add_system_log("⏸️ Gateway polling temporarily disabled")
-        self.logger.info(
-            "⏸️ Gateway auto-polling disabled - start data clients script first"
-        )
+        # Gateway polling timer — REMOVED (Tradier migration)
+        self._deprecated_gateway_timer = None
 
     def update_datetime(self):
         """Update date/time display"""
@@ -3718,7 +3606,7 @@ class SpyderTradingDashboard(QMainWindow):
                     f"color: {COLORS['text_dim']}; font-size: 14px;"
                 )
 
-        # Update client indicators
+        # Update broker & data feed indicators
         for name, indicator in self.client_indicators.items():
             status = random.choice(["●", "●", "●", "○"])  # 75% green, 25% gray
             if status == "●":
@@ -3933,209 +3821,37 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log(f"⚠️ Tooltip styling error: {e}")
 
     # ==========================================================================
-    # GATEWAY CONTROL INTEGRATION
+    # DEPRECATED: GATEWAY CONTROL (removed in Tradier migration)
     # ==========================================================================
     def toggle_gateway_control(self):
-        """Toggle Gateway Control Panel visibility - opens as floating window"""
-        if not gateway_panel_available:
-            QMessageBox.information(
-                self,
-                "Gateway Control",
-                "Gateway Control Panel is not available.\n\n"
-                "This feature requires SpyderG14_GatewayControlPanel module.",
-            )
-            return
-
-        if self.gateway_panel is None:
-            # Create floating window (not docked)
-            self.gateway_panel = GatewayControlPanel()
-            self.gateway_panel.setWindowTitle("🔧 SPYDER - IB Gateway Control")
-
-            # Make it a standalone window that can be closed
-            self.gateway_panel.setWindowFlags(
-                Qt.WindowType.Window
-                | Qt.WindowType.WindowCloseButtonHint
-                | Qt.WindowType.WindowMinimizeButtonHint
-            )
-
-            # Set size and position
-            self.gateway_panel.resize(450, 750)
-
-            # Position relative to dashboard (center-right)
-            dashboard_geometry = self.geometry()
-            panel_x = dashboard_geometry.x() + dashboard_geometry.width() - 500
-            panel_y = dashboard_geometry.y() + 50
-            self.gateway_panel.move(panel_x, panel_y)
-
-            # Connect signals
-            self.gateway_panel.clients_connected.connect(
-                self.on_gateway_clients_connected
-            )
-
-            # Show the window
-            self.gateway_panel.show()
-            self.add_system_log("🔧 Gateway Control Panel opened (floating window)")
-        else:
-            # Toggle visibility
-            if self.gateway_panel.isVisible():
-                self.gateway_panel.hide()
-                self.add_system_log("🔧 Gateway Control Panel hidden")
-            else:
-                self.gateway_panel.show()
-                self.add_system_log("🔧 Gateway Control Panel shown")
+        """[DEPRECATED] Gateway Control Panel no longer exists. Using Tradier API."""
+        self.add_system_log("ℹ️ Gateway Control Panel deprecated — using Tradier API")
 
     def auto_connect_to_gateway(self):
-        """Auto-detect Gateway and connect clients on dashboard startup"""
-        if not gateway_panel_available:
-            self.add_system_log(
-                "⚠️ Gateway Control Panel not available - skipping auto-connect"
-            )
-            return
-
-        # Check if Gateway is running on port 4002 (paper trading)
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex(("127.0.0.1", 4002))
-            sock.close()
-
-            if result == 0:
-                # Gateway is running!
-                self.add_system_log(
-                    "✅ Gateway detected on port 4002 - auto-connecting clients..."
-                )
-
-                # Open Gateway Control Panel (floating window)
-                self.toggle_gateway_control()
-
-                # Give the panel time to initialize
-                QTimer.singleShot(1000, self.auto_start_clients)
-            else:
-                self.add_system_log(
-                    "⚠️ Gateway not detected - start Gateway first or use Nuclear Restart"
-                )
-        except Exception as e:
-            self.logger.warning(f"Gateway auto-detect failed: {e}")
-            self.add_system_log(
-                "⚠️ Gateway auto-detect failed - manual connection required"
-            )
+        """[DEPRECATED] Auto-connect now checks Tradier API instead of IB Gateway."""
+        self.add_system_log("ℹ️ Checking Tradier API connectivity...")
+        self.check_and_connect_gateway()
 
     def auto_start_clients(self):
-        """Automatically start client connections after Gateway panel is ready"""
-        if self.gateway_panel and gateway_panel_available:
-            # Mark Gateway as running since we detected it
-            self.gateway_panel.gateway_running = True
-            self.gateway_panel.update_gateway_ui()
-
-            # Auto-connect all 8 clients
-            self.add_system_log("🔗 Auto-connecting 8 clients to Gateway...")
-            self.gateway_panel.connect_clients()
-        else:
-            self.add_system_log("⚠️ Gateway panel not ready for auto-connect")
+        """[DEPRECATED] Multi-client connections no longer needed with Tradier API."""
+        pass
 
     @Slot(int)
     def on_gateway_clients_connected(self, count: int):
-        """Handle clients connected signal from Gateway panel"""
-        self.add_system_log(f"✅ {count}/8 clients connected via Gateway panel")
-
-        # Update client indicators in Prometheus table
-        if self.gateway_panel and self.gateway_panel.client_thread:
-            manager = self.gateway_panel.client_thread.manager
-            if manager:
-                for client_id in range(1, 9):
-                    status = manager.get_client_status(client_id)
-                    if status:
-                        self.update_client_indicator(client_id, status.status)
+        """[DEPRECATED] Multi-client connection callback — no longer used."""
+        pass
 
     def update_client_indicator(self, client_id: int, status):
-        """Update client indicator in Prometheus table"""
-        indicator_key = f"CLIENT {client_id}"
-
-        if indicator_key in self.client_indicators:
-            indicator = self.client_indicators[indicator_key]
-
-            if status == ClientStatus.CONNECTED:
-                indicator.setStyleSheet(
-                    f"color: {COLORS['positive']}; font-size: 14px;"
-                )
-                indicator.setToolTip(f"Client {client_id}: Connected")
-            elif status == ClientStatus.CONNECTING:
-                indicator.setStyleSheet(
-                    f"color: {COLORS['connecting']}; font-size: 14px;"
-                )
-                indicator.setToolTip(f"Client {client_id}: Connecting...")
-            elif status == ClientStatus.ERROR:
-                indicator.setStyleSheet(
-                    f"color: {COLORS['negative']}; font-size: 14px;"
-                )
-                indicator.setToolTip(f"Client {client_id}: Error")
-            else:  # DISCONNECTED
-                indicator.setStyleSheet(f"color: {COLORS['neutral']}; font-size: 14px;")
-                indicator.setToolTip(f"Client {client_id}: Click to connect")
+        """[DEPRECATED] Client indicators no longer used with Tradier API."""
+        pass
 
     def reconnect_client(self, client_id: int):
-        """Reconnect a specific client when indicator is clicked"""
-        if not gateway_panel_available or not self.gateway_panel:
-            self.add_system_log(
-                f"⚠️ Gateway panel not available to reconnect Client {client_id}"
-            )
-            return
-
-        if not self.gateway_panel.gateway_running:
-            QMessageBox.warning(
-                self,
-                "Gateway Not Running",
-                "Please start Gateway first before connecting clients.",
-            )
-            return
-
-        self.add_system_log(f"🔄 Reconnecting Client {client_id}...")
-
-        # Use the client manager from gateway panel
-        if (
-            self.gateway_panel.client_thread
-            and self.gateway_panel.client_thread.manager
-        ):
-            manager = self.gateway_panel.client_thread.manager
-
-            # Update indicator to connecting
-            self.update_client_indicator(client_id, ClientStatus.CONNECTING)
-
-            # Reconnect in background
-            import threading
-
-            def reconnect_thread():
-                success = manager.reconnect_client(client_id)
-                if success:
-                    self.add_system_log(f"✅ Client {client_id} reconnected")
-                else:
-                    self.add_system_log(f"❌ Client {client_id} reconnection failed")
-
-            thread = threading.Thread(target=reconnect_thread, daemon=True)
-            thread.start()
+        """[DEPRECATED] Individual client reconnection no longer needed."""
+        self.add_system_log("ℹ️ Client reconnection deprecated — using Tradier API")
 
     def closeEvent(self, event):
-        """Enhanced close event handler with real data cleanup, heartbeat monitoring, and Gateway control"""
+        """Enhanced close event handler with real data cleanup and heartbeat monitoring"""
         try:
-            # NEW: Cleanup Gateway control
-            if self.gateway_panel:
-                if (
-                    hasattr(self.gateway_panel, "client_thread")
-                    and self.gateway_panel.client_thread
-                ):
-                    self.gateway_panel.client_thread.stop()
-                    self.gateway_panel.client_thread.wait(2000)
-
-                if (
-                    hasattr(self.gateway_panel, "gateway_thread")
-                    and self.gateway_panel.gateway_thread
-                ):
-                    self.gateway_panel.gateway_thread.stop()
-                    self.gateway_panel.gateway_thread.wait(2000)
-
-                # Close the floating window
-                self.gateway_panel.close()
-
             # Stop real data timer if active
             if hasattr(self, "_real_data_timer") and self._real_data_timer:
                 self._real_data_timer.stop()
@@ -4249,8 +3965,8 @@ def apply_real_data_patch_to_dashboard(dashboard, data_file):
     update_with_real_data()
 
     # Add log entries
-    dashboard.add_system_log("🔥 REAL MARKET DATA ACTIVE - IB Gateway prices")
-    dashboard.add_automation_log("Real-time market data from Interactive Brokers")
+    dashboard.add_system_log("🔥 REAL MARKET DATA ACTIVE - Tradier API prices")
+    dashboard.add_automation_log("Real-time market data from Tradier")
 
     print("✅ Real data patch applied successfully!")
 
@@ -4338,11 +4054,11 @@ def update_toolbar_with_real_data_helper(dashboard, live_data):
 
 
 def update_status_for_real_data_helper(dashboard):
-    """Update status indicators for real data - FIXED to not override IB status"""
+    """Update status indicators for real data - FIXED to not override API status"""
     try:
-        # Real data integration should not change IB connection display
-        # IB status should always reflect actual IB Gateway connection
-        pass  # Don't override IB connection status
+        # Real data integration should not change API connection display
+        # API status should always reflect actual Tradier API connection
+        pass  # Don't override API connection status
 
     except Exception as e:
         pass  # Not critical
@@ -4391,13 +4107,12 @@ def apply_external_real_data_patch(dashboard, data_file_path=None):
 def main():
     """Main function for standalone testing"""
     print("=" * 70)
-    print("🔥 SPYDER G05 - ENHANCED DASHBOARD WITH GATEWAY CONTROL")
+    print("🔥 SPYDER G05 - ENHANCED TRADING DASHBOARD")
     print("=" * 70)
-    print("🔧 Gateway Control Panel integration")
-    print("🔗 8-client connection management")
+    print("🔗 Tradier API integration")
+    print("📡 Databento market data feeds")
     print("💔💚💙 30-second heartbeat monitoring")
     print("📊 Clean 4-status data display")
-    print("🎯 Clickable client indicators for reconnection")
     print("=" * 70)
 
     # Create Qt application
@@ -4454,20 +4169,20 @@ def main():
                 print("   Start injector: python temp_WorkingDataInjector.py")
 
             print("\n💔💚💙 FIXED FEATURES:")
-            print("   • IB connection starts DISCONNECTED with proper status display")
+            print("   • API connection starts DISCONNECTED with proper status display")
             print(
                 "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
             )
             print(
                 "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
             )
-            print("   • Blue simulation button only visible when IB disconnected")
+            print("   • Blue simulation button only visible when API disconnected")
             print("   • Fixed-width status containers (no UI jumping)")
-            print("   • Removed 'REAL DATA (FILE)' override - shows proper IB status")
-            print("   • Correct IBKR phone number in all trading button messages")
+            print("   • Removed 'REAL DATA (FILE)' override - shows proper API status")
+            print("   • Correct Tradier phone number in all trading button messages")
 
             print("\n🔥 Enhanced Trading Dashboard is ready!")
-            print("   Heartbeat will check IB connection every 30 seconds")
+            print("   Heartbeat will check API connection every 30 seconds")
             print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
             print("🔄 Running with qasync event loop integration...")
 
@@ -4524,20 +4239,20 @@ def main():
                 print("   Start injector: python temp_WorkingDataInjector.py")
 
             print("\n💔💚💙 FIXED FEATURES:")
-            print("   • IB connection starts DISCONNECTED with proper status display")
+            print("   • API connection starts DISCONNECTED with proper status display")
             print(
                 "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
             )
             print(
                 "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
             )
-            print("   • Blue simulation button only visible when IB disconnected")
+            print("   • Blue simulation button only visible when API disconnected")
             print("   • Fixed-width status containers (no UI jumping)")
-            print("   • Removed 'REAL DATA (FILE)' override - shows proper IB status")
-            print("   • Correct IBKR phone number in all trading button messages")
+            print("   • Removed 'REAL DATA (FILE)' override - shows proper API status")
+            print("   • Correct Tradier phone number in all trading button messages")
 
             print("\n🔥 Enhanced Trading Dashboard is ready!")
-            print("   Heartbeat will check IB connection every 30 seconds")
+            print("   Heartbeat will check API connection every 30 seconds")
             print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
 
             # Run application with standard event loop

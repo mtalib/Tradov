@@ -685,6 +685,22 @@ def get_feature_flags() -> FeatureFlags:
     return _feature_flags_instance
 
 
+# Aliases for backward compatibility
+def is_spyderx_enabled(feature_name: str, user_id: Optional[str] = None) -> bool:
+    """Check if a SpyderX feature is enabled (alias for is_feature_enabled)."""
+    return is_feature_enabled(feature_name, user_id)
+
+
+# Default SpyderX feature flags dictionary
+SPYDERX_FEATURE_FLAGS: Dict[str, bool] = {
+    "USE_AI_RISK": False,
+    "USE_AI_FLOW": False,
+    "ENABLE_SPYDERX_SHADOW": False,
+    "USE_AI_GREEKS": False,
+    "USE_AI_STRATEGY": False,
+}
+
+
 # ==============================================================================
 # MAIN EXECUTION
 # ==============================================================================

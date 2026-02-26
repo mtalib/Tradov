@@ -63,6 +63,16 @@ import warnings
 import numpy as np
 import pandas as pd
 
+# Reinforcement Learning (optional)
+try:
+    import gym
+    from gym import spaces
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    HAS_SB3 = True
+except ImportError:
+    HAS_SB3 = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -336,6 +346,146 @@ REGIME_STRATEGY_MAPPINGS = {
 }
 
 # ==============================================================================
+# RL ENVIRONMENT — STRATEGY SELECTION
+# ==============================================================================
+if HAS_SB3:
+    class StrategySelectionEnvironment(gym.Env):
+        """
+        RL environment for dynamic strategy selection across market regimes.
+
+        The agent learns to select optimal strategies by observing regime
+        probabilities, market indicators, and per-strategy recent P&L,
+        rather than relying on a static regime→strategy mapping.
+
+        Observation (15-dim):
+            [regime_probs(4), regime_confidence, days_in_regime,
+             vix_percentile, spy_return_5d, spy_return_20d, put_call_ratio,
+             market_breadth, per_strategy_recent_pnl(5 top strategies)]
+
+        Actions (9 discrete — one per non-neutral StrategyType):
+            0=calendar_spreads, 1=iron_condors, 2=long_straddles,
+            3=credit_spreads, 4=debit_spreads, 5=iron_butterflies,
+            6=vertical_spreads, 7=ratio_spreads, 8=neutral
+
+        Reward:
+            risk-adjusted return of selected strategy over next period.
+        """
+
+        STRATEGY_LIST = [
+            'calendar_spreads', 'iron_condors', 'long_straddles',
+            'credit_spreads', 'debit_spreads', 'iron_butterflies',
+            'vertical_spreads', 'ratio_spreads', 'neutral',
+        ]
+        N_STRATEGIES = len(STRATEGY_LIST)
+
+        def __init__(
+            self,
+            episode_length: int = 60,
+            historical_returns: Optional[Dict[str, np.ndarray]] = None,
+        ):
+            super().__init__()
+            self.observation_space = spaces.Box(
+                low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32
+            )
+            self.action_space = spaces.Discrete(self.N_STRATEGIES)
+            self.episode_length = episode_length
+
+            # Strategy return histories (synthetic if not provided)
+            if historical_returns is not None:
+                self.strategy_returns = historical_returns
+            else:
+                self.strategy_returns = self._generate_synthetic_returns()
+
+            self.current_step = 0
+            self.cumulative_reward = 0.0
+            self.current_regime_idx = 0
+
+        def reset(self) -> np.ndarray:
+            self.current_step = 0
+            self.cumulative_reward = 0.0
+            self.current_regime_idx = np.random.randint(0, 4)
+            return self._get_obs()
+
+        def step(self, action: int):
+            strategy_name = self.STRATEGY_LIST[action]
+
+            # Simulate strategy return for this period
+            ret_series = self.strategy_returns.get(strategy_name, np.zeros(500))
+            idx = (self.current_step * 7 + np.random.randint(0, len(ret_series))) % len(ret_series)
+            strategy_return = float(ret_series[idx])
+
+            # Regime alignment bonus/penalty
+            regime_names = ['bull', 'chop', 'crisis', 'unknown']
+            regime = regime_names[self.current_regime_idx]
+            alignment_bonus = 0.0
+            regime_strategy_map = {
+                'bull': ['calendar_spreads', 'credit_spreads', 'vertical_spreads'],
+                'chop': ['iron_condors', 'iron_butterflies', 'credit_spreads'],
+                'crisis': ['long_straddles', 'debit_spreads', 'ratio_spreads'],
+                'unknown': ['neutral'],
+            }
+            if strategy_name in regime_strategy_map.get(regime, []):
+                alignment_bonus = 0.002
+            elif strategy_name == 'neutral':
+                alignment_bonus = -0.001  # Small penalty for doing nothing
+
+            reward = strategy_return + alignment_bonus
+            self.cumulative_reward += reward
+            self.current_step += 1
+
+            # Regime transitions
+            if np.random.random() < 0.05:  # 5% chance of regime change
+                self.current_regime_idx = np.random.randint(0, 4)
+
+            done = self.current_step >= self.episode_length
+            return self._get_obs(), float(reward), done, {
+                'strategy': strategy_name,
+                'regime': regime_names[self.current_regime_idx],
+                'cumulative_reward': self.cumulative_reward,
+            }
+
+        def _get_obs(self) -> np.ndarray:
+            regime_probs = np.zeros(4)
+            regime_probs[self.current_regime_idx] = 0.7
+            other_prob = 0.3 / 3
+            for i in range(4):
+                if i != self.current_regime_idx:
+                    regime_probs[i] = other_prob
+
+            # Market indicators (synthetic)
+            vix_pct = np.random.uniform(0, 1)
+            spy_5d = np.random.normal(0, 0.02)
+            spy_20d = np.random.normal(0, 0.04)
+            pcr = np.random.uniform(0.5, 1.5)
+            breadth = np.random.uniform(-1, 1)
+
+            # Per-strategy recent P&L (top 5)
+            strat_pnls = []
+            for s in self.STRATEGY_LIST[:5]:
+                r = self.strategy_returns.get(s, np.zeros(10))
+                strat_pnls.append(float(np.mean(r[-10:])))
+
+            obs = np.concatenate([
+                regime_probs,           # 4
+                [0.7],                  # regime_confidence  # 1
+                [self.current_step],    # days_in_regime proxy  # 1
+                [vix_pct, spy_5d, spy_20d, pcr, breadth],  # 5
+                strat_pnls[:4],         # 4 (truncate to fit 15)
+            ])
+            return obs.astype(np.float32)
+
+        @staticmethod
+        def _generate_synthetic_returns() -> Dict[str, np.ndarray]:
+            np.random.seed(42)
+            returns = {}
+            for s in StrategySelectionEnvironment.STRATEGY_LIST:
+                mu = np.random.uniform(-0.001, 0.003)
+                sigma = np.random.uniform(0.005, 0.02)
+                returns[s] = np.random.normal(mu, sigma, 500)
+            return returns
+
+
+# ==============================================================================
 # MAIN CLASS
 # ==============================================================================
 
@@ -409,6 +559,94 @@ class RegimeGatedSelector:
         
         if not HMM_AVAILABLE:
             self.logger.warning("HMM not available - regime detection disabled")
+
+        # RL strategy selection agent (optional)
+        self._rl_selector_model = None
+        self._rl_enabled = HAS_SB3
+        self._load_rl_selector_model()
+
+    def _load_rl_selector_model(self, model_path: Optional[str] = None) -> None:
+        """Load pre-trained RL strategy selection model if available."""
+        if not HAS_SB3:
+            self._rl_enabled = False
+            return
+        try:
+            if model_path:
+                self._rl_selector_model = PPO.load(model_path)
+                self.logger.info(f"RL strategy selector loaded from {model_path}")
+            else:
+                import os
+                default_path = "models/rl/strategy_selection/strategy_selection_PPO_final"
+                if os.path.exists(default_path + ".zip"):
+                    self._rl_selector_model = PPO.load(default_path)
+                    self.logger.info("RL strategy selector loaded from default path")
+                else:
+                    self._rl_enabled = False
+                    self.logger.debug("No RL strategy selector model found — using rule-based selection")
+        except Exception as e:
+            self._rl_enabled = False
+            self.logger.warning(f"Failed to load RL strategy selector: {e}")
+
+    def _get_rl_strategy_observation(self, regime_prediction) -> np.ndarray:
+        """Build observation vector for RL strategy selection agent."""
+        regime_map = {
+            MarketRegime.BULL: 0, MarketRegime.CHOP: 1,
+            MarketRegime.CRISIS: 2, MarketRegime.UNKNOWN: 3,
+        }
+        regime_idx = regime_map.get(regime_prediction.current_regime, 3)
+        regime_probs = np.zeros(4)
+        regime_probs[regime_idx] = regime_prediction.confidence
+        remaining = (1.0 - regime_prediction.confidence) / 3
+        for i in range(4):
+            if i != regime_idx:
+                regime_probs[i] = remaining
+
+        # Per-strategy recent Sharpe (from performance_history)
+        strat_pnls = []
+        strategy_order = [
+            StrategyType.CALENDAR_SPREADS, StrategyType.IRON_CONDORS,
+            StrategyType.LONG_STRADDLES, StrategyType.CREDIT_SPREADS,
+            StrategyType.DEBIT_SPREADS,
+        ]
+        for st in strategy_order[:4]:
+            perfs = self.performance_history.get(st, [])
+            if perfs:
+                strat_pnls.append(perfs[-1].sharpe_ratio)
+            else:
+                strat_pnls.append(0.0)
+
+        obs = np.concatenate([
+            regime_probs,                    # 4
+            [regime_prediction.confidence],  # 1
+            [float(self.days_in_regime)],    # 1
+            [0.5, 0.0, 0.0, 1.0, 0.0],     # placeholders: vix_pct, spy_5d, spy_20d, pcr, breadth
+            strat_pnls,                      # 4
+        ])
+        return obs.astype(np.float32)
+
+    def _rl_select_strategy(self, regime_prediction) -> Optional[StrategyType]:
+        """Use RL model to select strategy (returns None if RL not available)."""
+        if not self._rl_enabled or self._rl_selector_model is None:
+            return None
+        try:
+            obs = self._get_rl_strategy_observation(regime_prediction)
+            action, _ = self._rl_selector_model.predict(obs, deterministic=True)
+            action = int(action)
+            strategy_map = {
+                0: StrategyType.CALENDAR_SPREADS,
+                1: StrategyType.IRON_CONDORS,
+                2: StrategyType.LONG_STRADDLES,
+                3: StrategyType.CREDIT_SPREADS,
+                4: StrategyType.DEBIT_SPREADS,
+                5: StrategyType.IRON_BUTTERFLIES,
+                6: StrategyType.VERTICAL_SPREADS,
+                7: StrategyType.RATIO_SPREADS,
+                8: StrategyType.NEUTRAL,
+            }
+            return strategy_map.get(action)
+        except Exception as e:
+            self.logger.warning(f"RL strategy selection failed: {e}")
+            return None
     
     def initialize(self, hmm_detector: HMMRegimeDetector) -> bool:
         """
@@ -490,8 +728,19 @@ class RegimeGatedSelector:
                     f"Regime duration ({self.days_in_regime}d) < minimum ({self.min_regime_duration}d)"
                 )
             
-            # Get optimal strategy
-            optimal_strategy = mapping.primary_strategy
+            # Get optimal strategy — RL-enhanced or rule-based
+            rl_choice = self._rl_select_strategy(regime_prediction)
+            if rl_choice is not None:
+                optimal_strategy = rl_choice
+                # Still respect avoid list from mapping
+                if optimal_strategy in mapping.avoid_strategies:
+                    self.logger.debug(
+                        f"RL chose {optimal_strategy.value} but it's in avoid list — "
+                        f"falling back to mapping primary"
+                    )
+                    optimal_strategy = mapping.primary_strategy
+            else:
+                optimal_strategy = mapping.primary_strategy
             
             # Check if strategy change needed
             if optimal_strategy == self.current_strategy:

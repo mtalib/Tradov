@@ -350,7 +350,7 @@ class RiskManager:
                 ))
 
                 # Calculate new position size
-                if order.side.value == "BUY":
+                if order.side.lower() in ("buy", "buy_to_open", "buy_to_close"):
                     new_position_size = current_position.quantity + order.quantity
                 else:
                     new_position_size = current_position.quantity - order.quantity

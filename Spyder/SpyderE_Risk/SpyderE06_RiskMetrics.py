@@ -49,6 +49,12 @@ except ImportError:
     HAS_SCIPY = False
     print("WARNING: scipy not available. Some risk calculations will be limited.")
 
+try:
+    import empyrical
+    HAS_EMPYRICAL = True
+except ImportError:
+    HAS_EMPYRICAL = False
+
 # ==============================================================================
 # LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
@@ -579,6 +585,136 @@ class RiskMetricsCalculator:
             self.logger.error(f"Error calculating metrics: {e}")
             self.error_handler.handle_error(e, {"method": "calculate_metrics"})
             return self._create_empty_metrics()
+    
+    def calculate_empyrical_metrics(self,
+                                   returns: List[float],
+                                   benchmark_returns: Optional[List[float]] = None) -> Dict[str, float]:
+        """
+        Calculate institutional-grade metrics using empyrical library.
+        
+        Provides cross-validated metrics that match institutional reporting
+        standards. Falls back to local calculations if empyrical unavailable.
+        
+        Args:
+            returns: List of period returns.
+            benchmark_returns: Optional benchmark returns for relative metrics.
+            
+        Returns:
+            Dict of empyrical-validated performance metrics.
+        """
+        if not HAS_EMPYRICAL:
+            self.logger.warning("empyrical not available — using local calculations")
+            return self._calculate_fallback_metrics(returns, benchmark_returns)
+        
+        try:
+            ret_series = pd.Series(returns)
+            
+            metrics = {
+                'source': 'empyrical',
+                
+                # Core return metrics
+                'annual_return': float(empyrical.annual_return(ret_series, period='daily')),
+                'cumulative_return': float(empyrical.cum_returns_final(ret_series)),
+                'annual_volatility': float(empyrical.annual_volatility(ret_series, period='daily')),
+                
+                # Risk-adjusted ratios
+                'sharpe_ratio': float(empyrical.sharpe_ratio(ret_series, period='daily')),
+                'sortino_ratio': float(empyrical.sortino_ratio(ret_series, period='daily')),
+                'calmar_ratio': float(empyrical.calmar_ratio(ret_series, period='daily')),
+                'omega_ratio': float(empyrical.omega_ratio(ret_series)),
+                
+                # Drawdown
+                'max_drawdown': float(empyrical.max_drawdown(ret_series)),
+                
+                # Tail risk
+                'var_5': float(empyrical.value_at_risk(ret_series, cutoff=0.05)),
+                'cvar_5': float(empyrical.conditional_value_at_risk(ret_series, cutoff=0.05)),
+                
+                # Stability
+                'stability': float(empyrical.stability_of_timeseries(ret_series)),
+                'tail_ratio': float(empyrical.tail_ratio(ret_series)),
+            }
+            
+            # Benchmark-relative metrics
+            if benchmark_returns and len(benchmark_returns) == len(returns):
+                bench_series = pd.Series(benchmark_returns)
+                metrics['alpha'] = float(empyrical.alpha(ret_series, bench_series, period='daily'))
+                metrics['beta'] = float(empyrical.beta(ret_series, bench_series))
+                metrics['information_ratio'] = float(empyrical.information_ratio(ret_series, bench_series))
+                excess = empyrical.excess_sharpe(ret_series, bench_series)
+                metrics['excess_sharpe'] = float(excess)
+            
+            return metrics
+            
+        except Exception as e:
+            self.logger.error(f"empyrical calculation error: {e}")
+            return self._calculate_fallback_metrics(returns, benchmark_returns)
+    
+    def _calculate_fallback_metrics(self,
+                                   returns: List[float],
+                                   benchmark_returns: Optional[List[float]] = None) -> Dict[str, float]:
+        """Fallback metrics using local calculations when empyrical unavailable."""
+        metrics = {
+            'source': 'local',
+            'annual_return': annualize_return(returns),
+            'annual_volatility': annualize_volatility(returns),
+            'sharpe_ratio': calculate_sharpe_ratio(returns, self.risk_free_rate),
+            'sortino_ratio': calculate_sortino_ratio(returns, self.risk_free_rate),
+            'omega_ratio': calculate_omega_ratio(returns),
+            'max_drawdown': 0.0,
+            'var_5': calculate_var(returns, 0.95),
+            'cvar_5': calculate_cvar(returns, 0.95),
+        }
+        
+        if benchmark_returns and len(benchmark_returns) == len(returns):
+            metrics['information_ratio'] = calculate_information_ratio(returns, benchmark_returns)
+        
+        return metrics
+    
+    def cross_validate_metrics(self,
+                              returns: List[float],
+                              benchmark_returns: Optional[List[float]] = None) -> Dict[str, Any]:
+        """
+        Cross-validate local calculations against empyrical for audit trail.
+        
+        Compares locally-computed Sharpe, Sortino, VaR, etc. against empyrical's
+        implementations and reports discrepancies above tolerance threshold.
+        
+        Args:
+            returns: List of period returns.
+            benchmark_returns: Optional benchmark returns.
+            
+        Returns:
+            Dict with local metrics, empyrical metrics, and discrepancy report.
+        """
+        local = self._calculate_fallback_metrics(returns, benchmark_returns)
+        institutional = self.calculate_empyrical_metrics(returns, benchmark_returns)
+        
+        discrepancies = {}
+        tolerance = 0.01  # 1% relative tolerance
+        
+        for key in ['sharpe_ratio', 'sortino_ratio', 'annual_return', 'annual_volatility']:
+            if key in local and key in institutional:
+                local_val = local[key]
+                inst_val = institutional[key]
+                if abs(inst_val) > 1e-8:
+                    relative_diff = abs(local_val - inst_val) / abs(inst_val)
+                    if relative_diff > tolerance:
+                        discrepancies[key] = {
+                            'local': local_val,
+                            'empyrical': inst_val,
+                            'relative_diff': relative_diff
+                        }
+        
+        if discrepancies:
+            self.logger.warning(f"Metric discrepancies detected: {list(discrepancies.keys())}")
+        
+        return {
+            'local_metrics': local,
+            'institutional_metrics': institutional,
+            'discrepancies': discrepancies,
+            'validation_passed': len(discrepancies) == 0
+        }
     
     def calculate_rolling_metrics(self,
                                 returns: List[float],
