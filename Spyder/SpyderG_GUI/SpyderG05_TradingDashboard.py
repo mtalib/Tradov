@@ -2687,7 +2687,7 @@ class SpyderTradingDashboard(QMainWindow):
         tree = QTreeWidget()
 
         # Leg-level columns under each strategy header
-        columns = ["LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L", "STATUS"]
+        columns = ["LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L"]
         tree.setColumnCount(len(columns))
         tree.setHeaderLabels(columns)
 
@@ -2745,13 +2745,12 @@ class SpyderTradingDashboard(QMainWindow):
         )
 
         # Set column widths for leg rows
-        tree.setColumnWidth(0, 90)   # LEG
+        tree.setColumnWidth(0, 70)   # LEG
         tree.setColumnWidth(1, 80)   # STRIKE
         tree.setColumnWidth(2, 45)   # CONT
         tree.setColumnWidth(3, 65)   # EXPIRY
         tree.setColumnWidth(4, 90)   # COST
         tree.setColumnWidth(5, 90)   # P&L
-        tree.setColumnWidth(6, 70)   # STATUS
 
         tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -3858,11 +3857,10 @@ class SpyderTradingDashboard(QMainWindow):
                 leg_item.setText(3, leg["expiry"])
                 leg_item.setText(4, leg["cost"])
                 leg_item.setText(5, leg["pnl"])
-                leg_item.setText(6, leg["status"])
 
                 # Set base text color and center-align all columns
                 text_color = QColor(COLORS["text"])
-                for col in range(7):
+                for col in range(6):
                     leg_item.setForeground(col, text_color)
                     leg_item.setTextAlignment(
                         col,
@@ -3888,12 +3886,6 @@ class SpyderTradingDashboard(QMainWindow):
                     leg_item.setForeground(4, QColor(COLORS["positive"]))
                 else:
                     leg_item.setForeground(4, QColor(COLORS["negative"]))
-
-                # Override status color
-                if leg["status"] == "OPEN":
-                    leg_item.setForeground(6, QColor(COLORS["positive"]))
-                else:
-                    leg_item.setForeground(6, QColor(COLORS["text_dim"]))
 
             # Expand OPEN strategies by default, collapse CLOSED
             strategy_item.setExpanded(strat["status"] == "OPEN")
