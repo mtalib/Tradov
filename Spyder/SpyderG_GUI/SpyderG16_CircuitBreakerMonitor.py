@@ -148,14 +148,14 @@ class CircuitBreakerMonitor(QWidget):
             if left else Qt.AlignmentFlag.AlignCenter
         )
         lbl.setStyleSheet(
-            f"color: {color}; font-size: 12px; font-weight: normal; letter-spacing: 1px;"
+            f"color: {color}; font-size: 14px; font-weight: normal; letter-spacing: 1px;"
         )
         return lbl
 
     def _make_service(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        lbl.setStyleSheet("color: #cccccc; font-size: 13px; font-weight: normal;")
+        lbl.setStyleSheet("color: #cccccc; font-size: 15px; font-weight: normal;")
         return lbl
 
     # ------------------------------------------------------------------
@@ -176,7 +176,7 @@ class CircuitBreakerMonitor(QWidget):
         title_lbl = QLabel("CIRCUIT BREAKER STATUS")
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         title_lbl.setStyleSheet(
-            "color: #ffffff; font-size: 13px; font-weight: normal; letter-spacing: 1px;"
+            "color: #ffffff; font-size: 15px; font-weight: normal; letter-spacing: 1px;"
         )
         grid.addWidget(title_lbl, 0, 0)
         grid.addWidget(self._make_header("NORMAL",   self.COLOR_NORMAL),   0, 1)
