@@ -2191,7 +2191,6 @@ class SpyderTradingDashboard(QMainWindow):
         layout = QVBoxLayout()
         layout.setSpacing(3)
         layout.setContentsMargins(5, 5, 5, 5)
-
         # Control buttons
         button_layout = QHBoxLayout()
 
@@ -2356,8 +2355,7 @@ class SpyderTradingDashboard(QMainWindow):
         pnl_layout.addWidget(pnl_title_lbl)
 
         self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setMinimumHeight(140)
-        self.pnl_table.setMaximumHeight(140)
+        self.pnl_table.setFixedHeight(160)
         pnl_layout.addWidget(self.pnl_table)
 
         pnl_group.setLayout(pnl_layout)
@@ -2465,7 +2463,23 @@ class SpyderTradingDashboard(QMainWindow):
         layout.addWidget(metrics_widget)
 
         panel.setLayout(layout)
-        return panel
+
+        # Wrap in a scroll area so all sections are always reachable
+        from PySide6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidget(panel)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setStyleSheet(
+            f"""
+            QScrollArea {{ border: none; background-color: {COLORS['background']}; }}
+            QScrollBar:vertical {{ width: 8px; background: {COLORS['panel']}; }}
+            QScrollBar::handle:vertical {{ background: {COLORS['border']}; border-radius: 4px; }}
+            """
+        )
+        scroll.setMinimumWidth(580)
+        return scroll
 
     def create_chart(self):
         """Create the SPY chart widget (UNCHANGED)"""
