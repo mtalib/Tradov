@@ -2332,13 +2332,20 @@ class SpyderTradingDashboard(QMainWindow):
         layout.addWidget(account_group)
 
         # P&L Performance
-        pnl_group = QGroupBox("P&&L PERFORMANCE")
+        pnl_group = QGroupBox("")
         pnl_layout = QVBoxLayout()
         pnl_layout.setContentsMargins(5, 8, 5, 5)
         pnl_layout.setSpacing(1)
 
+        # Title label — left-aligned
+        pnl_title_lbl = QLabel("P&L PERFORMANCE")
+        pnl_title_lbl.setStyleSheet(
+            f"color: {COLORS['text']}; font-size: 13px; font-weight: normal; letter-spacing: 1px;"
+        )
+        pnl_layout.addWidget(pnl_title_lbl)
+
         self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setFixedHeight(200)
+        self.pnl_table.setFixedHeight(225)
         pnl_layout.addWidget(self.pnl_table)
 
         pnl_group.setLayout(pnl_layout)
@@ -2349,6 +2356,17 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Risk Monitor
         risk_group = QGroupBox("")
+        risk_group.setStyleSheet(
+            f"""
+            QGroupBox {{
+                border: 1px solid {COLORS['border']};
+                border-radius: 5px;
+                margin-top: 0px;
+                padding-top: 6px;
+                background-color: {COLORS['background']};
+            }}
+            """
+        )
         risk_layout = QVBoxLayout()
         risk_layout.setSpacing(2)
         risk_layout.setContentsMargins(5, 8, 5, 5)
@@ -2357,7 +2375,7 @@ class SpyderTradingDashboard(QMainWindow):
         risk_header = QHBoxLayout()
         risk_title_lbl = QLabel("RISK MONITOR")
         risk_title_lbl.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: 11px; font-weight: bold; letter-spacing: 1px;"
+            f"color: {COLORS['text']}; font-size: 13px; font-weight: normal; letter-spacing: 1px;"
         )
         risk_header.addWidget(risk_title_lbl)
         risk_header.addStretch()
