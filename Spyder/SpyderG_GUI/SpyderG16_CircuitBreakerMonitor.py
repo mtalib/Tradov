@@ -148,7 +148,7 @@ class CircuitBreakerMonitor(QWidget):
             if left else Qt.AlignmentFlag.AlignCenter
         )
         lbl.setStyleSheet(
-            f"color: {color}; font-size: 14px; font-weight: normal; letter-spacing: 1px;"
+            f"color: {color}; font-size: 15px; font-weight: normal; letter-spacing: 1px;"
         )
         return lbl
 

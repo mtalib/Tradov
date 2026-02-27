@@ -2224,6 +2224,7 @@ class SpyderTradingDashboard(QMainWindow):
             try:
                 circuit_breaker_widget = create_circuit_breaker_monitor(parent=self)
                 circuit_breaker_widget.setMaximumHeight(120)
+                layout.addSpacing(8)
                 layout.addWidget(circuit_breaker_widget)
             except Exception as e:
                 print(f"⚠️ Failed to create circuit breaker monitor: {e}")
