@@ -2264,7 +2264,7 @@ class SpyderTradingDashboard(QMainWindow):
         table_layout.addWidget(mode_label, 0, 2)
 
         self.risk_params_btn = QPushButton("RISK LEVELS")
-        self.risk_params_btn.setStyleSheet(f"background-color: #0066CC; color: white;")
+        self.risk_params_btn.setStyleSheet(f"background-color: #0066CC; color: white; font-size: 15px;")
         self.risk_params_btn.setToolTip(
             "Configure global and strategy-specific risk parameters"
         )
@@ -2333,6 +2333,17 @@ class SpyderTradingDashboard(QMainWindow):
 
         # P&L Performance
         pnl_group = QGroupBox("")
+        pnl_group.setStyleSheet(
+            f"""
+            QGroupBox {{
+                border: 1px solid {COLORS['border']};
+                border-radius: 5px;
+                margin-top: 0px;
+                padding-top: 6px;
+                background-color: {COLORS['background']};
+            }}
+            """
+        )
         pnl_layout = QVBoxLayout()
         pnl_layout.setContentsMargins(5, 8, 5, 5)
         pnl_layout.setSpacing(1)
@@ -2340,12 +2351,13 @@ class SpyderTradingDashboard(QMainWindow):
         # Title label — left-aligned
         pnl_title_lbl = QLabel("P&L PERFORMANCE")
         pnl_title_lbl.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: 13px; font-weight: normal; letter-spacing: 1px;"
+            f"color: {COLORS['text']}; font-size: 15px; font-weight: normal; letter-spacing: 1px;"
         )
         pnl_layout.addWidget(pnl_title_lbl)
 
         self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setFixedHeight(225)
+        self.pnl_table.setMinimumHeight(140)
+        self.pnl_table.setMaximumHeight(140)
         pnl_layout.addWidget(self.pnl_table)
 
         pnl_group.setLayout(pnl_layout)
@@ -2375,7 +2387,7 @@ class SpyderTradingDashboard(QMainWindow):
         risk_header = QHBoxLayout()
         risk_title_lbl = QLabel("RISK MONITOR")
         risk_title_lbl.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: 13px; font-weight: normal; letter-spacing: 1px;"
+            f"color: {COLORS['text']}; font-size: 15px; font-weight: normal; letter-spacing: 1px;"
         )
         risk_header.addWidget(risk_title_lbl)
         risk_header.addStretch()
