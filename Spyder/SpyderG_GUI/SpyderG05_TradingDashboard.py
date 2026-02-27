@@ -2223,7 +2223,7 @@ class SpyderTradingDashboard(QMainWindow):
         if circuit_breaker_monitor_available:
             try:
                 circuit_breaker_widget = create_circuit_breaker_monitor(parent=self)
-                circuit_breaker_widget.setMaximumHeight(120)
+                circuit_breaker_widget.setMaximumHeight(85)
                 layout.addSpacing(8)
                 layout.addWidget(circuit_breaker_widget)
             except Exception as e:
@@ -2338,7 +2338,7 @@ class SpyderTradingDashboard(QMainWindow):
         pnl_layout.setSpacing(1)
 
         self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setFixedHeight(170)
+        self.pnl_table.setFixedHeight(200)
         pnl_layout.addWidget(self.pnl_table)
 
         pnl_group.setLayout(pnl_layout)
@@ -2348,9 +2348,21 @@ class SpyderTradingDashboard(QMainWindow):
         layout.addSpacing(10)
 
         # Risk Monitor
-        risk_group = QGroupBox("RISK MONITOR")
+        risk_group = QGroupBox("")
         risk_layout = QVBoxLayout()
         risk_layout.setSpacing(2)
+        risk_layout.setContentsMargins(5, 8, 5, 5)
+
+        # Title row: "RISK MONITOR" label + RISK LEVELS button on the right
+        risk_header = QHBoxLayout()
+        risk_title_lbl = QLabel("RISK MONITOR")
+        risk_title_lbl.setStyleSheet(
+            f"color: {COLORS['text']}; font-size: 11px; font-weight: bold; letter-spacing: 1px;"
+        )
+        risk_header.addWidget(risk_title_lbl)
+        risk_header.addStretch()
+        risk_header.addWidget(self.risk_params_btn)
+        risk_layout.addLayout(risk_header)
 
         self.greek_bars = {
             "delta": GreekBar("Delta", -100, 100),
@@ -2361,12 +2373,6 @@ class SpyderTradingDashboard(QMainWindow):
 
         for bar in self.greek_bars.values():
             risk_layout.addWidget(bar)
-
-        # RISK LEVELS button — right-aligned at bottom of Risk Monitor
-        risk_btn_row = QHBoxLayout()
-        risk_btn_row.addStretch()
-        risk_btn_row.addWidget(self.risk_params_btn)
-        risk_layout.addLayout(risk_btn_row)
 
         risk_group.setLayout(risk_layout)
         layout.addWidget(risk_group)

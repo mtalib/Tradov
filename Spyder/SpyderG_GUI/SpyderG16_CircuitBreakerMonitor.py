@@ -219,7 +219,6 @@ class CircuitBreakerMonitor(QWidget):
         grid.setColumnStretch(3, 1)
 
         main_layout.addLayout(grid)
-        main_layout.addStretch()
 
     # ------------------------------------------------------------------
     # Update logic
