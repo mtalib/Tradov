@@ -2878,7 +2878,7 @@ class SpyderTradingDashboard(QMainWindow):
             ("+$850.00", "75%", "$425/$120", "1.65", "1.85", "2.12", "1.95"),
             ("+$3,200.00", "68%", "$380/$150", "1.52", "1.92", "2.05", "2.18"),
             ("+$12,500.00", "72%", "$450/$180", "1.78", "2.15", "2.35", "2.62"),
-            ("+$240,000,000.00", "70%", "$500/$200", "1.85", "2.35", "2.58", "3.15"),
+            ("+$47,500.00", "70%", "$500/$200", "1.85", "2.35", "2.58", "3.15"),
         ]
 
         for row, (period, values) in enumerate(zip(periods, data)):
@@ -2915,7 +2915,12 @@ class SpyderTradingDashboard(QMainWindow):
             calmar_ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 7, calmar_ratio_item)
 
-        table.setStyleSheet("font-size: 11px;")
+        table.setStyleSheet(
+            """
+            QTableWidget { font-size: 11px; }
+            QHeaderView::section { font-weight: normal; font-size: 11px; }
+            """
+        )
         table.verticalHeader().setVisible(False)
         table.verticalHeader().setDefaultSectionSize(26)
 
