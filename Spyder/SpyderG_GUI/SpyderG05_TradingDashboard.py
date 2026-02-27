@@ -2269,7 +2269,7 @@ class SpyderTradingDashboard(QMainWindow):
             "Configure global and strategy-specific risk parameters"
         )
         self.risk_params_btn.clicked.connect(self.show_risk_parameters)
-        table_layout.addWidget(self.risk_params_btn, 0, 3)
+        # Button is placed in the RISK MONITOR section instead
 
         # Separator
         spacer_label = QLabel("")
@@ -2338,7 +2338,7 @@ class SpyderTradingDashboard(QMainWindow):
         pnl_layout.setSpacing(1)
 
         self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setFixedHeight(140)
+        self.pnl_table.setFixedHeight(170)
         pnl_layout.addWidget(self.pnl_table)
 
         pnl_group.setLayout(pnl_layout)
@@ -2361,6 +2361,12 @@ class SpyderTradingDashboard(QMainWindow):
 
         for bar in self.greek_bars.values():
             risk_layout.addWidget(bar)
+
+        # RISK LEVELS button — right-aligned at bottom of Risk Monitor
+        risk_btn_row = QHBoxLayout()
+        risk_btn_row.addStretch()
+        risk_btn_row.addWidget(self.risk_params_btn)
+        risk_layout.addLayout(risk_btn_row)
 
         risk_group.setLayout(risk_layout)
         layout.addWidget(risk_group)
