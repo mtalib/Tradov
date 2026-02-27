@@ -2228,107 +2228,52 @@ class SpyderTradingDashboard(QMainWindow):
             except Exception as e:
                 print(f"⚠️ Failed to create circuit breaker monitor: {e}")
 
-        # Account info
-        account_group = QGroupBox("")
-        account_layout = QVBoxLayout()
-
-        table_widget = QWidget()
-        table_widget.setStyleSheet(
-            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; padding: 5px;"
-        )
-        table_layout = QGridLayout()
-        table_layout.setContentsMargins(4, -2, 4, 4)
-        table_layout.setHorizontalSpacing(4)
-        table_layout.setVerticalSpacing(4)
-
-        # Set column stretch ratios so all columns share available space
-        table_layout.setColumnStretch(0, 3)  # Labels left
-        table_layout.setColumnStretch(1, 4)  # Values left
-        table_layout.setColumnStretch(2, 3)  # Labels right
-        table_layout.setColumnStretch(3, 4)  # Values right
-
-        cell_style = f"padding: 3px 5px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']}; font-size: 12px;"
-
-        # Account row
-        account_label = QLabel("ACCOUNT")
-        account_label.setStyleSheet(cell_style)
-        table_layout.addWidget(account_label, 0, 0)
-
-        account_value = QLabel("DU5361048")
-        account_value.setStyleSheet(cell_style)
-        table_layout.addWidget(account_value, 0, 1)
-
-        mode_label = QLabel("MODE: PAPER")
-        mode_label.setStyleSheet(cell_style + f"color: {COLORS['orange']};")
-        table_layout.addWidget(mode_label, 0, 2)
-
+        # Account info — compact flat grid, no QGroupBox overhead
         self.risk_params_btn = QPushButton("RISK LEVELS")
         self.risk_params_btn.setStyleSheet(f"background-color: #0066CC; color: white; font-size: 15px;")
-        self.risk_params_btn.setToolTip(
-            "Configure global and strategy-specific risk parameters"
-        )
+        self.risk_params_btn.setToolTip("Configure global and strategy-specific risk parameters")
         self.risk_params_btn.clicked.connect(self.show_risk_parameters)
-        # Button is placed in the RISK MONITOR section instead
+        # Button placed in RISK MONITOR section header
 
-        # Separator
-        spacer_label = QLabel("")
-        spacer_label.setFixedHeight(8)
-        table_layout.addWidget(spacer_label, 1, 0, 1, 4)
-
-        # Financial data rows — Row 2: SETTLED CASH | value | BUYING POWER | value
-        settled_label = QLabel("SETTLED CASH")
-        settled_label.setStyleSheet(cell_style)
-        table_layout.addWidget(settled_label, 2, 0)
-
-        self.settled_value = QLabel("$21,800,000.00")
-        self.settled_value.setStyleSheet(cell_style + "text-align: right;")
-        self.settled_value.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        account_widget = QWidget()
+        account_widget.setStyleSheet(
+            f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 5px;"
         )
-        table_layout.addWidget(self.settled_value, 2, 1)
+        acct_grid = QGridLayout()
+        acct_grid.setContentsMargins(4, 4, 4, 4)
+        acct_grid.setHorizontalSpacing(3)
+        acct_grid.setVerticalSpacing(3)
+        acct_grid.setColumnStretch(0, 3)
+        acct_grid.setColumnStretch(1, 4)
+        acct_grid.setColumnStretch(2, 3)
+        acct_grid.setColumnStretch(3, 4)
 
-        buying_label = QLabel("BUYING POWER")
-        buying_label.setStyleSheet(cell_style)
-        table_layout.addWidget(buying_label, 2, 2)
+        cell_style = f"padding: 2px 5px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']}; font-size: 12px;"
 
-        self.buying_value = QLabel("$20,450,000.00")
-        self.buying_value.setStyleSheet(cell_style + "text-align: right;")
-        self.buying_value.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        table_layout.addWidget(self.buying_value, 2, 3)
+        # Row 0: ACCOUNT | value | MODE: PAPER
+        acct_grid.addWidget(self._acct_lbl("ACCOUNT", cell_style), 0, 0)
+        acct_grid.addWidget(self._acct_lbl("DU5361048", cell_style), 0, 1)
+        mode_lbl = self._acct_lbl("MODE: PAPER", cell_style + f"color: {COLORS['orange']};")
+        acct_grid.addWidget(mode_lbl, 0, 2, 1, 2)
 
-        # Row 3: REALIZED P&L | value | UNREALIZED P&L | value
-        realized_label = QLabel("REALIZED P&L")
-        realized_label.setStyleSheet(cell_style)
-        table_layout.addWidget(realized_label, 3, 0)
+        # Row 1: SETTLED CASH | value | BUYING POWER | value
+        acct_grid.addWidget(self._acct_lbl("SETTLED CASH", cell_style), 1, 0)
+        self.settled_value = self._acct_lbl("$21,800,000.00", cell_style, right=True)
+        acct_grid.addWidget(self.settled_value, 1, 1)
+        acct_grid.addWidget(self._acct_lbl("BUYING POWER", cell_style), 1, 2)
+        self.buying_value = self._acct_lbl("$20,450,000.00", cell_style, right=True)
+        acct_grid.addWidget(self.buying_value, 1, 3)
 
-        self.realized_value = QLabel("$2,030,450.00")
-        self.realized_value.setStyleSheet(
-            cell_style + f"color: {COLORS['positive']}; text-align: right;"
-        )
-        self.realized_value.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        table_layout.addWidget(self.realized_value, 3, 1)
+        # Row 2: REALIZED P&L | value | UNREALIZED P&L | value
+        acct_grid.addWidget(self._acct_lbl("REALIZED P&L", cell_style), 2, 0)
+        self.realized_value = self._acct_lbl("$2,030,450.00", cell_style + f"color: {COLORS['positive']};", right=True)
+        acct_grid.addWidget(self.realized_value, 2, 1)
+        acct_grid.addWidget(self._acct_lbl("UNREALIZED P&L", cell_style), 2, 2)
+        self.unrealized_value = self._acct_lbl("$1,385,000.00", cell_style + f"color: {COLORS['positive']};", right=True)
+        acct_grid.addWidget(self.unrealized_value, 2, 3)
 
-        unrealized_label = QLabel("UNREALIZED P&L")
-        unrealized_label.setStyleSheet(cell_style)
-        table_layout.addWidget(unrealized_label, 3, 2)
-
-        self.unrealized_value = QLabel("$1,385,000.00")
-        self.unrealized_value.setStyleSheet(
-            cell_style + f"color: {COLORS['positive']}; text-align: right;"
-        )
-        self.unrealized_value.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        table_layout.addWidget(self.unrealized_value, 3, 3)
-
-        table_widget.setLayout(table_layout)
-        account_layout.addWidget(table_widget)
-        account_group.setLayout(account_layout)
-        layout.addWidget(account_group)
+        account_widget.setLayout(acct_grid)
+        layout.addWidget(account_widget)
 
         # P&L Performance
         pnl_group = QGroupBox("")
@@ -2355,7 +2300,7 @@ class SpyderTradingDashboard(QMainWindow):
         pnl_layout.addWidget(pnl_title_lbl)
 
         self.pnl_table = self.create_pnl_table()
-        self.pnl_table.setFixedHeight(160)
+        self.pnl_table.setFixedHeight(140)
         pnl_layout.addWidget(self.pnl_table)
 
         pnl_group.setLayout(pnl_layout)
@@ -2461,6 +2406,14 @@ class SpyderTradingDashboard(QMainWindow):
 
         panel.setLayout(layout)
         return panel
+
+    def _acct_lbl(self, text: str, style: str, right: bool = False) -> QLabel:
+        """Helper: create a styled account-grid cell label."""
+        lbl = QLabel(text)
+        lbl.setStyleSheet(style)
+        if right:
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        return lbl
 
     def create_chart(self):
         """Create the SPY chart widget (UNCHANGED)"""
