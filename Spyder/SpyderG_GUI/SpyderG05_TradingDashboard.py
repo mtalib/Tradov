@@ -2361,9 +2361,6 @@ class SpyderTradingDashboard(QMainWindow):
         pnl_group.setLayout(pnl_layout)
         layout.addWidget(pnl_group)
 
-        # Spacer before Risk Monitor
-        layout.addSpacing(10)
-
         # Risk Monitor
         risk_group = QGroupBox("")
         risk_group.setStyleSheet(
@@ -2431,7 +2428,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.auto_log = QTextEdit()
         self.auto_log.setReadOnly(True)
-        self.auto_log.setFixedHeight(140)
+        self.auto_log.setFixedHeight(110)
         self.auto_log.setStyleSheet(
             f"""
             QTextEdit {{
@@ -2463,23 +2460,7 @@ class SpyderTradingDashboard(QMainWindow):
         layout.addWidget(metrics_widget)
 
         panel.setLayout(layout)
-
-        # Wrap in a scroll area so all sections are always reachable
-        from PySide6.QtWidgets import QScrollArea
-        scroll = QScrollArea()
-        scroll.setWidget(panel)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setStyleSheet(
-            f"""
-            QScrollArea {{ border: none; background-color: {COLORS['background']}; }}
-            QScrollBar:vertical {{ width: 8px; background: {COLORS['panel']}; }}
-            QScrollBar::handle:vertical {{ background: {COLORS['border']}; border-radius: 4px; }}
-            """
-        )
-        scroll.setMinimumWidth(580)
-        return scroll
+        return panel
 
     def create_chart(self):
         """Create the SPY chart widget (UNCHANGED)"""
