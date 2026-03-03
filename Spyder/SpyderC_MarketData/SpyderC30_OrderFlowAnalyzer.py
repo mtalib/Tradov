@@ -58,7 +58,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-POLYGON_REST_URL = "https://api.polygon.io"
 UNUSUAL_VOLUME_MULTIPLIER = 3.0  # 3x average volume = unusual
 LARGE_TRADE_THRESHOLD = 100  # contracts
 DARK_POOL_MIN_SIZE = 10000  # shares for significance
@@ -351,7 +350,7 @@ class OrderFlowAnalyzer:
     - Max Pain calculation
 
     Example:
-        >>> analyzer = OrderFlowAnalyzer(polygon_api_key="your_key")
+        >>> analyzer = OrderFlowAnalyzer()
         >>> gex = analyzer.get_gamma_exposure("SPY")
         >>> print(f"GEX: ${gex.total_gex:,.0f}, Regime: {gex.regime}")
         >>>
@@ -362,7 +361,7 @@ class OrderFlowAnalyzer:
 
     def __init__(
         self,
-        polygon_api_key: str,
+        databento_api_key: Optional[str] = None,
         symbols: Optional[List[str]] = None,
         enable_realtime: bool = False
     ):
@@ -370,11 +369,12 @@ class OrderFlowAnalyzer:
         Initialize Order Flow Analyzer.
 
         Args:
-            polygon_api_key: Polygon.io API key
+            databento_api_key: Databento API key (falls back to DATABENTO_API_KEY env var)
             symbols: Symbols to track (default: ["SPY"])
             enable_realtime: Enable real-time flow tracking
         """
-        self.api_key = polygon_api_key
+        import os
+        self.databento_api_key = databento_api_key or os.getenv("DATABENTO_API_KEY")
         self.symbols = symbols or ["SPY"]
         self.enable_realtime = enable_realtime
 
@@ -1119,196 +1119,50 @@ class OrderFlowAnalyzer:
         }
 
     # ==========================================================================
-    # DATA FETCHING (POLYGON API)
+    # DATA FETCHING (DATABENTO — stub implementations)
+    # TODO: Implement using SpyderC26_DatabentoClient for live options chain data
     # ==========================================================================
 
     def _fetch_option_chain(
         self,
         symbol: str,
-        expiry: Optional[date] = None
+        expiry=None
     ) -> pd.DataFrame:
-        """Fetch option chain from Polygon."""
-        try:
-            url = f"{POLYGON_REST_URL}/v3/snapshot/options/{symbol}"
-            params = {
-                "apiKey": self.api_key,
-                "limit": 250
-            }
-
-            if expiry:
-                params["expiration_date"] = expiry.isoformat()
-
-            response = requests.get(url, params=params, timeout=30)
-
-            if response.status_code != 200:
-                logger.error(f"Option chain fetch failed: {response.status_code}")
-                return pd.DataFrame()
-
-            data = response.json()
-            results = data.get("results", [])
-
-            if not results:
-                return pd.DataFrame()
-
-            # Parse results
-            chain_data = []
-            for opt in results:
-                details = opt.get("details", {})
-                greeks = opt.get("greeks", {})
-                day = opt.get("day", {})
-
-                chain_data.append({
-                    "symbol": details.get("ticker", ""),
-                    "strike": details.get("strike_price", 0),
-                    "expiry": details.get("expiration_date", ""),
-                    "contract_type": details.get("contract_type", ""),
-                    "open_interest": day.get("open_interest", 0),
-                    "volume": day.get("volume", 0),
-                    "gamma": greeks.get("gamma", 0),
-                    "delta": greeks.get("delta", 0),
-                    "theta": greeks.get("theta", 0),
-                    "vega": greeks.get("vega", 0),
-                    "implied_volatility": greeks.get("implied_volatility", 0),
-                    "last_price": day.get("close", 0),
-                })
-
-            return pd.DataFrame(chain_data)
-
-        except Exception as e:
-            logger.error(f"Option chain fetch error: {e}")
-            return pd.DataFrame()
+        """Fetch option chain via Databento (stub — returns empty DataFrame)."""
+        logger.warning(
+            f"_fetch_option_chain({symbol}): Databento integration pending. "
+            "Connect SpyderC26_DatabentoClient for live options data."
+        )
+        return pd.DataFrame()
 
     def _fetch_options_trades(
         self,
         symbol: str,
         lookback_minutes: int
-    ) -> List[OptionsFlow]:
-        """Fetch recent options trades from Polygon."""
-        try:
-            # Note: This requires Polygon Options tier for trades
-            # Using snapshot as fallback for demo
-            url = f"{POLYGON_REST_URL}/v3/snapshot/options/{symbol}"
-            params = {
-                "apiKey": self.api_key,
-                "limit": 100
-            }
-
-            response = requests.get(url, params=params, timeout=30)
-
-            if response.status_code != 200:
-                logger.warning(f"Options trades fetch limited: {response.status_code}")
-                return []
-
-            data = response.json()
-            results = data.get("results", [])
-
-            flows = []
-            underlying_price = self._get_underlying_price(symbol)
-
-            for opt in results:
-                details = opt.get("details", {})
-                day = opt.get("day", {})
-                greeks = opt.get("greeks", {})
-
-                # Create flow entry from snapshot data
-                volume = day.get("volume", 0)
-                if volume > 0:
-                    price = day.get("close", 0)
-                    flow = OptionsFlow(
-                        symbol=symbol,
-                        timestamp=datetime.now(),
-                        option_type=details.get("contract_type", "call").lower(),
-                        strike=details.get("strike_price", 0),
-                        expiry=datetime.strptime(
-                            details.get("expiration_date", "2025-01-01"),
-                            "%Y-%m-%d"
-                        ).date(),
-                        premium=price * volume * 100,
-                        size=volume,
-                        price=price,
-                        underlying_price=underlying_price,
-                        side="mid",  # Unknown from snapshot
-                        open_interest=day.get("open_interest", 0),
-                        volume=volume,
-                        implied_volatility=greeks.get("implied_volatility", 0),
-                        delta=greeks.get("delta", 0),
-                    )
-                    flows.append(flow)
-
-            return flows
-
-        except Exception as e:
-            logger.error(f"Options trades fetch error: {e}")
-            return []
+    ) -> List['OptionsFlow']:
+        """Fetch recent options trades via Databento (stub — returns empty list)."""
+        logger.warning(
+            f"_fetch_options_trades({symbol}): Databento integration pending."
+        )
+        return []
 
     def _fetch_dark_pool_prints(
         self,
         symbol: str,
         lookback_days: int
-    ) -> List[DarkPoolPrint]:
-        """Fetch dark pool prints."""
-        try:
-            # Dark pool trades have exchange code 'D' or specific ATS identifiers
-            # Using trades endpoint with exchange filter
-            end_date = date.today()
-            start_date = end_date - timedelta(days=lookback_days)
-
-            url = f"{POLYGON_REST_URL}/v2/aggs/ticker/{symbol}/range/1/day/{start_date}/{end_date}"
-            params = {
-                "apiKey": self.api_key,
-                "adjusted": "true"
-            }
-
-            response = requests.get(url, params=params, timeout=30)
-
-            if response.status_code != 200:
-                return []
-
-            data = response.json()
-            results = data.get("results", [])
-
-            # Note: Real dark pool data requires specialized data feed
-            # This is a simulation using volume-weighted levels
-            prints = []
-            for bar in results:
-                vwap = bar.get("vw", bar.get("c", 0))
-                volume = bar.get("v", 0)
-
-                if volume > DARK_POOL_MIN_SIZE:
-                    prints.append(DarkPoolPrint(
-                        symbol=symbol,
-                        timestamp=datetime.fromtimestamp(bar.get("t", 0) / 1000),
-                        price=vwap,
-                        size=int(volume),
-                        value=vwap * volume,
-                        exchange="VWAP_LEVEL"
-                    ))
-
-            return prints
-
-        except Exception as e:
-            logger.error(f"Dark pool fetch error: {e}")
-            return []
+    ) -> List['DarkPoolPrint']:
+        """Fetch dark pool prints via Databento (stub — returns empty list)."""
+        logger.warning(
+            f"_fetch_dark_pool_prints({symbol}): Databento integration pending."
+        )
+        return []
 
     def _get_underlying_price(self, symbol: str) -> float:
-        """Get current underlying price."""
-        try:
-            url = f"{POLYGON_REST_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-            params = {"apiKey": self.api_key}
-
-            response = requests.get(url, params=params, timeout=10)
-
-            if response.status_code == 200:
-                data = response.json()
-                ticker = data.get("ticker", {})
-                day = ticker.get("day", {})
-                return day.get("c", day.get("o", 0))
-
-            return 0
-
-        except Exception as e:
-            logger.error(f"Price fetch error: {e}")
-            return 0
+        """Get current underlying price via Databento (stub — returns 0)."""
+        logger.warning(
+            f"_get_underlying_price({symbol}): Databento integration pending."
+        )
+        return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
         """Get nearest options expiration date."""
@@ -1374,18 +1228,15 @@ class OrderFlowAnalyzer:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_order_flow_analyzer_from_env() -> OrderFlowAnalyzer:
+def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
     """Create OrderFlowAnalyzer from environment variables."""
     import os
 
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        raise ValueError("POLYGON_API_KEY not set")
-
+    api_key = os.getenv("DATABENTO_API_KEY")
     symbols = os.getenv("FLOW_SYMBOLS", "SPY,QQQ").split(",")
 
     return OrderFlowAnalyzer(
-        polygon_api_key=api_key,
+        databento_api_key=api_key,
         symbols=symbols,
         enable_realtime=os.getenv("ENABLE_REALTIME_FLOW", "false").lower() == "true"
     )
@@ -1400,12 +1251,7 @@ if __name__ == "__main__":
     print("Order Flow Analyzer Test")
     print("=" * 60)
 
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        print("Set POLYGON_API_KEY to test")
-        exit(1)
-
-    analyzer = OrderFlowAnalyzer(polygon_api_key=api_key, symbols=["SPY"])
+    analyzer = OrderFlowAnalyzer(symbols=["SPY"])
 
     # Test GEX
     print("\n=== Gamma Exposure ===")

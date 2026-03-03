@@ -11,18 +11,18 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-22 Time: 14:40:00
 
-⚠️ MIGRATION TO POLYGON.IO + TRADIER RECOMMENDED ⚠️
+⚠️ MIGRATION NOTE ⚠️
     This module uses DEPRECATED ib_async imports for option chain data.
 
     Migration Needed:
     - ❌ Remove ib_async Contract imports (line 41)
     - ✅ Use Tradier API for option chain data (SpyderB40_TradierClient)
-    - ✅ Use Polygon.io for options quotes and Greeks
+    - ✅ Use Databento for options quotes and Greeks (SpyderC26_DatabentoClient)
     - 🔧 Update ContractBuilder references to use Tradier contracts
 
     Current Architecture:
     - Tradier: GET /markets/options/chains endpoint for option chains
-    - Polygon: Options quotes and historical data
+    - Databento: Options quotes and historical data via OPRA.PILLAR
     - Internal: Greeks calculations (SpyderF06_GreeksCalculator)
 
 Module Description:

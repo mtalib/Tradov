@@ -59,7 +59,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-POLYGON_REST_URL = "https://api.polygon.io"
 MAX_PAIN_CACHE_TTL = 300  # 5 minutes
 GRAVITY_THRESHOLD_PERCENT = 0.5  # Distance threshold for gravity effect
 PINNING_PROBABILITY_DAYS = 3  # Days before expiry when pinning increases
@@ -255,7 +254,7 @@ class MaxPainCalculator:
     - Support/resistance level identification
 
     Example:
-        >>> calc = MaxPainCalculator(polygon_api_key="your_key")
+        >>> calc = MaxPainCalculator()
         >>> result = calc.calculate_max_pain("SPY")
         >>> print(f"Max Pain: ${result.max_pain_strike}")
         >>> print(f"Signal: {result.trading_signal.value}")
@@ -264,17 +263,18 @@ class MaxPainCalculator:
 
     def __init__(
         self,
-        polygon_api_key: str,
+        databento_api_key: Optional[str] = None,
         cache_ttl: int = MAX_PAIN_CACHE_TTL
     ):
         """
         Initialize Max Pain Calculator.
 
         Args:
-            polygon_api_key: Polygon.io API key
+            databento_api_key: Databento API key (falls back to DATABENTO_API_KEY env var)
             cache_ttl: Cache time-to-live in seconds
         """
-        self.api_key = polygon_api_key
+        import os
+        self.databento_api_key = databento_api_key or os.getenv("DATABENTO_API_KEY")
         self.cache_ttl = cache_ttl
 
         # Caches
@@ -898,70 +898,23 @@ class MaxPainCalculator:
             avg_distance_at_expiry=0.8  # ~0.8% average distance
         )
 
+    # DATA FETCHING (Databento — stub implementations)
+    # TODO: Implement using SpyderC26_DatabentoClient or SpyderB40_TradierClient
     # ==========================================================================
-    # DATA FETCHING
-    # ==========================================================================
 
-    def _fetch_option_chain(self, symbol: str, expiry: date) -> pd.DataFrame:
-        """Fetch option chain from Polygon."""
-        try:
-            url = f"{POLYGON_REST_URL}/v3/snapshot/options/{symbol}"
-            params = {
-                "expiration_date": expiry.isoformat(),
-                "apiKey": self.api_key,
-                "limit": 250
-            }
-
-            response = requests.get(url, params=params, timeout=30)
-
-            if response.status_code != 200:
-                logger.warning(f"Chain fetch failed: {response.status_code}")
-                return pd.DataFrame()
-
-            data = response.json()
-            results = data.get("results", [])
-
-            if not results:
-                return pd.DataFrame()
-
-            chain_data = []
-            for opt in results:
-                details = opt.get("details", {})
-                day = opt.get("day", {})
-
-                chain_data.append({
-                    "strike": details.get("strike_price", 0),
-                    "contract_type": details.get("contract_type", ""),
-                    "expiration_date": details.get("expiration_date", ""),
-                    "open_interest": day.get("open_interest", 0),
-                    "volume": day.get("volume", 0),
-                })
-
-            return pd.DataFrame(chain_data)
-
-        except Exception as e:
-            logger.error(f"Option chain fetch error: {e}")
-            return pd.DataFrame()
+    def _fetch_option_chain(self, symbol: str, expiry) -> pd.DataFrame:
+        """Fetch option chain via Databento/Tradier (stub — returns empty DataFrame)."""
+        logger.warning(
+            f"_fetch_option_chain({symbol}): Databento/Tradier integration pending."
+        )
+        return pd.DataFrame()
 
     def _get_current_price(self, symbol: str) -> float:
-        """Get current stock price."""
-        try:
-            url = f"{POLYGON_REST_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-            params = {"apiKey": self.api_key}
-
-            response = requests.get(url, params=params, timeout=10)
-
-            if response.status_code == 200:
-                data = response.json()
-                ticker = data.get("ticker", {})
-                day = ticker.get("day", {})
-                return day.get("c", day.get("o", 0))
-
-            return 0
-
-        except Exception as e:
-            logger.error(f"Price fetch error: {e}")
-            return 0
+        """Get current stock price via Databento (stub — returns 0)."""
+        logger.warning(
+            f"_get_current_price({symbol}): Databento integration pending."
+        )
+        return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
         """Get nearest options expiration."""
@@ -1007,13 +960,12 @@ class MaxPainCalculator:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_max_pain_calculator_from_env() -> MaxPainCalculator:
+def create_max_pain_calculator_from_env() -> 'MaxPainCalculator':
     """Create MaxPainCalculator from environment variables."""
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        raise ValueError("POLYGON_API_KEY not set")
-
-    return MaxPainCalculator(polygon_api_key=api_key)
+    import os
+    return MaxPainCalculator(
+        databento_api_key=os.getenv("DATABENTO_API_KEY")
+    )
 
 
 # ==============================================================================
@@ -1023,12 +975,7 @@ if __name__ == "__main__":
     print("Max Pain Calculator Test")
     print("=" * 60)
 
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        print("Set POLYGON_API_KEY to test")
-        exit(1)
-
-    calc = MaxPainCalculator(polygon_api_key=api_key)
+    calc = MaxPainCalculator()
 
     # Test single expiry
     print("\n=== Single Expiry Analysis ===")

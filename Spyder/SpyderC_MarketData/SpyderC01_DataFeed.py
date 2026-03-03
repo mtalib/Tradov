@@ -18,12 +18,10 @@ Module Description:
 
     Provider Abstraction:
         ``MarketDataProvider`` is the abstract base class that any data source
-        must implement.  Two concrete providers are shipped:
+        must implement.  The concrete provider is:
 
-        - **DatabentoProvider** (primary) — wraps ``SpyderC26_DatabentoClient``
+        - **DatabentoProvider** — wraps ``SpyderC26_DatabentoClient``
           for OPRA options + equities via Databento.
-        - **PolygonProvider** (legacy) — wraps ``SpyderC25_PolygonDataHandler``
-          for Polygon.io WebSocket stock data (no options support).
 
         The active provider is selected from ``config/config.py``
         ``DATA_PROVIDER`` setting (default ``"databento"``).
@@ -36,8 +34,8 @@ Change Log:
     2026-02-25 (Phase 3 — Tradier+Databento migration):
         - Replaced IBKR (SpyderB01_SpyderClient / SpyderC07_MarketDataHub)
           with provider abstraction layer
-        - Added DataSource.DATABENTO and DataSource.POLYGON to enum
-        - Added MarketDataProvider ABC with DatabentoProvider / PolygonProvider
+        - Added DataSource.DATABENTO to enum
+        - Added MarketDataProvider ABC with DatabentoProvider
         - Rewired get_historical_data() to use Databento historical REST
         - Updated singleton factory and __main__ test block
     2026-01-16:
@@ -91,19 +89,6 @@ except ImportError:
     HAS_DATABENTO = False
     DatabentoClient = None
 
-try:
-    from Spyder.SpyderC_MarketData.SpyderC25_PolygonDataHandler import (
-        PolygonDataHandler,
-        MarketDataUpdate as PolygonMarketUpdate,
-        ConnectionStatus as PolygonConnectionStatus,
-        MessageType as PolygonMessageType,
-        create_polygon_handler_from_env,
-    )
-    HAS_POLYGON = True
-except ImportError:
-    HAS_POLYGON = False
-    PolygonDataHandler = None
-
 # ==============================================================================
 # CONFIGURATION DEFAULTS
 # ==============================================================================
@@ -147,7 +132,6 @@ class DataFeedStatus(Enum):
 class DataSource(Enum):
     """Available data sources."""
     DATABENTO = "databento"
-    POLYGON = "polygon"
     CACHE = "cache"
     CUSTOM = "custom"
     SYNTHETIC = "synthetic"
@@ -214,10 +198,6 @@ class DataFeedConfig:
     # Databento-specific
     databento_schema: str = "mbp-1"
     databento_dataset: str = "OPRA.PILLAR"
-    # Polygon-specific (legacy)
-    polygon_subscribe_trades: bool = True
-    polygon_subscribe_quotes: bool = False
-    polygon_subscribe_aggregates: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'DataFeedConfig':
@@ -506,160 +486,6 @@ class DatabentoProvider(MarketDataProvider):
 
 
 # ==============================================================================
-# POLYGON PROVIDER (LEGACY)
-# ==============================================================================
-class PolygonProvider(MarketDataProvider):
-    """
-    Wraps ``SpyderC25_PolygonDataHandler`` as a ``MarketDataProvider``.
-
-    Polygon.io supports equity WebSocket streaming only (no options).
-    This provider is kept for backward compatibility and as a fallback.
-    """
-
-    def __init__(
-        self,
-        subscribe_trades: bool = True,
-        subscribe_quotes: bool = False,
-        subscribe_aggregates: bool = False,
-    ) -> None:
-        super().__init__()
-
-        if not HAS_POLYGON:
-            raise ImportError(
-                "PolygonDataHandler not available.  Check SpyderC25 imports."
-            )
-
-        self._logger = SpyderLogger.get_logger(f"{__name__}.PolygonProvider")
-        self._subscribe_trades = subscribe_trades
-        self._subscribe_quotes = subscribe_quotes
-        self._subscribe_aggregates = subscribe_aggregates
-        self._handler: Optional[PolygonDataHandler] = None
-        self._subscribed_symbols: Set[str] = set()
-
-    # ------------------------------------------------------------------
-    @property
-    def is_connected(self) -> bool:
-        if self._handler is None:
-            return False
-        return self._handler.status in (
-            PolygonConnectionStatus.CONNECTED,
-            PolygonConnectionStatus.AUTHENTICATED,
-        )
-
-    @property
-    def active_source(self) -> DataSource:
-        return DataSource.POLYGON
-
-    def connect(self) -> bool:
-        try:
-            self._handler = create_polygon_handler_from_env(
-                symbols=list(self._subscribed_symbols) or ["SPY"],
-                subscribe_trades=self._subscribe_trades,
-                subscribe_quotes=self._subscribe_quotes,
-                subscribe_aggregates=self._subscribe_aggregates,
-            )
-            self._handler.new_trade.connect(self._on_trade)
-            self._handler.new_quote.connect(self._on_quote)
-            self._handler.new_aggregate.connect(self._on_aggregate)
-            self._handler.connection_status_changed.connect(self._on_status)
-            self._handler.start()
-            self._logger.info("PolygonProvider connected")
-            return True
-        except Exception as e:
-            self._logger.error(f"PolygonProvider connect failed: {e}")
-            return False
-
-    def disconnect(self) -> None:
-        if self._handler:
-            self._handler.stop()
-            self._handler = None
-        self._logger.info("PolygonProvider disconnected")
-
-    def subscribe(self, symbol: str) -> bool:
-        self._subscribed_symbols.add(symbol)
-        if self._handler and self.is_connected:
-            self._handler.subscribe_to_trades([symbol])
-        return True
-
-    def unsubscribe(self, symbol: str) -> bool:
-        self._subscribed_symbols.discard(symbol)
-        if self._handler and self.is_connected:
-            self._handler.unsubscribe_from_trades([symbol])
-        return True
-
-    # ------------------------------------------------------------------
-    # Polygon callbacks → MarketTick
-    # ------------------------------------------------------------------
-    def _on_trade(self, update: 'PolygonMarketUpdate') -> None:
-        if not self.on_data:
-            return
-        data = update.data
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.datetime,
-            price=data.get('price', 0.0),
-            size=data.get('size', 0),
-            source=DataSource.POLYGON,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_quote(self, update: 'PolygonMarketUpdate') -> None:
-        if not self.on_data:
-            return
-        data = update.data
-        bid = data.get('bid_price')
-        ask = data.get('ask_price')
-        price = round((bid + ask) / 2, 4) if bid and ask else (bid or ask or 0.0)
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.datetime,
-            price=price,
-            size=0,
-            bid=bid,
-            ask=ask,
-            bid_size=data.get('bid_size'),
-            ask_size=data.get('ask_size'),
-            source=DataSource.POLYGON,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_aggregate(self, update: 'PolygonMarketUpdate') -> None:
-        if not self.on_data:
-            return
-        data = update.data
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.datetime,
-            price=data.get('close', 0.0),
-            size=0,
-            open=data.get('open'),
-            high=data.get('high'),
-            low=data.get('low'),
-            close=data.get('close'),
-            volume=data.get('volume'),
-            vwap=data.get('vwap'),
-            source=DataSource.POLYGON,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_status(self, status) -> None:
-        if not self.on_status_change:
-            return
-        status_map = {
-            'connected': DataFeedStatus.CONNECTED,
-            'authenticated': DataFeedStatus.CONNECTED,
-            'connecting': DataFeedStatus.CONNECTING,
-            'disconnected': DataFeedStatus.DISCONNECTED,
-            'error': DataFeedStatus.ERROR,
-        }
-        feed_status = status_map.get(status.value, DataFeedStatus.ERROR)
-        self.on_status_change(feed_status)
-
-
-# ==============================================================================
 # PROVIDER FACTORY
 # ==============================================================================
 def create_provider(
@@ -670,7 +496,7 @@ def create_provider(
     Create a ``MarketDataProvider`` by name.
 
     Args:
-        provider_name: ``"databento"`` or ``"polygon"``.
+        provider_name: ``"databento"`` — the only supported provider.
         config: Optional feed configuration for provider-specific settings.
 
     Returns:
@@ -693,21 +519,10 @@ def create_provider(
             dataset=cfg.databento_dataset,
         )
 
-    elif name == "polygon":
-        if not HAS_POLYGON:
-            raise ValueError(
-                "Polygon provider requested but SpyderC25 is not importable."
-            )
-        return PolygonProvider(
-            subscribe_trades=cfg.polygon_subscribe_trades,
-            subscribe_quotes=cfg.polygon_subscribe_quotes,
-            subscribe_aggregates=cfg.polygon_subscribe_aggregates,
-        )
-
     else:
         raise ValueError(
             f"Unknown provider '{provider_name}'.  "
-            f"Supported: 'databento', 'polygon'."
+            f"Supported: 'databento'."
         )
 
 # ==============================================================================
@@ -718,7 +533,7 @@ class DataFeedManager:
     Central data feed orchestrator with provider abstraction.
 
     Coordinates between:
-    - A pluggable ``MarketDataProvider`` (Databento or Polygon)
+    - A pluggable ``MarketDataProvider`` (Databento)
     - ``MarketDataCache`` for efficient storage
     - Custom metric calculators
     - Event-based distribution system
@@ -742,7 +557,7 @@ class DataFeedManager:
         Initialize enhanced data feed manager.
 
         Args:
-            provider: Provider name (``"databento"`` / ``"polygon"``) or a
+            provider: Provider name (``"databento"``) or a
                 pre-built ``MarketDataProvider`` instance.  Defaults to the
                 value in ``config/config.py`` → ``DATA_PROVIDER``.
             event_manager: Shared event manager instance.
@@ -1239,7 +1054,7 @@ class DataFeedManager:
         self.logger.error(f"System error from {component}: {error}")
 
         if severity == 'critical' and component in (
-            'DatabentoProvider', 'PolygonProvider', 'MarketDataHub'
+            'DatabentoProvider', 'MarketDataHub'
         ):
             self.status = DataFeedStatus.ERROR
 
@@ -1447,7 +1262,7 @@ def get_data_feed_manager(
     Get singleton ``DataFeedManager`` instance.
 
     Args:
-        provider: ``"databento"`` / ``"polygon"`` or a pre-built provider.
+        provider: ``"databento"`` or a pre-built provider.
         event_manager: Event manager instance.
         config: Optional configuration dict.
 
@@ -1472,7 +1287,7 @@ DataFeed = DataFeedManager
 if __name__ == "__main__":
     import sys
 
-    # Quick smoke-test using Databento (or Polygon) from env vars
+    # Quick smoke-test using Databento from env vars
     event_manager = EventManager()
 
     # Select provider from CLI arg or default

@@ -11,23 +11,23 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-22 Time: 14:30:00
 
-⚠️ MIGRATION TO POLYGON.IO RECOMMENDED ⚠️
-    This module is designed for IBKR market data subscriptions but should be
-    updated to use Polygon.io WebSocket streams.
+⚠️ MIGRATION NOTE ⚠️
+    This module is designed for IBKR market data subscriptions but has been
+    superseded by Databento WebSocket streaming.
 
     Migration Status:
     - ❌ Currently references IBKR-specific infrastructure
     - ⚠️ Rate limiting logic specific to IBKR limits
-    - 🎯 Should be replaced with Polygon.io WebSocket handler
+    - 🎯 Use SpyderC26_DatabentoClient for WebSocket streaming
 
     For New Development:
-    - Use SpyderC25_PolygonDataHandler for WebSocket streaming
-    - Polygon provides unified WebSocket API for stocks, options, and futures
-    - Built-in rate limiting already implemented in PolygonDataHandler
+    - Use SpyderC26_DatabentoClient for WebSocket streaming
+    - Databento provides unified OPRA feed for options and equities
+    - Built-in rate limiting in SpyderU40_RateLimiter
     - Cleaner architecture without IBKR broker dependency
 
     Current Implementation: Hub designed for IBKR multi-client management
-    Recommended: Polygon.io WebSocket with event distribution
+    Recommended: Databento WebSocket via SpyderC26_DatabentoClient
 
 Module Description:
     This module serves as the central hub for all Interactive Brokers market data

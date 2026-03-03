@@ -60,7 +60,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-POLYGON_REST_URL = "https://api.polygon.io"
 VIX_MEAN = 20.0          # Long-term VIX average
 VIX_LOW_THRESHOLD = 15   # Low volatility
 VIX_HIGH_THRESHOLD = 25  # Elevated volatility
@@ -308,7 +307,7 @@ class VIXHedgingStrategy:
     - Volatility premium averages 3-5%
 
     Example:
-        >>> strategy = VIXHedgingStrategy(polygon_api_key="your_key")
+        >>> strategy = VIXHedgingStrategy()
         >>> snapshot = strategy.get_vix_snapshot()
         >>> print(f"VIX: {snapshot.vix_spot:.2f}")
         >>> print(f"Regime: {snapshot.regime.value}")
@@ -320,17 +319,18 @@ class VIXHedgingStrategy:
 
     def __init__(
         self,
-        polygon_api_key: str,
+        databento_api_key: Optional[str] = None,
         vix_mean: float = VIX_MEAN
     ):
         """
         Initialize VIX Hedging Strategy.
 
         Args:
-            polygon_api_key: Polygon.io API key
+            databento_api_key: Databento API key (falls back to DATABENTO_API_KEY env var)
             vix_mean: Long-term VIX mean for reversion (default: 20)
         """
-        self.api_key = polygon_api_key
+        import os
+        self.databento_api_key = databento_api_key or os.getenv("DATABENTO_API_KEY")
         self.vix_mean = vix_mean
 
         # History for analysis
@@ -981,33 +981,22 @@ class VIXHedgingStrategy:
         return base * (1 + 0.02 * month)
 
     def _fetch_price(self, symbol: str) -> float:
-        """Fetch current price."""
-        try:
-            url = f"{POLYGON_REST_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-            params = {"apiKey": self.api_key}
-
-            response = requests.get(url, params=params, timeout=10)
-
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("ticker", {}).get("day", {}).get("c", 0)
-
-            return 0
-
-        except Exception:
-            return 0
+        """Get current price via Databento (stub — returns 0)."""
+        logger.warning(
+            f"_fetch_price({symbol}): Databento integration pending."
+        )
+        return 0.0
 
 
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_vix_strategy_from_env() -> VIXHedgingStrategy:
+def create_vix_strategy_from_env() -> 'VIXHedgingStrategy':
     """Create VIXHedgingStrategy from environment variables."""
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        raise ValueError("POLYGON_API_KEY not set")
-
-    return VIXHedgingStrategy(polygon_api_key=api_key)
+    import os
+    return VIXHedgingStrategy(
+        databento_api_key=os.getenv("DATABENTO_API_KEY")
+    )
 
 
 # ==============================================================================
@@ -1017,12 +1006,7 @@ if __name__ == "__main__":
     print("VIX Hedging Strategy Test")
     print("=" * 60)
 
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        print("Set POLYGON_API_KEY to test")
-        exit(1)
-
-    strategy = VIXHedgingStrategy(polygon_api_key=api_key)
+    strategy = VIXHedgingStrategy()
 
     # Test VIX snapshot
     print("\n=== VIX Snapshot ===")

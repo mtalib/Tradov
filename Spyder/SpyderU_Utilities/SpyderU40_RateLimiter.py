@@ -282,8 +282,6 @@ _global_limiters = MultiRateLimiter()
 
 # Register default configurations (lazy-initialized on first use)
 _global_limiters.register_default("tradier", requests_per_second=10, burst_size=20)
-_global_limiters.register_default("polygon_starter", requests_per_second=5.0/60.0, burst_size=1)  # 5 per minute
-_global_limiters.register_default("polygon_business", requests_per_second=100.0/60.0, burst_size=5)  # 100 per minute
 _global_limiters.register_default("databento", requests_per_second=10)
 
 
@@ -339,17 +337,6 @@ async def acquire_tradier():
     await _global_limiters.acquire("tradier")
 
 
-async def acquire_polygon(tier: str = "starter"):
-    """
-    Acquire token for Polygon API call.
-
-    Args:
-        tier: "starter" or "business"
-    """
-    service = "polygon_starter" if tier == "starter" else "polygon_business"
-    await _global_limiters.acquire(service)
-
-
 async def acquire_databento():
     """Acquire token for Databento API call."""
     await _global_limiters.acquire("databento")
@@ -361,6 +348,5 @@ __all__ = [
     "MultiRateLimiter",
     "rate_limit",
     "acquire_tradier",
-    "acquire_polygon",
     "acquire_databento",
 ]

@@ -5,19 +5,19 @@ SPYDER - Autonomous Options Trading System v2.0
 
 Series: SpyderB_Broker
 Module: __init__.py
-Purpose: Package initialization for Tradier + Polygon broker integration
+Purpose: Package initialization for Tradier broker integration
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-11-24
 
 Module Description:
     Updated package initialization for SpyderB_Broker with Tradier API integration
-    for order execution and Polygon.io for market data.
+    for order execution and Databento for market data.
 
     MIGRATION NOTES:
     - Removed all IBKR/Interactive Brokers dependencies
     - TradierClient is now the primary broker interface
-    - Market data provided by Polygon.io (see SpyderC_MarketData)
+    - Market data provided by Databento (see SpyderC_MarketData)
     - Simplified authentication (Bearer token vs OAuth 2.0)
 """
 
@@ -64,7 +64,7 @@ def get_package_status() -> Dict[str, Any]:
         "success_rate": sum(_module_status.values()) / max(1, len(_module_status)),
         "module_details": _module_status.copy(),
         "broker": "Tradier",
-        "data_provider": "Polygon.io",
+        "data_provider": "Databento",
     }
 
 

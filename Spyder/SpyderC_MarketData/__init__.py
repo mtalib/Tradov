@@ -5,13 +5,12 @@ import logging
 SPYDER - Automated SPY Options Trading System
 
 Package: SpyderC_MarketData
-Purpose: Market Data Management (Databento + Polygon.io Legacy)
+Purpose: Market Data Management (Databento)
 
 This package handles all market data operations including real-time feeds,
 historical data, option chains, and market internals.
 
 Primary Data Source: Databento (OPRA.PILLAR dataset)
-Legacy Data Source: Polygon.io WebSocket + REST API
 
 Author: Mohamed Talib
 Date: 2025-06-24
@@ -35,7 +34,6 @@ try:
         DataSource,
         MarketDataProvider,
         DatabentoProvider,
-        PolygonProvider,
         create_provider,
         SYMBOL_GROUPS,
     )
@@ -50,7 +48,6 @@ try:
         "DataSource",
         "MarketDataProvider",
         "DatabentoProvider",
-        "PolygonProvider",
         "create_provider",
         "SYMBOL_GROUPS",
     ])
@@ -114,28 +111,7 @@ except ImportError:
     logging.info("Warning: SpyderC08_SPYFeed not available")
 
 # ==============================================================================
-# POLYGON.IO DATA HANDLER (LEGACY DATA SOURCE)
-# ==============================================================================
-try:
-    from .SpyderC25_PolygonDataHandler import (
-        PolygonDataHandler,
-        MarketDataUpdate,
-        ConnectionStatus,
-        MessageType,
-        create_polygon_handler_from_env,
-    )
-    __all__.extend([
-        "PolygonDataHandler",
-        "MarketDataUpdate",
-        "ConnectionStatus",
-        "MessageType",
-        "create_polygon_handler_from_env",
-    ])
-except ImportError as e:
-    logging.info(f"Warning: SpyderC25_PolygonDataHandler not available: {e}")
-
-# ==============================================================================
-# DATABENTO DATA CLIENT (PRIMARY DATA SOURCE — REPLACING POLYGON.IO)
+# DATABENTO DATA CLIENT (PRIMARY DATA SOURCE)
 # ==============================================================================
 try:
     from .SpyderC26_DatabentoClient import (
@@ -175,5 +151,5 @@ except ImportError as e:
 # PACKAGE METADATA
 # ==============================================================================
 __package_name__ = "SpyderC_MarketData"
-__description__ = "Market Data Management — Provider Abstraction (Databento + Polygon.io Legacy)"
+__description__ = "Market Data Management — Provider Abstraction (Databento)"
 __version__ = "4.0.0"

@@ -58,7 +58,6 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-POLYGON_REST_URL = "https://api.polygon.io"
 EARNINGS_LOOKBACK_QUARTERS = 8  # Historical earnings for analysis
 IV_CRUSH_THRESHOLD = 0.3  # 30% IV drop considered significant
 EXPECTED_MOVE_BUFFER = 1.1  # 10% buffer on expected move
@@ -310,7 +309,7 @@ class EarningsStrategyHandler:
     - Historical pattern analysis
 
     Example:
-        >>> handler = EarningsStrategyHandler(polygon_api_key="your_key")
+        >>> handler = EarningsStrategyHandler()
         >>> setup = handler.get_earnings_trade("AAPL")
         >>> if setup.is_recommended:
         ...     print(f"Strategy: {setup.strategy.value}")
@@ -320,17 +319,18 @@ class EarningsStrategyHandler:
 
     def __init__(
         self,
-        polygon_api_key: str,
+        databento_api_key: Optional[str] = None,
         default_expiry_days: int = 7
     ):
         """
         Initialize Earnings Strategy Handler.
 
         Args:
-            polygon_api_key: Polygon.io API key
+            databento_api_key: Databento API key (falls back to DATABENTO_API_KEY env var)
             default_expiry_days: Default days for expiry selection
         """
-        self.api_key = polygon_api_key
+        import os
+        self.databento_api_key = databento_api_key or os.getenv("DATABENTO_API_KEY")
         self.default_expiry_days = default_expiry_days
 
         # Caches
@@ -403,7 +403,7 @@ class EarningsStrategyHandler:
     ) -> List[EarningsEvent]:
         """Fetch earnings calendar from API."""
         try:
-            # Using a mock/estimated approach since Polygon doesn't have earnings
+            # Using a mock/estimated approach; Databento integration pending
             # In production, would integrate with Earnings Whispers, Zacks, etc.
 
             # For SPY/ETFs, there are no earnings
@@ -1094,67 +1094,23 @@ class EarningsStrategyHandler:
             consistency_score=0.7
         )
 
+    # DATA FETCHING (Databento — stub implementations)
+    # TODO: Implement using SpyderC26_DatabentoClient for live options chain data
     # ==========================================================================
-    # DATA FETCHING
-    # ==========================================================================
 
-    def _fetch_option_chain(self, symbol: str, expiry: date) -> pd.DataFrame:
-        """Fetch option chain from Polygon."""
-        try:
-            url = f"{POLYGON_REST_URL}/v3/snapshot/options/{symbol}"
-            params = {
-                "expiration_date": expiry.isoformat(),
-                "apiKey": self.api_key,
-                "limit": 100
-            }
-
-            response = requests.get(url, params=params, timeout=30)
-
-            if response.status_code != 200:
-                return pd.DataFrame()
-
-            data = response.json()
-            results = data.get("results", [])
-
-            if not results:
-                return pd.DataFrame()
-
-            chain_data = []
-            for opt in results:
-                details = opt.get("details", {})
-                day = opt.get("day", {})
-                greeks = opt.get("greeks", {})
-
-                chain_data.append({
-                    "strike": details.get("strike_price", 0),
-                    "contract_type": details.get("contract_type", ""),
-                    "last_price": day.get("close", 0),
-                    "open_interest": day.get("open_interest", 0),
-                    "implied_volatility": greeks.get("implied_volatility", 0.3),
-                })
-
-            return pd.DataFrame(chain_data)
-
-        except Exception as e:
-            logger.error(f"Option chain fetch error: {e}")
-            return pd.DataFrame()
+    def _fetch_option_chain(self, symbol: str, expiry) -> pd.DataFrame:
+        """Fetch option chain via Databento (stub — returns empty DataFrame)."""
+        logger.warning(
+            f"_fetch_option_chain({symbol}): Databento/Tradier integration pending."
+        )
+        return pd.DataFrame()
 
     def _get_current_price(self, symbol: str) -> float:
-        """Get current stock price."""
-        try:
-            url = f"{POLYGON_REST_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-            params = {"apiKey": self.api_key}
-
-            response = requests.get(url, params=params, timeout=10)
-
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("ticker", {}).get("day", {}).get("c", 0)
-
-            return 0
-
-        except Exception:
-            return 0
+        """Get current stock price via Databento (stub — returns 0)."""
+        logger.warning(
+            f"_get_current_price({symbol}): Databento integration pending."
+        )
+        return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
         """Get nearest options expiration."""
@@ -1176,13 +1132,12 @@ class EarningsStrategyHandler:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_earnings_handler_from_env() -> EarningsStrategyHandler:
+def create_earnings_handler_from_env() -> 'EarningsStrategyHandler':
     """Create EarningsStrategyHandler from environment variables."""
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        raise ValueError("POLYGON_API_KEY not set")
-
-    return EarningsStrategyHandler(polygon_api_key=api_key)
+    import os
+    return EarningsStrategyHandler(
+        databento_api_key=os.getenv("DATABENTO_API_KEY")
+    )
 
 
 # ==============================================================================
@@ -1192,12 +1147,7 @@ if __name__ == "__main__":
     print("Earnings Strategy Handler Test")
     print("=" * 60)
 
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        print("Set POLYGON_API_KEY to test")
-        exit(1)
-
-    handler = EarningsStrategyHandler(polygon_api_key=api_key)
+    handler = EarningsStrategyHandler()
 
     # Test with a stock that has earnings
     symbol = "AAPL"

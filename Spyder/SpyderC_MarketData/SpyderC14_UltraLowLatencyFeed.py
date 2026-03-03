@@ -16,17 +16,17 @@ Last Updated: 2025-08-21 Time: 21:55:00
     Status:
     - ❌ Uses deprecated ib_async for market data
     - ⚠️ HFT-level optimization not needed for options strategies
-    - 🎯 Polygon.io WebSocket provides adequate latency (~50-100ms)
+    - 🎯 Databento WebSocket provides adequate latency (~nanosecond timestamps via DBN)
 
     Architecture Decision:
     - Current Spyder strategies are NOT high-frequency trading
     - Options strategies operate on 1-second to 1-minute timeframes
     - Sub-5ms latency optimization is premature
-    - Polygon.io + standard async provides sufficient performance
+    - Databento + standard async provides sufficient performance
 
     For Current Needs:
-    - Use SpyderC25_PolygonDataHandler (standard WebSocket)
-    - ~50-100ms latency is sufficient for options strategies
+    - Use SpyderC26_DatabentoClient (Databento OPRA.PILLAR)
+    - Nanosecond resolution DBN format is sufficient for options strategies
     - Simpler architecture, easier maintenance
     - No special kernel/hardware requirements
 

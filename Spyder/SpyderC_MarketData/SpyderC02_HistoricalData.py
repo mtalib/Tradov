@@ -11,18 +11,18 @@ Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2025-08-22 Time: 14:35:00
 
-⚠️ MIGRATION TO POLYGON.IO RECOMMENDED ⚠️
-    This module has been partially migrated from IBKR APIs but should be
-    updated to use Polygon.io for historical data.
+⚠️ MIGRATION NOTE ⚠️
+    This module has been partially migrated from IBKR APIs.
+    Historical data is now available via Databento (SpyderC26_DatabentoClient).
 
     Current Status:
     - ✅ Migrated from ib_async to IBKR Client Portal Web API
     - ⚠️ Still uses IBKR-specific data types and structures
-    - 🎯 Recommended: Migrate to Polygon.io Aggregates API
+    - 🎯 Recommended: Use SpyderC26_DatabentoClient for historical bars
 
     For New Development:
-    - Use SpyderC25_PolygonDataHandler.fetch_historical_bars_async()
-    - Polygon provides cleaner API and better rate limits for historical data
+    - Use SpyderC26_DatabentoClient.get_historical_ohlcv()
+    - Databento provides nanosecond-resolution institutional data
     - No broker dependency for historical data retrieval
 
 Module Description:

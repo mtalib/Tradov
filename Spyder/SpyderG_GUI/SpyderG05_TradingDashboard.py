@@ -137,7 +137,7 @@ import pandas as pd
 # BROKER/DATA IMPORTS (Tradier + Databento — IBKR removed Feb 2026)
 # ==============================================================================
 # ib_async is no longer used — Tradier API replaces IB Gateway for execution
-# Databento replaces Polygon.io for market data
+# Databento: primary market data source (OPRA.PILLAR dataset)
 
 # ==============================================================================
 # LOCAL IMPORTS

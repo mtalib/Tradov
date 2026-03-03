@@ -87,7 +87,6 @@ SOCIAL_CACHE_TTL = 60  # 1 minute
 REDDIT_USER_AGENT = "SpyderBot/1.0"
 
 # API Endpoints
-POLYGON_NEWS_URL = "https://api.polygon.io/v2/reference/news"
 ALPHA_VANTAGE_NEWS_URL = "https://www.alphavantage.co/query"
 REDDIT_API_URL = "https://oauth.reddit.com"
 
@@ -453,7 +452,7 @@ class SentimentAnalyzer:
     - Historical sentiment tracking
 
     Example:
-        >>> analyzer = SentimentAnalyzer(polygon_api_key="your_key")
+        >>> analyzer = SentimentAnalyzer()
         >>> sentiment = analyzer.get_composite_sentiment("SPY")
         >>> print(f"Overall: {sentiment.overall_sentiment.value}")
         >>> print(f"Score: {sentiment.overall_score:.2f}")
@@ -462,7 +461,6 @@ class SentimentAnalyzer:
 
     def __init__(
         self,
-        polygon_api_key: Optional[str] = None,
         alpha_vantage_key: Optional[str] = None,
         reddit_credentials: Optional[Dict[str, str]] = None,
         model_type: SentimentModel = SentimentModel.ENSEMBLE,
@@ -472,13 +470,11 @@ class SentimentAnalyzer:
         Initialize Sentiment Analyzer.
 
         Args:
-            polygon_api_key: Polygon.io API key for news
             alpha_vantage_key: Alpha Vantage API key for news
             reddit_credentials: Reddit API credentials
             model_type: Sentiment model to use
             use_finbert: Use FinBERT in ensemble (requires transformers)
         """
-        self.polygon_api_key = polygon_api_key
         self.alpha_vantage_key = alpha_vantage_key
         self.reddit_credentials = reddit_credentials
 
@@ -564,9 +560,6 @@ class SentimentAnalyzer:
         # Fetch news from available sources
         news_items = []
 
-        if self.polygon_api_key:
-            news_items.extend(self._fetch_polygon_news(ticker, limit))
-
         if self.alpha_vantage_key and len(news_items) < limit:
             news_items.extend(self._fetch_alpha_vantage_news(ticker, limit - len(news_items)))
 
@@ -583,48 +576,6 @@ class SentimentAnalyzer:
 
         logger.info(f"Analyzed {len(news_items)} news items for {ticker}")
         return news_items[:limit]
-
-    def _fetch_polygon_news(self, ticker: str, limit: int) -> List[NewsItem]:
-        """Fetch news from Polygon.io."""
-        try:
-            params = {
-                "ticker": ticker,
-                "limit": limit,
-                "apiKey": self.polygon_api_key
-            }
-
-            response = requests.get(POLYGON_NEWS_URL, params=params, timeout=30)
-
-            if response.status_code != 200:
-                logger.warning(f"Polygon news fetch failed: {response.status_code}")
-                return []
-
-            data = response.json()
-            results = data.get("results", [])
-
-            news_items = []
-            for item in results:
-                try:
-                    published = datetime.fromisoformat(
-                        item.get("published_utc", "").replace("Z", "+00:00")
-                    )
-                except:
-                    published = datetime.now()
-
-                news_items.append(NewsItem(
-                    title=item.get("title", ""),
-                    description=item.get("description", ""),
-                    url=item.get("article_url", ""),
-                    source=item.get("publisher", {}).get("name", "Unknown"),
-                    published=published,
-                    tickers=item.get("tickers", [])
-                ))
-
-            return news_items
-
-        except Exception as e:
-            logger.error(f"Polygon news fetch error: {e}")
-            return []
 
     def _fetch_alpha_vantage_news(self, ticker: str, limit: int) -> List[NewsItem]:
         """Fetch news from Alpha Vantage."""
@@ -1166,9 +1117,8 @@ class SentimentAnalyzer:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_sentiment_analyzer_from_env() -> SentimentAnalyzer:
+def create_sentiment_analyzer_from_env() -> 'SentimentAnalyzer':
     """Create SentimentAnalyzer from environment variables."""
-    polygon_key = os.getenv("POLYGON_API_KEY")
     alpha_vantage_key = os.getenv("ALPHA_VANTAGE_API_KEY")
 
     # Reddit credentials
@@ -1191,7 +1141,6 @@ def create_sentiment_analyzer_from_env() -> SentimentAnalyzer:
     }
 
     return SentimentAnalyzer(
-        polygon_api_key=polygon_key,
         alpha_vantage_key=alpha_vantage_key,
         reddit_credentials=reddit_creds,
         model_type=model_map.get(model_type, SentimentModel.ENSEMBLE),
@@ -1213,11 +1162,8 @@ if __name__ == "__main__":
     print(f"TextBlob: {HAS_TEXTBLOB}")
 
     # Initialize analyzer
-    polygon_key = os.getenv("POLYGON_API_KEY")
-
     try:
         analyzer = SentimentAnalyzer(
-            polygon_api_key=polygon_key,
             model_type=SentimentModel.ENSEMBLE,
             use_finbert=False  # Skip FinBERT for faster testing
         )
@@ -1237,16 +1183,6 @@ if __name__ == "__main__":
             print(f"  Score: {sentiment.score:.3f}")
             print(f"  Sentiment: {sentiment.sentiment.value}")
             print(f"  Confidence: {sentiment.confidence:.2%}")
-
-        # Test news analysis (if API key available)
-        if polygon_key:
-            print("\n=== News Analysis ===")
-            news = analyzer.analyze_news("SPY", limit=5)
-            for item in news[:3]:
-                print(f"\n{item.title}")
-                if item.sentiment:
-                    print(f"  Sentiment: {item.sentiment.sentiment.value}")
-                    print(f"  Score: {item.sentiment.score:.3f}")
 
         # Test composite sentiment
         print("\n=== Composite Sentiment ===")

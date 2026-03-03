@@ -15,7 +15,7 @@ Module Description:
     Databento market data client providing real-time streaming and historical
     data access for SPY options via the OPRA feed (OPRA.PILLAR dataset).
 
-    Databento advantages over Polygon.io:
+    Databento advantages for options trading:
     - Native binary DBN format (low overhead, nanosecond timestamps)
     - Subscribe by underlying → receive all options automatically
     - Multiple schema levels: MBO (L3), MBP-1 (L1), MBP-10 (L2),
@@ -23,7 +23,7 @@ Module Description:
     - Server-side replay for backtesting with identical API surface
     - Institutional-grade SIP-consolidated equity + OPRA options data
 
-    This module follows the same architectural patterns as SpyderC25_PolygonDataHandler:
+    This module provides:
     - Qt Signal/Slot integration for thread-safe UI communication
     - Automatic reconnection with exponential backoff
     - Circuit breaker and rate limiter integration
@@ -189,8 +189,7 @@ class MarketDataUpdate:
     """
     Normalized market data update from Databento.
 
-    Standardizes Databento records into Spyder's internal format,
-    matching the interface from SpyderC25_PolygonDataHandler.
+    Standardizes Databento records into Spyder's internal MarketDataUpdate format.
     """
     symbol: str
     timestamp_ns: int
@@ -201,7 +200,7 @@ class MarketDataUpdate:
 
     @property
     def timestamp(self) -> int:
-        """Timestamp in milliseconds (for backward compat with Polygon handler)."""
+        """Timestamp in milliseconds."""
         return self.timestamp_ns // 1_000_000
 
     @property

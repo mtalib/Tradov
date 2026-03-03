@@ -16,9 +16,9 @@ Last Updated: 2025-08-21 Time: 21:00:00
     - ✅ Data types migrated to IBContract (Web API compatible)
     - ✅ Using SpyderB10_IBDataTypes for contract definitions
     - ⚠️ Some ib_async references remain for backward compatibility
-    - 🎯 Future: Complete migration to Tradier + Polygon.io APIs
+    - 🎯 Future: Full migration to Tradier + Databento APIs
 
-    Recommended: Use SpyderB40_TradierClient + SpyderC25_PolygonDataHandler
+    Recommended: Use SpyderB40_TradierClient + SpyderC26_DatabentoClient
     for new options chain functionality.
 
 Module Description:
@@ -89,7 +89,7 @@ except ImportError:
 
 # NOTE: For new development, use:
 # - SpyderB40_TradierClient for order execution
-# - SpyderC25_PolygonDataHandler for market data
+# - SpyderC26_DatabentoClient for market data
 
 class ContractDetails:
     """Placeholder for ContractDetails - Web API uses contract responses directly"""

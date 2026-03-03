@@ -17,7 +17,7 @@ Last Updated: 2025-08-28 Time: 19:00:00
     Migration Needed:
     - ❌ Remove ib_async IB client dependency
     - ✅ Integrate with SpyderB40_TradierClient for order execution
-    - ✅ Use Polygon.io for market data via SpyderC25_PolygonDataHandler
+    - ✅ Use Databento for market data (SpyderC26_DatabentoClient)
     - 🔧 Update algorithmic slicing to work with Tradier API
 
     Current Status: Functional but uses legacy IBKR integration

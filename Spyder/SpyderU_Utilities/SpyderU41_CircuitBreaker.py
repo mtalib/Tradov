@@ -362,13 +362,6 @@ tradier_breaker = get_circuit_breaker(
     timeout=30.0
 )
 
-polygon_breaker = get_circuit_breaker(
-    "polygon",
-    failure_threshold=3,
-    recovery_timeout=30.0,
-    timeout=10.0
-)
-
 databento_breaker = get_circuit_breaker(
     "databento",
     failure_threshold=5,
@@ -384,6 +377,5 @@ __all__ = [
     "circuit_breaker",
     "get_circuit_breaker",
     "tradier_breaker",
-    "polygon_breaker",
     "databento_breaker",
 ]

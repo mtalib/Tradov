@@ -16,7 +16,7 @@ Module Description:
     - Rate limiter token bucket algorithm
     - Circuit breaker pattern (CLOSED/OPEN/HALF_OPEN)
     - Integration with TradierClient
-    - Integration with PolygonDataHandler
+    - Integration with DatabentoClient
     - Monitoring and statistics
 """
 
@@ -36,7 +36,7 @@ from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import (
     MultiRateLimiter,
     rate_limit,
     acquire_tradier,
-    acquire_polygon,
+    acquire_databento,
     _global_limiters
 )
 
@@ -44,8 +44,7 @@ from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import (
     CircuitState,
     CircuitBreaker,
     CircuitBreakerError,
-    tradier_breaker,
-    polygon_breaker
+    tradier_breaker
 )
 
 
@@ -361,13 +360,12 @@ class TestCircuitBreaker(unittest.IsolatedAsyncioTestCase):
 # TEST: PRE-CONFIGURED LIMITERS & BREAKERS
 # ==============================================================================
 class TestPreconfiguredInfrastructure(unittest.IsolatedAsyncioTestCase):
-    """Test pre-configured Tradier and Polygon infrastructure."""
+    """Test pre-configured Tradier and Databento infrastructure."""
 
     def setUp(self):
         """Reset global state."""
         _global_limiters._limiters.clear()
         tradier_breaker.reset()
-        polygon_breaker.reset()
 
     async def test_tradier_rate_limiter_exists(self):
         """Test Tradier rate limiter is pre-configured."""
@@ -379,37 +377,20 @@ class TestPreconfiguredInfrastructure(unittest.IsolatedAsyncioTestCase):
         limiter = _global_limiters._limiters["tradier"]
         self.assertEqual(limiter.bucket.fill_rate, 10.0)  # 10 req/sec
 
-    async def test_polygon_rate_limiter_tier_starter(self):
-        """Test Polygon starter tier rate limiter."""
-        await acquire_polygon(tier="starter")
+    async def test_databento_rate_limiter_exists(self):
+        """Test Databento rate limiter is pre-configured."""
+        await acquire_databento()
 
-        self.assertIn("polygon_starter", _global_limiters._limiters)
+        self.assertIn("databento", _global_limiters._limiters)
 
-        limiter = _global_limiters._limiters["polygon_starter"]
-        # 5 requests per minute = 0.0833... req/sec
-        self.assertAlmostEqual(limiter.bucket.fill_rate, 5.0/60.0, places=2)
-
-    async def test_polygon_rate_limiter_tier_business(self):
-        """Test Polygon business tier rate limiter."""
-        await acquire_polygon(tier="business")
-
-        self.assertIn("polygon_business", _global_limiters._limiters)
-
-        limiter = _global_limiters._limiters["polygon_business"]
-        # 100 requests per minute = 1.666... req/sec
-        self.assertAlmostEqual(limiter.bucket.fill_rate, 100.0/60.0, places=2)
+        limiter = _global_limiters._limiters["databento"]
+        self.assertEqual(limiter.bucket.fill_rate, 10.0)  # 10 req/sec
 
     def test_tradier_breaker_configuration(self):
         """Test Tradier circuit breaker is properly configured."""
         self.assertEqual(tradier_breaker.name, "tradier")
         self.assertEqual(tradier_breaker.failure_threshold, 5)
         self.assertEqual(tradier_breaker.recovery_timeout, 60.0)
-
-    def test_polygon_breaker_configuration(self):
-        """Test Polygon circuit breaker is properly configured."""
-        self.assertEqual(polygon_breaker.name, "polygon")
-        self.assertEqual(polygon_breaker.failure_threshold, 3)
-        self.assertEqual(polygon_breaker.recovery_timeout, 30.0)
 
 
 # ==============================================================================
@@ -483,7 +464,6 @@ class TestAPIClientIntegration(unittest.IsolatedAsyncioTestCase):
         """Reset infrastructure."""
         _global_limiters._limiters.clear()
         tradier_breaker.reset()
-        polygon_breaker.reset()
 
     async def test_protected_api_call_success(self):
         """Test successful protected API call."""
@@ -605,7 +585,7 @@ if __name__ == "__main__":
     print("  ✓ Rate Limiter (sync & async)")
     print("  ✓ Multi-Service Rate Limiter")
     print("  ✓ Circuit Breaker Pattern")
-    print("  ✓ Pre-configured Tradier & Polygon Infrastructure")
+    print("  ✓ Pre-configured Tradier & Databento Infrastructure")
     print("  ✓ Decorator Integration")
     print("  ✓ API Client Integration")
     print("  ✓ Performance & Overhead")

@@ -20,7 +20,7 @@ Last Updated: 2025-08-21 Time: 19:30:00
 
     The Spyder system has migrated to:
     - Tradier API for order execution and paper trading
-    - Polygon.io for market data
+    - Databento for market data (SpyderC26_DatabentoClient)
 
     This module remains for backward compatibility only.
 

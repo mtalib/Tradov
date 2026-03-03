@@ -248,7 +248,7 @@ class FuturesBasisAnalyzer:
         
         Args:
             config: Configuration dictionary
-            provider: Market data provider name (e.g. 'databento', 'polygon')
+            provider: Market data provider name (e.g. 'databento')
         """
         # Core components
         self.logger = SpyderLogger.get_logger(self.__class__.__name__)
@@ -1244,7 +1244,7 @@ def create_futures_basis_analyzer(config: Optional[Dict] = None,
     
     Args:
         config: Configuration dictionary
-        provider: Market data provider name (e.g. 'databento', 'polygon')
+provider: Market data provider name (e.g. 'databento')
         
     Returns:
         Configured FuturesBasisAnalyzer instance

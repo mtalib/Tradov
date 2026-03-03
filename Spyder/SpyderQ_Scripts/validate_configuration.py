@@ -94,7 +94,7 @@ class ConfigurationValidator:
         # Run all validation checks
         self._validate_trading_mode()
         self._validate_tradier_config()
-        self._validate_polygon_config()
+        self._validate_databento_config()
         self._validate_risk_config()
         self._validate_logging_config()
         self._validate_security_config()
@@ -205,34 +205,34 @@ class ConfigurationValidator:
                 None
             ))
 
-    def _validate_polygon_config(self):
-        """Validate Polygon.io configuration"""
-        api_key = os.environ.get("POLYGON_API_KEY", "")
+    def _validate_databento_config(self):
+        """Validate Databento configuration"""
+        api_key = os.environ.get("DATABENTO_API_KEY", "")
 
         if not api_key:
             self.add_result(ValidationResult(
-                "POLYGON_API_KEY",
+                "DATABENTO_API_KEY",
                 ValidationLevel.ERROR,
                 "Not set",
-                "Get API key from https://polygon.io/"
+                "Get API key from https://databento.com/"
             ))
-        elif api_key == "your_polygon_api_key_here":
+        elif api_key == "your_databento_api_key_here":
             self.add_result(ValidationResult(
-                "POLYGON_API_KEY",
+                "DATABENTO_API_KEY",
                 ValidationLevel.ERROR,
                 "Using template value",
-                "Replace with actual Polygon API key"
+                "Replace with actual Databento API key"
             ))
         elif len(api_key) < 20:
             self.add_result(ValidationResult(
-                "POLYGON_API_KEY",
+                "DATABENTO_API_KEY",
                 ValidationLevel.WARNING,
                 "Appears too short, may be invalid",
                 "Verify API key format"
             ))
         else:
             self.add_result(ValidationResult(
-                "POLYGON_API_KEY",
+                "DATABENTO_API_KEY",
                 ValidationLevel.INFO,
                 "Present (not validating actual key)",
                 None

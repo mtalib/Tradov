@@ -11,21 +11,21 @@ Year Created: 2025
 Last Updated: 2025-08-21 Time: 22:00:00
 
 ⚠️ DEPRECATION WARNING ⚠️
-    This module is DEPRECATED and should be replaced with Polygon.io integration.
+    This module is DEPRECATED and has been replaced by Databento integration.
 
     Migration Status:
     - ❌ Uses deprecated ib_async for OPRA data (line 60: from ib_async import *)
     - ❌ IBKR no longer primary data source for Spyder
-    - 🎯 Polygon.io provides direct OPRA feed access without broker
+    - ✅ Databento provides direct OPRA feed (OPRA.PILLAR dataset) without broker
 
     For New Development:
-    - Use SpyderC25_PolygonDataHandler for options data
-    - Polygon WebSocket: wss://socket.polygon.io/options
-    - Channels: T.* (trades), Q.* (quotes), AM.* (aggregates)
+    - Use SpyderC26_DatabentoClient for options data
+    - Databento WebSocket: live streaming via OPRA.PILLAR
+    - Schemas: MBO (L3), MBP-1 (L1), trades, definition
     - No IB Gateway required, cleaner architecture
 
     Current System:
-    - ✅ Polygon.io: Real-time options quotes and trades
+    - ✅ Databento: Real-time options quotes and trades via OPRA.PILLAR
     - ✅ Tradier: Options chain data and execution
     - ❌ IBKR: Deprecated (legacy only)
 
@@ -62,8 +62,8 @@ import numpy as np
 import pandas as pd
 
 # ⚠️ DEPRECATED: ib_async wildcard import is legacy code
-# This module should be replaced with SpyderC25_PolygonDataHandler
-# Polygon provides direct OPRA feed without broker dependency
+# This module should be replaced with SpyderC26_DatabentoClient
+# Databento provides direct OPRA feed (OPRA.PILLAR dataset)
 from ib_async import *
 import pytz
 from scipy import stats

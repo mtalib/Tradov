@@ -16,11 +16,11 @@ Last Updated: 2025-08-21 Time: 21:05:00
     Migration Status:
     - ❌ IBKR Gateway integration via ib_async is legacy code
     - ✅ System migrated to Tradier API (no gateway needed)
-    - 🔧 Dashboard connectivity now uses Tradier + Polygon.io
+    - 🔧 Dashboard connectivity now uses Tradier + Databento
 
     The Spyder system has transitioned to:
     - Tradier API for broker integration (SpyderB40_TradierClient.py)
-    - Polygon.io for real-time market data (SpyderC25_PolygonDataHandler.py)
+    - Databento for real-time market data (SpyderC26_DatabentoClient.py)
     - No IB Gateway required for operations
 
     This module remains for historical reference only.
