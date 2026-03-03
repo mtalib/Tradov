@@ -123,7 +123,7 @@ except ImportError:
 
 # Renaissance Mean Reversion Strategy
 try:
-    from .SpyderD30_RenaissanceMeanReversion import (
+    from .SpyderD33_RenaissanceMeanReversion import (
         RenaissanceMeanReversionStrategy,
         OptionContract,
         OptionType,
@@ -139,7 +139,7 @@ try:
         "create_renaissance_strategy",
     ])
 except ImportError as e:
-    print(f"Warning: SpyderD30_RenaissanceMeanReversion not available: {e}")
+    print(f"Warning: SpyderD33_RenaissanceMeanReversion not available: {e}")
 
 # ==============================================================================
 # PACKAGE METADATA

@@ -44,7 +44,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, Signal
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-from Spyder.SpyderH_Storage.SpyderH02_TradeRepository import Trade
+from Spyder.SpyderH_Storage.SpyderH04_TradeRepository import Trade
 
 DEFAULT_SLIPPAGE = 0.01  # Real options slippage is much higher
 DEFAULT_COMMISSION = 0.65  # Per contract

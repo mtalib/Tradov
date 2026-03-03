@@ -123,7 +123,7 @@ print(f"✅ SpyderG_GUI: {successful_imports} components loaded successfully")
 
 # Import broker status widget (Tradier + Databento)
 try:
-    from .SpyderG05_ConnectAPIStatus import (
+    from .SpyderG15_ConnectAPIStatus import (
         BrokerStatusWidget,
         StatusConfig,
         StatusLevel,

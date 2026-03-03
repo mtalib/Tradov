@@ -70,11 +70,11 @@ def main():
         return 1
     
     # Check if it contains the wrong reference
-    if "SpyderG01_Dashboard.py" not in content:
+    if "SpyderG14_Dashboard.py" not in content:
         print_success("File doesn't contain incorrect reference - already fixed!")
         return 0
     
-    print_warning("Found incorrect reference to SpyderG01_Dashboard.py")
+    print_warning("Found incorrect reference to SpyderG14_Dashboard.py")
     
     # Create backup
     try:
@@ -88,7 +88,7 @@ def main():
     # Fix the content
     # Replace the incorrect dashboard_options list
     old_dashboard_options = '''dashboard_options = [
-                SPYDER_HOME / "SpyderG_GUI" / "SpyderG01_Dashboard.py",
+                SPYDER_HOME / "SpyderG_GUI" / "SpyderG14_Dashboard.py",
                 SPYDER_HOME / "SpyderG_GUI" / "SpyderG02_GUIEntry.py",
                 SPYDER_HOME / "SpyderA_Core" / "SpyderA01_Main.py",
                 SPYDER_HOME / "launch_dashboard_production.py",
@@ -108,13 +108,13 @@ def main():
     else:
         # Alternative pattern - just replace any occurrence
         fixed_content = content.replace(
-            'SPYDER_HOME / "SpyderG_GUI" / "SpyderG01_Dashboard.py"',
+            'SPYDER_HOME / "SpyderG_GUI" / "SpyderG14_Dashboard.py"',
             'SPYDER_HOME / "SpyderG_GUI" / "SpyderG02_GUIEntry.py"'
         )
         print_info("Applied fix using pattern 2 (simple replacement)")
     
     # Verify the fix
-    if "SpyderG01_Dashboard.py" in fixed_content:
+    if "SpyderG14_Dashboard.py" in fixed_content:
         print_error("Fix failed - incorrect reference still present")
         return 1
     
@@ -141,7 +141,7 @@ def main():
     print(f"{GREEN}{'='*70}{RESET}\n")
     
     print_info("Changes made:")
-    print(f"  {RED}OLD:{RESET} SpyderG01_Dashboard.py")
+    print(f"  {RED}OLD:{RESET} SpyderG14_Dashboard.py")
     print(f"  {GREEN}NEW:{RESET} SpyderG02_GUIEntry.py")
     print()
     print_info(f"Backup saved to: {BACKUP_FILE}")

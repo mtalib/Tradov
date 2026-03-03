@@ -43,18 +43,18 @@ from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import (
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
 
 # Import diagnostic components
-from Spyder.SpyderI_Integration.SpyderI04_DiagnosticsEngine_Types import (
+from Spyder.SpyderI_Integration.SpyderI10_DiagnosticsEngine_Types import (
     DiagnosticReport,
     DiagnosticIssue,
     HealthStatus,
     ProblemSeverity,
 )
-from Spyder.SpyderI_Integration.SpyderI04_DiagnosticsEngine_HealthChecks import (
+from Spyder.SpyderI_Integration.SpyderI09_DiagnosticsEngine_HealthChecks import (
     HealthCheckManager,
 )
-from Spyder.SpyderI_Integration.SpyderI04_DiagnosticsEngine_DataCollector import DataCollector
+from Spyder.SpyderI_Integration.SpyderI08_DiagnosticsEngine_DataCollector import DataCollector
 from Spyder.SpyderI_Integration.SpyderI04_DiagnosticsEngine_Analyzers import AnalysisManager
-from Spyder.SpyderI_Integration.SpyderI04_DiagnosticsEngine_Utils import DiagnosticUtils
+from Spyder.SpyderI_Integration.SpyderI11_DiagnosticsEngine_Utils import DiagnosticUtils
 
 # Integration components
 try:

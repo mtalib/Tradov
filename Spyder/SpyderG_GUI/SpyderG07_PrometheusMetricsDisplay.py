@@ -20,7 +20,7 @@ DEPRECATION NOTICE:
     The system now uses:
     - SpyderB40_TradierClient for order execution (single REST API)
     - SpyderC26_DatabentoClient for market data (WebSocket)
-    - SpyderG05_ConnectAPIStatus for connection status display
+    - SpyderG15_ConnectAPIStatus for connection status display
     - SpyderM_Monitoring for system health metrics
 
     This module is preserved for backward compatibility only.
@@ -30,7 +30,7 @@ import warnings
 warnings.warn(
     "SpyderG07_PrometheusMetricsDisplay is DEPRECATED. "
     "The system has migrated from IBKR (SpyderB15 Prometheus, 10-client IB Gateway) "
-    "to Tradier API. Use SpyderG05_ConnectAPIStatus and SpyderM_Monitoring instead.",
+    "to Tradier API. Use SpyderG15_ConnectAPIStatus and SpyderM_Monitoring instead.",
     DeprecationWarning,
     stacklevel=2
 )

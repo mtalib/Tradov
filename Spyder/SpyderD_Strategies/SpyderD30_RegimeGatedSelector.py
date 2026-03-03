@@ -36,9 +36,9 @@ Key Features:
     - Integration with existing Spyder strategies
 
 Dependencies:
-    - SpyderE12_HMMRegimeDetector for regime detection
+    - SpyderE21_HMMRegimeDetector for regime detection
     - SpyderD_Strategies for available strategies
-    - SpyderE11_FrustrationAnalyzer for market state assessment
+    - SpyderE20_FrustrationAnalyzer for market state assessment
 
 References:
     - Renaissance Technologies research on regime-gated trading
@@ -93,7 +93,7 @@ except ImportError:
 
 # Import HMM Regime Detector
 try:
-    from Spyder.SpyderE_Risk.SpyderE12_HMMRegimeDetector import (
+    from Spyder.SpyderE_Risk.SpyderE21_HMMRegimeDetector import (
         HMMRegimeDetector,
         MarketRegime,
         RegimePrediction

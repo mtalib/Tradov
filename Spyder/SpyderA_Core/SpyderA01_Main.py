@@ -71,7 +71,7 @@ else:
 
         has_qt = True
     except ImportError:
-        print("Warning: PySide6 not available. GUI mode disabled.")
+        logging.getLogger("SpyderA01_Main").warning("PySide6 not available. GUI mode disabled.")
 
 # Import Spyder modules with separated error handling
 # Logger (required)
@@ -89,7 +89,7 @@ try:
     get_logger_func = get_logger
     has_logger = True
 except ImportError as e:
-    print(f"Warning: Logger not available: {e}")
+    logging.getLogger("SpyderA01_Main").warning(f"Logger not available: {e}")
 
     def setup_logging(**_kwargs: Any) -> None:
         pass
@@ -127,16 +127,16 @@ try:
     from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 
     has_trading_dashboard = True
-    print("✅ Real Trading Dashboard (G05) loaded successfully!")
+    logging.getLogger("SpyderA01_Main").info("Real Trading Dashboard (G05) loaded successfully.")
 except ImportError as e:
-    print(f"Warning: Trading Dashboard not available: {e}")
+    logging.getLogger("SpyderA01_Main").warning(f"Trading Dashboard not available: {e}")
 
 # GUI log handler (optional — dashboard works without it)
 setup_gui_logging: Any = None
 try:
     from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
 except ImportError as e:
-    print(f"Warning: GUI log handler not available: {e}")
+    logging.getLogger("SpyderA01_Main").warning(f"GUI log handler not available: {e}")
 
 # Working Trading Dashboard (fallback)
 has_working_dashboard = False
@@ -154,11 +154,11 @@ try:
         spec.loader.exec_module(working_module)
         WorkingSpyderDashboard = working_module.WorkingSpyderDashboard
         has_working_dashboard = True
-        print("✅ Working Trading Dashboard loaded successfully!")
+        logging.getLogger("SpyderA01_Main").info("Working Trading Dashboard loaded successfully.")
 except ImportError as e:
-    print(f"Warning: Working Trading Dashboard not available: {e}")
+    logging.getLogger("SpyderA01_Main").warning(f"Working Trading Dashboard not available: {e}")
 except Exception as e:
-    print(f"Warning: Error loading Working Trading Dashboard: {e}")
+    logging.getLogger("SpyderA01_Main").warning(f"Error loading Working Trading Dashboard: {e}")
 
 # ==============================================================================
 # CONFIGURATION
@@ -353,7 +353,7 @@ GUI Status: VISIBLE (proving connection is stable!)
             if hasattr(self.spyder_app, "logger"):
                 self.spyder_app.logger.error(f"Status update error: {e}")
             else:
-                print(f"Status update error: {e}")
+                logging.getLogger("SpyderA01_Main").error(f"Status update error: {e}")
 
     def test_connection_fix(self) -> None:
         """Test the PROVEN race condition fix."""
@@ -448,7 +448,7 @@ class SpyderApplication:
                 )
 
         except Exception as e:
-            print(f"Warning: Could not setup advanced logging: {e}")
+            logging.getLogger("SpyderA01_Main").warning(f"Could not setup advanced logging: {e}")
             logging.basicConfig(level=logging.WARNING)
 
     def initialize_core_systems(self) -> bool:
@@ -508,9 +508,7 @@ class SpyderApplication:
         proving the race condition fix is working.
         """
         if not has_qt:
-            self.logger.error("❌ PySide6 not available - GUI disabled")
-            print("\nTo enable GUI, install PySide6:")
-            print("pip install PySide6")
+            self.logger.error("PySide6 not available - GUI disabled. Run: pip install PySide6")
             return False
 
         try:
@@ -681,25 +679,18 @@ class SpyderApplication:
 
 def main() -> int:
     """Main entry point for SPYDER application with PROVEN race condition fix."""
+    _startup_log = logging.getLogger("SpyderA01_Main")
 
-    print("\n" + "=" * 70)
-    print("SPYDER - Autonomous Options Trading System v1.0")
-    print("PROVEN Race Condition Fix Integration Test")
-    print("=" * 70)
-
-    # Check system capabilities
-    print("\nSystem Check:")
-    print(
-        f"{'✅' if has_logger else '❌'} Logger: {'Available' if has_logger else 'Not available'}"
-    )
-    print(
-        f"{'✅' if has_event_manager else '❌'} Event Manager: {'Available' if has_event_manager else 'Not available'}"
-    )
-    print(
-        f"{'✅' if has_broker_modules else '❌'} Broker Modules: {'Available' if has_broker_modules else 'Not available'}"
-    )
-    print(
-        f"{'✅' if has_qt else '❌'} PySide6: {'Available' if has_qt else 'Not available'}"
+    _startup_log.info("=" * 70)
+    _startup_log.info("SPYDER - Autonomous Options Trading System v1.0")
+    _startup_log.info("PROVEN Race Condition Fix Integration Test")
+    _startup_log.info("=" * 70)
+    _startup_log.info(
+        "System: Logger=%s | EventManager=%s | Broker=%s | PySide6=%s",
+        "OK" if has_logger else "MISSING",
+        "OK" if has_event_manager else "MISSING",
+        "OK" if has_broker_modules else "MISSING",
+        "OK" if has_qt else "MISSING",
     )
 
     # Broker: Tradier API (SpyderB40_TradierClient) — IB Gateway removed
@@ -725,27 +716,27 @@ def main() -> int:
 
     if args.debug:
         config.log_level = logging.DEBUG
-        print("🐛 Debug mode enabled")
+        _startup_log.debug("Debug mode enabled")
 
     if args.headless:
-        print("🖥️ Headless mode enabled")
+        _startup_log.info("Headless mode enabled")
 
     # Create and run application
     app = SpyderApplication(config)
 
     # Setup signal handlers
     def signal_handler(signum: int, _frame: Any) -> None:
-        print(f"\nReceived signal {signum}, shutting down...")
+        _startup_log.info(f"Received signal {signum}, shutting down...")
         app.shutdown()
 
     _ = signal.signal(signal.SIGINT, signal_handler)
     _ = signal.signal(signal.SIGTERM, signal_handler)
 
     # Run the application
-    print("🚀 Starting SPYDER with PROVEN race condition fix...")
+    _startup_log.info("Starting SPYDER with PROVEN race condition fix...")
     exit_code = app.run()
 
-    print(f"\n{'✅' if exit_code == 0 else '❌'} SPYDER exited with code: {exit_code}")
+    _startup_log.info(f"SPYDER exited with code: {exit_code} ({'success' if exit_code == 0 else 'failure'})")
     return exit_code
 
 

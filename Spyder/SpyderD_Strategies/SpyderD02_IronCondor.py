@@ -13,7 +13,7 @@ Last Updated: 2025-09-04 Time: 16:30:00
 Module Description:
     Iron Condor strategy implementation focused on strategy-specific entry/exit logic
     and market analysis. Generic multi-leg construction, order management, and Greeks
-    calculations have been moved to SpyderD26_MultiLegStrategyCoordinator for 
+    calculations have been moved to SpyderD32_MultiLegStrategyCoordinator for 
     consolidation and code reuse across all multi-leg strategies.
 
 CONSOLIDATION UPDATE:
@@ -69,7 +69,7 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
 
 # Integration with consolidated multi-leg coordinator
 try:
-    from SpyderD_Strategies.SpyderD26_MultiLegStrategyCoordinator import (
+    from SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
         MultiLegStrategyCoordinator, MultiLegStrategyType, get_multileg_coordinator
     )
     MULTILEG_COORDINATOR_AVAILABLE = True

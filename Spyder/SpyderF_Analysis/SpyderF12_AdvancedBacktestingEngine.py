@@ -65,9 +65,9 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 
 # E-Series Integration (Our Risk Management Masterpieces!)
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
-from Spyder.SpyderE_Risk.SpyderE07_RealTimeStressTesting import RealTimeStressTesting
+from Spyder.SpyderE_Risk.SpyderE17_RealTimeStressTesting import RealTimeStressTesting
 from Spyder.SpyderE_Risk.SpyderE10_CorrelationRiskManager import CorrelationRiskManager  
-from Spyder.SpyderE_Risk.SpyderE14_PortfolioOptimizer import PortfolioOptimizer
+from Spyder.SpyderE_Risk.SpyderE23_PortfolioOptimizer import PortfolioOptimizer
 
 # ==============================================================================
 # CONSTANTS

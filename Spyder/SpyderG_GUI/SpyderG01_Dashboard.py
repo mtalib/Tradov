@@ -1,1 +1,0 @@
-SpyderG02_GUIEntry.py

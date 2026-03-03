@@ -37,7 +37,7 @@ Key Features:
     - Parent/child order management with IBKR API integration
     - Multi-venue smart order routing (CBOE, PHLX, BOX, MIAX, ARCA)
     - Real-time progress monitoring and risk controls
-    - Integration with SpyderD12_StrategyOrchestrator for capital coordination
+    - Integration with SpyderD31_StrategyOrchestrator for capital coordination
     - PySide6 widget for Risk Levels Configuration 5th tab
     - Market impact measurement and execution quality analytics
     - Circuit breakers and emergency stop mechanisms
@@ -143,7 +143,7 @@ try:
     )
 
     # Strategy coordination
-    from SpyderD_Strategies.SpyderD12_StrategyOrchestrator import StrategyOrchestrator
+    from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
 
     # Event management
     from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType

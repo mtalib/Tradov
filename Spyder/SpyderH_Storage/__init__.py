@@ -30,11 +30,11 @@ except ImportError:
 
 # Trade Repository
 try:
-    from .SpyderH02_TradeRepository import TradeRepository
+    from .SpyderH04_TradeRepository import TradeRepository
 
     __all__.extend(["TradeRepository"])
 except ImportError:
-    print("Warning: SpyderH02_TradeRepository not available")
+    print("Warning: SpyderH04_TradeRepository not available")
 
 # Market Data Cache
 try:

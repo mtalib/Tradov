@@ -65,8 +65,8 @@ except ImportError:
     X13_AVAILABLE = False
 
 try:
-    from Spyder.SpyderE_Risk.SpyderE12_HMMRegimeDetector import (
-        SpyderE12_HMMRegimeDetector,
+    from Spyder.SpyderE_Risk.SpyderE21_HMMRegimeDetector import (
+        SpyderE21_HMMRegimeDetector,
     )
     HMM_AVAILABLE = True
 except ImportError:
@@ -257,7 +257,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         # Try to get regime from HMM detector
         if HMM_AVAILABLE:
             try:
-                detector = SpyderE12_HMMRegimeDetector()
+                detector = SpyderE21_HMMRegimeDetector()
                 prediction = detector.predict_regime()
                 if prediction:
                     snapshot.regime = getattr(prediction, "regime", "unknown")

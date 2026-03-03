@@ -90,7 +90,7 @@ def main():
     
     # Step 1: Check if wrong file reference exists
     print_info("Step 1: Checking for incorrect dashboard references...")
-    wrong_file = SPYDER_HOME / "SpyderG_GUI" / "SpyderG01_Dashboard.py"
+    wrong_file = SPYDER_HOME / "SpyderG_GUI" / "SpyderG14_Dashboard.py"
     
     if wrong_file.exists():
         print_warning(f"Found: {wrong_file}")
@@ -127,8 +127,8 @@ def main():
             try:
                 with open(desktop_file, 'r') as f:
                     content = f.read()
-                    if "SpyderG01_Dashboard.py" in content:
-                        print_error(f"  ⚠️  Contains incorrect reference to SpyderG01_Dashboard.py")
+                    if "SpyderG14_Dashboard.py" in content:
+                        print_error(f"  ⚠️  Contains incorrect reference to SpyderG14_Dashboard.py")
                         print_info(f"  📝 This file needs to be fixed!")
                     else:
                         print_success(f"  ✅ No incorrect references found")
@@ -146,8 +146,8 @@ def main():
             try:
                 with open(config_file, 'r') as f:
                     content = f.read()
-                    if "SpyderG01_Dashboard.py" in content:
-                        print_error(f"  ⚠️  Contains incorrect reference to SpyderG01_Dashboard.py")
+                    if "SpyderG14_Dashboard.py" in content:
+                        print_error(f"  ⚠️  Contains incorrect reference to SpyderG14_Dashboard.py")
                     else:
                         print_success(f"  ✅ No incorrect references found")
             except Exception as e:
@@ -164,8 +164,8 @@ def main():
             try:
                 with open(launcher_file, 'r') as f:
                     content = f.read()
-                    if "SpyderG01_Dashboard.py" in content:
-                        print_error(f"  ⚠️  Contains incorrect reference to SpyderG01_Dashboard.py")
+                    if "SpyderG14_Dashboard.py" in content:
+                        print_error(f"  ⚠️  Contains incorrect reference to SpyderG14_Dashboard.py")
                         issues_found.append(launcher_file)
                     else:
                         print_success(f"  ✅ No incorrect references found")
@@ -180,7 +180,7 @@ def main():
         for file in issues_found:
             print(f"  • {file}")
         print("\n")
-        print_info("To fix these files, replace 'SpyderG01_Dashboard.py' with:")
+        print_info("To fix these files, replace 'SpyderG14_Dashboard.py' with:")
         print(f"  {Colors.GREEN}{recommended_dashboard.name}{Colors.RESET}")
     else:
         print_success("No incorrect file references found in launcher scripts!")
@@ -211,7 +211,7 @@ def main():
     print_info("To automatically fix the issue, you can:")
     print(f"1. Create a symbolic link:")
     print(f"   {Colors.GREEN}cd {SPYDER_HOME / 'SpyderG_GUI'}{Colors.RESET}")
-    print(f"   {Colors.GREEN}ln -s {recommended_dashboard.name} SpyderG01_Dashboard.py{Colors.RESET}")
+    print(f"   {Colors.GREEN}ln -s {recommended_dashboard.name} SpyderG14_Dashboard.py{Colors.RESET}")
     print()
     print(f"2. OR update your launcher to use the correct file:")
     print(f"   {Colors.GREEN}{recommended_dashboard}{Colors.RESET}")
@@ -222,13 +222,13 @@ def main():
     
     if response == 'y':
         try:
-            symlink_target = SPYDER_HOME / "SpyderG_GUI" / "SpyderG01_Dashboard.py"
+            symlink_target = SPYDER_HOME / "SpyderG_GUI" / "SpyderG14_Dashboard.py"
             if symlink_target.exists():
                 print_warning(f"Removing existing file: {symlink_target}")
                 symlink_target.unlink()
             
             symlink_target.symlink_to(recommended_dashboard.name)
-            print_success(f"✅ Created symbolic link: SpyderG01_Dashboard.py -> {recommended_dashboard.name}")
+            print_success(f"✅ Created symbolic link: SpyderG14_Dashboard.py -> {recommended_dashboard.name}")
             print_success("✅ You can now try launching SPYDER again!")
         except Exception as e:
             print_error(f"Failed to create symbolic link: {e}")
