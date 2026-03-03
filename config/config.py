@@ -9,12 +9,16 @@ Purpose: SPYDER - Tradier + Polygon Configuration
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-03-03 Time: 00:00:00
 
 Module Description:
     SPYDER - Tradier + Polygon Configuration
 
 Change Log:
+    2026-03-03:
+        - Added ConfigurationError exception class
+        - Added validate_startup_config() for fail-fast startup validation
+        - Replaced print() calls with stdlib logging
     2026-01-16:
         - Applied standard Python formatting
         - Updated module header and structure
@@ -23,8 +27,25 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 import os
 from pathlib import Path
+
+# ==============================================================================
+# EXCEPTIONS
+# ==============================================================================
+
+
+class ConfigurationError(RuntimeError):
+    """
+    Raised when required configuration is missing or invalid at startup.
+
+    Collects ALL missing/invalid items and reports them together so the
+    operator can fix everything in one shot rather than discovering problems
+    one-at-a-time.
+    """
+
+    pass
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -323,6 +344,74 @@ def validate_config():
     return True, f"Configuration valid (mode: {mode})"
 
 
+def validate_startup_config() -> None:
+    """
+    Fail-fast startup configuration validator.
+
+    Checks every required environment variable in a single pass and raises
+    :class:`ConfigurationError` with a complete list of all problems so the
+    operator can fix them all at once.
+
+    Required variables (always):
+        - ``TRADIER_API_KEY``  — broker authentication
+        - ``TRADIER_ACCOUNT_ID`` — account to trade in
+        - ``TRADING_MODE``     — must be ``sandbox``, ``paper``, or ``live``
+        - the active data-provider key (``DATABENTO_API_KEY`` or
+          ``POLYGON_API_KEY`` depending on ``DATA_PROVIDER``)
+
+    Required variables (live mode only):
+        - ``LIVE_TRADING_CONFIRMED=true`` — explicit opt-in to real-money trading
+
+    Raises:
+        ConfigurationError: If any required variable is absent or invalid.
+            The exception message lists every problem found.
+    """
+    problems: list[str] = []
+
+    # --- Broker credentials (always required) --------------------------------
+    if not TRADIER_CONFIG["api_key"]:
+        problems.append("TRADIER_API_KEY is not set")
+    if not TRADIER_CONFIG["account_id"]:
+        problems.append("TRADIER_ACCOUNT_ID is not set")
+
+    # --- Trading mode --------------------------------------------------------
+    mode = os.environ.get("TRADING_MODE", "")
+    if mode not in ("sandbox", "paper", "live"):
+        problems.append(
+            f"TRADING_MODE='{mode}' is invalid; must be 'sandbox', 'paper', or 'live'"
+        )
+
+    # --- Data-provider credentials -------------------------------------------
+    provider = DATA_PROVIDER.lower()
+    if provider == "databento":
+        if not DATABENTO_CONFIG["api_key"]:
+            problems.append("DATABENTO_API_KEY is not set (required when DATA_PROVIDER=databento)")
+    elif provider == "polygon":
+        if not POLYGON_CONFIG["api_key"]:
+            problems.append("POLYGON_API_KEY is not set (required when DATA_PROVIDER=polygon)")
+    else:
+        problems.append(
+            f"DATA_PROVIDER='{DATA_PROVIDER}' is invalid; must be 'databento' or 'polygon'"
+        )
+
+    # --- Live-trading safety gate --------------------------------------------
+    if mode == "live":
+        confirmed = os.environ.get("LIVE_TRADING_CONFIRMED", "false").lower() == "true"
+        if not confirmed:
+            problems.append(
+                "LIVE_TRADING_CONFIRMED is not 'true' — set it explicitly to enable "
+                "real-money trading (TRADING_MODE=live)"
+            )
+
+    if problems:
+        bullet_list = "\n".join(f"  • {p}" for p in problems)
+        raise ConfigurationError(
+            f"Spyder startup blocked — {len(problems)} configuration "
+            f"problem(s) found:\n{bullet_list}\n"
+            "Fix the issues above in your .env file and restart."
+        )
+
+
 def check_api_authentication():
     """Check if API authentication is properly configured"""
     try:
@@ -348,12 +437,15 @@ def check_api_authentication():
         }
 
 
-# Print configuration status on import
+# Log configuration status on import (never use print() in production code)
+_cfg_logger = logging.getLogger(__name__)
 if __name__ != "__main__":
-    print(f"SPYDER Configuration Loaded (Tradier + {DATA_PROVIDER.capitalize()})")
-    print(f"   Execution: Tradier API")
-    print(f"   Market Data: {DATA_PROVIDER.capitalize()}")
-    print(f"   Trading Mode: {TRADING_MODE}")
+    _cfg_logger.debug(
+        "SPYDER Configuration loaded — execution: Tradier, "
+        "market data: %s, trading mode: %s",
+        DATA_PROVIDER.capitalize(),
+        TRADING_MODE,
+    )
 
 if __name__ == "__main__":
     # Test the configuration when run directly

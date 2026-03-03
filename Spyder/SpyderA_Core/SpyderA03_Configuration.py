@@ -941,6 +941,31 @@ class ConfigManager:
 
     def _validate_configuration(self):
         """Validate loaded configuration"""
+        # --- Fail-fast env-var check (item #8 hardening) --------------------
+        # Import lazily to avoid triggering load_dotenv() at module-import time
+        # (which can change os.environ and affect unrelated test skip conditions).
+        try:
+            from config.config import (  # noqa: PLC0415
+                ConfigurationError as _ConfigurationError,
+                validate_startup_config as _validate_startup_config,
+            )
+
+            HAS_STARTUP_VALIDATOR = True
+        except Exception:
+            HAS_STARTUP_VALIDATOR = False
+            _ConfigurationError = RuntimeError  # type: ignore[misc,assignment]
+            _validate_startup_config = None  # type: ignore[assignment]
+
+        if HAS_STARTUP_VALIDATOR and _validate_startup_config is not None:
+            try:
+                _validate_startup_config()
+            except _ConfigurationError as exc:
+                self.logger.critical(
+                    "STARTUP BLOCKED — configuration errors detected:\n%s", exc
+                )
+                raise  # Propagate so the application does not silently start
+
+        # --- Schema / value validation via ConfigManager.validate() ----------
         errors = self.validate()
 
         if errors:
