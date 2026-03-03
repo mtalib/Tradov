@@ -386,7 +386,11 @@ class OptionChainManager:
         # Data storage
         self.option_chains: Dict[datetime.date, OptionChain] = {}
         self.active_subscriptions: Dict[int, OptionContract] = {}  # ticker_id -> contract
-        self.contract_builder = ContractBuilder()
+        self.contract_builder = None  # ContractBuilder removed — IB Gateway deprecated; use Tradier REST API
+        if GreeksCalculator is None:
+            raise ImportError(
+                "GreeksCalculator unavailable — check SpyderF06_GreeksCalculator imports"
+            )
         self.greeks_calculator = GreeksCalculator()
         self.trading_calendar = TradingCalendar()
         

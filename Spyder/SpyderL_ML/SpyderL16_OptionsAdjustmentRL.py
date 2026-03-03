@@ -226,6 +226,14 @@ class OptionsEnvironment(_GymEnvBase):
         self.risk_free_rate = risk_free_rate
 
         # Components
+        if GreeksCalculator is None:
+            raise ImportError(
+                "GreeksCalculator unavailable — check SpyderF06_GreeksCalculator imports"
+            )
+        if RiskManager is None:
+            raise ImportError(
+                "RiskManager unavailable — check SpyderE01_RiskManager imports"
+            )
         self.greeks_calculator = GreeksCalculator()
         self.risk_manager = RiskManager()
 
@@ -1051,6 +1059,8 @@ class OptionsAdjustmentRL:
         self, position: Dict[str, Any], market_data: Dict[str, Any]
     ) -> Dict[str, float]:
         """Calculate live Greeks for position"""
+        if GreeksCalculator is None:
+            return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0}
         calculator = GreeksCalculator()
         total_greeks = {"delta": 0, "gamma": 0, "theta": 0, "vega": 0}
 

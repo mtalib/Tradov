@@ -339,6 +339,14 @@ class AdaptiveVolatilityStrategy(BaseStrategy):
         self.version = "1.0.0"
         
         # Initialize numerical components
+        if OptionsGreeksCalculator is None:
+            raise ImportError(
+                "OptionsGreeksCalculator unavailable — check SpyderN04_OptionsGreeksCalculator imports"
+            )
+        if VolatilityModeling is None:
+            raise ImportError(
+                "VolatilityModeling unavailable — check SpyderN06_VolatilitySurfaceBuilder imports"
+            )
         self.greeks_calculator = OptionsGreeksCalculator()
         self.volatility_model = VolatilityModeling()
         self.statistical_analyzer = StatisticalAnalysis()

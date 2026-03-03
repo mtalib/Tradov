@@ -298,8 +298,8 @@ class AllocationOptimizer:
         
         # Market analysis components
         self.vix_analyzer = VIXAnalyzer()
-        self.regime_classifier = RegimeClassifier()
-        self.feature_engineer = FeatureEngineer()
+        self.regime_classifier = RegimeClassifier() if RegimeClassifier is not None else None
+        self.feature_engineer = FeatureEngineer() if FeatureEngineer is not None else None
         
         # ML models for predictions
         self.ml_models = {
