@@ -56,6 +56,16 @@ from scipy.stats import norm
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+try:
+    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+        TradierClient,
+        create_tradier_client_from_env,
+    )
+    HAS_TRADIER = True
+except ImportError:
+    TradierClient = None  # type: ignore[assignment,misc]
+    create_tradier_client_from_env = None  # type: ignore[assignment]
+    HAS_TRADIER = False
 
 # ==============================================================================
 # CONSTANTS
@@ -319,19 +329,28 @@ class VIXHedgingStrategy:
 
     def __init__(
         self,
-        databento_api_key: Optional[str] = None,
+        tradier_client: Optional['TradierClient'] = None,
         vix_mean: float = VIX_MEAN
     ):
         """
         Initialize VIX Hedging Strategy.
 
         Args:
-            databento_api_key: Databento API key (falls back to DATABENTO_API_KEY env var)
+            tradier_client: Pre-configured TradierClient. If None, creates one from
+                environment variables (TRADIER_API_KEY, TRADIER_ACCOUNT_ID).
             vix_mean: Long-term VIX mean for reversion (default: 20)
         """
-        import os
-        self.databento_api_key = databento_api_key or os.getenv("DATABENTO_API_KEY")
         self.vix_mean = vix_mean
+        if tradier_client is not None:
+            self._tradier: Optional[TradierClient] = tradier_client
+        elif HAS_TRADIER and create_tradier_client_from_env is not None:
+            try:
+                self._tradier = create_tradier_client_from_env()
+            except Exception as e:
+                logger.warning(f"TradierClient unavailable: {e}")
+                self._tradier = None
+        else:
+            self._tradier = None
 
         # History for analysis
         self._vix_history: List[float] = []
@@ -981,22 +1000,33 @@ class VIXHedgingStrategy:
         return base * (1 + 0.02 * month)
 
     def _fetch_price(self, symbol: str) -> float:
-        """Get current price via Databento (stub — returns 0)."""
-        logger.warning(
-            f"_fetch_price({symbol}): Databento integration pending."
-        )
-        return 0.0
+        """Get current price from Tradier API."""
+        if self._tradier is None:
+            logger.warning(f"_fetch_price({symbol}): TradierClient not available.")
+            return 0.0
+        try:
+            response = self._tradier.get_quotes([symbol])
+            quote = response.get('quotes', {}).get('quote', {})
+            if isinstance(quote, list):
+                quote = quote[0]
+            return float(quote.get('last', 0.0) or 0.0)
+        except Exception as e:
+            logger.error(f"_fetch_price({symbol}): Tradier error: {e}")
+            return 0.0
 
 
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
 def create_vix_strategy_from_env() -> 'VIXHedgingStrategy':
-    """Create VIXHedgingStrategy from environment variables."""
-    import os
-    return VIXHedgingStrategy(
-        databento_api_key=os.getenv("DATABENTO_API_KEY")
-    )
+    """Create VIXHedgingStrategy using Tradier API from environment variables."""
+    tradier_client = None
+    if HAS_TRADIER and create_tradier_client_from_env is not None:
+        try:
+            tradier_client = create_tradier_client_from_env()
+        except Exception as e:
+            logger.warning(f"Could not create TradierClient: {e}")
+    return VIXHedgingStrategy(tradier_client=tradier_client)
 
 
 # ==============================================================================

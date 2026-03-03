@@ -55,6 +55,18 @@ from scipy.stats import norm
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+try:
+    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+        TradierClient,
+        GreekData,
+        create_tradier_client_from_env,
+    )
+    HAS_TRADIER = True
+except ImportError:
+    TradierClient = None  # type: ignore[assignment,misc]
+    GreekData = None  # type: ignore[assignment,misc]
+    create_tradier_client_from_env = None  # type: ignore[assignment]
+    HAS_TRADIER = False
 
 # ==============================================================================
 # CONSTANTS
@@ -263,19 +275,28 @@ class MaxPainCalculator:
 
     def __init__(
         self,
-        databento_api_key: Optional[str] = None,
+        tradier_client: Optional['TradierClient'] = None,
         cache_ttl: int = MAX_PAIN_CACHE_TTL
     ):
         """
         Initialize Max Pain Calculator.
 
         Args:
-            databento_api_key: Databento API key (falls back to DATABENTO_API_KEY env var)
+            tradier_client: Pre-configured TradierClient. If None, creates one from
+                environment variables (TRADIER_API_KEY, TRADIER_ACCOUNT_ID).
             cache_ttl: Cache time-to-live in seconds
         """
-        import os
-        self.databento_api_key = databento_api_key or os.getenv("DATABENTO_API_KEY")
         self.cache_ttl = cache_ttl
+        if tradier_client is not None:
+            self._tradier: Optional[TradierClient] = tradier_client
+        elif HAS_TRADIER and create_tradier_client_from_env is not None:
+            try:
+                self._tradier = create_tradier_client_from_env()
+            except Exception as e:
+                logger.warning(f"TradierClient unavailable: {e}")
+                self._tradier = None
+        else:
+            self._tradier = None
 
         # Caches
         self._cache: Dict[Tuple[str, date], Tuple[MaxPainResult, datetime]] = {}
@@ -902,39 +923,98 @@ class MaxPainCalculator:
     # TODO: Implement using SpyderC26_DatabentoClient or SpyderB40_TradierClient
     # ==========================================================================
 
+    @staticmethod
+    def _greek_data_to_df(greek_data: list) -> pd.DataFrame:
+        """
+        Normalize List[GreekData] from TradierClient into a standard options chain DataFrame.
+
+        Columns: strike, contract_type, open_interest, volume, bid, ask,
+                 last_price, mid, implied_volatility, delta, gamma, theta, vega, rho, symbol.
+        """
+        if not greek_data:
+            return pd.DataFrame()
+        return pd.DataFrame([{
+            'symbol': g.symbol,
+            'strike': g.strike,
+            'contract_type': g.option_type,
+            'open_interest': g.open_interest,
+            'volume': g.volume,
+            'bid': g.bid,
+            'ask': g.ask,
+            'last_price': g.last,
+            'mid': g.mid,
+            'implied_volatility': g.iv,
+            'delta': g.delta,
+            'gamma': g.gamma,
+            'theta': g.theta,
+            'vega': g.vega,
+            'rho': g.rho,
+        } for g in greek_data])
+
     def _fetch_option_chain(self, symbol: str, expiry) -> pd.DataFrame:
-        """Fetch option chain via Databento/Tradier (stub — returns empty DataFrame)."""
-        logger.warning(
-            f"_fetch_option_chain({symbol}): Databento/Tradier integration pending."
-        )
-        return pd.DataFrame()
+        """Fetch option chain from Tradier API."""
+        if self._tradier is None:
+            logger.warning(f"_fetch_option_chain({symbol}): TradierClient not available.")
+            return pd.DataFrame()
+        try:
+            expiry_str = expiry.strftime('%Y-%m-%d') if hasattr(expiry, 'strftime') else str(expiry)
+            greek_data = self._tradier.get_option_chain_with_greeks(symbol, expiry_str)
+            df = self._greek_data_to_df(greek_data)
+            if df.empty:
+                logger.warning(f"Empty option chain from Tradier for {symbol} {expiry_str}")
+            return df
+        except Exception as e:
+            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}")
+            return pd.DataFrame()
 
     def _get_current_price(self, symbol: str) -> float:
-        """Get current stock price via Databento (stub — returns 0)."""
-        logger.warning(
-            f"_get_current_price({symbol}): Databento integration pending."
-        )
-        return 0.0
+        """Get current stock price from Tradier API."""
+        if self._tradier is None:
+            logger.warning(f"_get_current_price({symbol}): TradierClient not available.")
+            return 0.0
+        try:
+            response = self._tradier.get_quotes([symbol])
+            quote = response.get('quotes', {}).get('quote', {})
+            if isinstance(quote, list):
+                quote = quote[0]
+            return float(quote.get('last', 0.0) or 0.0)
+        except Exception as e:
+            logger.error(f"_get_current_price({symbol}): Tradier error: {e}")
+            return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
-        """Get nearest options expiration."""
+        """Get nearest options expiration from Tradier."""
+        if self._tradier is not None:
+            try:
+                response = self._tradier.get_option_expirations(symbol)
+                dates = response.get('expirations', {}).get('date', [])
+                if isinstance(dates, str):
+                    dates = [dates]
+                today = date.today()
+                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
+                if future:
+                    return future[0]
+            except Exception as e:
+                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}")
         today = date.today()
-        # Find next Friday
-        days_until_friday = (4 - today.weekday()) % 7
-        if days_until_friday == 0 and datetime.now().hour >= 16:
-            days_until_friday = 7
-        return today + timedelta(days=days_until_friday)
+        days = (4 - today.weekday()) % 7 or 7
+        return today + timedelta(days=days)
 
     def _get_upcoming_expiries(self, symbol: str, count: int) -> List[date]:
-        """Get upcoming expiration dates."""
-        expiries = []
-        current = self._get_nearest_expiry(symbol)
-
-        for i in range(count):
-            expiries.append(current)
-            current = current + timedelta(days=7)  # Weekly expirations
-
-        return expiries
+        """Get upcoming expiration dates from Tradier."""
+        if self._tradier is not None:
+            try:
+                response = self._tradier.get_option_expirations(symbol)
+                dates = response.get('expirations', {}).get('date', [])
+                if isinstance(dates, str):
+                    dates = [dates]
+                today = date.today()
+                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
+                return future[:count]
+            except Exception as e:
+                logger.warning(f"_get_upcoming_expiries({symbol}): Tradier error: {e}")
+        nearest = self._get_nearest_expiry(symbol)
+        return [nearest + timedelta(weeks=i) for i in range(count)]
 
     def _empty_result(self, symbol: str, expiry: date) -> MaxPainResult:
         """Return empty result for error cases."""
@@ -961,11 +1041,14 @@ class MaxPainCalculator:
 # FACTORY FUNCTION
 # ==============================================================================
 def create_max_pain_calculator_from_env() -> 'MaxPainCalculator':
-    """Create MaxPainCalculator from environment variables."""
-    import os
-    return MaxPainCalculator(
-        databento_api_key=os.getenv("DATABENTO_API_KEY")
-    )
+    """Create MaxPainCalculator using Tradier API from environment variables."""
+    tradier_client = None
+    if HAS_TRADIER and create_tradier_client_from_env is not None:
+        try:
+            tradier_client = create_tradier_client_from_env()
+        except Exception as e:
+            logger.warning(f"Could not create TradierClient: {e}")
+    return MaxPainCalculator(tradier_client=tradier_client)
 
 
 # ==============================================================================

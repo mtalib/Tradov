@@ -54,6 +54,18 @@ import requests
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+try:
+    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+        TradierClient,
+        GreekData,
+        create_tradier_client_from_env,
+    )
+    HAS_TRADIER = True
+except ImportError:
+    TradierClient = None  # type: ignore[assignment,misc]
+    GreekData = None  # type: ignore[assignment,misc]
+    create_tradier_client_from_env = None  # type: ignore[assignment]
+    HAS_TRADIER = False
 
 # ==============================================================================
 # CONSTANTS
@@ -361,7 +373,7 @@ class OrderFlowAnalyzer:
 
     def __init__(
         self,
-        databento_api_key: Optional[str] = None,
+        tradier_client: Optional['TradierClient'] = None,
         symbols: Optional[List[str]] = None,
         enable_realtime: bool = False
     ):
@@ -369,13 +381,22 @@ class OrderFlowAnalyzer:
         Initialize Order Flow Analyzer.
 
         Args:
-            databento_api_key: Databento API key (falls back to DATABENTO_API_KEY env var)
+            tradier_client: Pre-configured TradierClient. If None, creates one from
+                environment variables (TRADIER_API_KEY, TRADIER_ACCOUNT_ID).
             symbols: Symbols to track (default: ["SPY"])
             enable_realtime: Enable real-time flow tracking
         """
-        import os
-        self.databento_api_key = databento_api_key or os.getenv("DATABENTO_API_KEY")
         self.symbols = symbols or ["SPY"]
+        if tradier_client is not None:
+            self._tradier: Optional[TradierClient] = tradier_client
+        elif HAS_TRADIER and create_tradier_client_from_env is not None:
+            try:
+                self._tradier = create_tradier_client_from_env()
+            except Exception as e:
+                logger.warning(f"TradierClient unavailable: {e}")
+                self._tradier = None
+        else:
+            self._tradier = None
         self.enable_realtime = enable_realtime
 
         # Flow storage
@@ -1119,30 +1140,66 @@ class OrderFlowAnalyzer:
         }
 
     # ==========================================================================
-    # DATA FETCHING (DATABENTO — stub implementations)
-    # TODO: Implement using SpyderC26_DatabentoClient for live options chain data
+    # DATA FETCHING (Tradier for chains/prices; Databento stubs for tick data)
     # ==========================================================================
+
+    @staticmethod
+    def _greek_data_to_df(greek_data: list) -> pd.DataFrame:
+        """
+        Normalize List[GreekData] from TradierClient into a standard options chain DataFrame.
+
+        Columns: strike, contract_type, open_interest, volume, bid, ask,
+                 last_price, mid, implied_volatility, delta, gamma, theta, vega, rho, symbol.
+        """
+        if not greek_data:
+            return pd.DataFrame()
+        return pd.DataFrame([{
+            'symbol': g.symbol,
+            'strike': g.strike,
+            'contract_type': g.option_type,
+            'open_interest': g.open_interest,
+            'volume': g.volume,
+            'bid': g.bid,
+            'ask': g.ask,
+            'last_price': g.last,
+            'mid': g.mid,
+            'implied_volatility': g.iv,
+            'delta': g.delta,
+            'gamma': g.gamma,
+            'theta': g.theta,
+            'vega': g.vega,
+            'rho': g.rho,
+        } for g in greek_data])
 
     def _fetch_option_chain(
         self,
         symbol: str,
         expiry=None
     ) -> pd.DataFrame:
-        """Fetch option chain via Databento (stub — returns empty DataFrame)."""
-        logger.warning(
-            f"_fetch_option_chain({symbol}): Databento integration pending. "
-            "Connect SpyderC26_DatabentoClient for live options data."
-        )
-        return pd.DataFrame()
+        """Fetch option chain from Tradier API."""
+        if self._tradier is None:
+            logger.warning(f"_fetch_option_chain({symbol}): TradierClient not available.")
+            return pd.DataFrame()
+        try:
+            exp = expiry or self._get_nearest_expiry(symbol)
+            expiry_str = exp.strftime('%Y-%m-%d') if hasattr(exp, 'strftime') else str(exp)
+            greek_data = self._tradier.get_option_chain_with_greeks(symbol, expiry_str)
+            df = self._greek_data_to_df(greek_data)
+            if df.empty:
+                logger.warning(f"Empty option chain from Tradier for {symbol} {expiry_str}")
+            return df
+        except Exception as e:
+            logger.error(f"_fetch_option_chain({symbol}): Tradier error: {e}")
+            return pd.DataFrame()
 
     def _fetch_options_trades(
         self,
         symbol: str,
         lookback_minutes: int
     ) -> List['OptionsFlow']:
-        """Fetch recent options trades via Databento (stub — returns empty list)."""
+        """Fetch recent options trades (Databento OPRA.PILLAR trades schema — not yet available)."""
         logger.warning(
-            f"_fetch_options_trades({symbol}): Databento integration pending."
+            f"_fetch_options_trades({symbol}): Requires Databento subscription (OPRA.PILLAR trades)."
         )
         return []
 
@@ -1151,27 +1208,44 @@ class OrderFlowAnalyzer:
         symbol: str,
         lookback_days: int
     ) -> List['DarkPoolPrint']:
-        """Fetch dark pool prints via Databento (stub — returns empty list)."""
+        """Fetch dark pool prints (Databento block trade data — not yet available)."""
         logger.warning(
-            f"_fetch_dark_pool_prints({symbol}): Databento integration pending."
+            f"_fetch_dark_pool_prints({symbol}): Requires Databento subscription (block trade data)."
         )
         return []
 
     def _get_underlying_price(self, symbol: str) -> float:
-        """Get current underlying price via Databento (stub — returns 0)."""
-        logger.warning(
-            f"_get_underlying_price({symbol}): Databento integration pending."
-        )
-        return 0.0
+        """Get current underlying price from Tradier API."""
+        if self._tradier is None:
+            logger.warning(f"_get_underlying_price({symbol}): TradierClient not available.")
+            return 0.0
+        try:
+            response = self._tradier.get_quotes([symbol])
+            quote = response.get('quotes', {}).get('quote', {})
+            if isinstance(quote, list):
+                quote = quote[0]
+            return float(quote.get('last', 0.0) or 0.0)
+        except Exception as e:
+            logger.error(f"_get_underlying_price({symbol}): Tradier error: {e}")
+            return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
-        """Get nearest options expiration date."""
+        """Get nearest options expiration from Tradier."""
+        if self._tradier is not None:
+            try:
+                response = self._tradier.get_option_expirations(symbol)
+                dates = response.get('expirations', {}).get('date', [])
+                if isinstance(dates, str):
+                    dates = [dates]
+                today = date.today()
+                future = sorted(date.fromisoformat(d) for d in dates if date.fromisoformat(d) >= today)
+                if future:
+                    return future[0]
+            except Exception as e:
+                logger.warning(f"_get_nearest_expiry({symbol}): Tradier error: {e}")
         today = date.today()
-        # Find next Friday (standard weekly expiry)
-        days_until_friday = (4 - today.weekday()) % 7
-        if days_until_friday == 0 and datetime.now().hour >= 16:
-            days_until_friday = 7
-        return today + timedelta(days=days_until_friday)
+        days = (4 - today.weekday()) % 7 or 7
+        return today + timedelta(days=days)
 
     # ==========================================================================
     # CALLBACKS
@@ -1229,14 +1303,17 @@ class OrderFlowAnalyzer:
 # FACTORY FUNCTION
 # ==============================================================================
 def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
-    """Create OrderFlowAnalyzer from environment variables."""
+    """Create OrderFlowAnalyzer using Tradier API from environment variables."""
     import os
-
-    api_key = os.getenv("DATABENTO_API_KEY")
+    tradier_client = None
+    if HAS_TRADIER and create_tradier_client_from_env is not None:
+        try:
+            tradier_client = create_tradier_client_from_env()
+        except Exception as e:
+            logger.warning(f"Could not create TradierClient: {e}")
     symbols = os.getenv("FLOW_SYMBOLS", "SPY,QQQ").split(",")
-
     return OrderFlowAnalyzer(
-        databento_api_key=api_key,
+        tradier_client=tradier_client,
         symbols=symbols,
         enable_realtime=os.getenv("ENABLE_REALTIME_FLOW", "false").lower() == "true"
     )
