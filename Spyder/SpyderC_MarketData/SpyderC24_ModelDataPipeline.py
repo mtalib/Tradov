@@ -50,11 +50,8 @@ from sklearn.feature_selection import SelectKBest, f_regression
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-try:
-    import talib
-    TALIB_AVAILABLE = True
-except ImportError:
-    TALIB_AVAILABLE = False
+import SpyderF_Analysis.SpyderF20_Indicators as talib
+TALIB_AVAILABLE = True
 
 try:
     import mlflow

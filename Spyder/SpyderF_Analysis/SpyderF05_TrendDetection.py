@@ -37,15 +37,7 @@ from scipy import signal
 from scipy.stats import linregress
 from scipy.ndimage import gaussian_filter1d
 
-try:
-    import talib
-    HAS_TALIB = True
-except ImportError:
-    HAS_TALIB = False
-    # talib not available - using alternatives
-    from .mock_talib import *
-    import SpyderF_Analysis.mock_talib as talib
-    # talib not available - using alternatives
+import SpyderF_Analysis.SpyderF20_Indicators as talib
 
 # ==============================================================================
 # LOCAL IMPORTS

@@ -39,7 +39,6 @@ import pickle
 from scipy import stats
 from scipy.signal import find_peaks
 from sklearn.preprocessing import StandardScaler, RobustScaler
-import talib
 
 # ==============================================================================
 # LOCAL IMPORTS

@@ -54,7 +54,7 @@ from scipy.signal import find_peaks
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
-import talib
+import SpyderF_Analysis.SpyderF20_Indicators as talib
 
 # Institutional Analytics
 try:
