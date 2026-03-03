@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from abc import ABC, abstractmethod
 import hashlib
+import xml.etree.ElementTree as ET
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -88,6 +89,8 @@ REDDIT_USER_AGENT = "SpyderBot/1.0"
 
 # API Endpoints
 ALPHA_VANTAGE_NEWS_URL = "https://www.alphavantage.co/query"
+FINNHUB_NEWS_URL = "https://finnhub.io/api/v1/company-news"
+YAHOO_RSS_URL = "https://feeds.finance.yahoo.com/rss/2.0/headline"
 REDDIT_API_URL = "https://oauth.reddit.com"
 
 # ==============================================================================
@@ -439,6 +442,256 @@ class EnsembleSentimentModel(BaseSentimentModel):
 
 
 # ==============================================================================
+# NEWS SOURCE PROVIDERS
+# ==============================================================================
+class BaseNewsSource(ABC):
+    """
+    Abstract base class for news data sources.
+
+    All concrete news sources must implement :meth:`fetch` so that
+    :class:`SentimentAnalyzer` can iterate over a pluggable list of sources
+    without knowing their implementation details.
+
+    Example (custom source)::
+
+        class MySource(BaseNewsSource):
+            @property
+            def source_name(self) -> str:
+                return "my_source"
+
+            def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+                ...
+    """
+
+    @property
+    @abstractmethod
+    def source_name(self) -> str:
+        """Human-readable source identifier used in logs."""
+
+    @abstractmethod
+    def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+        """
+        Fetch recent news items for *ticker*.
+
+        Args:
+            ticker: Stock ticker symbol (e.g. ``"SPY"``)
+            limit:  Maximum number of :class:`NewsItem` objects to return.
+
+        Returns:
+            List of :class:`NewsItem`.  Must never raise — return an empty
+            list on any error so the caller can try the next source.
+        """
+
+
+class AlphaVantageNewsSource(BaseNewsSource):
+    """
+    News source backed by the Alpha Vantage ``NEWS_SENTIMENT`` endpoint.
+
+    Requires a free/premium Alpha Vantage API key.
+    Env var: ``ALPHA_VANTAGE_API_KEY``
+    """
+
+    def __init__(self, api_key: str) -> None:
+        """
+        Args:
+            api_key: Alpha Vantage API key.
+        """
+        self._api_key = api_key
+
+    @property
+    def source_name(self) -> str:
+        return "alpha_vantage"
+
+    def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+        """Fetch from Alpha Vantage NEWS_SENTIMENT endpoint."""
+        try:
+            params = {
+                "function": "NEWS_SENTIMENT",
+                "tickers": ticker,
+                "limit": limit,
+                "apikey": self._api_key,
+            }
+            response = requests.get(
+                ALPHA_VANTAGE_NEWS_URL, params=params, timeout=30
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    f"AlphaVantage news HTTP {response.status_code} for {ticker}"
+                )
+                return []
+
+            feed = response.json().get("feed", [])
+            items: List[NewsItem] = []
+            for entry in feed:
+                try:
+                    published = datetime.strptime(
+                        entry.get("time_published", "")[:15], "%Y%m%dT%H%M%S"
+                    )
+                except Exception:
+                    published = datetime.now()
+
+                items.append(NewsItem(
+                    title=entry.get("title", ""),
+                    description=entry.get("summary", ""),
+                    url=entry.get("url", ""),
+                    source=entry.get("source", "alpha_vantage"),
+                    published=published,
+                    tickers=[
+                        t.get("ticker", "")
+                        for t in entry.get("ticker_sentiment", [])
+                    ],
+                ))
+            return items
+
+        except Exception as exc:
+            logger.error(f"AlphaVantageNewsSource.fetch error: {exc}")
+            return []
+
+
+class FinnhubNewsSource(BaseNewsSource):
+    """
+    News source backed by the Finnhub ``/company-news`` endpoint.
+
+    Finnhub offers a generous free tier (60 req/min).  Register at
+    https://finnhub.io/ to obtain an API key.
+    Env var: ``FINNHUB_API_KEY``
+
+    .. note::
+        This is a **stub implementation**.  The HTTP call is functional but
+        error‑handling and field normalisation may need tuning once live data
+        is observed.
+    """
+
+    def __init__(self, api_key: str) -> None:
+        """
+        Args:
+            api_key: Finnhub API key.
+        """
+        self._api_key = api_key
+
+    @property
+    def source_name(self) -> str:
+        return "finnhub"
+
+    def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+        """Fetch from Finnhub /company-news endpoint."""
+        try:
+            today = datetime.utcnow()
+            week_ago = today - timedelta(days=7)
+            params = {
+                "symbol": ticker,
+                "from": week_ago.strftime("%Y-%m-%d"),
+                "to": today.strftime("%Y-%m-%d"),
+                "token": self._api_key,
+            }
+            response = requests.get(
+                FINNHUB_NEWS_URL, params=params, timeout=30
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    f"Finnhub news HTTP {response.status_code} for {ticker}"
+                )
+                return []
+
+            entries = response.json()
+            if not isinstance(entries, list):
+                return []
+
+            items: List[NewsItem] = []
+            for entry in entries[:limit]:
+                try:
+                    published = datetime.utcfromtimestamp(entry.get("datetime", 0))
+                except Exception:
+                    published = datetime.now()
+
+                items.append(NewsItem(
+                    title=entry.get("headline", ""),
+                    description=entry.get("summary", ""),
+                    url=entry.get("url", ""),
+                    source=entry.get("source", "finnhub"),
+                    published=published,
+                    tickers=[ticker],
+                ))
+            return items
+
+        except Exception as exc:
+            logger.error(f"FinnhubNewsSource.fetch error: {exc}")
+            return []
+
+
+class YahooFinanceRSSNewsSource(BaseNewsSource):
+    """
+    Key‑free news source backed by the Yahoo Finance RSS feed.
+
+    No API key required.  RSS is a lightweight fallback suitable for use when
+    paid API keys are absent.  Results are limited to ~20 headlines.
+
+    .. note::
+        This is a **stub implementation**.  Yahoo may throttle or block
+        automated requests; add appropriate rate‑limiting if deployed at high
+        frequency.
+    """
+
+    _HEADERS = {
+        "User-Agent": "Mozilla/5.0 (compatible; SpyderBot/1.0)",
+        "Accept": "application/rss+xml, application/xml, text/xml",
+    }
+
+    @property
+    def source_name(self) -> str:
+        return "yahoo_rss"
+
+    def fetch(self, ticker: str, limit: int) -> List[NewsItem]:
+        """Fetch headlines from the Yahoo Finance RSS feed for *ticker*."""
+        try:
+            params = {"s": ticker, "region": "US", "lang": "en-US"}
+            response = requests.get(
+                YAHOO_RSS_URL,
+                params=params,
+                headers=self._HEADERS,
+                timeout=15,
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    f"YahooRSS HTTP {response.status_code} for {ticker}"
+                )
+                return []
+
+            root = ET.fromstring(response.text)
+            channel = root.find("channel")
+            if channel is None:
+                return []
+
+            items: List[NewsItem] = []
+            for item_el in list(channel.findall("item"))[:limit]:
+                title = (item_el.findtext("title") or "").strip()
+                description = (item_el.findtext("description") or "").strip()
+                url = (item_el.findtext("link") or "").strip()
+                pub_str = (item_el.findtext("pubDate") or "").strip()
+
+                try:
+                    # RFC 2822 date: "Mon, 01 Jan 2024 12:00:00 +0000"
+                    from email.utils import parsedate_to_datetime
+                    published = parsedate_to_datetime(pub_str).replace(tzinfo=None)
+                except Exception:
+                    published = datetime.now()
+
+                items.append(NewsItem(
+                    title=title,
+                    description=description,
+                    url=url,
+                    source="yahoo_finance",
+                    published=published,
+                    tickers=[ticker],
+                ))
+            return items
+
+        except Exception as exc:
+            logger.error(f"YahooFinanceRSSNewsSource.fetch error: {exc}")
+            return []
+
+
+# ==============================================================================
 # MAIN SENTIMENT ANALYZER
 # ==============================================================================
 class SentimentAnalyzer:
@@ -462,21 +715,45 @@ class SentimentAnalyzer:
     def __init__(
         self,
         alpha_vantage_key: Optional[str] = None,
+        finnhub_key: Optional[str] = None,
         reddit_credentials: Optional[Dict[str, str]] = None,
         model_type: SentimentModel = SentimentModel.ENSEMBLE,
-        use_finbert: bool = True
+        use_finbert: bool = True,
+        news_sources: Optional[List[BaseNewsSource]] = None,
     ):
         """
         Initialize Sentiment Analyzer.
 
         Args:
-            alpha_vantage_key: Alpha Vantage API key for news
-            reddit_credentials: Reddit API credentials
-            model_type: Sentiment model to use
-            use_finbert: Use FinBERT in ensemble (requires transformers)
+            alpha_vantage_key: Alpha Vantage API key for news.
+            finnhub_key: Finnhub API key for news (free tier available).
+            reddit_credentials: Reddit API credentials.
+            model_type: Sentiment model to use.
+            use_finbert: Use FinBERT in ensemble (requires transformers).
+            news_sources: Explicit list of :class:`BaseNewsSource` instances to
+                use in priority order.  When *None* (default), sources are
+                auto-built from the supplied API keys: AlphaVantage (if key
+                present), Finnhub (if key present), and YahooFinanceRSS as a
+                zero-key fallback.
         """
         self.alpha_vantage_key = alpha_vantage_key
+        self.finnhub_key = finnhub_key
         self.reddit_credentials = reddit_credentials
+
+        # Build news source pipeline ------------------------------------------
+        if news_sources is not None:
+            self._news_sources: List[BaseNewsSource] = news_sources
+        else:
+            self._news_sources = []
+            if alpha_vantage_key:
+                self._news_sources.append(AlphaVantageNewsSource(alpha_vantage_key))
+            if finnhub_key:
+                self._news_sources.append(FinnhubNewsSource(finnhub_key))
+            # Always include the key-free RSS fallback last.
+            self._news_sources.append(YahooFinanceRSSNewsSource())
+
+        source_names = [s.source_name for s in self._news_sources]
+        logger.info(f"SentimentAnalyzer news sources: {source_names}")
 
         # Initialize sentiment model
         self.model_type = model_type
@@ -557,11 +834,21 @@ class SentimentAnalyzer:
             if (datetime.now() - cache_time).seconds < NEWS_CACHE_TTL:
                 return cached_news
 
-        # Fetch news from available sources
-        news_items = []
+        # Fetch news from the configured source pipeline
+        news_items: List[NewsItem] = []
 
-        if self.alpha_vantage_key and len(news_items) < limit:
-            news_items.extend(self._fetch_alpha_vantage_news(ticker, limit - len(news_items)))
+        for source in self._news_sources:
+            if len(news_items) >= limit:
+                break
+            remaining = limit - len(news_items)
+            try:
+                fetched = source.fetch(ticker, remaining)
+                news_items.extend(fetched)
+                logger.debug(
+                    f"News: {len(fetched)} items from {source.source_name} for {ticker}"
+                )
+            except Exception as exc:  # pragma: no cover  — source.fetch should not raise
+                logger.error(f"News source {source.source_name} raised unexpectedly: {exc}")
 
         # Analyze sentiment for each item
         for item in news_items:
@@ -578,47 +865,16 @@ class SentimentAnalyzer:
         return news_items[:limit]
 
     def _fetch_alpha_vantage_news(self, ticker: str, limit: int) -> List[NewsItem]:
-        """Fetch news from Alpha Vantage."""
-        try:
-            params = {
-                "function": "NEWS_SENTIMENT",
-                "tickers": ticker,
-                "limit": limit,
-                "apikey": self.alpha_vantage_key
-            }
+        """
+        Fetch news from Alpha Vantage (legacy helper kept for backward compat).
 
-            response = requests.get(ALPHA_VANTAGE_NEWS_URL, params=params, timeout=30)
-
-            if response.status_code != 200:
-                return []
-
-            data = response.json()
-            feed = data.get("feed", [])
-
-            news_items = []
-            for item in feed:
-                try:
-                    published = datetime.strptime(
-                        item.get("time_published", "")[:15],
-                        "%Y%m%dT%H%M%S"
-                    )
-                except:
-                    published = datetime.now()
-
-                news_items.append(NewsItem(
-                    title=item.get("title", ""),
-                    description=item.get("summary", ""),
-                    url=item.get("url", ""),
-                    source=item.get("source", "Unknown"),
-                    published=published,
-                    tickers=[t.get("ticker", "") for t in item.get("ticker_sentiment", [])]
-                ))
-
-            return news_items
-
-        except Exception as e:
-            logger.error(f"Alpha Vantage news fetch error: {e}")
+        .. deprecated::
+            Use :class:`AlphaVantageNewsSource` via the ``news_sources``
+            constructor parameter instead.
+        """
+        if not self.alpha_vantage_key:
             return []
+        return AlphaVantageNewsSource(self.alpha_vantage_key).fetch(ticker, limit)
 
     # ==========================================================================
     # SOCIAL MEDIA ANALYSIS
@@ -1118,8 +1374,24 @@ class SentimentAnalyzer:
 # FACTORY FUNCTION
 # ==============================================================================
 def create_sentiment_analyzer_from_env() -> 'SentimentAnalyzer':
-    """Create SentimentAnalyzer from environment variables."""
+    """
+    Create :class:`SentimentAnalyzer` from environment variables.
+
+    Reads the following env vars (all optional):
+
+    * ``ALPHA_VANTAGE_API_KEY`` — Alpha Vantage news key
+    * ``FINNHUB_API_KEY``       — Finnhub news key (free tier)
+    * ``REDDIT_CLIENT_ID``      — Reddit OAuth app client ID
+    * ``REDDIT_CLIENT_SECRET``  — Reddit OAuth app secret
+    * ``REDDIT_USERNAME``       — Reddit username
+    * ``REDDIT_PASSWORD``       — Reddit password
+    * ``SENTIMENT_MODEL``       — ``ensemble`` (default), ``finbert``, ``vader``, ``textblob``
+    * ``USE_FINBERT``           — ``true`` / ``false`` (default ``true``)
+
+    The YahooFinance RSS source is always appended as a key-free fallback.
+    """
     alpha_vantage_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+    finnhub_key = os.getenv("FINNHUB_API_KEY")
 
     # Reddit credentials
     reddit_creds = None
@@ -1142,9 +1414,10 @@ def create_sentiment_analyzer_from_env() -> 'SentimentAnalyzer':
 
     return SentimentAnalyzer(
         alpha_vantage_key=alpha_vantage_key,
+        finnhub_key=finnhub_key,
         reddit_credentials=reddit_creds,
         model_type=model_map.get(model_type, SentimentModel.ENSEMBLE),
-        use_finbert=os.getenv("USE_FINBERT", "true").lower() == "true"
+        use_finbert=os.getenv("USE_FINBERT", "true").lower() == "true",
     )
 
 
