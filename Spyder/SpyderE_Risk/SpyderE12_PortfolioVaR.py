@@ -43,7 +43,7 @@ from collections import defaultdict, deque
 from enum import Enum, auto
 import threading
 from pathlib import Path
-import pickle
+import json
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -100,6 +100,21 @@ GREEKS_WEIGHTS = {
     'theta': -0.1,  # Theta is positive for portfolio
     'rho': 0.2
 }
+
+# ==============================================================================
+# HELPERS
+# ==============================================================================
+
+def _json_default(obj):
+    """JSON serialization helper: converts datetime/Enum/dataclass for json.dump."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, Enum):
+        return obj.value
+    if hasattr(obj, '__dataclass_fields__'):
+        return asdict(obj)
+    return str(obj)
+
 
 # ==============================================================================
 # ENUMS
@@ -287,10 +302,20 @@ class PortfolioVaR:
     def _load_historical_data(self):
         """Load historical VaR and backtest data"""
         try:
-            history_file = Path("data/risk/var_history.pkl")
+            history_file = Path("data/risk/var_history.json")
+            # Backward-compat: migrate from legacy .pkl if .json not present
+            if not history_file.exists():
+                legacy = history_file.with_suffix('.pkl')
+                if legacy.exists():
+                    import pickle as _pickle
+                    with open(legacy, 'rb') as _f:
+                        _data = _pickle.load(_f)
+                    history_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(history_file, 'w', encoding='utf-8') as _f:
+                        json.dump(_data, _f, default=_json_default, indent=2)
             if history_file.exists():
-                with open(history_file, 'rb') as f:
-                    data = pickle.load(f)
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
                     self.backtest_history = deque(data['backtests'], maxlen=252)
                     self.var_breach_history = deque(data['breaches'], maxlen=100)
                     self.logger.info(f"Loaded {len(self.backtest_history)} historical VaR records")
@@ -1121,16 +1146,16 @@ class PortfolioVaR:
         
         # Save history
         try:
-            history_file = Path("data/risk/var_history.pkl")
+            history_file = Path("data/risk/var_history.json")
             history_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(history_file, 'wb') as f:
-                pickle.dump({
+
+            with open(history_file, 'w', encoding='utf-8') as f:
+                json.dump({
                     'backtests': list(self.backtest_history),
                     'breaches': list(self.var_breach_history),
                     'timestamp': datetime.now()
-                }, f)
-            
+                }, f, default=_json_default, indent=2)
+
             self.logger.info("VaR history saved")
         except Exception as e:
             self.logger.error(f"Failed to save VaR history: {e}")

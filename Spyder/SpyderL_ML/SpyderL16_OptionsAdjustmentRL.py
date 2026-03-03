@@ -37,7 +37,7 @@ import warnings
 # ==============================================================================
 import numpy as np
 import pandas as pd
-import pickle
+import json
 
 warnings.filterwarnings("ignore")
 
@@ -1227,9 +1227,9 @@ class OptionsAdjustmentRL:
             self.logger.info(f"Saved model: {name}")
 
         # Save training history
-        history_path = Path(path) / "training_history.pkl"
-        with open(history_path, "wb") as f:
-            pickle.dump(dict(self.training_history), f)
+        history_path = Path(path) / "training_history.json"
+        with open(history_path, 'w', encoding='utf-8') as f:
+            json.dump(dict(self.training_history), f, indent=2)
 
     def load_models(self, path: str = "./saved_models/"):
         """Load previously trained models"""
@@ -1248,10 +1248,19 @@ class OptionsAdjustmentRL:
                     self.logger.info(f"Loaded model: {model_name}")
 
         # Load training history
-        history_path = Path(path) / "training_history.pkl"
+        history_path = Path(path) / "training_history.json"
+        # Backward-compat: migrate from legacy .pkl
+        if not history_path.exists():
+            legacy = history_path.with_suffix('.pkl')
+            if legacy.exists():
+                import pickle as _pickle
+                with open(legacy, 'rb') as _f:
+                    _hist = _pickle.load(_f)
+                with open(history_path, 'w', encoding='utf-8') as _f:
+                    json.dump(dict(_hist), _f, indent=2)
         if history_path.exists():
-            with open(history_path, "rb") as f:
-                self.training_history = defaultdict(list, pickle.load(f))
+            with open(history_path, 'r', encoding='utf-8') as f:
+                self.training_history = defaultdict(list, json.load(f))
 
     # ==========================================================================
     # RAY DISTRIBUTED COMPUTING (Phase 3)

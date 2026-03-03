@@ -489,6 +489,9 @@ class AgentMessageBus:
         """Add message to priority queue"""
         try:
             # Check message size
+            # NOTE: pickle.dumps used here solely to measure serialized byte size
+            # before enqueue — not for persistence.  The resulting bytes are
+            # immediately discarded; only len() is used.
             message_size = len(pickle.dumps(message))
             if message_size > MAX_MESSAGE_SIZE:
                 self.logger.error(f"Message too large: {message_size} bytes")
@@ -691,6 +694,10 @@ class AgentMessageBus:
             self.persistence_path.mkdir(parents=True, exist_ok=True)
             
             filename = self.persistence_path / f"{message.id}.pkl"
+            # NOTE: Message persistence uses pickle because Message is a
+            # dataclass with nested Enum/datetime fields and an arbitrary
+            # payload.  TODO: replace with JSON+dataclasses.asdict() once a
+            # canonical Message schema is established.
             with open(filename, 'wb') as f:
                 pickle.dump(message, f)
                 

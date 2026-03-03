@@ -42,7 +42,8 @@ from collections import defaultdict, deque
 from enum import Enum, auto
 import threading
 from pathlib import Path
-import pickle
+import json
+from types import SimpleNamespace
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -66,6 +67,30 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import AgentMessageBus, Message, MessagePriority
 from Spyder.SpyderE_Risk.SpyderE11_MaxLossProtection import MaxLossProtection
+
+# ==============================================================================
+# HELPERS
+# ==============================================================================
+
+def _json_default(obj):
+    """JSON serialization helper: converts datetime/Enum/dataclass for json.dump."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, Enum):
+        return obj.value
+    if hasattr(obj, '__dataclass_fields__'):
+        return asdict(obj)
+    return str(obj)
+
+
+def _ns(d):
+    """Recursively convert dicts to SimpleNamespace for attribute-compatible access."""
+    if isinstance(d, dict):
+        return SimpleNamespace(**{k: _ns(v) for k, v in d.items()})
+    if isinstance(d, list):
+        return [_ns(i) for i in d]
+    return d
+
 
 # ==============================================================================
 # CONSTANTS
@@ -281,12 +306,26 @@ class MultiStrategyAllocator:
     def _load_historical_data(self):
         """Load historical performance data"""
         try:
-            history_file = Path("data/portfolio/allocation_history.pkl")
+            history_file = Path("data/portfolio/allocation_history.json")
+            # Backward-compat: migrate from legacy .pkl if .json not present
+            if not history_file.exists():
+                legacy = history_file.with_suffix('.pkl')
+                if legacy.exists():
+                    import pickle as _pickle
+                    with open(legacy, 'rb') as _f:
+                        _data = _pickle.load(_f)
+                    history_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(history_file, 'w', encoding='utf-8') as _f:
+                        json.dump(_data, _f, default=_json_default, indent=2)
             if history_file.exists():
-                with open(history_file, 'rb') as f:
-                    data = pickle.load(f)
-                    self.allocation_history = deque(data['allocations'], maxlen=1000)
-                    self.rebalance_history = deque(data['rebalances'], maxlen=100)
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.allocation_history = deque(
+                        (_ns(item) for item in data['allocations']), maxlen=1000
+                    )
+                    self.rebalance_history = deque(
+                        (_ns(item) for item in data['rebalances']), maxlen=100
+                    )
                     self.logger.info(f"Loaded {len(self.allocation_history)} historical allocations")
         except Exception as e:
             self.logger.warning(f"Could not load historical data: {e}")
@@ -1235,16 +1274,16 @@ class MultiStrategyAllocator:
         
         # Save allocation history
         try:
-            history_file = Path("data/portfolio/allocation_history.pkl")
+            history_file = Path("data/portfolio/allocation_history.json")
             history_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(history_file, 'wb') as f:
-                pickle.dump({
+
+            with open(history_file, 'w', encoding='utf-8') as f:
+                json.dump({
                     'allocations': list(self.allocation_history),
                     'rebalances': list(self.rebalance_history),
                     'timestamp': datetime.now()
-                }, f)
-            
+                }, f, default=_json_default, indent=2)
+
             self.logger.info("Allocation history saved")
         except Exception as e:
             self.logger.error(f"Failed to save history: {e}")

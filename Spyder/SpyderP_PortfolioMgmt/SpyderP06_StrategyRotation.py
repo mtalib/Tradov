@@ -42,7 +42,8 @@ from collections import defaultdict, deque
 from enum import Enum, auto
 import threading
 from pathlib import Path
-import pickle
+import json
+from types import SimpleNamespace
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -81,6 +82,30 @@ try:
     from Spyder.SpyderX_Agents.SpyderX16_MetaCoordinator import MetaCoordinator
 except ImportError:
     MetaCoordinator = None  # type: ignore
+
+# ==============================================================================
+# HELPERS
+# ==============================================================================
+
+def _json_default(obj):
+    """JSON serialization helper: converts datetime/Enum/dataclass for json.dump."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, Enum):
+        return obj.value
+    if hasattr(obj, '__dataclass_fields__'):
+        return asdict(obj)
+    return str(obj)
+
+
+def _ns(d):
+    """Recursively convert dicts to SimpleNamespace for attribute-compatible access."""
+    if isinstance(d, dict):
+        return SimpleNamespace(**{k: _ns(v) for k, v in d.items()})
+    if isinstance(d, list):
+        return [_ns(i) for i in d]
+    return d
+
 
 # ==============================================================================
 # CONSTANTS
@@ -334,13 +359,27 @@ class StrategyRotation:
     def _load_historical_data(self):
         """Load historical regime and performance data"""
         try:
-            history_file = Path("data/portfolio/regime_history.pkl")
+            history_file = Path("data/portfolio/regime_history.json")
+            # Backward-compat: migrate from legacy .pkl if .json not present
+            if not history_file.exists():
+                legacy = history_file.with_suffix('.pkl')
+                if legacy.exists():
+                    import pickle as _pickle
+                    with open(legacy, 'rb') as _f:
+                        _data = _pickle.load(_f)
+                    history_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(history_file, 'w', encoding='utf-8') as _f:
+                        json.dump(_data, _f, default=_json_default, indent=2)
             if history_file.exists():
-                with open(history_file, 'rb') as f:
-                    data = pickle.load(f)
-                    self.regime_history = deque(data['regimes'], maxlen=1000)
-                    self.rotation_history = deque(data['rotations'], maxlen=100)
-                    
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.regime_history = deque(
+                        (_ns(item) for item in data['regimes']), maxlen=1000
+                    )
+                    self.rotation_history = deque(
+                        (_ns(item) for item in data['rotations']), maxlen=100
+                    )
+
                     # Load performance data
                     if 'performance' in data:
                         self.strategy_performance = data['performance']
@@ -1201,16 +1240,16 @@ class StrategyRotation:
         
         # Save history
         try:
-            history_file = Path("data/portfolio/regime_history.pkl")
+            history_file = Path("data/portfolio/regime_history.json")
             history_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(history_file, 'wb') as f:
-                pickle.dump({
+
+            with open(history_file, 'w', encoding='utf-8') as f:
+                json.dump({
                     'regimes': list(self.regime_history),
                     'rotations': list(self.rotation_history),
                     'performance': dict(self.strategy_performance),
                     'timestamp': datetime.now()
-                }, f)
+                }, f, default=_json_default, indent=2)
             
             self.logger.info("Regime history saved")
         except Exception as e:

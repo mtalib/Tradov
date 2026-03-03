@@ -1404,6 +1404,11 @@ Please find detailed reports attached.
             archive_dir.mkdir(parents=True, exist_ok=True)
             
             # Save report data
+            # NOTE: pickle retained here because report_data contains complex
+            # nested objects (DataFrames, custom types) that may not round-trip
+            # cleanly through JSON.  This file is write-once archive data (never
+            # loaded from untrusted sources), so pickle is low-risk here.
+            # TODO: migrate to JSON+pandas parquet if structured access is needed.
             data_file = archive_dir / f"report_data_{report_date}.pkl"
             with open(data_file, 'wb') as f:
                 pickle.dump(report_data, f)

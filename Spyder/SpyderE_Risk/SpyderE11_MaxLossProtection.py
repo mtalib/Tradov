@@ -40,7 +40,7 @@ from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
 from enum import Enum, auto
 from pathlib import Path
-import pickle
+import json
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -80,6 +80,21 @@ COOLDOWN_EMERGENCY = 1440  # 24 hours for emergency
 WARNING_THRESHOLD_1 = 0.5  # 50% of limit
 WARNING_THRESHOLD_2 = 0.75  # 75% of limit
 WARNING_THRESHOLD_3 = 0.9  # 90% of limit
+
+# ==============================================================================
+# HELPERS
+# ==============================================================================
+
+def _json_default(obj):
+    """JSON serialization helper: converts datetime/Enum/dataclass for json.dump."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, Enum):
+        return obj.value
+    if hasattr(obj, '__dataclass_fields__'):
+        return asdict(obj)
+    return str(obj)
+
 
 # ==============================================================================
 # ENUMS
@@ -289,10 +304,20 @@ class MaxLossProtection:
     def _load_history(self):
         """Load historical breach data"""
         try:
-            history_file = Path("data/risk/breach_history.pkl")
+            history_file = Path("data/risk/breach_history.json")
+            # Backward-compat: migrate from legacy .pkl if .json not present
+            if not history_file.exists():
+                legacy = history_file.with_suffix('.pkl')
+                if legacy.exists():
+                    import pickle as _pickle
+                    with open(legacy, 'rb') as _f:
+                        _data = _pickle.load(_f)
+                    history_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(history_file, 'w', encoding='utf-8') as _f:
+                        json.dump(_data, _f, default=_json_default, indent=2)
             if history_file.exists():
-                with open(history_file, 'rb') as f:
-                    data = pickle.load(f)
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
                     self.breach_history = deque(data['breaches'], maxlen=1000)
                     self.logger.info(f"Loaded {len(self.breach_history)} historical breaches")
         except Exception as e:
@@ -301,14 +326,14 @@ class MaxLossProtection:
     def _save_history(self):
         """Save breach history"""
         try:
-            history_file = Path("data/risk/breach_history.pkl")
+            history_file = Path("data/risk/breach_history.json")
             history_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(history_file, 'wb') as f:
-                pickle.dump({
+
+            with open(history_file, 'w', encoding='utf-8') as f:
+                json.dump({
                     'breaches': list(self.breach_history),
                     'timestamp': datetime.now()
-                }, f)
+                }, f, default=_json_default, indent=2)
         except Exception as e:
             self.logger.error(f"Could not save breach history: {e}")
     

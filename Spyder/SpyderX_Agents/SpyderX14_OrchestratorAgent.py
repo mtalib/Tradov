@@ -39,7 +39,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # ==============================================================================
 import numpy as np
 import pandas as pd
-import pickle
+import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -83,7 +83,7 @@ import logging
 # CONSTANTS
 # ==============================================================================
 META_MODEL_PATH = "models/orchestrator/meta_learner.pth"
-AGENT_WEIGHTS_PATH = "models/orchestrator/agent_weights.pkl"
+AGENT_WEIGHTS_PATH = "models/orchestrator/agent_weights.json"
 MIN_AGENT_CONFIDENCE = 0.3
 MAX_AGENT_TIMEOUT = 5.0  # seconds
 COOPERATION_REWARD = 1.0
@@ -403,9 +403,19 @@ class SpyderX14_OrchestratorAgent:
 
             # Load agent weights
             weights_path = Path(AGENT_WEIGHTS_PATH)
+            # Backward-compat: migrate from legacy .pkl if .json not present
+            if not weights_path.exists():
+                legacy = weights_path.with_suffix('.pkl')
+                if legacy.exists():
+                    import pickle as _pickle
+                    with open(legacy, 'rb') as _f:
+                        _wd = _pickle.load(_f)
+                    weights_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(weights_path, 'w', encoding='utf-8') as _f:
+                        json.dump(dict(_wd), _f, indent=2)
             if weights_path.exists():
-                with open(weights_path, "rb") as f:
-                    saved_weights = pickle.load(f)
+                with open(weights_path, 'r', encoding='utf-8') as f:
+                    saved_weights = json.load(f)
                     for agent_id, weights in saved_weights.items():
                         self.weight_history[agent_id].extend(weights)
                 self.logger.info("Loaded saved agent weights")
@@ -994,8 +1004,8 @@ class SpyderX14_OrchestratorAgent:
             weights_path = Path(AGENT_WEIGHTS_PATH)
             weights_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(weights_path, "wb") as f:
-                pickle.dump(dict(self.weight_history), f)
+            with open(weights_path, 'w', encoding='utf-8') as f:
+                json.dump(dict(self.weight_history), f, indent=2)
 
             self.logger.info("Saved orchestrator state")
 
