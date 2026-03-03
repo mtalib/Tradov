@@ -22,6 +22,17 @@ Version: 4.0.0 - Provider Abstraction Layer
 # ==============================================================================
 __all__ = []
 
+# Provider Protocol (Tradier ↔ Databento swap layer)
+try:
+    from .SpyderC00_MarketDataProtocol import (
+        OptionsDataProvider,
+        create_options_data_provider,
+    )
+
+    __all__.extend(["OptionsDataProvider", "create_options_data_provider"])
+except ImportError as e:
+    logging.info(f"Warning: SpyderC00_MarketDataProtocol not available: {e}")
+
 # DataFeed module (provider-abstracted)
 try:
     from .SpyderC01_DataFeed import (

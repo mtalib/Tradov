@@ -67,6 +67,14 @@ except ImportError:
     GreekData = None  # type: ignore[assignment,misc]
     create_tradier_client_from_env = None  # type: ignore[assignment]
     HAS_TRADIER = False
+try:
+    from Spyder.SpyderC_MarketData.SpyderC00_MarketDataProtocol import (
+        OptionsDataProvider,
+        create_options_data_provider,
+    )
+except ImportError:
+    OptionsDataProvider = None  # type: ignore[assignment,misc]
+    create_options_data_provider = None  # type: ignore[assignment]
 
 # ==============================================================================
 # CONSTANTS
@@ -275,28 +283,29 @@ class MaxPainCalculator:
 
     def __init__(
         self,
-        tradier_client: Optional['TradierClient'] = None,
+        data_provider: Optional['OptionsDataProvider'] = None,
         cache_ttl: int = MAX_PAIN_CACHE_TTL
     ):
         """
         Initialize Max Pain Calculator.
 
         Args:
-            tradier_client: Pre-configured TradierClient. If None, creates one from
-                environment variables (TRADIER_API_KEY, TRADIER_ACCOUNT_ID).
+            data_provider: OptionsDataProvider instance (e.g. TradierClient or
+                DatabentoMarketDataAdapter). If None, auto-created via
+                create_options_data_provider() using MARKET_DATA_PROVIDER env var.
             cache_ttl: Cache time-to-live in seconds
         """
         self.cache_ttl = cache_ttl
-        if tradier_client is not None:
-            self._tradier: Optional[TradierClient] = tradier_client
-        elif HAS_TRADIER and create_tradier_client_from_env is not None:
+        if data_provider is not None:
+            self._data_provider: Any = data_provider
+        elif create_options_data_provider is not None:
             try:
-                self._tradier = create_tradier_client_from_env()
+                self._data_provider = create_options_data_provider()
             except Exception as e:
-                logger.warning(f"TradierClient unavailable: {e}")
-                self._tradier = None
+                logger.warning(f"OptionsDataProvider unavailable: {e}")
+                self._data_provider = None
         else:
-            self._tradier = None
+            self._data_provider = None
 
         # Caches
         self._cache: Dict[Tuple[str, date], Tuple[MaxPainResult, datetime]] = {}
@@ -952,13 +961,13 @@ class MaxPainCalculator:
         } for g in greek_data])
 
     def _fetch_option_chain(self, symbol: str, expiry) -> pd.DataFrame:
-        """Fetch option chain from Tradier API."""
-        if self._tradier is None:
-            logger.warning(f"_fetch_option_chain({symbol}): TradierClient not available.")
+        """Fetch option chain from market data provider."""
+        if self._data_provider is None:
+            logger.warning(f"_fetch_option_chain({symbol}): OptionsDataProvider not available.")
             return pd.DataFrame()
         try:
             expiry_str = expiry.strftime('%Y-%m-%d') if hasattr(expiry, 'strftime') else str(expiry)
-            greek_data = self._tradier.get_option_chain_with_greeks(symbol, expiry_str)
+            greek_data = self._data_provider.get_option_chain_with_greeks(symbol, expiry_str)
             df = self._greek_data_to_df(greek_data)
             if df.empty:
                 logger.warning(f"Empty option chain from Tradier for {symbol} {expiry_str}")
@@ -968,12 +977,12 @@ class MaxPainCalculator:
             return pd.DataFrame()
 
     def _get_current_price(self, symbol: str) -> float:
-        """Get current stock price from Tradier API."""
-        if self._tradier is None:
-            logger.warning(f"_get_current_price({symbol}): TradierClient not available.")
+        """Get current stock price from market data provider."""
+        if self._data_provider is None:
+            logger.warning(f"_get_current_price({symbol}): OptionsDataProvider not available.")
             return 0.0
         try:
-            response = self._tradier.get_quotes([symbol])
+            response = self._data_provider.get_quotes([symbol])
             quote = response.get('quotes', {}).get('quote', {})
             if isinstance(quote, list):
                 quote = quote[0]
@@ -983,10 +992,10 @@ class MaxPainCalculator:
             return 0.0
 
     def _get_nearest_expiry(self, symbol: str) -> date:
-        """Get nearest options expiration from Tradier."""
-        if self._tradier is not None:
+        """Get nearest options expiration from market data provider."""
+        if self._data_provider is not None:
             try:
-                response = self._tradier.get_option_expirations(symbol)
+                response = self._data_provider.get_option_expirations(symbol)
                 dates = response.get('expirations', {}).get('date', [])
                 if isinstance(dates, str):
                     dates = [dates]
@@ -1001,10 +1010,10 @@ class MaxPainCalculator:
         return today + timedelta(days=days)
 
     def _get_upcoming_expiries(self, symbol: str, count: int) -> List[date]:
-        """Get upcoming expiration dates from Tradier."""
-        if self._tradier is not None:
+        """Get upcoming expiration dates from market data provider."""
+        if self._data_provider is not None:
             try:
-                response = self._tradier.get_option_expirations(symbol)
+                response = self._data_provider.get_option_expirations(symbol)
                 dates = response.get('expirations', {}).get('date', [])
                 if isinstance(dates, str):
                     dates = [dates]
@@ -1041,14 +1050,14 @@ class MaxPainCalculator:
 # FACTORY FUNCTION
 # ==============================================================================
 def create_max_pain_calculator_from_env() -> 'MaxPainCalculator':
-    """Create MaxPainCalculator using Tradier API from environment variables."""
-    tradier_client = None
-    if HAS_TRADIER and create_tradier_client_from_env is not None:
+    """Create MaxPainCalculator using the configured OptionsDataProvider."""
+    data_provider = None
+    if create_options_data_provider is not None:
         try:
-            tradier_client = create_tradier_client_from_env()
+            data_provider = create_options_data_provider()
         except Exception as e:
-            logger.warning(f"Could not create TradierClient: {e}")
-    return MaxPainCalculator(tradier_client=tradier_client)
+            logger.warning(f"Could not create OptionsDataProvider: {e}")
+    return MaxPainCalculator(data_provider=data_provider)
 
 
 # ==============================================================================
