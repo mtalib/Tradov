@@ -49,6 +49,14 @@ import pandas as pd
 import numpy as np
 import requests
 
+# Databento (optional — real-time and historical tick data)
+try:
+    import databento as db
+    HAS_DATABENTO = True
+except ImportError:
+    db = None  # type: ignore[assignment]
+    HAS_DATABENTO = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -89,6 +97,8 @@ MAX_FLOW_HISTORY = 1000  # max flow entries to keep
 # ==============================================================================
 logger = SpyderLogger.get_logger(__name__)
 
+
+from abc import ABC, abstractmethod
 
 # ==============================================================================
 # ENUMS
@@ -255,6 +265,316 @@ class DarkPoolPrint:
         }
 
 
+# ==============================================================================
+# TICK DATA SOURCE PROVIDERS
+# ==============================================================================
+class BaseTickDataSource(ABC):
+    """
+    Abstract base class for real-time / historical tick data providers.
+
+    Concrete implementations supply :class:`OptionsFlow` and
+    :class:`DarkPoolPrint` objects to :class:`OrderFlowAnalyzer` without
+    coupling the analyzer to a specific data vendor.
+
+    All ``fetch_*`` methods **must never raise** — return an empty list on
+    any error so the caller can degrade gracefully.
+
+    Example (custom source)::
+
+        class MyTickSource(BaseTickDataSource):
+            @property
+            def source_name(self) -> str:
+                return "my_vendor"
+
+            def fetch_options_trades(
+                self, symbol: str, lookback_minutes: int
+            ) -> List['OptionsFlow']:
+                ...
+
+            def fetch_dark_pool_prints(
+                self, symbol: str, lookback_days: int
+            ) -> List['DarkPoolPrint']:
+                ...
+    """
+
+    @property
+    @abstractmethod
+    def source_name(self) -> str:
+        """Human-readable vendor/source identifier."""
+
+    @abstractmethod
+    def fetch_options_trades(
+        self, symbol: str, lookback_minutes: int
+    ) -> List['OptionsFlow']:
+        """
+        Fetch recent options trade prints.
+
+        Args:
+            symbol:           Underlying ticker symbol (e.g. ``"SPY"``)
+            lookback_minutes: How far back to query (in minutes).
+
+        Returns:
+            List of :class:`OptionsFlow` records, newest-first.
+            Returns an empty list on any error — must not raise.
+        """
+
+    @abstractmethod
+    def fetch_dark_pool_prints(
+        self, symbol: str, lookback_days: int
+    ) -> List['DarkPoolPrint']:
+        """
+        Fetch recent dark pool / block trade prints.
+
+        Args:
+            symbol:        Underlying ticker symbol.
+            lookback_days: How many days back to search.
+
+        Returns:
+            List of :class:`DarkPoolPrint` records, largest-first.
+            Returns an empty list on any error — must not raise.
+        """
+
+
+class DatabentoTickDataSource(BaseTickDataSource):
+    """
+    Tick data source backed by the Databento Historical API.
+
+    Options Trades
+    --------------
+    Dataset  : ``OPRA.PILLAR``
+    Schema   : ``trades``
+    Encodes each OPRA print as an :class:`OptionsFlow` with:
+
+    * ``premium``  = ``price * size * 100``  (100 shares/contract)
+    * ``price``    = Databento fixed-point integer / 1 000 000 000
+    * ``side``     = ``"ask"`` (aggressor = ``"A"``), ``"bid"``
+                     (aggressor = ``"B"``), otherwise ``"mid"``
+    * Strike, expiry and ``option_type`` are decoded from the
+      OSI symbology embedded in the Databento *symbol* string
+      (format: ``<ROOT><YYMMDD><C/P><STRIKE_x1000>``).
+
+    Dark Pool / Block Trades
+    ------------------------
+    Dataset  : ``DBEQ.BASIC``
+    Schema   : ``trades``
+    Filters trades with ``size >= DARK_POOL_MIN_SIZE`` and maps
+    them to :class:`DarkPoolPrint` objects.
+
+    .. note::
+        **This is a stub implementation.**  The Databento calls are
+        structurally correct but have not been exercised against a live
+        subscription.  Field names and fixed-point scaling were taken
+        from the Databento Python client docs (v0.37+).  Verify against
+        your actual subscription datasets before enabling in production.
+
+    Requires::
+
+        pip install databento
+
+    Env var: ``DATABENTO_API_KEY``
+    """
+
+    # Databento fixed-point price divisor
+    _PRICE_DIVISOR: float = 1_000_000_000.0
+
+    # Aggressor-side codes → bid/ask labels
+    _SIDE_MAP: Dict[str, str] = {"A": "ask", "B": "bid"}
+
+    def __init__(self, api_key: str) -> None:
+        """
+        Args:
+            api_key: Databento API key (``DATABENTO_API_KEY``).
+
+        Raises:
+            ImportError: If the ``databento`` package is not installed.
+        """
+        if not HAS_DATABENTO:
+            raise ImportError(
+                "databento package is required: pip install databento"
+            )
+        self._api_key = api_key
+        self._client = db.Historical(api_key=api_key)
+
+    @property
+    def source_name(self) -> str:
+        return "databento"
+
+    # ------------------------------------------------------------------
+    # Options trades  (OPRA.PILLAR / trades)
+    # ------------------------------------------------------------------
+
+    def fetch_options_trades(
+        self, symbol: str, lookback_minutes: int
+    ) -> List['OptionsFlow']:
+        """
+        Fetch OPRA options trades from Databento.
+
+        Maps ``OPRA.PILLAR`` trade records to :class:`OptionsFlow`.
+        Strike / expiry / option_type are parsed from OSI-format symbols.
+        """
+        try:
+            end_dt = datetime.utcnow()
+            start_dt = end_dt - timedelta(minutes=lookback_minutes)
+
+            data = self._client.timeseries.get_range(
+                dataset="OPRA.PILLAR",
+                schema="trades",
+                symbols=[symbol],
+                stype_in="parent",   # map root symbol → all options
+                start=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                end=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            )
+
+            flows: List[OptionsFlow] = []
+            for record in data:
+                try:
+                    flow = self._record_to_options_flow(record, symbol)
+                    if flow is not None:
+                        flows.append(flow)
+                except Exception as parse_err:
+                    logger.debug(f"Databento options trade parse error: {parse_err}")
+
+            logger.info(
+                f"Databento: {len(flows)} options trades for {symbol} "
+                f"(last {lookback_minutes} min)"
+            )
+            return flows
+
+        except Exception as exc:
+            logger.error(f"DatabentoTickDataSource.fetch_options_trades({symbol}): {exc}")
+            return []
+
+    def _record_to_options_flow(
+        self, record: Any, underlying: str
+    ) -> Optional['OptionsFlow']:
+        """
+        Convert a single Databento ``TradeMsg`` to :class:`OptionsFlow`.
+
+        OSI symbol format: ``<ROOT><YYMMDD><C|P><STRIKE_x1000>``
+        e.g. ``SPY   240119C00480000`` = SPY Jan-19-2024 Call @ $480.00
+        """
+        raw_symbol: str = getattr(record, "symbol", "") or ""
+        raw_symbol = raw_symbol.strip()
+
+        # --- Parse OSI fields from symbol string ---
+        option_type = "call"
+        strike: float = 0.0
+        expiry = date.today()
+        try:
+            # Root is up to 6 chars, padded with spaces
+            # YYMMDD = chars 6-11, C/P = char 12, Strike = chars 13-20 (/1000)
+            if len(raw_symbol) >= 13:
+                date_str = raw_symbol[6:12]          # e.g. "240119"
+                cp_char = raw_symbol[12].upper()     # 'C' or 'P'
+                strike_raw = raw_symbol[13:21]       # e.g. "00480000"
+                option_type = "call" if cp_char == "C" else "put"
+                strike = int(strike_raw) / 1000.0
+                expiry = datetime.strptime(date_str, "%y%m%d").date()
+        except Exception:
+            pass  # leave defaults if parsing fails
+
+        # --- Map numeric fields ---
+        price: float = getattr(record, "price", 0) / self._PRICE_DIVISOR
+        size: int = int(getattr(record, "size", 0))
+        if size == 0:
+            return None  # Skip zero-size records
+
+        side_code = str(getattr(record, "side", "")).upper()
+        side: str = self._SIDE_MAP.get(side_code, "mid")
+
+        ts_ns: int = int(getattr(record, "ts_event", 0))
+        timestamp = datetime.utcfromtimestamp(ts_ns / 1e9) if ts_ns else datetime.utcnow()
+
+        premium = price * size * 100  # 100 shares per contract
+
+        return OptionsFlow(
+            symbol=underlying,
+            timestamp=timestamp,
+            option_type=option_type,
+            strike=strike,
+            expiry=expiry,
+            premium=premium,
+            size=size,
+            price=price,
+            underlying_price=0.0,  # Not available from trade schema alone
+            side=side,
+            trade_type=TradeType.UNKNOWN,
+        )
+
+    # ------------------------------------------------------------------
+    # Dark pool / block trades  (DBEQ.BASIC / trades)
+    # ------------------------------------------------------------------
+
+    def fetch_dark_pool_prints(
+        self, symbol: str, lookback_days: int
+    ) -> List['DarkPoolPrint']:
+        """
+        Fetch large equity block trades from Databento as dark-pool proxies.
+
+        Queries ``DBEQ.BASIC`` trades schema and filters records with
+        ``size >= DARK_POOL_MIN_SIZE``.  Publisher IDs are mapped to
+        exchange names using the Databento publishers list.
+        """
+        try:
+            end_dt = datetime.utcnow()
+            start_dt = end_dt - timedelta(days=lookback_days)
+
+            data = self._client.timeseries.get_range(
+                dataset="DBEQ.BASIC",
+                schema="trades",
+                symbols=[symbol],
+                start=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                end=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            )
+
+            prints: List[DarkPoolPrint] = []
+            for record in data:
+                try:
+                    dp = self._record_to_dark_pool_print(record, symbol)
+                    if dp is not None and dp.size >= DARK_POOL_MIN_SIZE:
+                        prints.append(dp)
+                except Exception as parse_err:
+                    logger.debug(f"Databento dark pool parse error: {parse_err}")
+
+            logger.info(
+                f"Databento: {len(prints)} block prints for {symbol} "
+                f"(last {lookback_days} day(s))"
+            )
+            return prints
+
+        except Exception as exc:
+            logger.error(f"DatabentoTickDataSource.fetch_dark_pool_prints({symbol}): {exc}")
+            return []
+
+    def _record_to_dark_pool_print(
+        self, record: Any, symbol: str
+    ) -> Optional['DarkPoolPrint']:
+        """Convert a single Databento trade record to :class:`DarkPoolPrint`."""
+        price: float = getattr(record, "price", 0) / self._PRICE_DIVISOR
+        size: int = int(getattr(record, "size", 0))
+        if price == 0.0 or size == 0:
+            return None
+
+        ts_ns: int = int(getattr(record, "ts_event", 0))
+        timestamp = datetime.utcfromtimestamp(ts_ns / 1e9) if ts_ns else datetime.utcnow()
+
+        # publisher_id → exchange name (approximate; full map in Databento docs)
+        publisher_id: int = int(getattr(record, "publisher_id", 0))
+        exchange = f"venue_{publisher_id}" if publisher_id else "unknown"
+
+        return DarkPoolPrint(
+            symbol=symbol,
+            timestamp=timestamp,
+            price=price,
+            size=size,
+            value=price * size,
+            exchange=exchange,
+        )
+
+
+# ==============================================================================
+# FLOW SUMMARY
+# ==============================================================================
 @dataclass
 class FlowSummary:
     """Summary of options flow for a symbol."""
@@ -383,7 +703,8 @@ class OrderFlowAnalyzer:
         self,
         data_provider: Optional['OptionsDataProvider'] = None,
         symbols: Optional[List[str]] = None,
-        enable_realtime: bool = False
+        enable_realtime: bool = False,
+        tick_data_source: Optional[BaseTickDataSource] = None,
     ):
         """
         Initialize Order Flow Analyzer.
@@ -394,6 +715,10 @@ class OrderFlowAnalyzer:
                 create_options_data_provider() using MARKET_DATA_PROVIDER env var.
             symbols: Symbols to track (default: ["SPY"])
             enable_realtime: Enable real-time flow tracking
+            tick_data_source: :class:`BaseTickDataSource` used to fetch live
+                options trades and dark pool prints.  When *None* the built-in
+                stub behaviour (warning + empty list) is preserved.  Pass a
+                :class:`DatabentoTickDataSource` to enable real Databento data.
         """
         self.symbols = symbols or ["SPY"]
         if data_provider is not None:
@@ -407,6 +732,7 @@ class OrderFlowAnalyzer:
         else:
             self._data_provider = None
         self.enable_realtime = enable_realtime
+        self._tick_data_source: Optional[BaseTickDataSource] = tick_data_source
 
         # Flow storage
         self._flow_history: Dict[str, deque] = defaultdict(
@@ -1206,22 +1532,46 @@ class OrderFlowAnalyzer:
         symbol: str,
         lookback_minutes: int
     ) -> List['OptionsFlow']:
-        """Fetch recent options trades (Databento OPRA.PILLAR trades schema — not yet available)."""
-        logger.warning(
-            f"_fetch_options_trades({symbol}): Requires Databento subscription (OPRA.PILLAR trades)."
-        )
-        return []
+        """
+        Fetch recent options trades via the configured tick data source.
+
+        Delegates to :attr:`_tick_data_source` when one is set, otherwise
+        logs a warning and returns an empty list (stub behaviour).
+
+        Data source: Databento ``OPRA.PILLAR / trades`` schema via
+        :class:`DatabentoTickDataSource`.
+        """
+        if self._tick_data_source is None:
+            logger.warning(
+                f"_fetch_options_trades({symbol}): No tick data source configured. "
+                "Pass a DatabentoTickDataSource via the tick_data_source= argument "
+                "or set DATABENTO_API_KEY to enable real data."
+            )
+            return []
+        return self._tick_data_source.fetch_options_trades(symbol, lookback_minutes)
 
     def _fetch_dark_pool_prints(
         self,
         symbol: str,
         lookback_days: int
     ) -> List['DarkPoolPrint']:
-        """Fetch dark pool prints (Databento block trade data — not yet available)."""
-        logger.warning(
-            f"_fetch_dark_pool_prints({symbol}): Requires Databento subscription (block trade data)."
-        )
-        return []
+        """
+        Fetch dark pool / block trade prints via the configured tick data source.
+
+        Delegates to :attr:`_tick_data_source` when one is set, otherwise
+        logs a warning and returns an empty list (stub behaviour).
+
+        Data source: Databento ``DBEQ.BASIC / trades`` schema via
+        :class:`DatabentoTickDataSource`.
+        """
+        if self._tick_data_source is None:
+            logger.warning(
+                f"_fetch_dark_pool_prints({symbol}): No tick data source configured. "
+                "Pass a DatabentoTickDataSource via the tick_data_source= argument "
+                "or set DATABENTO_API_KEY to enable real data."
+            )
+            return []
+        return self._tick_data_source.fetch_dark_pool_prints(symbol, lookback_days)
 
     def _get_underlying_price(self, symbol: str) -> float:
         """Get current underlying price from market data provider."""
@@ -1312,7 +1662,17 @@ class OrderFlowAnalyzer:
 # FACTORY FUNCTION
 # ==============================================================================
 def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
-    """Create OrderFlowAnalyzer using the configured OptionsDataProvider."""
+    """
+    Create :class:`OrderFlowAnalyzer` from environment variables.
+
+    Reads:
+
+    * ``MARKET_DATA_PROVIDER`` — options chain provider (``tradier`` / ``databento``)
+    * ``DATABENTO_API_KEY``    — enables :class:`DatabentoTickDataSource` for live
+      options trades and dark pool block prints
+    * ``FLOW_SYMBOLS``         — comma-separated symbols (default: ``SPY,QQQ``)
+    * ``ENABLE_REALTIME_FLOW`` — ``true`` / ``false`` (default ``false``)
+    """
     import os
     data_provider = None
     if create_options_data_provider is not None:
@@ -1320,11 +1680,29 @@ def create_order_flow_analyzer_from_env() -> 'OrderFlowAnalyzer':
             data_provider = create_options_data_provider()
         except Exception as e:
             logger.warning(f"Could not create OptionsDataProvider: {e}")
+
+    # Wire Databento tick data source when key is present
+    tick_source: Optional[BaseTickDataSource] = None
+    databento_key = os.getenv("DATABENTO_API_KEY")
+    if databento_key:
+        if HAS_DATABENTO:
+            try:
+                tick_source = DatabentoTickDataSource(api_key=databento_key)
+                logger.info("DatabentoTickDataSource enabled for options trades and dark pool prints")
+            except Exception as exc:
+                logger.warning(f"Could not create DatabentoTickDataSource: {exc}")
+        else:
+            logger.warning(
+                "DATABENTO_API_KEY is set but the 'databento' package is not installed. "
+                "Run: pip install databento"
+            )
+
     symbols = os.getenv("FLOW_SYMBOLS", "SPY,QQQ").split(",")
     return OrderFlowAnalyzer(
         data_provider=data_provider,
         symbols=symbols,
-        enable_realtime=os.getenv("ENABLE_REALTIME_FLOW", "false").lower() == "true"
+        enable_realtime=os.getenv("ENABLE_REALTIME_FLOW", "false").lower() == "true",
+        tick_data_source=tick_source,
     )
 
 
