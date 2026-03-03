@@ -46,13 +46,14 @@ try:
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
-    print("Warning: psutil not available. Install with: pip install psutil")
+    logging.info("Warning: psutil not available. Install with: pip install psutil")
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -655,47 +656,47 @@ def stop_global_monitoring():
 # ==============================================================================
 def main():
     """Demonstrate memory monitoring capabilities."""
-    print("Spyder Memory Monitor Demo")
-    print("=" * 50)
+    logging.info("Spyder Memory Monitor Demo")
+    logging.info("=" * 50)
     
     # Create monitor
     monitor = SpyderMemoryMonitor()
     
     # Add callbacks
     def alert_handler(alert):
-        print(f"ALERT [{alert.level.upper()}]: {alert.message}")
+        logging.info(f"ALERT [{alert.level.upper()}]: {alert.message}")
     
     def stats_handler(snapshot):
-        print(f"Memory: {snapshot.rss/1e6:.1f}MB ({snapshot.percent:.1f}%)")
+        logging.info(f"Memory: {snapshot.rss/1e6:.1f}MB ({snapshot.percent:.1f}%)")
     
     monitor.add_alert_callback(alert_handler)
     monitor.add_stats_callback(stats_handler)
     
     # Start monitoring
     if monitor.start_monitoring():
-        print("Monitoring started...")
+        logging.info("Monitoring started...")
         
         try:
             time.sleep(10)  # Monitor for 10 seconds
             
             # Show current stats
             stats = monitor.get_current_stats()
-            print("\nCurrent Statistics:")
+            logging.info("\nCurrent Statistics:")
             for key, value in stats.items():
-                print(f"  {key}: {value}")
+                logging.info(f"  {key}: {value}")
             
             # Test garbage collection
-            print("\nTesting garbage collection...")
+            logging.info("\nTesting garbage collection...")
             gc_results = monitor.force_garbage_collection()
             for key, value in gc_results.items():
-                print(f"  {key}: {value}")
+                logging.info(f"  {key}: {value}")
                 
         except KeyboardInterrupt:
-            print("\nShutting down...")
+            logging.info("\nShutting down...")
         finally:
             monitor.stop_monitoring()
     else:
-        print("Failed to start monitoring (psutil not available)")
+        logging.info("Failed to start monitoring (psutil not available)")
 
 if __name__ == "__main__":
     main()

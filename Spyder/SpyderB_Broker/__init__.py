@@ -71,11 +71,11 @@ def get_package_status() -> Dict[str, Any]:
 def print_package_status():
     """Print formatted package status."""
     status = get_package_status()
-    print(f"SpyderB_Broker Package Status (v{status['version']}):")
-    print(f"  Broker: {status['broker']}")
-    print(f"  Data Provider: {status['data_provider']}")
-    print(f"  Modules loaded: {status['modules_loaded']}/{status['modules_total']}")
-    print(f"  Success rate: {status['success_rate']:.1%}")
+    logging.info(f"SpyderB_Broker Package Status (v{status['version']}):")
+    logging.info(f"  Broker: {status['broker']}")
+    logging.info(f"  Data Provider: {status['data_provider']}")
+    logging.info(f"  Modules loaded: {status['modules_loaded']}/{status['modules_total']}")
+    logging.info(f"  Success rate: {status['success_rate']:.1%}")
 
 
 # ==============================================================================
@@ -252,27 +252,27 @@ def create_broker_client(
 
 def diagnose_broker_package():
     """Run comprehensive broker package diagnostics."""
-    print("SpyderB_Broker Package Diagnostics")
-    print("=" * 50)
+    logging.info("SpyderB_Broker Package Diagnostics")
+    logging.info("=" * 50)
 
     status = get_package_status()
-    print(f"Package Version: {status['version']}")
-    print(f"Broker: {status['broker']}")
-    print(f"Data Provider: {status['data_provider']}")
-    print(f"Modules Loaded: {status['modules_loaded']}/{status['modules_total']}")
-    print(f"Success Rate: {status['success_rate']:.1%}")
-    print()
+    logging.info(f"Package Version: {status['version']}")
+    logging.info(f"Broker: {status['broker']}")
+    logging.info(f"Data Provider: {status['data_provider']}")
+    logging.info(f"Modules Loaded: {status['modules_loaded']}/{status['modules_total']}")
+    logging.info(f"Success Rate: {status['success_rate']:.1%}")
+    logging.info()
 
-    print("Module Status:")
+    logging.info("Module Status:")
     for module, success in _module_status.items():
         status_icon = "[OK]" if success else "[FAIL]"
-        print(f"  {status_icon} {module}")
+        logging.info(f"  {status_icon} {module}")
 
-    print()
+    logging.info()
     if TradierClient:
-        print("[OK] TradierClient available - ready for trading")
+        logging.info("[OK] TradierClient available - ready for trading")
     else:
-        print("[FAIL] TradierClient not available - check installation")
+        logging.info("[FAIL] TradierClient not available - check installation")
 
 
 # ==============================================================================

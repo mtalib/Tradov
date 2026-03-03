@@ -52,6 +52,7 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import (MAX_DAILY_TRADES,
                                                 MAX_POSITION_SIZE,
                                                 STOP_LOSS_PERCENTAGE,
                                                 TAKE_PROFIT_PERCENTAGE)
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -376,7 +377,7 @@ class EventManager:
                 try:
                     callback(event)
                 except Exception as e:
-                    print(f"Error in event callback: {e}")
+                    logging.info(f"Error in event callback: {e}")
 
     def get_recent_events(
         self, event_type: Optional[EventType] = None, limit: int = 100

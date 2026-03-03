@@ -45,6 +45,7 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy, Signal
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
 from Spyder.SpyderH_Storage.SpyderH04_TradeRepository import Trade
+import logging
 
 DEFAULT_SLIPPAGE = 0.01  # Real options slippage is much higher
 DEFAULT_COMMISSION = 0.65  # Per contract
@@ -145,12 +146,12 @@ class BacktestResults:
     
     def print_warning(self):
         """Print prominent warning about results"""
-        print("\n" + "="*80)
-        print(self.warning)
-        print("="*80 + "\n")
-        print("These results are for LOGIC TESTING ONLY!")
-        print("Do NOT use for performance validation or trading decisions!")
-        print("="*80 + "\n")
+        logging.info("\n" + "="*80)
+        logging.info(self.warning)
+        logging.info("="*80 + "\n")
+        logging.info("These results are for LOGIC TESTING ONLY!")
+        logging.info("Do NOT use for performance validation or trading decisions!")
+        logging.info("="*80 + "\n")
 
 # ==============================================================================
 # BACKTEST ENGINE CLASS
@@ -458,33 +459,33 @@ class BacktestEngine:
     
     def _print_logic_test_summary(self, results: BacktestResults) -> None:
         """Print summary focused on logic testing"""
-        print("\n" + "="*80)
-        print("STRATEGY LOGIC TEST SUMMARY")
-        print("="*80)
+        logging.info("\n" + "="*80)
+        logging.info("STRATEGY LOGIC TEST SUMMARY")
+        logging.info("="*80)
         
-        print("\nSignal Generation:")
-        print(f"  Total Signals: {self.signal_count}")
-        print(f"  Signals Taken: {self.fill_count}")
-        print(f"  Risk Rejections: {self.reject_count}")
+        logging.info("\nSignal Generation:")
+        logging.info(f"  Total Signals: {self.signal_count}")
+        logging.info(f"  Signals Taken: {self.fill_count}")
+        logging.info(f"  Risk Rejections: {self.reject_count}")
         
-        print("\nStrategy Breakdown:")
+        logging.info("\nStrategy Breakdown:")
         for strategy, count in results.strategy_signals.items():
-            print(f"  {strategy}: {count} signals")
+            logging.info(f"  {strategy}: {count} signals")
         
-        print("\nLogic Validation:")
-        print(f"  Entry Logic: {'✓ PASSED' if self.fill_count > 0 else '✗ FAILED'}")
-        print(f"  Exit Logic: {'✓ PASSED' if results.winning_trades + results.losing_trades > 0 else '✗ FAILED'}")
-        print(f"  Risk Logic: {'✓ PASSED' if results.risk_rejections > 0 else '⚠ Check if appropriate'}")
+        logging.info("\nLogic Validation:")
+        logging.info(f"  Entry Logic: {'✓ PASSED' if self.fill_count > 0 else '✗ FAILED'}")
+        logging.info(f"  Exit Logic: {'✓ PASSED' if results.winning_trades + results.losing_trades > 0 else '✗ FAILED'}")
+        logging.info(f"  Risk Logic: {'✓ PASSED' if results.risk_rejections > 0 else '⚠ Check if appropriate'}")
         
         if results.logic_errors:
-            print("\n⚠️ Logic Errors Detected:")
+            logging.info("\n⚠️ Logic Errors Detected:")
             for error in results.logic_errors:
-                print(f"  - {error}")
+                logging.info(f"  - {error}")
         
-        print("\n" + "="*80)
-        print("⚠️  REMEMBER: These results are for LOGIC TESTING ONLY!")
-        print("⚠️  Use PAPER TRADING for performance validation!")
-        print("="*80 + "\n")
+        logging.info("\n" + "="*80)
+        logging.info("⚠️  REMEMBER: These results are for LOGIC TESTING ONLY!")
+        logging.info("⚠️  Use PAPER TRADING for performance validation!")
+        logging.info("="*80 + "\n")
 
     # --------------------------------------------------------------------------
     # PYFOLIO / EMPYRICAL TEAR SHEET

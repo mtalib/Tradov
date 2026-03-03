@@ -54,6 +54,7 @@ from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeD
 from Spyder.SpyderE_Risk.SpyderE08_PositionGroupValidator import PositionGroupValidator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1023,8 +1024,8 @@ class JadeLizardStrategy(BaseStrategy):
 # ==============================================================================
 def test_jade_lizard():
     """Test the Jade Lizard strategy"""
-    print("Testing Jade Lizard Strategy")
-    print("=" * 60)
+    logging.info("Testing Jade Lizard Strategy")
+    logging.info("=" * 60)
     
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
@@ -1047,9 +1048,9 @@ def test_jade_lizard():
     # Create strategy
     strategy = JadeLizardStrategy(event_manager, risk_profile, config)
     
-    print(f"Strategy: {strategy.name}")
-    print(f"Min Credit: ${strategy.min_credit}")
-    print(f"Enforce No Upside Risk: {strategy.enforce_no_upside_risk}")
+    logging.info(f"Strategy: {strategy.name}")
+    logging.info(f"Min Credit: ${strategy.min_credit}")
+    logging.info(f"Enforce No Upside Risk: {strategy.enforce_no_upside_risk}")
     
     # Create neutral to slightly bullish market
     dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
@@ -1074,53 +1075,53 @@ def test_jade_lizard():
     })
     
     # Test market sentiment
-    print("\nMarket Sentiment Analysis:")
+    logging.info("\nMarket Sentiment Analysis:")
     sentiment = strategy._analyze_market_sentiment(market_data)
-    print(f"Sentiment: {sentiment.value}")
+    logging.info(f"Sentiment: {sentiment.value}")
     
     # Test IV rank
     iv_rank = strategy._calculate_iv_rank(market_data)
-    print(f"IV Rank: {iv_rank:.1f}")
+    logging.info(f"IV Rank: {iv_rank:.1f}")
     
     # Check events
-    print(f"Events Clear: {strategy._check_upcoming_events()}")
+    logging.info(f"Events Clear: {strategy._check_upcoming_events()}")
     
     # Generate signals
-    print("\nGenerating Signals...")
+    logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
     
-    print(f"Generated {len(signals)} signals")
+    logging.info(f"Generated {len(signals)} signals")
     
     for signal in signals:
         setup = signal.metadata
-        print(f"\nJade Lizard Setup:")
-        print(f"Strikes: Put ${setup['strikes']['short_put']}, "
+        logging.info(f"\nJade Lizard Setup:")
+        logging.info(f"Strikes: Put ${setup['strikes']['short_put']}, "
               f"Call ${setup['strikes']['short_call']}/{setup['strikes']['long_call']}")
-        print(f"Total Credit: ${setup['credits']['total']:.2f}")
-        print(f"  - Put Credit: ${setup['credits']['put']:.2f}")
-        print(f"  - Call Spread Credit: ${setup['credits']['call_spread']:.2f}")
-        print(f"No Upside Risk: {setup['no_upside_risk']}")
-        print(f"Breakeven: ${setup['breakeven']:.2f}")
-        print(f"Max Profit: ${setup['max_profit']:.2f}")
-        print(f"Max Loss: ${setup['max_loss']:.2f}")
-        print(f"Probability of Profit: {signal.confidence:.1%}")
-        print(f"IV Rank: {setup['iv_rank']:.1f}")
-        print(f"Market Sentiment: {setup['sentiment']}")
+        logging.info(f"Total Credit: ${setup['credits']['total']:.2f}")
+        logging.info(f"  - Put Credit: ${setup['credits']['put']:.2f}")
+        logging.info(f"  - Call Spread Credit: ${setup['credits']['call_spread']:.2f}")
+        logging.info(f"No Upside Risk: {setup['no_upside_risk']}")
+        logging.info(f"Breakeven: ${setup['breakeven']:.2f}")
+        logging.info(f"Max Profit: ${setup['max_profit']:.2f}")
+        logging.info(f"Max Loss: ${setup['max_loss']:.2f}")
+        logging.info(f"Probability of Profit: {signal.confidence:.1%}")
+        logging.info(f"IV Rank: {setup['iv_rank']:.1f}")
+        logging.info(f"Market Sentiment: {setup['sentiment']}")
         
         # Risk metrics
         risk = setup['risk_metrics']
-        print(f"\nRisk Metrics:")
-        print(f"Portfolio Delta: {risk['portfolio_delta']:.1f}")
-        print(f"Portfolio Theta: ${risk['portfolio_theta']:.2f}")
-        print(f"Risk Level: {risk['current_risk_level']}")
+        logging.info(f"\nRisk Metrics:")
+        logging.info(f"Portfolio Delta: {risk['portfolio_delta']:.1f}")
+        logging.info(f"Portfolio Theta: ${risk['portfolio_theta']:.2f}")
+        logging.info(f"Risk Level: {risk['current_risk_level']}")
         
         # Add position
         position_id = strategy.add_position(signal)
     
     # Test position management
     if strategy.active_positions:
-        print("\n" + "=" * 40)
-        print("Position Management Test")
+        logging.info("\n" + "=" * 40)
+        logging.info("Position Management Test")
         
         # Simulate price movement
         for i in range(20):
@@ -1150,58 +1151,58 @@ def test_jade_lizard():
                 
                 if management_signals:
                     for signal in management_signals:
-                        print(f"\nExit Signal Day {i}")
-                        print(f"Reason: {signal.metadata['exit_reason']}")
-                        print(f"Days Held: {signal.metadata['days_held']}")
-                        print(f"P&L: ${signal.metadata['unrealized_pnl']:.2f}")
-                        print(f"P&L %: {signal.metadata['pnl_percent']:.1f}%")
-                        print(f"Final DTE: {signal.metadata['final_dte']}")
-                        print(f"Triggers: {signal.metadata['management_triggers']}")
+                        logging.info(f"\nExit Signal Day {i}")
+                        logging.info(f"Reason: {signal.metadata['exit_reason']}")
+                        logging.info(f"Days Held: {signal.metadata['days_held']}")
+                        logging.info(f"P&L: ${signal.metadata['unrealized_pnl']:.2f}")
+                        logging.info(f"P&L %: {signal.metadata['pnl_percent']:.1f}%")
+                        logging.info(f"Final DTE: {signal.metadata['final_dte']}")
+                        logging.info(f"Triggers: {signal.metadata['management_triggers']}")
     
     # Print position summary
     positions = strategy.get_position_summary()
     if positions:
-        print("\n" + "=" * 40)
-        print("Active Positions:")
+        logging.info("\n" + "=" * 40)
+        logging.info("Active Positions:")
         for pos in positions:
-            print(f"\n{pos['position_id']}:")
-            print(f"  DTE: {pos['dte']}")
-            print(f"  P&L: ${pos['unrealized_pnl']:.2f} ({pos['pnl_percent']:.1f}%)")
-            print(f"  Strikes: Put ${pos['strikes']['put']}, "
+            logging.info(f"\n{pos['position_id']}:")
+            logging.info(f"  DTE: {pos['dte']}")
+            logging.info(f"  P&L: ${pos['unrealized_pnl']:.2f} ({pos['pnl_percent']:.1f}%)")
+            logging.info(f"  Strikes: Put ${pos['strikes']['put']}, "
                   f"Call ${pos['strikes']['short_call']}/{pos['strikes']['long_call']}")
-            print(f"  Risk Level: {pos['risk_level']}")
-            print(f"  State: {pos['state']}")
+            logging.info(f"  Risk Level: {pos['risk_level']}")
+            logging.info(f"  State: {pos['state']}")
     
     # Print final statistics
     stats = strategy.get_strategy_stats()
-    print("\n" + "=" * 40)
-    print("Strategy Statistics:")
-    print(f"Active Positions: {stats['active_positions']}")
-    print(f"Portfolio Greeks:")
-    print(f"  Delta: {stats['portfolio_greeks']['delta']:.1f}")
-    print(f"  Gamma: {stats['portfolio_greeks']['gamma']:.1f}")
-    print(f"  Theta: ${stats['portfolio_greeks']['theta']:.2f}")
-    print(f"Total Trades: {stats['total_trades']}")
-    print(f"Win Rate: {stats['win_rate']:.1%}")
-    print(f"Perfect Trade Rate: {stats['perfect_trade_rate']:.1%}")
-    print(f"Average Credit: ${stats['avg_credit']:.2f}")
-    print(f"Avg Holding Days: {stats['avg_holding_days']:.1f}")
-    print(f"Total Premium Collected: ${stats['total_premium_collected']:.2f}")
-    print(f"Best Trade: ${stats['best_trade']:.2f}")
-    print(f"Worst Trade: ${stats['worst_trade']:.2f}")
+    logging.info("\n" + "=" * 40)
+    logging.info("Strategy Statistics:")
+    logging.info(f"Active Positions: {stats['active_positions']}")
+    logging.info(f"Portfolio Greeks:")
+    logging.info(f"  Delta: {stats['portfolio_greeks']['delta']:.1f}")
+    logging.info(f"  Gamma: {stats['portfolio_greeks']['gamma']:.1f}")
+    logging.info(f"  Theta: ${stats['portfolio_greeks']['theta']:.2f}")
+    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info(f"Win Rate: {stats['win_rate']:.1%}")
+    logging.info(f"Perfect Trade Rate: {stats['perfect_trade_rate']:.1%}")
+    logging.info(f"Average Credit: ${stats['avg_credit']:.2f}")
+    logging.info(f"Avg Holding Days: {stats['avg_holding_days']:.1f}")
+    logging.info(f"Total Premium Collected: ${stats['total_premium_collected']:.2f}")
+    logging.info(f"Best Trade: ${stats['best_trade']:.2f}")
+    logging.info(f"Worst Trade: ${stats['worst_trade']:.2f}")
     
-    print("\n✅ Jade Lizard Strategy Test Complete!")
-    print("\nKey Features Tested:")
-    print("- ✅ Market sentiment analysis")
-    print("- ✅ Three-leg position validation")
-    print("- ✅ No upside risk verification")
-    print("- ✅ Delta-based strike selection")
-    print("- ✅ Probability calculations")
-    print("- ✅ Comprehensive risk metrics")
-    print("- ✅ Portfolio Greeks aggregation")
-    print("- ✅ Pin risk detection")
-    print("- ✅ Early assignment monitoring")
-    print("- ✅ Performance tracking")
+    logging.info("\n✅ Jade Lizard Strategy Test Complete!")
+    logging.info("\nKey Features Tested:")
+    logging.info("- ✅ Market sentiment analysis")
+    logging.info("- ✅ Three-leg position validation")
+    logging.info("- ✅ No upside risk verification")
+    logging.info("- ✅ Delta-based strike selection")
+    logging.info("- ✅ Probability calculations")
+    logging.info("- ✅ Comprehensive risk metrics")
+    logging.info("- ✅ Portfolio Greeks aggregation")
+    logging.info("- ✅ Pin risk detection")
+    logging.info("- ✅ Early assignment monitoring")
+    logging.info("- ✅ Performance tracking")
 
 
 if __name__ == "__main__":

@@ -61,7 +61,7 @@ try:
     LOCAL_IMPORTS = True
 except ImportError:
     LOCAL_IMPORTS = False
-    print("⚠️ Local imports not available - using standard logging")
+    logging.info("⚠️ Local imports not available - using standard logging")
 
 # ==============================================================================
 # CONSTANTS

@@ -1075,22 +1075,22 @@ def create_ai_models_engine(config: Optional[Dict[str, Any]] = None,
 # ==============================================================================
 async def main():
     """Demonstration of consolidated AI models engine."""
-    print("=" * 80)
-    print("SPYDER V08 CONSOLIDATED AI MODELS ENGINE DEMONSTRATION")
-    print("=" * 80)
+    logging.info("=" * 80)
+    logging.info("SPYDER V08 CONSOLIDATED AI MODELS ENGINE DEMONSTRATION")
+    logging.info("=" * 80)
     
     # Initialize AI models engine
     config = AIModelsConfig()
     ai_engine = create_ai_models_engine()
     
-    print("\n✅ AI Models Engine Initialized")
-    print("   • Transformer-based options pricing with attention mechanisms")
-    print("   • Deep Reinforcement Learning for autonomous trading")
-    print("   • Intelligent model selection and ensemble methods")
-    print("   • Real-time performance monitoring and adaptation")
+    logging.info("\n✅ AI Models Engine Initialized")
+    logging.info("   • Transformer-based options pricing with attention mechanisms")
+    logging.info("   • Deep Reinforcement Learning for autonomous trading")
+    logging.info("   • Intelligent model selection and ensemble methods")
+    logging.info("   • Real-time performance monitoring and adaptation")
     
     # Generate synthetic training data
-    print(f"\n--- Generating Synthetic Training Data ---")
+    logging.info(f"\n--- Generating Synthetic Training Data ---")
     np.random.seed(42)
     n_samples = 1000
     
@@ -1109,11 +1109,11 @@ async def main():
         'volume': np.random.lognormal(10, 1, n_samples)
     })
     
-    print(f"   Generated {len(training_data)} training samples")
-    print(f"   Features: {list(training_data.columns)}")
+    logging.info(f"   Generated {len(training_data)} training samples")
+    logging.info(f"   Features: {list(training_data.columns)}")
     
     # Test 1: AI Option Pricing
-    print(f"\n--- Test 1: AI Option Pricing ---")
+    logging.info(f"\n--- Test 1: AI Option Pricing ---")
     
     pricing_request = PricingRequest(
         spot_price=450.0,
@@ -1131,15 +1131,15 @@ async def main():
     
     try:
         # Note: This will fail initially since models aren't trained
-        print("   Attempting AI pricing (without training - will demonstrate fallback)...")
+        logging.info("   Attempting AI pricing (without training - will demonstrate fallback)...")
         # result = await ai_engine.price_option(pricing_request)
-        print("   Pricing request prepared successfully")
-        print(f"   Request: SPY ${pricing_request.spot_price} -> ${pricing_request.strike_price} call, {pricing_request.time_to_expiry:.2f}Y")
+        logging.info("   Pricing request prepared successfully")
+        logging.info(f"   Request: SPY ${pricing_request.spot_price} -> ${pricing_request.strike_price} call, {pricing_request.time_to_expiry:.2f}Y")
     except Exception as e:
-        print(f"   Expected error (models not trained): {type(e).__name__}")
+        logging.info(f"   Expected error (models not trained): {type(e).__name__}")
     
     # Test 2: Trading Signal Generation
-    print(f"\n--- Test 2: RL Trading Signal Generation ---")
+    logging.info(f"\n--- Test 2: RL Trading Signal Generation ---")
     
     market_state = {
         'current_price': 452.5,
@@ -1152,63 +1152,63 @@ async def main():
         'expected_volatility': 0.3
     }
     
-    print("   Generating trading signal...")
+    logging.info("   Generating trading signal...")
     signal = await ai_engine.generate_trading_signal(market_state)
     
-    print(f"   Action: {signal.action.name}")
-    print(f"   Confidence: {signal.confidence:.1%}")
-    print(f"   Expected Return: {signal.expected_return:.2%}")
-    print(f"   Risk Score: {signal.risk_score:.2f}")
-    print(f"   Reasoning: {signal.reasoning}")
+    logging.info(f"   Action: {signal.action.name}")
+    logging.info(f"   Confidence: {signal.confidence:.1%}")
+    logging.info(f"   Expected Return: {signal.expected_return:.2%}")
+    logging.info(f"   Risk Score: {signal.risk_score:.2f}")
+    logging.info(f"   Reasoning: {signal.reasoning}")
     if signal.portfolio_allocation:
-        print("   Portfolio Allocation:")
+        logging.info("   Portfolio Allocation:")
         for asset, weight in signal.portfolio_allocation.items():
-            print(f"     {asset}: {weight:.1%}")
+            logging.info(f"     {asset}: {weight:.1%}")
     
     # Test 3: Model Performance Tracking
-    print(f"\n--- Test 3: Model Performance Metrics ---")
+    logging.info(f"\n--- Test 3: Model Performance Metrics ---")
     
     performance = ai_engine.get_model_performance()
     
-    print("Model Performance Summary:")
+    logging.info("Model Performance Summary:")
     for model_name, perf in performance.items():
-        print(f"\n{model_name.upper()} Model:")
-        print(f"   Accuracy: {perf.accuracy:.1%}")
-        print(f"   MSE: {perf.mse:.6f}")
-        print(f"   Sharpe Ratio: {perf.sharpe_ratio:.2f}")
-        print(f"   Max Drawdown: {perf.max_drawdown:.1%}")
-        print(f"   Win Rate: {perf.win_rate:.1%}")
-        print(f"   Avg Return: {perf.avg_return:.2%}")
-        print(f"   Last Updated: {perf.last_updated}")
+        logging.info(f"\n{model_name.upper()} Model:")
+        logging.info(f"   Accuracy: {perf.accuracy:.1%}")
+        logging.info(f"   MSE: {perf.mse:.6f}")
+        logging.info(f"   Sharpe Ratio: {perf.sharpe_ratio:.2f}")
+        logging.info(f"   Max Drawdown: {perf.max_drawdown:.1%}")
+        logging.info(f"   Win Rate: {perf.win_rate:.1%}")
+        logging.info(f"   Avg Return: {perf.avg_return:.2%}")
+        logging.info(f"   Last Updated: {perf.last_updated}")
     
     # Test 4: Training Demonstration (Simulated)
-    print(f"\n--- Test 4: AI Model Training (Simulated) ---")
+    logging.info(f"\n--- Test 4: AI Model Training (Simulated) ---")
     
-    print("   Training would involve:")
-    print("   • Transformer: Learning attention patterns in market data")
-    print("   • RL Agent: Learning optimal trading policies through simulation")
-    print("   • Ensemble: Combining predictions for robust performance")
-    print("   • Performance: Continuous monitoring and adaptation")
+    logging.info("   Training would involve:")
+    logging.info("   • Transformer: Learning attention patterns in market data")
+    logging.info("   • RL Agent: Learning optimal trading policies through simulation")
+    logging.info("   • Ensemble: Combining predictions for robust performance")
+    logging.info("   • Performance: Continuous monitoring and adaptation")
     
     # Show configuration
-    print(f"\n--- AI Models Configuration ---")
-    print("Transformer Config:")
-    print(f"   Model Dimension: {config.transformer_config.d_model}")
-    print(f"   Attention Heads: {config.transformer_config.nhead}")
-    print(f"   Layers: {config.transformer_config.num_layers}")
-    print(f"   Sequence Length: {config.transformer_config.max_seq_length}")
+    logging.info(f"\n--- AI Models Configuration ---")
+    logging.info("Transformer Config:")
+    logging.info(f"   Model Dimension: {config.transformer_config.d_model}")
+    logging.info(f"   Attention Heads: {config.transformer_config.nhead}")
+    logging.info(f"   Layers: {config.transformer_config.num_layers}")
+    logging.info(f"   Sequence Length: {config.transformer_config.max_seq_length}")
     
-    print("\nRL Agent Config:")
-    print(f"   State Dimension: {config.rl_config.state_dim}")
-    print(f"   Action Dimension: {config.rl_config.action_dim}")
-    print(f"   Hidden Dimension: {config.rl_config.hidden_dim}")
-    print(f"   Learning Rate: {config.rl_config.learning_rate}")
+    logging.info("\nRL Agent Config:")
+    logging.info(f"   State Dimension: {config.rl_config.state_dim}")
+    logging.info(f"   Action Dimension: {config.rl_config.action_dim}")
+    logging.info(f"   Hidden Dimension: {config.rl_config.hidden_dim}")
+    logging.info(f"   Learning Rate: {config.rl_config.learning_rate}")
     
-    print("\nTrading Environment:")
-    print(f"   Initial Capital: ${config.trading_env_config.initial_capital:,.0f}")
-    print(f"   Max Position Size: {config.trading_env_config.max_position_size:.1%}")
-    print(f"   Transaction Cost: {config.trading_env_config.transaction_cost:.1%}")
-    print(f"   Max Steps: {config.trading_env_config.max_steps}")
+    logging.info("\nTrading Environment:")
+    logging.info(f"   Initial Capital: ${config.trading_env_config.initial_capital:,.0f}")
+    logging.info(f"   Max Position Size: {config.trading_env_config.max_position_size:.1%}")
+    logging.info(f"   Transaction Cost: {config.trading_env_config.transaction_cost:.1%}")
+    logging.info(f"   Max Steps: {config.trading_env_config.max_steps}")
 
 if __name__ == "__main__":
     import asyncio

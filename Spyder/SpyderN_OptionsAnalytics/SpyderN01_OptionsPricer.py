@@ -47,6 +47,7 @@ from scipy import optimize, stats
 # STANDARD IMPORTS
 # ==============================================================================
 from scipy.special import erf
+import logging
 
 warnings.filterwarnings("ignore")
 
@@ -74,7 +75,7 @@ except ImportError:
 
     class SpyderErrorHandler:
         def handle_error(self, error, context):
-            print(f"Error in {context}: {error}")
+            logging.info(f"Error in {context}: {error}")
 
 
 # ==============================================================================

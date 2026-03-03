@@ -52,6 +52,7 @@ sys.path.insert(0, str(project_root))
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # Import pricing and IV engines if available
 try:
@@ -60,7 +61,7 @@ try:
     PRICING_AVAILABLE = True
 except ImportError:
     PRICING_AVAILABLE = False
-    print("⚠️ Options pricing modules not available - some features disabled")
+    logging.info("⚠️ Options pricing modules not available - some features disabled")
 
 # ==============================================================================
 # CONSTANTS

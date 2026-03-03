@@ -75,9 +75,9 @@ try:
     from ib_async import Stock, Option, Future, IB, Ticker
     HAS_IB_ASYNC = True
 except ImportError:
-    print("⚠️ ib_async not available - running in simulation mode")
-    print("For paper trading, use Tradier sandbox mode instead")
-    print("See: SpyderB40_TradierClient.py")
+    logging.info("⚠️ ib_async not available - running in simulation mode")
+    logging.info("For paper trading, use Tradier sandbox mode instead")
+    logging.info("See: SpyderB40_TradierClient.py")
     HAS_IB_ASYNC = False
 
     # Fallback classes for when ib_async is not available
@@ -121,6 +121,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # ==============================================================================
 # CONSTANTS

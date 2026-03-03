@@ -73,6 +73,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -202,7 +203,7 @@ if HAS_SB3:
 
                 if self.no_improvement_count >= self.patience:
                     if self.verbose > 0:
-                        print(f"Early stopping after {self.patience} evals without improvement")
+                        logging.info(f"Early stopping after {self.patience} evals without improvement")
                     return False
             return True
 

@@ -53,13 +53,14 @@ try:
     SUPERQT_AVAILABLE = True
 except ImportError:
     SUPERQT_AVAILABLE = False
-    print("Warning: superqt not available. Install with: pip install superqt")
+    logging.info("Warning: superqt not available. Install with: pip install superqt")
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU24_StyleManager import SpyderColors, get_style_manager
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -711,7 +712,7 @@ def main():
     
     # Create demo widgets
     if SUPERQT_AVAILABLE:
-        print("SuperQt available - creating enhanced widgets")
+        logging.info("SuperQt available - creating enhanced widgets")
         
         # Strike range slider
         strike_slider = SpyderWidgetFactory.create_strike_range_slider(400.0, 500.0)
@@ -737,7 +738,7 @@ def main():
         layout.addWidget(advanced_group)
         
     else:
-        print("SuperQt not available - using fallback widgets")
+        logging.info("SuperQt not available - using fallback widgets")
         fallback_label = QLabel("Install superqt for enhanced widgets: pip install superqt")
         fallback_label.setStyleSheet(f"color: {SpyderColors.WARNING}; font-size: 14px; padding: 20px;")
         layout.addWidget(fallback_label)
@@ -746,7 +747,7 @@ def main():
     window.setCentralWidget(central_widget)
     window.show()
     
-    print("Enhanced widgets demo started")
+    logging.info("Enhanced widgets demo started")
     sys.exit(app.exec())
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ import statistics
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled
+import logging
 
 DIVERGENCE_THRESHOLD = 0.1  # 10% divergence triggers alert
 PERFORMANCE_WINDOW = 1000   # Number of comparisons to track
@@ -336,28 +337,28 @@ class MigrationMonitor:
         """Print migration summary to console"""
         report = self.get_migration_report()
         
-        print("\n" + "=" * 60)
-        print("SPYDERX MIGRATION STATUS REPORT")
-        print("=" * 60)
-        print(f"Generated: {report['timestamp']}")
-        print(f"Total Modules Monitored: {report['summary']['total_modules']}")
+        logging.info("\n" + "=" * 60)
+        logging.info("SPYDERX MIGRATION STATUS REPORT")
+        logging.info("=" * 60)
+        logging.info(f"Generated: {report['timestamp']}")
+        logging.info(f"Total Modules Monitored: {report['summary']['total_modules']}")
         
-        print("\n📊 Module Status:")
+        logging.info("\n📊 Module Status:")
         for module, data in report['modules'].items():
-            print(f"\n{module}:")
-            print(f"  Status: {data['status']}")
-            print(f"  Comparisons: {data['comparisons']}")
-            print(f"  Avg Divergence: {data['avg_divergence']}")
-            print(f"  Speedup: {data['avg_speedup']}")
-            print(f"  Confidence: {data['confidence']}")
+            logging.info(f"\n{module}:")
+            logging.info(f"  Status: {data['status']}")
+            logging.info(f"  Comparisons: {data['comparisons']}")
+            logging.info(f"  Avg Divergence: {data['avg_divergence']}")
+            logging.info(f"  Speedup: {data['avg_speedup']}")
+            logging.info(f"  Confidence: {data['confidence']}")
         
-        print("\n📈 Migration Readiness:")
-        print(f"  ✅ Ready: {len(report['summary']['ready_for_migration'])}")
-        print(f"  ⚠️  Needs Work: {len(report['summary']['needs_work'])}")
-        print(f"  🚫 Critical Issues: {len(report['summary']['critical_issues'])}")
+        logging.info("\n📈 Migration Readiness:")
+        logging.info(f"  ✅ Ready: {len(report['summary']['ready_for_migration'])}")
+        logging.info(f"  ⚠️  Needs Work: {len(report['summary']['needs_work'])}")
+        logging.info(f"  🚫 Critical Issues: {len(report['summary']['critical_issues'])}")
         
         if report['summary']['ready_for_migration']:
-            print(f"\n🚀 Ready for migration: {', '.join(report['summary']['ready_for_migration'])}")
+            logging.info(f"\n🚀 Ready for migration: {', '.join(report['summary']['ready_for_migration'])}")
 
 
 # ==============================================================================

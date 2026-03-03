@@ -46,7 +46,7 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
-    print("Warning: Ollama not installed. AI features will be limited.")
+    logging.info("Warning: Ollama not installed. AI features will be limited.")
 
 # ==============================================================================
 # CONSTANTS
@@ -1138,67 +1138,67 @@ def get_module_instance() -> SpyderX12_SystemHealthAgent:
 
 async def test_system_health():
     """Test the System Health Agent functionality."""
-    print("="*80)
-    print("Testing SpyderX12_SystemHealthAgent")
-    print("="*80)
+    logging.info("="*80)
+    logging.info("Testing SpyderX12_SystemHealthAgent")
+    logging.info("="*80)
     
     agent = create_system_health_agent()
     
     # Test 1: System Health Monitoring
-    print("\nTest 1: System Health Monitoring")
-    print("-"*40)
+    logging.info("\nTest 1: System Health Monitoring")
+    logging.info("-"*40)
     
     diagnostic = await agent.monitor_system_health()
     
-    print(f"Overall Status: {diagnostic.overall_status.value}")
-    print(f"Overall Health Score: {diagnostic.overall_health_score:.1f}/100")
+    logging.info(f"Overall Status: {diagnostic.overall_status.value}")
+    logging.info(f"Overall Health Score: {diagnostic.overall_health_score:.1f}/100")
     
-    print(f"\nComponent Health:")
+    logging.info(f"\nComponent Health:")
     for component, health in list(diagnostic.component_health.items())[:5]:
-        print(f"  {component.value}:")
-        print(f"    Status: {health.status.value}")
-        print(f"    Score: {health.health_score:.1f}")
+        logging.info(f"  {component.value}:")
+        logging.info(f"    Status: {health.status.value}")
+        logging.info(f"    Score: {health.health_score:.1f}")
         if health.issues:
-            print(f"    Issues: {', '.join(health.issues[:2])}")
+            logging.info(f"    Issues: {', '.join(health.issues[:2])}")
     
-    print(f"\nActive Issues: {len(diagnostic.active_issues)}")
+    logging.info(f"\nActive Issues: {len(diagnostic.active_issues)}")
     for issue in diagnostic.active_issues[:3]:
-        print(f"  [{issue['severity']}] {issue['description']}")
+        logging.info(f"  [{issue['severity']}] {issue['description']}")
     
     # Test 2: Failure Predictions
-    print("\n\nTest 2: Failure Predictions")
-    print("-"*40)
+    logging.info("\n\nTest 2: Failure Predictions")
+    logging.info("-"*40)
     
     predictions = await agent.predict_failures(horizon_minutes=30)
     
-    print(f"Predicted Issues: {len(predictions)}")
+    logging.info(f"Predicted Issues: {len(predictions)}")
     for pred in predictions[:3]:
-        print(f"\n{pred.component.value} - {pred.metric_type.value}:")
-        print(f"  Predicted Value: {pred.predicted_value:.2f}")
-        print(f"  Risk Level: {pred.risk_level}")
-        print(f"  Confidence: {pred.confidence:.1%}")
+        logging.info(f"\n{pred.component.value} - {pred.metric_type.value}:")
+        logging.info(f"  Predicted Value: {pred.predicted_value:.2f}")
+        logging.info(f"  Risk Level: {pred.risk_level}")
+        logging.info(f"  Confidence: {pred.confidence:.1%}")
         if pred.recommended_action:
-            print(f"  Action: {pred.recommended_action}")
+            logging.info(f"  Action: {pred.recommended_action}")
     
     # Test 3: Component Status Check
-    print("\n\nTest 3: Component Status Check")
-    print("-"*40)
+    logging.info("\n\nTest 3: Component Status Check")
+    logging.info("-"*40)
     
     trading_health = await agent.check_component_status(SystemComponent.TRADING_ENGINE)
     
-    print(f"Component: {trading_health.component.value}")
-    print(f"Status: {trading_health.status.value}")
-    print(f"Health Score: {trading_health.health_score:.1f}")
-    print(f"Uptime: {trading_health.uptime_percentage:.1f}%")
-    print(f"Dependencies OK: {trading_health.dependencies_ok}")
+    logging.info(f"Component: {trading_health.component.value}")
+    logging.info(f"Status: {trading_health.status.value}")
+    logging.info(f"Health Score: {trading_health.health_score:.1f}")
+    logging.info(f"Uptime: {trading_health.uptime_percentage:.1f}%")
+    logging.info(f"Dependencies OK: {trading_health.dependencies_ok}")
     
-    print(f"\nMetrics:")
+    logging.info(f"\nMetrics:")
     for metric, value in list(trading_health.metrics.items())[:3]:
-        print(f"  {metric.value}: {value:.2f}")
+        logging.info(f"  {metric.value}: {value:.2f}")
     
     # Test 4: Auto-remediation
-    print("\n\nTest 4: Auto-remediation Test")
-    print("-"*40)
+    logging.info("\n\nTest 4: Auto-remediation Test")
+    logging.info("-"*40)
     
     # Create a test alert
     test_alert = HealthAlert(
@@ -1214,10 +1214,10 @@ async def test_system_health():
     
     remediation_result = await agent.auto_remediate(test_alert)
     
-    print(f"Remediation Result:")
-    print(f"  Success: {remediation_result.get('success', False)}")
-    print(f"  Action: {remediation_result.get('action', 'N/A')}")
-    print(f"  Duration: {remediation_result.get('duration', 0):.1f}s")
+    logging.info(f"Remediation Result:")
+    logging.info(f"  Success: {remediation_result.get('success', False)}")
+    logging.info(f"  Action: {remediation_result.get('action', 'N/A')}")
+    logging.info(f"  Duration: {remediation_result.get('duration', 0):.1f}s")
 
 # ==============================================================================
 # MAIN EXECUTION

@@ -1760,7 +1760,7 @@ class ProductionDeploymentManager:
 
 async def main():
     """Main execution function for production deployment"""
-    print("🚀 Spyder Production Deployment Manager Starting...")
+    logging.info("🚀 Spyder Production Deployment Manager Starting...")
     
     # Create production configuration
     prod_config = ProductionConfig(
@@ -1777,46 +1777,46 @@ async def main():
     
     try:
         # Deploy production system
-        print("📦 Starting production deployment...")
+        logging.info("📦 Starting production deployment...")
         deployment_success = await deployment_manager.deploy_production_system()
         
         if deployment_success:
-            print("✅ Production deployment completed successfully!")
+            logging.info("✅ Production deployment completed successfully!")
             
             # Monitor system for demonstration
-            print("📊 Monitoring system for 120 seconds...")
+            logging.info("📊 Monitoring system for 120 seconds...")
             
             for i in range(120):
                 if i % 30 == 0:  # Status every 30 seconds
                     status = deployment_manager.get_system_status()
-                    print(f"System Status: {status['system_status']}")
-                    print(f"Uptime: {status['uptime_hours']:.1f} hours")
-                    print(f"CPU: {status['system_metrics']['cpu_usage_percent']:.1f}%")
-                    print(f"Memory: {status['system_metrics']['memory_usage_percent']:.1f}%")
-                    print(f"Active Components: {len([c for c, s in status['component_statuses'].items() if s['status'] == 'healthy'])}")
-                    print("---")
+                    logging.info(f"System Status: {status['system_status']}")
+                    logging.info(f"Uptime: {status['uptime_hours']:.1f} hours")
+                    logging.info(f"CPU: {status['system_metrics']['cpu_usage_percent']:.1f}%")
+                    logging.info(f"Memory: {status['system_metrics']['memory_usage_percent']:.1f}%")
+                    logging.info(f"Active Components: {len([c for c, s in status['component_statuses'].items() if s['status'] == 'healthy'])}")
+                    logging.info("---")
                 
                 await asyncio.sleep(1)
             
             # Generate final system report
-            print("\n📈 Generating System Report...")
+            logging.info("\n📈 Generating System Report...")
             report_file = deployment_manager.export_system_report()
-            print(f"System report exported: {report_file}")
+            logging.info(f"System report exported: {report_file}")
             
         else:
-            print("❌ Production deployment failed!")
+            logging.info("❌ Production deployment failed!")
             
     except KeyboardInterrupt:
-        print("\n⚠️ Shutdown signal received")
+        logging.info("\n⚠️ Shutdown signal received")
     except Exception as e:
-        print(f"❌ Production deployment error: {e}")
+        logging.info(f"❌ Production deployment error: {e}")
         traceback.print_exc()
     
     finally:
         # Graceful shutdown
-        print("🛑 Shutting down production system...")
+        logging.info("🛑 Shutting down production system...")
         await deployment_manager.shutdown_system()
-        print("🎯 Production Deployment Manager Test Complete!")
+        logging.info("🎯 Production Deployment Manager Test Complete!")
 
 if __name__ == "__main__":
     # Run the production deployment

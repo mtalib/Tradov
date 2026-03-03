@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -54,7 +55,7 @@ try:
         "SYMBOL_GROUPS",
     ])
 except ImportError as e:
-    print(f"Warning: SpyderC01_DataFeed not fully available: {e}")
+    logging.info(f"Warning: SpyderC01_DataFeed not fully available: {e}")
 
 # Historical Data module
 try:
@@ -62,7 +63,7 @@ try:
 
     __all__.extend(["HistoricalDataManager"])
 except ImportError:
-    print("Warning: SpyderC02_HistoricalData not available")
+    logging.info("Warning: SpyderC02_HistoricalData not available")
 
 # Option Chain module
 try:
@@ -70,7 +71,7 @@ try:
 
     __all__.extend(["OptionChainManager"])
 except ImportError:
-    print("Warning: SpyderC03_OptionChain not available")
+    logging.info("Warning: SpyderC03_OptionChain not available")
 
 # Market Internals module
 try:
@@ -78,7 +79,7 @@ try:
 
     __all__.extend(["MarketInternals"])
 except ImportError:
-    print("Warning: SpyderC04_MarketInternals not available")
+    logging.info("Warning: SpyderC04_MarketInternals not available")
 
 # Volume Profile module
 try:
@@ -86,7 +87,7 @@ try:
 
     __all__.extend(["VolumeProfileAnalyzer"])
 except ImportError:
-    print("Warning: SpyderC05_VolumeProfile not available")
+    logging.info("Warning: SpyderC05_VolumeProfile not available")
 
 # Data Validator module
 try:
@@ -94,7 +95,7 @@ try:
 
     __all__.extend(["DataValidator"])
 except ImportError:
-    print("Warning: SpyderC06_DataValidator not available")
+    logging.info("Warning: SpyderC06_DataValidator not available")
 
 # OPRA Feed module
 try:
@@ -102,7 +103,7 @@ try:
 
     __all__.extend(["OPRADataFeed"])
 except ImportError:
-    print("Warning: SpyderC07_OPRAFeed not available")
+    logging.info("Warning: SpyderC07_OPRAFeed not available")
 
 # SPY Feed module
 try:
@@ -110,7 +111,7 @@ try:
 
     __all__.extend(["SPYDataFeed"])
 except ImportError:
-    print("Warning: SpyderC08_SPYFeed not available")
+    logging.info("Warning: SpyderC08_SPYFeed not available")
 
 # ==============================================================================
 # POLYGON.IO DATA HANDLER (LEGACY DATA SOURCE)
@@ -131,7 +132,7 @@ try:
         "create_polygon_handler_from_env",
     ])
 except ImportError as e:
-    print(f"Warning: SpyderC25_PolygonDataHandler not available: {e}")
+    logging.info(f"Warning: SpyderC25_PolygonDataHandler not available: {e}")
 
 # ==============================================================================
 # DATABENTO DATA CLIENT (PRIMARY DATA SOURCE — REPLACING POLYGON.IO)
@@ -168,7 +169,7 @@ try:
         "create_databento_qt_bridge",
     ])
 except ImportError as e:
-    print(f"Warning: SpyderC26_DatabentoClient not available: {e}")
+    logging.info(f"Warning: SpyderC26_DatabentoClient not available: {e}")
 
 # ==============================================================================
 # PACKAGE METADATA

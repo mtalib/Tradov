@@ -55,7 +55,7 @@ try:
     from PySide6.QtWidgets import QApplication
     PYSIDE6_AVAILABLE = True
 except ImportError:
-    print("⚠️ PyQt6 not available - running in headless mode")
+    logging.info("⚠️ PyQt6 not available - running in headless mode")
     PYSIDE6_AVAILABLE = False
     # Mock classes for headless mode
     class QObject:
@@ -73,6 +73,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # Import our fixed MarketDataManager
 try:
@@ -84,14 +85,14 @@ try:
     )
     MARKET_DATA_MANAGER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ MarketDataManager not available: {e}")
+    logging.info(f"⚠️ MarketDataManager not available: {e}")
     MARKET_DATA_MANAGER_AVAILABLE = False
 
 try:
     from SpyderB_Broker.SpyderB01_SpyderClient import SpyderClient
     CLIENT_AVAILABLE = True
 except ImportError:
-    print("⚠️ SpyderClient not available")
+    logging.info("⚠️ SpyderClient not available")
     CLIENT_AVAILABLE = False
 
 # ==============================================================================

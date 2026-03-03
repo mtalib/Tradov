@@ -99,6 +99,7 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
     MAX_SENTIMENT_HISTORY,
     ALERT_THRESHOLDS,
 )
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1404,7 +1405,7 @@ async def main():
     agent = create_sentiment_analysis_agent(config)
 
     if args.earnings:
-        print("\n=== Analyzing Earnings Call ===")
+        logging.info("\n=== Analyzing Earnings Call ===")
         with open(args.earnings, "r") as f:
             transcript = f.read()
 
@@ -1412,15 +1413,15 @@ async def main():
             transcript, company="Test Corp", quarter="Q2 2025"
         )
 
-        print(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
-        print(f"Guidance Sentiment: {analysis.get('guidance_sentiment', 0):.3f}")
-        print(f"Main Topics: {analysis.get('main_topics', [])}")
-        print("\nKey Quotes:")
+        logging.info(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
+        logging.info(f"Guidance Sentiment: {analysis.get('guidance_sentiment', 0):.3f}")
+        logging.info(f"Main Topics: {analysis.get('main_topics', [])}")
+        logging.info("\nKey Quotes:")
         for quote in analysis.get("key_quotes", [])[:3]:
-            print(f"- {quote['text'][:100]}... (sentiment: {quote['sentiment']:.2f})")
+            logging.info(f"- {quote['text'][:100]}... (sentiment: {quote['sentiment']:.2f})")
 
     if args.fed:
-        print("\n=== Analyzing Fed Communication ===")
+        logging.info("\n=== Analyzing Fed Communication ===")
         with open(args.fed, "r") as f:
             text = f.read()
 
@@ -1428,50 +1429,50 @@ async def main():
             text, comm_type="FOMC_statement", speaker="Jerome Powell"
         )
 
-        print(
+        logging.info(
             f"Policy Stance: {analysis.get('policy_stance', 0):.3f} (-1 dovish to 1 hawkish)"
         )
-        print(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
-        print("\nTopic Analysis:")
+        logging.info(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
+        logging.info("\nTopic Analysis:")
         for topic, data in analysis.get("topics", {}).items():
             if data["mentioned"]:
-                print(
+                logging.info(
                     f"- {topic}: sentiment={data['sentiment']:.2f}, prominence={data['prominence']:.2%}"
                 )
-        print(f"\nRate Implications: {analysis.get('rate_implications', {})}")
+        logging.info(f"\nRate Implications: {analysis.get('rate_implications', {})}")
 
     if args.social:
-        print("\n=== Analyzing Social Media ===")
+        logging.info("\n=== Analyzing Social Media ===")
         analysis = await agent.analyze_social_media(["reddit", "twitter"])
 
-        print(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
-        print("\nPlatform Sentiments:")
+        logging.info(f"Overall Sentiment: {analysis.get('overall_sentiment', 0):.3f}")
+        logging.info("\nPlatform Sentiments:")
         for platform, data in analysis.get("platform_sentiments", {}).items():
-            print(f"- {platform}: {data.get('sentiment', 0):.3f}")
+            logging.info(f"- {platform}: {data.get('sentiment', 0):.3f}")
 
     if args.report:
-        print("\n=== Market Sentiment Report ===")
+        logging.info("\n=== Market Sentiment Report ===")
         report = await agent.get_market_sentiment()
 
-        print(f"Overall Market Sentiment: {report.overall_sentiment:.3f}")
-        print(f"Sentiment Regime: {report.regime}")
-        print(f"Momentum: {report.sentiment_momentum:.3f}")
-        print(f"Confidence: {report.confidence:.2%}")
+        logging.info(f"Overall Market Sentiment: {report.overall_sentiment:.3f}")
+        logging.info(f"Sentiment Regime: {report.regime}")
+        logging.info(f"Momentum: {report.sentiment_momentum:.3f}")
+        logging.info(f"Confidence: {report.confidence:.2%}")
 
-        print("\nTop Entities:")
+        logging.info("\nTop Entities:")
         for entity, sentiment in report.top_entities[:5]:
-            print(f"- {entity}: {sentiment:.3f}")
+            logging.info(f"- {entity}: {sentiment:.3f}")
 
-        print("\nRecent Events:")
+        logging.info("\nRecent Events:")
         for event in report.detected_events[-3:]:
-            print(
+            logging.info(
                 f"- {event.event_type}: {event.description} (impact: {event.impact_score:.2f})"
             )
 
         if report.warnings:
-            print("\nWarnings:")
+            logging.info("\nWarnings:")
             for warning in report.warnings:
-                print(f"⚠️  {warning}")
+                logging.info(f"⚠️  {warning}")
 
 
 if __name__ == "__main__":

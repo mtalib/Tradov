@@ -969,24 +969,24 @@ class SpyderCommHub:
 # ==============================================================================
 def example_market_data_publisher():
     """Example: Publishing market data with reliability."""
-    print("\n" + "="*60)
-    print("EXAMPLE: Market Data Publisher with Enhanced Reliability")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("EXAMPLE: Market Data Publisher with Enhanced Reliability")
+    logging.info("="*60)
     
     # Create publisher
     publisher = SpyderPublisher(MARKET_DATA_PORT, "MarketDataFeed")
     
     # Connect with retry
     if not publisher.connect():
-        print("❌ Failed to connect publisher")
+        logging.info("❌ Failed to connect publisher")
         return
     
-    print("✅ Publisher connected")
-    print(f"   Port: {MARKET_DATA_PORT}")
-    print(f"   State: {publisher.state.name}")
+    logging.info("✅ Publisher connected")
+    logging.info(f"   Port: {MARKET_DATA_PORT}")
+    logging.info(f"   State: {publisher.state.name}")
     
     # Simulate market data publishing
-    print("\nPublishing market data...")
+    logging.info("\nPublishing market data...")
     
     for i in range(5):
         # Create market data message
@@ -1010,22 +1010,22 @@ def example_market_data_publisher():
         success = publisher.publish(market_data)
         
         if success:
-            print(f"   ✓ Published update {i}: SPY @ ${market_data.data['last']:.2f}")
+            logging.info(f"   ✓ Published update {i}: SPY @ ${market_data.data['last']:.2f}")
         else:
-            print(f"   ✗ Failed to publish update {i}")
+            logging.info(f"   ✗ Failed to publish update {i}")
         
         time.sleep(0.5)
     
     # Show metrics
     metrics = publisher.get_metrics()
-    print(f"\nPublisher Metrics:")
-    print(f"   Messages sent: {metrics.messages_sent}")
-    print(f"   Messages failed: {metrics.messages_failed}")
-    print(f"   Error count: {metrics.error_count}")
-    print(f"   Reconnect attempts: {metrics.reconnect_attempts}")
+    logging.info(f"\nPublisher Metrics:")
+    logging.info(f"   Messages sent: {metrics.messages_sent}")
+    logging.info(f"   Messages failed: {metrics.messages_failed}")
+    logging.info(f"   Error count: {metrics.error_count}")
+    logging.info(f"   Reconnect attempts: {metrics.reconnect_attempts}")
     
     # Simulate connection failure and recovery
-    print("\n🔧 Simulating connection failure...")
+    logging.info("\n🔧 Simulating connection failure...")
     publisher.socket.close()
     publisher.state = ConnectionState.FAILED
     
@@ -1040,23 +1040,23 @@ def example_market_data_publisher():
     )
     
     publisher.publish(message)
-    print("   Message queued for delivery after reconnection")
+    logging.info("   Message queued for delivery after reconnection")
     
     # Wait for automatic reconnection
     time.sleep(2)
     
     if publisher.state == ConnectionState.CONNECTED:
-        print("✅ Automatic reconnection successful!")
+        logging.info("✅ Automatic reconnection successful!")
     
     # Disconnect
     publisher.disconnect()
-    print("\n✅ Publisher disconnected gracefully")
+    logging.info("\n✅ Publisher disconnected gracefully")
 
 def example_dashboard_subscriber():
     """Example: Dashboard subscribing to updates with reliability."""
-    print("\n" + "="*60)
-    print("EXAMPLE: Dashboard Subscriber with Enhanced Reliability")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("EXAMPLE: Dashboard Subscriber with Enhanced Reliability")
+    logging.info("="*60)
     
     # Create subscriber
     subscriber = SpyderSubscriber(
@@ -1069,16 +1069,16 @@ def example_dashboard_subscriber():
     def handle_market_data(message: SpyderMessage):
         try:
             data = message.data
-            print(f"📊 Market Update: {data['symbol']} @ ${data.get('last', 0):.2f}")
+            logging.info(f"📊 Market Update: {data['symbol']} @ ${data.get('last', 0):.2f}")
         except Exception as e:
-            print(f"❌ Handler error: {e}")
+            logging.info(f"❌ Handler error: {e}")
     
     def handle_risk_update(message: SpyderMessage):
         try:
             data = message.data
-            print(f"⚠️  Risk Update: {data}")
+            logging.info(f"⚠️  Risk Update: {data}")
         except Exception as e:
-            print(f"❌ Handler error: {e}")
+            logging.info(f"❌ Handler error: {e}")
     
     # Subscribe with handlers
     subscriber.subscribe("MARKET_DATA", handle_market_data)
@@ -1086,54 +1086,54 @@ def example_dashboard_subscriber():
     
     # Connect
     if not subscriber.connect():
-        print("❌ Failed to connect subscriber")
+        logging.info("❌ Failed to connect subscriber")
         return
     
-    print("✅ Subscriber connected")
-    print(f"   Port: {MARKET_DATA_PORT}")
-    print(f"   Topics: {subscriber.topics}")
+    logging.info("✅ Subscriber connected")
+    logging.info(f"   Port: {MARKET_DATA_PORT}")
+    logging.info(f"   Topics: {subscriber.topics}")
     
     # Start listening
     subscriber.start_listening()
-    print("\n👂 Listening for messages...")
+    logging.info("\n👂 Listening for messages...")
     
     # Let it run for a while
     time.sleep(5)
     
     # Show metrics
     metrics = subscriber.get_metrics()
-    print(f"\nSubscriber Metrics:")
-    print(f"   Messages received: {metrics.messages_received}")
-    print(f"   Last heartbeat: {metrics.last_heartbeat}")
-    print(f"   Error count: {metrics.error_count}")
+    logging.info(f"\nSubscriber Metrics:")
+    logging.info(f"   Messages received: {metrics.messages_received}")
+    logging.info(f"   Last heartbeat: {metrics.last_heartbeat}")
+    logging.info(f"   Error count: {metrics.error_count}")
     
     # Test heartbeat timeout detection
-    print("\n🔧 Testing heartbeat timeout detection...")
+    logging.info("\n🔧 Testing heartbeat timeout detection...")
     subscriber.metrics.last_heartbeat = datetime.now() - timedelta(seconds=10)
     time.sleep(2)
     
     if subscriber.state == ConnectionState.RECONNECTING:
-        print("✅ Heartbeat timeout detected, reconnecting...")
+        logging.info("✅ Heartbeat timeout detected, reconnecting...")
     
     # Disconnect
     subscriber.disconnect()
-    print("\n✅ Subscriber disconnected gracefully")
+    logging.info("\n✅ Subscriber disconnected gracefully")
 
 def example_request_reply():
     """Example: Request/Reply pattern with timeout and retry."""
-    print("\n" + "="*60)
-    print("EXAMPLE: Request/Reply with Enhanced Reliability")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("EXAMPLE: Request/Reply with Enhanced Reliability")
+    logging.info("="*60)
     
     # Create requester
     requester = SpyderRequester(TRADE_EXECUTION_PORT, "StrategyEngine")
     
     # Connect
     if not requester.connect():
-        print("❌ Failed to connect requester")
+        logging.info("❌ Failed to connect requester")
         return
     
-    print("✅ Requester connected")
+    logging.info("✅ Requester connected")
     
     # Create order request
     order_request = SpyderMessage(
@@ -1151,8 +1151,8 @@ def example_request_reply():
         priority=9  # High priority for orders
     )
     
-    print("\n📤 Sending order request...")
-    print(f"   Order: {order_request.data}")
+    logging.info("\n📤 Sending order request...")
+    logging.info(f"   Order: {order_request.data}")
     
     # Send request with timeout
     start_time = time.time()
@@ -1160,14 +1160,14 @@ def example_request_reply():
     elapsed = time.time() - start_time
     
     if reply:
-        print(f"\n✅ Received reply in {elapsed:.2f}s:")
-        print(f"   Type: {reply.msg_type.value}")
-        print(f"   Data: {reply.data}")
+        logging.info(f"\n✅ Received reply in {elapsed:.2f}s:")
+        logging.info(f"   Type: {reply.msg_type.value}")
+        logging.info(f"   Data: {reply.data}")
     else:
-        print(f"\n❌ Request failed or timed out after {elapsed:.2f}s")
+        logging.info(f"\n❌ Request failed or timed out after {elapsed:.2f}s")
     
     # Test circuit breaker
-    print("\n🔧 Testing circuit breaker...")
+    logging.info("\n🔧 Testing circuit breaker...")
     
     # Simulate multiple failures
     for i in range(15):
@@ -1179,15 +1179,15 @@ def example_request_reply():
     
     # Check circuit breaker state
     if requester.circuit_breaker.state == CircuitBreakerState.OPEN:
-        print("✅ Circuit breaker OPEN after multiple failures")
+        logging.info("✅ Circuit breaker OPEN after multiple failures")
     
-    print("\n✅ Request/Reply example completed")
+    logging.info("\n✅ Request/Reply example completed")
 
 def example_communication_hub():
     """Example: Using the communication hub."""
-    print("\n" + "="*60)
-    print("EXAMPLE: Communication Hub with Multiple Components")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("EXAMPLE: Communication Hub with Multiple Components")
+    logging.info("="*60)
     
     # Create communication hub
     hub = SpyderCommHub("TradingSystem")
@@ -1204,31 +1204,31 @@ def example_communication_hub():
     
     execution_req = hub.create_requester("execution", TRADE_EXECUTION_PORT)
     
-    print("✅ Communication components created:")
-    print(f"   Publishers: {list(hub.publishers.keys())}")
-    print(f"   Subscribers: {list(hub.subscribers.keys())}")
-    print(f"   Requesters: {list(hub.requesters.keys())}")
+    logging.info("✅ Communication components created:")
+    logging.info(f"   Publishers: {list(hub.publishers.keys())}")
+    logging.info(f"   Subscribers: {list(hub.subscribers.keys())}")
+    logging.info(f"   Requesters: {list(hub.requesters.keys())}")
     
     # Start all components
     hub.start()
-    print("\n✅ Communication hub started")
+    logging.info("\n✅ Communication hub started")
     
     # Let it run for monitoring
     time.sleep(5)
     
     # Get all metrics
     all_metrics = hub.get_all_metrics()
-    print("\n📊 System-wide Communication Metrics:")
+    logging.info("\n📊 System-wide Communication Metrics:")
     for name, metrics in all_metrics.items():
-        print(f"   {name}:")
-        print(f"      Sent: {metrics.messages_sent}")
-        print(f"      Received: {metrics.messages_received}")
-        print(f"      Failed: {metrics.messages_failed}")
-        print(f"      Errors: {metrics.error_count}")
+        logging.info(f"   {name}:")
+        logging.info(f"      Sent: {metrics.messages_sent}")
+        logging.info(f"      Received: {metrics.messages_received}")
+        logging.info(f"      Failed: {metrics.messages_failed}")
+        logging.info(f"      Errors: {metrics.error_count}")
     
     # Stop hub
     hub.stop()
-    print("\n✅ Communication hub stopped")
+    logging.info("\n✅ Communication hub stopped")
 
 # ==============================================================================
 # MAIN EXECUTION

@@ -59,6 +59,7 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import (SPY_CONTRACT_MULTIPLIE
                                                    ZERO_DTE_PROFIT_TARGET,
                                                    ZERO_DTE_STOP_LOSS,
                                                    OptionType, SignalType)
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1151,8 +1152,8 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
 # ==============================================================================
 def test_specialized_zero_dte():
     """Test the Specialized Zero DTE strategy"""
-    print("Testing Specialized Zero DTE Strategy")
-    print("=" * 60)
+    logging.info("Testing Specialized Zero DTE Strategy")
+    logging.info("=" * 60)
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
@@ -1179,7 +1180,7 @@ def test_specialized_zero_dte():
     # Create sample market data for 0DTE day
     current_time = datetime.now(strategy.eastern_tz)
     if current_time.weekday() not in [0, 2, 4]:
-        print("Note: Not a typical 0DTE day (Mon/Wed/Fri)")
+        logging.info("Note: Not a typical 0DTE day (Mon/Wed/Fri)")
 
     # Generate intraday data
     dates = pd.date_range(
@@ -1202,32 +1203,32 @@ def test_specialized_zero_dte():
         }
     )
 
-    print(f"Current Time: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    print(f"Current Price: ${prices[-1]:.2f}")
-    print(f"VIX: {market_data['vix'].iloc[-1]:.2f}")
+    logging.info(f"Current Time: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logging.info(f"Current Price: ${prices[-1]:.2f}")
+    logging.info(f"VIX: {market_data['vix'].iloc[-1]:.2f}")
 
     # Test Fed day check
-    print(f"\nFed Day Check: {strategy._is_fed_day(current_time)}")
+    logging.info(f"\nFed Day Check: {strategy._is_fed_day(current_time)}")
 
     # Generate signals
     signals = strategy.generate_signals(market_data)
 
-    print(f"\nGenerated {len(signals)} signals")
+    logging.info(f"\nGenerated {len(signals)} signals")
 
     if signals:
         signal = signals[0]
         setup = signal.metadata["setup"]
 
-        print(f"\n0DTE Setup Details:")
-        print(f"Strategy: {setup['strategy_type']}")
-        print(f"Contracts: {setup['contracts']}")
-        print(f"Credit: ${setup['credit_received']:.2f}")
-        print(f"Max Profit: ${setup['max_profit']:.2f}")
-        print(f"Max Loss: ${setup['max_loss']:.2f}")
-        print(f"Profit Target: ${setup['profit_target']:.2f}")
-        print(f"Stop Loss: ${setup['stop_loss']:.2f}")
-        print(f"Probability of Profit: {setup['probability_profit']:.2%}")
-        print(f"Expected Value: ${setup['expected_value']:.2f}")
+        logging.info(f"\n0DTE Setup Details:")
+        logging.info(f"Strategy: {setup['strategy_type']}")
+        logging.info(f"Contracts: {setup['contracts']}")
+        logging.info(f"Credit: ${setup['credit_received']:.2f}")
+        logging.info(f"Max Profit: ${setup['max_profit']:.2f}")
+        logging.info(f"Max Loss: ${setup['max_loss']:.2f}")
+        logging.info(f"Profit Target: ${setup['profit_target']:.2f}")
+        logging.info(f"Stop Loss: ${setup['stop_loss']:.2f}")
+        logging.info(f"Probability of Profit: {setup['probability_profit']:.2%}")
+        logging.info(f"Expected Value: ${setup['expected_value']:.2f}")
 
     # Test position management
     if signals:
@@ -1258,35 +1259,35 @@ def test_specialized_zero_dte():
         # Test position management
         management_signals = strategy.manage_positions(market_data)
 
-        print(f"\nPosition Management:")
-        print(f"Management signals: {len(management_signals)}")
+        logging.info(f"\nPosition Management:")
+        logging.info(f"Management signals: {len(management_signals)}")
 
         if management_signals:
             exit_signal = management_signals[0]
-            print(f"Exit Reason: {exit_signal.metadata['exit_reason']}")
-            print(f"P&L: ${exit_signal.metadata['pnl']:.2f}")
-            print(f"Hold Time: {exit_signal.metadata['hold_time']:.1f} minutes")
+            logging.info(f"Exit Reason: {exit_signal.metadata['exit_reason']}")
+            logging.info(f"P&L: ${exit_signal.metadata['pnl']:.2f}")
+            logging.info(f"Hold Time: {exit_signal.metadata['hold_time']:.1f} minutes")
 
     # Get daily summary
     summary = strategy.get_daily_summary()
-    print(f"\nDaily Summary:")
-    print(f"Total Trades: {summary['total_trades']}")
-    print(f"Daily P&L: ${summary['daily_pnl']:.2f}")
-    print(
+    logging.info(f"\nDaily Summary:")
+    logging.info(f"Total Trades: {summary['total_trades']}")
+    logging.info(f"Daily P&L: ${summary['daily_pnl']:.2f}")
+    logging.info(
         f"Win Rate: {summary['strategy_stats']['winning_trades'] / max(1,
                                                                          summary['strategy_stats']['total_trades']) * 100:.1f}%"
     )
 
-    print("\n✅ Specialized Zero DTE Strategy Test Complete!")
-    print("\nKey Features Tested:")
-    print("- ✅ Fed day and economic event detection")
-    print("- ✅ Optimal 10:15 AM entry timing")
-    print("- ✅ Dynamic strategy selection based on market conditions")
-    print("- ✅ Reduced position sizing for 0DTE")
-    print("- ✅ Rapid profit/loss management")
-    print("- ✅ Time-based stops at 3:45 PM")
-    print("- ✅ Gamma risk monitoring")
-    print("- ✅ Real-time probability updates")
+    logging.info("\n✅ Specialized Zero DTE Strategy Test Complete!")
+    logging.info("\nKey Features Tested:")
+    logging.info("- ✅ Fed day and economic event detection")
+    logging.info("- ✅ Optimal 10:15 AM entry timing")
+    logging.info("- ✅ Dynamic strategy selection based on market conditions")
+    logging.info("- ✅ Reduced position sizing for 0DTE")
+    logging.info("- ✅ Rapid profit/loss management")
+    logging.info("- ✅ Time-based stops at 3:45 PM")
+    logging.info("- ✅ Gamma risk monitoring")
+    logging.info("- ✅ Real-time probability updates")
 
 
 if __name__ == "__main__":

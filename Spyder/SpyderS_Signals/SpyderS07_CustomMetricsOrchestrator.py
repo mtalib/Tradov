@@ -73,7 +73,7 @@ try:
     DIX_AVAILABLE = True
 except ImportError:
     DIX_AVAILABLE = False
-    print("⚠️ S01_DIXCalculator not available")
+    logging.info("⚠️ S01_DIXCalculator not available")
 
 try:
     from SpyderS_Signals.SpyderS03_BlackSwanIndicator import (
@@ -81,14 +81,14 @@ try:
     SWAN_AVAILABLE = True
 except ImportError:
     SWAN_AVAILABLE = False
-    print("⚠️ S03_BlackSwanIndicator not available")
+    logging.info("⚠️ S03_BlackSwanIndicator not available")
 
 try:
     from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GEXDEXCalculator
     GEX_AVAILABLE = True
 except ImportError:
     GEX_AVAILABLE = False
-    print("⚠️ S05_GEXDEXCalculator not available")
+    logging.info("⚠️ S05_GEXDEXCalculator not available")
 
 try:
     from SpyderS_Signals.SpyderS06_SKEWCalculator import (
@@ -96,7 +96,7 @@ try:
     SKEW_AVAILABLE = True
 except ImportError:
     SKEW_AVAILABLE = False
-    print("⚠️ S06_SKEWCalculator not available")
+    logging.info("⚠️ S06_SKEWCalculator not available")
 
 # ==============================================================================
 # CONSTANTS

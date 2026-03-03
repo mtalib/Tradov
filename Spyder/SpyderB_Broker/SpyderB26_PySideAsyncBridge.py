@@ -53,7 +53,7 @@ try:
 
     PYSIDE6_AVAILABLE = True
 except ImportError:
-    print("❌ PySide6 not installed. Please install: pip install PySide6")
+    logging.info("❌ PySide6 not installed. Please install: pip install PySide6")
     PYSIDE6_AVAILABLE = False
 
     # Create fallback classes
@@ -99,9 +99,9 @@ try:
     from ib_async import IB as IBAsync
 
     IB_ASYNC_AVAILABLE = True
-    print("⚠️ WARNING: PySideAsyncBridge is DEPRECATED. Use Tradier API (SpyderB40_TradierClient) instead.")
+    logging.info("⚠️ WARNING: PySideAsyncBridge is DEPRECATED. Use Tradier API (SpyderB40_TradierClient) instead.")
 except ImportError:
-    print("❌ ib_async not installed (DEPRECATED - system migrated to Tradier API)")
+    logging.info("❌ ib_async not installed (DEPRECATED - system migrated to Tradier API)")
     IB_ASYNC_AVAILABLE = False
 
     # Create fallback classes
@@ -773,29 +773,29 @@ class AsyncIBGatewayBridge(QObject):
 async def test_async_bridge():
     """Test the AsyncIBGatewayBridge"""
 
-    print("\n" + "=" * 60)
-    print("🧪 TESTING ASYNC IB GATEWAY BRIDGE")
-    print("=" * 60)
+    logging.info("\n" + "=" * 60)
+    logging.info("🧪 TESTING ASYNC IB GATEWAY BRIDGE")
+    logging.info("=" * 60)
 
     # Create bridge instance
     bridge = AsyncIBGatewayBridge(paper_trading=True)
 
     # Initialize async loop
     if not bridge.initialize_async_loop():
-        print("❌ Failed to initialize async loop")
+        logging.info("❌ Failed to initialize async loop")
         return
 
     # Connect to IB Gateway
-    print("\n📡 Attempting connection...")
+    logging.info("\n📡 Attempting connection...")
     connected = await bridge.connect_async()
 
     if connected:
-        print("✅ Successfully connected!")
+        logging.info("✅ Successfully connected!")
 
         # Test connection
-        print("\n🧪 Testing connection...")
+        logging.info("\n🧪 Testing connection...")
         if await bridge.test_connection():
-            print("✅ Connection test passed")
+            logging.info("✅ Connection test passed")
 
         # Create SPY contract
         spy_contract = Contract()
@@ -805,10 +805,10 @@ async def test_async_bridge():
         spy_contract.currency = "USD"
 
         # Subscribe to market data
-        print("\n📊 Subscribing to SPY market data...")
+        logging.info("\n📊 Subscribing to SPY market data...")
         req_id = await bridge.subscribe_market_data(spy_contract)
         if req_id > 0:
-            print(f"✅ Subscribed with request ID: {req_id}")
+            logging.info(f"✅ Subscribed with request ID: {req_id}")
 
             # Wait for some data
             await asyncio.sleep(5)
@@ -817,28 +817,28 @@ async def test_async_bridge():
             await bridge.unsubscribe_market_data(req_id)
 
         # Request positions
-        print("\n📈 Requesting positions...")
+        logging.info("\n📈 Requesting positions...")
         positions = await bridge.request_positions()
-        print(f"Found {len(positions)} positions")
+        logging.info(f"Found {len(positions)} positions")
 
         # Request account summary
-        print("\n💰 Requesting account summary...")
+        logging.info("\n💰 Requesting account summary...")
         summary = await bridge.request_account_summary()
         if "NetLiquidation" in summary:
-            print(f"Net Liquidation: {summary['NetLiquidation']}")
+            logging.info(f"Net Liquidation: {summary['NetLiquidation']}")
 
         # Get metrics
-        print("\n📊 Performance Metrics:")
+        logging.info("\n📊 Performance Metrics:")
         metrics = bridge.get_metrics()
         for key, value in metrics.items():
-            print(f"  • {key}: {value}")
+            logging.info(f"  • {key}: {value}")
 
         # Disconnect
-        print("\n🔌 Disconnecting...")
+        logging.info("\n🔌 Disconnecting...")
         await bridge.disconnect_async()
-        print("✅ Disconnected successfully")
+        logging.info("✅ Disconnected successfully")
     else:
-        print("❌ Connection failed")
+        logging.info("❌ Connection failed")
 
 
 def main():
@@ -846,11 +846,11 @@ def main():
 
     # Check dependencies
     if not PYSIDE6_AVAILABLE:
-        print("❌ PySide6 not available. Please install: pip install PySide6")
+        logging.info("❌ PySide6 not available. Please install: pip install PySide6")
         return 1
 
     if not IB_ASYNC_AVAILABLE:
-        print("❌ ib_async not available. Please install: pip install ib_async")
+        logging.info("❌ ib_async not available. Please install: pip install ib_async")
         return 1
 
     # Run async test
@@ -858,10 +858,10 @@ def main():
         asyncio.run(test_async_bridge())
         return 0
     except KeyboardInterrupt:
-        print("\n⚠️ Test interrupted by user")
+        logging.info("\n⚠️ Test interrupted by user")
         return 1
     except Exception as e:
-        print(f"❌ Test failed: {e}")
+        logging.info(f"❌ Test failed: {e}")
         return 1
 
 

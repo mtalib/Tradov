@@ -54,7 +54,7 @@ try:
     PYQTGRAPH_AVAILABLE = True
 except ImportError:
     PYQTGRAPH_AVAILABLE = False
-    print("Warning: PyQtGraph not available. Charts will be disabled.")
+    logging.info("Warning: PyQtGraph not available. Charts will be disabled.")
 
 # Internal imports
 try:
@@ -65,7 +65,7 @@ try:
     SKEW_CALCULATOR_AVAILABLE = True
 except ImportError:
     SKEW_CALCULATOR_AVAILABLE = False
-    print("Warning: SKEW Calculator not available. Using mock data.")
+    logging.info("Warning: SKEW Calculator not available. Using mock data.")
 
 # ==============================================================================
 # CONFIGURATION

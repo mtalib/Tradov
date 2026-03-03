@@ -47,6 +47,7 @@ import numpy as np
 from dataclasses import dataclass, asdict
 from PySide6.QtCore import QObject, Signal, QTimer
 from PySide6.QtWebEngineWidgets import QWebEngineView
+import logging
 
 
 # ==============================================================================
@@ -307,7 +308,7 @@ class PlotlyDataBridge(QObject):
             self.chart_update_ready.emit(function_name, json_data)
 
         except Exception as e:
-            print(f"Error sending chart update: {e}")
+            logging.info(f"Error sending chart update: {e}")
 
     def batch_update_indicators(self, indicators: Dict[str, float]):
         """Send batch update for multiple indicators."""

@@ -43,7 +43,7 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
-    print("Warning: Ollama not installed. AI features will be limited.")
+    logging.info("Warning: Ollama not installed. AI features will be limited.")
 
 # ==============================================================================
 # CONSTANTS
@@ -1046,15 +1046,15 @@ def get_module_instance() -> SpyderX09_AlertManagerAgent:
 
 async def test_alert_manager():
     """Test the Alert Manager Agent functionality."""
-    print("="*80)
-    print("Testing SpyderX09_AlertManagerAgent")
-    print("="*80)
+    logging.info("="*80)
+    logging.info("Testing SpyderX09_AlertManagerAgent")
+    logging.info("="*80)
     
     agent = create_alert_manager_agent()
     
     # Add test conditions
-    print("\nAdding Alert Conditions")
-    print("-"*40)
+    logging.info("\nAdding Alert Conditions")
+    logging.info("-"*40)
     
     # Price breakout condition
     price_condition = AlertCondition(
@@ -1067,7 +1067,7 @@ async def test_alert_manager():
         metadata={'severity': 'HIGH'}
     )
     agent.add_condition(price_condition)
-    print(f"Added: {price_condition.name}")
+    logging.info(f"Added: {price_condition.name}")
     
     # Volume spike condition
     volume_condition = AlertCondition(
@@ -1080,7 +1080,7 @@ async def test_alert_manager():
         metadata={'severity': 'MEDIUM'}
     )
     agent.add_condition(volume_condition)
-    print(f"Added: {volume_condition.name}")
+    logging.info(f"Added: {volume_condition.name}")
     
     # Risk condition
     risk_condition = AlertCondition(
@@ -1093,11 +1093,11 @@ async def test_alert_manager():
         metadata={'severity': 'HIGH'}
     )
     agent.add_condition(risk_condition)
-    print(f"Added: {risk_condition.name}")
+    logging.info(f"Added: {risk_condition.name}")
     
     # Test condition checking
-    print("\n\nTest 1: Condition Checking")
-    print("-"*40)
+    logging.info("\n\nTest 1: Condition Checking")
+    logging.info("-"*40)
     
     market_data = {
         'price': {'current': 456.50, 'open': 454.00},
@@ -1106,13 +1106,13 @@ async def test_alert_manager():
     }
     
     alerts = await agent.check_conditions(market_data)
-    print(f"Generated {len(alerts)} alerts:")
+    logging.info(f"Generated {len(alerts)} alerts:")
     for alert in alerts:
-        print(f"  - [{alert.severity.value}] {alert.title}: {alert.message}")
+        logging.info(f"  - [{alert.severity.value}] {alert.title}: {alert.message}")
     
     # Test custom alert
-    print("\n\nTest 2: Custom Alert")
-    print("-"*40)
+    logging.info("\n\nTest 2: Custom Alert")
+    logging.info("-"*40)
     
     custom_alert = await agent.process_custom_alert(
         title="Strategy Performance Alert",
@@ -1120,29 +1120,29 @@ async def test_alert_manager():
         severity=AlertSeverity.HIGH,
         data={'win_rate': 0.45, 'trades': 20}
     )
-    print(f"Custom Alert: [{custom_alert.severity.value}] {custom_alert.title}")
-    print(f"Message: {custom_alert.message}")
+    logging.info(f"Custom Alert: [{custom_alert.severity.value}] {custom_alert.title}")
+    logging.info(f"Message: {custom_alert.message}")
     if custom_alert.ai_enhanced:
-        print(f"AI Context: {custom_alert.metadata.get('ai_context', 'N/A')}")
+        logging.info(f"AI Context: {custom_alert.metadata.get('ai_context', 'N/A')}")
     
     # Test alert delivery
-    print("\n\nTest 3: Alert Delivery")
-    print("-"*40)
+    logging.info("\n\nTest 3: Alert Delivery")
+    logging.info("-"*40)
     
     all_alerts = alerts + [custom_alert]
     if all_alerts:
         delivery_summary = await agent.deliver_alerts(all_alerts)
-        print(f"Delivery Summary:")
-        print(f"  Total Attempts: {delivery_summary['total_attempts']}")
-        print(f"  Successful: {delivery_summary['successful']}")
-        print(f"  Failed: {delivery_summary['failed']}")
-        print(f"  By Channel:")
+        logging.info(f"Delivery Summary:")
+        logging.info(f"  Total Attempts: {delivery_summary['total_attempts']}")
+        logging.info(f"  Successful: {delivery_summary['successful']}")
+        logging.info(f"  Failed: {delivery_summary['failed']}")
+        logging.info(f"  By Channel:")
         for channel, stats in delivery_summary['by_channel'].items():
-            print(f"    {channel}: {stats['success']} success, {stats['failed']} failed")
+            logging.info(f"    {channel}: {stats['success']} success, {stats['failed']} failed")
     
     # Test alert pattern analysis
-    print("\n\nTest 4: Alert Pattern Analysis")
-    print("-"*40)
+    logging.info("\n\nTest 4: Alert Pattern Analysis")
+    logging.info("-"*40)
     
     # Generate more sample alerts for pattern analysis
     for i in range(20):
@@ -1154,14 +1154,14 @@ async def test_alert_manager():
         )
     
     analysis = await agent.analyze_alert_patterns()
-    print(f"Alert Analysis:")
-    print(f"  Noise Level: {analysis.noise_level:.1%}")
-    print(f"  Alert Frequency by Type:")
+    logging.info(f"Alert Analysis:")
+    logging.info(f"  Noise Level: {analysis.noise_level:.1%}")
+    logging.info(f"  Alert Frequency by Type:")
     for alert_type, count in analysis.alert_frequency.items():
-        print(f"    {alert_type}: {count}")
-    print(f"  Recommendations:")
+        logging.info(f"    {alert_type}: {count}")
+    logging.info(f"  Recommendations:")
     for rec in analysis.recommendations[:3]:
-        print(f"    - {rec}")
+        logging.info(f"    - {rec}")
 
 # ==============================================================================
 # MAIN EXECUTION

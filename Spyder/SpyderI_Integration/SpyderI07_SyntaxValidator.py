@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import autopep8
+import logging
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -48,7 +49,7 @@ try:
     BLACK_AVAILABLE = True
 except ImportError:
     BLACK_AVAILABLE = False
-    print("Warning: Black formatter not available. Install with: pip install black")
+    logging.info("Warning: Black formatter not available. Install with: pip install black")
 
 try:
     import isort
@@ -56,7 +57,7 @@ try:
     ISORT_AVAILABLE = True
 except ImportError:
     ISORT_AVAILABLE = False
-    print("Warning: isort not available. Install with: pip install isort")
+    logging.info("Warning: isort not available. Install with: pip install isort")
 
 # ==============================================================================
 # CONSTANTS
@@ -234,8 +235,8 @@ class SyntaxValidator:
         Returns:
             Complete validation report
         """
-        print("🔍 Starting comprehensive syntax validation...")
-        print("=" * 80)
+        logging.info("🔍 Starting comprehensive syntax validation...")
+        logging.info("=" * 80)
 
         report = ValidationReport(
             timestamp=datetime.now(),
@@ -568,7 +569,7 @@ class SyntaxValidator:
                 with open(result.file_path, "w") as f:
                     f.write(fixed_content)
 
-                print(f"✅ Fixed: {result.file_path}")
+                logging.info(f"✅ Fixed: {result.file_path}")
                 self.stats["files_fixed"] += 1
 
         except SyntaxError:
@@ -725,7 +726,7 @@ class SyntaxValidator:
         if output_file:
             with open(output_file, "w") as f:
                 f.write(report_text)
-            print(f"📄 Report saved to: {output_file}")
+            logging.info(f"📄 Report saved to: {output_file}")
 
         return report_text
 
@@ -800,7 +801,7 @@ def main():
 
     # Generate and display report
     report_text = validator.generate_report(Path(args.report) if args.report else None)
-    print(report_text)
+    logging.info(report_text)
 
     # Generate fix script if requested
     if args.script:
@@ -808,7 +809,7 @@ def main():
         with open(args.script, "w") as f:
             f.write(script)
         os.chmod(args.script, 0o755)
-        print(f"\n📝 Fix script saved to: {args.script}")
+        logging.info(f"\n📝 Fix script saved to: {args.script}")
 
     # Exit with appropriate code
     sys.exit(0 if report.files_with_errors == 0 else 1)

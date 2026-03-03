@@ -67,6 +67,7 @@ sys.path.insert(0, str(SPYDER_HOME))
 
 # Import the enhanced dashboard (our new G05)
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -502,14 +503,14 @@ class SpyderLiveDashboardLauncher:
                 self.dashboard.add_system_log("ℹ️ Using simulated market data")
             
         except Exception as e:
-            print(f"Error logging startup info: {e}")
+            logging.info(f"Error logging startup info: {e}")
     
     def _show_error(self, title: str, message: str):
         """Show error message to user."""
         if self.app:
             QMessageBox.critical(None, title, message)
         else:
-            print(f"ERROR - {title}: {message}")
+            logging.info(f"ERROR - {title}: {message}")
 
 # ==============================================================================
 # CONVENIENCE FUNCTIONS
@@ -536,16 +537,16 @@ def check_system_only():
     """Run system checks only without launching dashboard."""
     checker = SystemChecker()
     
-    print("=" * 60)
-    print("SPYDER SYSTEM CHECK (R07 Live Dashboard)")
-    print("=" * 60)
+    logging.info("=" * 60)
+    logging.info("SPYDER SYSTEM CHECK (R07 Live Dashboard)")
+    logging.info("=" * 60)
     
     for i, check in enumerate(STARTUP_CHECKS):
-        print(f"{i+1:2d}. {check}")
+        logging.info(f"{i+1:2d}. {check}")
         time.sleep(0.1)
     
-    print("\n" + "=" * 60)
-    print("System check complete. Use launch_spyder_dashboard() to start.")
+    logging.info("\n" + "=" * 60)
+    logging.info("System check complete. Use launch_spyder_dashboard() to start.")
 
 # ==============================================================================
 # MAIN EXECUTION
@@ -553,17 +554,17 @@ def check_system_only():
 
 def main():
     """Main execution function."""
-    print("=" * 60)
-    print("SPYDER R07 LIVE DASHBOARD LAUNCHER")
-    print("=" * 60)
-    print("Enhanced launcher for SpyderG05 Trading Dashboard")
-    print("Professional startup with comprehensive system checks")
-    print("=" * 60)
+    logging.info("=" * 60)
+    logging.info("SPYDER R07 LIVE DASHBOARD LAUNCHER")
+    logging.info("=" * 60)
+    logging.info("Enhanced launcher for SpyderG05 Trading Dashboard")
+    logging.info("Professional startup with comprehensive system checks")
+    logging.info("=" * 60)
     
     # Parse command line arguments if needed
     if len(sys.argv) > 1:
         if sys.argv[1] == "--quick":
-            print("Quick launch mode...")
+            logging.info("Quick launch mode...")
             return quick_launch()
         elif sys.argv[1] == "--check":
             check_system_only()

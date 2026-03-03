@@ -679,31 +679,31 @@ async def main():
         price += np.random.normal(0, price * 0.1)
         prices.append(max(0.01, price))
     vanilla_data["option_price"] = prices
-    print("=== Random Forest Options Pricer ===")
-    print(f"Training samples: {len(vanilla_data)}")
+    logging.info("=== Random Forest Options Pricer ===")
+    logging.info(f"Training samples: {len(vanilla_data)}")
     # Train model
-    print("\n=== Training Vanilla Model ===")
+    logging.info("\n=== Training Vanilla Model ===")
     performance = await rf_ensemble.train(
         vanilla_data, strategy_type="vanilla", optimize_hyperparameters=False  # Faster for demo
     )
-    print(f"\nTraining Results:")
-    print(f"RMSE: ${performance.rmse:.3f}")
-    print(f"MAE: ${performance.mae:.3f}")
-    print(f"R²: {performance.r2:.3f}")
-    print(f"MAPE: {performance.mean_absolute_percentage_error:.1f}%")
+    logging.info(f"\nTraining Results:")
+    logging.info(f"RMSE: ${performance.rmse:.3f}")
+    logging.info(f"MAE: ${performance.mae:.3f}")
+    logging.info(f"R²: {performance.r2:.3f}")
+    logging.info(f"MAPE: {performance.mean_absolute_percentage_error:.1f}%")
     if performance.oob_score:
-        print(f"OOB Score: {performance.oob_score:.3f}")
-    print(
+        logging.info(f"OOB Score: {performance.oob_score:.3f}")
+    logging.info(
         f"CV Scores: {
             performance.cross_val_scores.mean():.3f} ± {
             performance.cross_val_scores.std():.3f}"
     )
     # Feature importance
-    print("\n=== Top 10 Feature Importance ===")
+    logging.info("\n=== Top 10 Feature Importance ===")
     for i, (feature, importance) in enumerate(list(performance.feature_importance.items())[:10]):
-        print(f"{i+1}. {feature}: {importance:.3%}")
+        logging.info(f"{i+1}. {feature}: {importance:.3%}")
     # Test predictions with intervals
-    print("\n=== Test Predictions ===")
+    logging.info("\n=== Test Predictions ===")
     test_data = pd.DataFrame(
         {
             "spot_price": [450, 450, 450],
@@ -721,18 +721,18 @@ async def main():
     predictions, lower, upper = rf_ensemble.predict(
         test_data, strategy_type="vanilla", return_intervals=True
     )
-    print("\nPredictions with 90% Confidence Intervals:")
+    logging.info("\nPredictions with 90% Confidence Intervals:")
     for i, row in test_data.iterrows():
-        print(
+        logging.info(
             f"{row['option_type'].upper()} Strike {row['strike']}: "
             f"${predictions[i]:.2f} [{lower[i]:.2f}, {upper[i]:.2f}]"
         )
     # Feature importance report
-    print("\n=== Feature Importance Report ===")
+    logging.info("\n=== Feature Importance Report ===")
     importance_report = rf_ensemble.get_feature_importance_report("vanilla", top_n=5)
-    print(importance_report.to_string(index=False))
+    logging.info(importance_report.to_string(index=False))
     # Train spread model
-    print("\n=== Training Spread Model ===")
+    logging.info("\n=== Training Spread Model ===")
     # Generate spread data
     spread_data = vanilla_data.copy()
     spread_data["strike2"] = spread_data["strike"] + np.random.choice([5, 10], n_samples)
@@ -740,25 +740,25 @@ async def main():
     spread_performance = await rf_ensemble.train(
         spread_data, strategy_type="spread", optimize_hyperparameters=False
     )
-    print(f"\nSpread Model Performance:")
-    print(f"RMSE: ${spread_performance.rmse:.3f}")
-    print(f"R²: {spread_performance.r2:.3f}")
+    logging.info(f"\nSpread Model Performance:")
+    logging.info(f"RMSE: ${spread_performance.rmse:.3f}")
+    logging.info(f"R²: {spread_performance.r2:.3f}")
     # Compare strategies
-    print("\n=== Strategy Comparison ===")
+    logging.info("\n=== Strategy Comparison ===")
     comparison = rf_ensemble.compare_strategies(test_data)
-    print(comparison.to_string(index=False))
+    logging.info(comparison.to_string(index=False))
     # SHAP explanation for single prediction
-    print("\n=== SHAP Explanation ===")
+    logging.info("\n=== SHAP Explanation ===")
     single_option = test_data.iloc[0:1]
     shap_values = rf_ensemble.explain_prediction(single_option, "vanilla")
-    print("SHAP values for first prediction:")
+    logging.info("SHAP values for first prediction:")
     top_shap = shap_values.iloc[0].abs().nlargest(5)
     for feature, value in top_shap.items():
-        print(f"  {feature}: {value:.3f}")
+        logging.info(f"  {feature}: {value:.3f}")
     # Save model
-    print("\n=== Saving Model ===")
+    logging.info("\n=== Saving Model ===")
     rf_ensemble.save_model("rf_vanilla_model.pkl", "vanilla")
-    print("Model saved successfully")
+    logging.info("Model saved successfully")
 
 
 if __name__ == "__main__":

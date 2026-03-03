@@ -72,6 +72,7 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
 
 # Integration with our masterpieces
 from Spyder.SpyderF_Analysis.SpyderF12_AdvancedBacktestingEngine import AdvancedBacktestingEngine
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1281,28 +1282,28 @@ def get_model_validation_engine_instance() -> ModelValidationEngine:
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER F13 - Model Validation Engine")
-    print("=" * 80)
+    logging.info("🎯 SPYDER F13 - Model Validation Engine")
+    logging.info("=" * 80)
     
     try:
         # Create model validation engine
         validator = ModelValidationEngine()
-        print("✅ Model Validation Engine initialized")
+        logging.info("✅ Model Validation Engine initialized")
         
         # Initialize engine with backtesting integration
         if not validator.initialize(enable_backtesting_integration=True):
-            print("❌ Failed to initialize model validation engine")
+            logging.info("❌ Failed to initialize model validation engine")
             return False
         
-        print("🔗 F12 Backtesting integration: " + 
+        logging.info("🔗 F12 Backtesting integration: " + 
               ("✅ ENABLED" if validator.backtesting_engine else "❌ Not available"))
         
         # Create sample validation scenario
-        print("\n📊 Creating sample validation scenario...")
+        logging.info("\n📊 Creating sample validation scenario...")
         scenario = create_sample_validation_scenario()
-        print(f"   Features: {scenario['n_features']}")
-        print(f"   Samples: {scenario['n_samples']}")
-        print(f"   Model: {scenario['model'].__class__.__name__}")
+        logging.info(f"   Features: {scenario['n_features']}")
+        logging.info(f"   Samples: {scenario['n_samples']}")
+        logging.info(f"   Model: {scenario['model'].__class__.__name__}")
         
         # Create model metadata
         metadata = ModelMetadata(
@@ -1319,16 +1320,16 @@ async def main():
         )
         
         # Register model
-        print("\n🔧 Registering model...")
+        logging.info("\n🔧 Registering model...")
         registration_success = validator.register_model(scenario['model'], metadata)
-        print(f"   Registration: {'✅ Success' if registration_success else '❌ Failed'}")
+        logging.info(f"   Registration: {'✅ Success' if registration_success else '❌ Failed'}")
         
         if not registration_success:
             return False
         
         # Run comprehensive validation
-        print("\n🧪 Running comprehensive model validation...")
-        print(f"   Method: Cross-Validation ({CROSS_VALIDATION_FOLDS}-fold)")
+        logging.info("\n🧪 Running comprehensive model validation...")
+        logging.info(f"   Method: Cross-Validation ({CROSS_VALIDATION_FOLDS}-fold)")
         
         validation_result = await validator.validate_model(
             metadata.model_id,
@@ -1337,19 +1338,19 @@ async def main():
             ValidationMethod.CROSS_VALIDATION
         )
         
-        print(f"   ✅ Validation completed!")
-        print(f"   Status: {validation_result.status.value.upper()}")
-        print(f"   Passed: {'✅' if validation_result.passed_validation else '❌'}")
-        print(f"   Validation Time: {validation_result.validation_time:.2f}s")
+        logging.info(f"   ✅ Validation completed!")
+        logging.info(f"   Status: {validation_result.status.value.upper()}")
+        logging.info(f"   Passed: {'✅' if validation_result.passed_validation else '❌'}")
+        logging.info(f"   Validation Time: {validation_result.validation_time:.2f}s")
         
         # Display key metrics
         if validation_result.metrics:
-            print(f"\n📊 PERFORMANCE METRICS:")
+            logging.info(f"\n📊 PERFORMANCE METRICS:")
             for metric, value in validation_result.metrics.items():
-                print(f"   {metric.upper()}: {value:.4f}")
+                logging.info(f"   {metric.upper()}: {value:.4f}")
         
         # Test feature importance analysis
-        print("\n🔍 Analyzing feature importance...")
+        logging.info("\n🔍 Analyzing feature importance...")
         feature_analysis = await validator.analyze_feature_importance(
             metadata.model_id,
             scenario['features'],
@@ -1358,14 +1359,14 @@ async def main():
         )
         
         if feature_analysis.feature_importance_scores:
-            print("   Top 5 Most Important Features:")
+            logging.info("   Top 5 Most Important Features:")
             top_features = sorted(feature_analysis.feature_importance_scores.items(),
                                 key=lambda x: x[1], reverse=True)[:5]
             for i, (feature, importance) in enumerate(top_features, 1):
-                print(f"     {i}. {feature}: {importance:.4f}")
+                logging.info(f"     {i}. {feature}: {importance:.4f}")
         
         # Test drift detection
-        print("\n🌊 Testing drift detection...")
+        logging.info("\n🌊 Testing drift detection...")
         # Create slightly modified data to simulate drift
         drift_features = scenario['features'].copy()
         drift_features += np.random.normal(0, 0.1, drift_features.shape)  # Add noise
@@ -1377,45 +1378,45 @@ async def main():
         )
         
         drift_detected = any(result.drift_detected for result in drift_results)
-        print(f"   Drift Detection: {'🔴 DETECTED' if drift_detected else '🟢 None detected'}")
+        logging.info(f"   Drift Detection: {'🔴 DETECTED' if drift_detected else '🟢 None detected'}")
         
         if drift_detected:
             for result in drift_results:
                 if result.drift_detected:
-                    print(f"     {result.drift_type.value}: Score {result.drift_score:.3f}")
+                    logging.info(f"     {result.drift_type.value}: Score {result.drift_score:.3f}")
         
         # Get model health status
-        print("\n💊 Checking model health...")
+        logging.info("\n💊 Checking model health...")
         health_status = validator.get_model_health_status(metadata.model_id)
-        print(f"   Overall Status: {health_status['overall_status'].upper()}")
-        print(f"   Health Score: {health_status['health_score']:.1f}/100")
-        print(f"   Active Alerts: {health_status['active_alerts']}")
-        print(f"   Critical Alerts: {health_status['critical_alerts']}")
+        logging.info(f"   Overall Status: {health_status['overall_status'].upper()}")
+        logging.info(f"   Health Score: {health_status['health_score']:.1f}/100")
+        logging.info(f"   Active Alerts: {health_status['active_alerts']}")
+        logging.info(f"   Critical Alerts: {health_status['critical_alerts']}")
         
         # Test monitoring
-        print("\n📡 Testing model monitoring...")
+        logging.info("\n📡 Testing model monitoring...")
         monitoring_started = validator.start_monitoring()
-        print(f"   Monitoring: {'✅ Started' if monitoring_started else '❌ Failed'}")
+        logging.info(f"   Monitoring: {'✅ Started' if monitoring_started else '❌ Failed'}")
         
         # Wait a moment for monitoring
         await asyncio.sleep(2)
         
         monitoring_stopped = validator.stop_monitoring()
-        print(f"   Monitoring: {'✅ Stopped' if monitoring_stopped else '❌ Failed to stop'}")
+        logging.info(f"   Monitoring: {'✅ Stopped' if monitoring_stopped else '❌ Failed to stop'}")
         
         # Generate comprehensive health report
-        print("\n📋 Generating model health report...")
+        logging.info("\n📋 Generating model health report...")
         health_report = validator.generate_model_health_report(metadata.model_id)
-        print("📊 MODEL HEALTH REPORT:")
-        print("-" * 60)
+        logging.info("📊 MODEL HEALTH REPORT:")
+        logging.info("-" * 60)
         # Print first portion of report
         report_lines = health_report.split('\n')[:25]
         for line in report_lines:
-            print(line)
-        print("   ... (truncated for demo)")
+            logging.info(line)
+        logging.info("   ... (truncated for demo)")
         
         # Test different validation methods
-        print("\n🧬 Testing different validation methods...")
+        logging.info("\n🧬 Testing different validation methods...")
         
         validation_methods = [
             ValidationMethod.HOLDOUT,
@@ -1423,7 +1424,7 @@ async def main():
         ]
         
         for method in validation_methods:
-            print(f"   Testing {method.value}...")
+            logging.info(f"   Testing {method.value}...")
             try:
                 method_result = await validator.validate_model(
                     metadata.model_id,
@@ -1432,44 +1433,44 @@ async def main():
                     method
                 )
                 accuracy = method_result.metrics.get('accuracy', 0)
-                print(f"     {method.value}: Accuracy {accuracy:.3f}")
+                logging.info(f"     {method.value}: Accuracy {accuracy:.3f}")
             except Exception as e:
-                print(f"     {method.value}: ❌ Error - {e}")
+                logging.info(f"     {method.value}: ❌ Error - {e}")
         
         # Display validation engine statistics
         total_models = len(validator.models)
         total_validations = sum(len(hist) for hist in validator.validation_history.values())
         
-        print(f"\n⚡ VALIDATION ENGINE STATISTICS:")
-        print(f"   Registered Models: {total_models}")
-        print(f"   Total Validations: {total_validations}")
-        print(f"   Validation Methods: {len(ValidationMethod)}")
-        print(f"   Drift Detection Methods: {len(validator.drift_detection_methods)}")
-        print(f"   Feature Analysis Methods: {len(validator.feature_analysis_methods)}")
+        logging.info(f"\n⚡ VALIDATION ENGINE STATISTICS:")
+        logging.info(f"   Registered Models: {total_models}")
+        logging.info(f"   Total Validations: {total_validations}")
+        logging.info(f"   Validation Methods: {len(ValidationMethod)}")
+        logging.info(f"   Drift Detection Methods: {len(validator.drift_detection_methods)}")
+        logging.info(f"   Feature Analysis Methods: {len(validator.feature_analysis_methods)}")
         
         # Cleanup
         validator.cleanup()
-        print("\n✅ Model Validation Engine test completed successfully!")
+        logging.info("\n✅ Model Validation Engine test completed successfully!")
         
-        print(f"\n🎯 MODEL VALIDATION CAPABILITIES:")
-        print(f"   • Comprehensive Model Performance Validation")
-        print(f"   • 5 Advanced Validation Methods")
-        print(f"   • Real-Time Drift Detection (4 methods)")
-        print(f"   • Feature Importance Analysis (SHAP, Permutation)")
-        print(f"   • Statistical Validation (Cross-val, Bootstrap)")
-        print(f"   • Model Health Monitoring")
-        print(f"   • Alert System with Multiple Severity Levels")
-        print(f"   • Ensemble Model Analysis")
-        print(f"   • Professional Health Reporting")
-        print(f"   • F12 Backtesting Integration")
-        print(f"   • 25+ Performance Metrics")
-        print(f"   • Automated Recommendation System")
-        print(f"   • Institutional-Grade Model Governance")
+        logging.info(f"\n🎯 MODEL VALIDATION CAPABILITIES:")
+        logging.info(f"   • Comprehensive Model Performance Validation")
+        logging.info(f"   • 5 Advanced Validation Methods")
+        logging.info(f"   • Real-Time Drift Detection (4 methods)")
+        logging.info(f"   • Feature Importance Analysis (SHAP, Permutation)")
+        logging.info(f"   • Statistical Validation (Cross-val, Bootstrap)")
+        logging.info(f"   • Model Health Monitoring")
+        logging.info(f"   • Alert System with Multiple Severity Levels")
+        logging.info(f"   • Ensemble Model Analysis")
+        logging.info(f"   • Professional Health Reporting")
+        logging.info(f"   • F12 Backtesting Integration")
+        logging.info(f"   • 25+ Performance Metrics")
+        logging.info(f"   • Automated Recommendation System")
+        logging.info(f"   • Institutional-Grade Model Governance")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        logging.info(f"❌ Error during testing: {e}")
         return False
 
 if __name__ == "__main__":

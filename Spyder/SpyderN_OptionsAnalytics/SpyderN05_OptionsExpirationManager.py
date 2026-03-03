@@ -53,6 +53,7 @@ sys.path.insert(0, str(project_root))
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # Import pricing modules if available
 try:
@@ -61,7 +62,7 @@ try:
     ANALYTICS_AVAILABLE = True
 except ImportError:
     ANALYTICS_AVAILABLE = False
-    print("⚠️ Options analytics modules not available")
+    logging.info("⚠️ Options analytics modules not available")
 
 # ==============================================================================
 # CONSTANTS

@@ -751,28 +751,28 @@ def get_coordinator_instance(is_primary: bool = True) -> TradingCoordinator:
 # ==============================================================================
 def example_single_coordinator():
     """Example: Single coordinator with engines."""
-    print("\n" + "="*60)
-    print("Example: Single Coordinator")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("Example: Single Coordinator")
+    logging.info("="*60)
     
     # Create and start coordinator
     coordinator = TradingCoordinator(is_primary=True)
     
     if coordinator.initialize():
-        print("✅ Coordinator initialized")
+        logging.info("✅ Coordinator initialized")
         coordinator.start()
-        print("✅ Coordinator started")
+        logging.info("✅ Coordinator started")
         
         # Simulate engine connections
-        print("\nSimulating engine connections...")
+        logging.info("\nSimulating engine connections...")
         
         # Print status
-        print("\nCoordinator Status:")
+        logging.info("\nCoordinator Status:")
         status = coordinator.get_system_status()
-        print(f"  ID: {status['coordinator_id'][:8]}")
-        print(f"  State: {status['state']}")
-        print(f"  Primary: {status['is_primary']}")
-        print(f"  Uptime: {status['uptime']:.1f}s")
+        logging.info(f"  ID: {status['coordinator_id'][:8]}")
+        logging.info(f"  State: {status['state']}")
+        logging.info(f"  Primary: {status['is_primary']}")
+        logging.info(f"  Uptime: {status['uptime']:.1f}s")
         
         # Create and route a command
         command = CommandRequest(
@@ -783,60 +783,60 @@ def example_single_coordinator():
             priority=PRIORITY_HIGH
         )
         
-        print(f"\nRouting command: {command.command_id[:8]}")
+        logging.info(f"\nRouting command: {command.command_id[:8]}")
         cmd_id = coordinator.route_command(command)
         
         if cmd_id:
-            print(f"✅ Command routed successfully")
+            logging.info(f"✅ Command routed successfully")
         else:
-            print("❌ Command routing failed")
+            logging.info("❌ Command routing failed")
         
         # Let it run for a bit
         time.sleep(5)
         
         # Stop coordinator
         coordinator.stop()
-        print("\n✅ Coordinator stopped")
+        logging.info("\n✅ Coordinator stopped")
         
     else:
-        print("❌ Coordinator initialization failed")
+        logging.info("❌ Coordinator initialization failed")
 
 def example_coordinator_cluster():
     """Example: High availability coordinator cluster."""
-    print("\n" + "="*60)
-    print("Example: Coordinator Cluster")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("Example: Coordinator Cluster")
+    logging.info("="*60)
     
     # Create cluster
     cluster = CoordinatorCluster(num_instances=2)
     
-    print("Starting coordinator cluster...")
+    logging.info("Starting coordinator cluster...")
     cluster.start()
     
-    print("\nCluster Status:")
+    logging.info("\nCluster Status:")
     for i, coordinator in enumerate(cluster.coordinators):
-        print(f"  Coordinator {i}:")
-        print(f"    State: {coordinator.state.name}")
-        print(f"    Primary: {coordinator.is_primary}")
+        logging.info(f"  Coordinator {i}:")
+        logging.info(f"    State: {coordinator.state.name}")
+        logging.info(f"    Primary: {coordinator.is_primary}")
     
     # Simulate failover
-    print("\nSimulating primary failure...")
+    logging.info("\nSimulating primary failure...")
     cluster.coordinators[0].state = CoordinatorState.STOPPED
     
     cluster._perform_failover()
     
-    print("\nCluster Status After Failover:")
+    logging.info("\nCluster Status After Failover:")
     for i, coordinator in enumerate(cluster.coordinators):
-        print(f"  Coordinator {i}:")
-        print(f"    State: {coordinator.state.name}")
-        print(f"    Primary: {coordinator.is_primary}")
+        logging.info(f"  Coordinator {i}:")
+        logging.info(f"    State: {coordinator.state.name}")
+        logging.info(f"    Primary: {coordinator.is_primary}")
     
     # Stop all coordinators
     for coordinator in cluster.coordinators:
         if coordinator.state == CoordinatorState.RUNNING:
             coordinator.stop()
     
-    print("\n✅ Cluster stopped")
+    logging.info("\n✅ Cluster stopped")
 
 # ==============================================================================
 # MAIN EXECUTION

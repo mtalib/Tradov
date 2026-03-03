@@ -43,6 +43,7 @@ from enum import Enum
 import scipy.optimize as optimize
 from scipy.stats import norm
 import warnings
+import logging
 warnings.filterwarnings('ignore')
 
 # ==============================================================================
@@ -54,7 +55,7 @@ try:
     ML_AVAILABLE = True
 except ImportError:
     ML_AVAILABLE = False
-    print("⚠️ ML libraries not available - using analytical models only")
+    logging.info("⚠️ ML libraries not available - using analytical models only")
 
 # ==============================================================================
 # LOCAL IMPORTS

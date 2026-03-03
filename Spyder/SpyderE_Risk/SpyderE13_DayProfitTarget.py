@@ -150,7 +150,7 @@ try:
 
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ Some Spyder modules not available: {e}")
+    logging.info(f"⚠️ Some Spyder modules not available: {e}")
     SPYDER_MODULES_AVAILABLE = False
 
 # ==============================================================================
@@ -2218,42 +2218,42 @@ def create_day_profit_target_widget(
 
 def main():
     """Main execution function for testing and demonstration"""
-    print("🎯 SPYDER E13 - Day Profit Target Engine")
-    print("=" * 60)
+    logging.info("🎯 SPYDER E13 - Day Profit Target Engine")
+    logging.info("=" * 60)
 
     try:
         # Create profit target engine
         engine = DayProfitTargetEngine()
-        print("✅ Day Profit Target Engine initialized")
+        logging.info("✅ Day Profit Target Engine initialized")
 
         # Test target validation
-        print("\n📊 Testing target validation:")
+        logging.info("\n📊 Testing target validation:")
 
         # Test various targets
         test_targets = [1000, 25000, 100000, 1000000]
 
         for target in test_targets:
-            print(f"\n  Testing target: ${target:,.2f}")
+            logging.info(f"\n  Testing target: ${target:,.2f}")
 
             # Simulate validation (would be async in real usage)
             max_achievable = target * 0.8  # Simulate max achievable
 
             if target <= MAX_DAILY_PROFIT_TARGET:
-                print(f"    ✅ Valid - Max achievable: ${max_achievable:,.2f}")
+                logging.info(f"    ✅ Valid - Max achievable: ${max_achievable:,.2f}")
             else:
-                print(f"    ❌ Too high - Max achievable: ${max_achievable:,.2f}")
+                logging.info(f"    ❌ Too high - Max achievable: ${max_achievable:,.2f}")
 
-        print(f"\n🎯 Test Results:")
-        print(f"  Engine Status: {engine.status.value}")
-        print(
+        logging.info(f"\n🎯 Test Results:")
+        logging.info(f"  Engine Status: {engine.status.value}")
+        logging.info(
             f"  Supported Algorithms: {', '.join([a.value for a in SlicingAlgorithm])}"
         )
-        print(f"  Supported Venues: {len(SUPPORTED_VENUES)} venues")
+        logging.info(f"  Supported Venues: {len(SUPPORTED_VENUES)} venues")
 
-        print(f"\n✅ Day Profit Target Engine test completed!")
+        logging.info(f"\n✅ Day Profit Target Engine test completed!")
 
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        logging.info(f"❌ Error during testing: {e}")
         return False
 
     return True

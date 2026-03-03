@@ -1315,7 +1315,7 @@ class FSeriesRiskIntegrator:
 
 async def main():
     """Main execution function for testing and demonstration"""
-    print("🛡️ F-Series Risk Integrator Starting...")
+    logging.info("🛡️ F-Series Risk Integrator Starting...")
     
     # Create risk integrator
     risk_integrator = FSeriesRiskIntegrator()
@@ -1325,11 +1325,11 @@ async def main():
         await risk_integrator.start_risk_monitoring()
         
         # Simulate risk monitoring for 60 seconds
-        print("📊 Risk monitoring active for 60 seconds...")
+        logging.info("📊 Risk monitoring active for 60 seconds...")
         
         # Add test alert callback
         def alert_callback(alert):
-            print(f"🚨 RISK ALERT: {alert.severity.value} - {alert.message}")
+            logging.info(f"🚨 RISK ALERT: {alert.severity.value} - {alert.message}")
         
         risk_integrator.add_alert_callback(alert_callback)
         
@@ -1337,37 +1337,37 @@ async def main():
             # Get risk status every 10 seconds
             if i % 10 == 0:
                 status = risk_integrator.get_risk_status()
-                print(f"Overall Risk Level: {status['overall_risk_level']}")
-                print(f"Active Alerts: {sum(status['active_alerts'].values())}")
+                logging.info(f"Overall Risk Level: {status['overall_risk_level']}")
+                logging.info(f"Active Alerts: {sum(status['active_alerts'].values())}")
                 
                 # Show F-series health
                 for module, health in status['f_series_health'].items():
-                    print(f"{module} Risk Score: {health['risk_score']:.2f}")
+                    logging.info(f"{module} Risk Score: {health['risk_score']:.2f}")
                 
-                print("---")
+                logging.info("---")
             
             await asyncio.sleep(1)
         
         # Generate final risk report
-        print("\n📈 Generating Risk Report...")
+        logging.info("\n📈 Generating Risk Report...")
         report_file = risk_integrator.export_risk_report()
-        print(f"Risk report exported to: {report_file}")
+        logging.info(f"Risk report exported to: {report_file}")
         
         # Show final status
         final_status = risk_integrator.get_risk_status()
-        print(f"\nFinal Risk Status:")
-        print(f"  Overall Risk Level: {final_status['overall_risk_level']}")
-        print(f"  Portfolio VaR: ${final_status['portfolio_metrics']['var_95']:,.0f}")
-        print(f"  Net Delta Exposure: {final_status['greeks_exposure']['delta']:.0f}")
+        logging.info(f"\nFinal Risk Status:")
+        logging.info(f"  Overall Risk Level: {final_status['overall_risk_level']}")
+        logging.info(f"  Portfolio VaR: ${final_status['portfolio_metrics']['var_95']:,.0f}")
+        logging.info(f"  Net Delta Exposure: {final_status['greeks_exposure']['delta']:.0f}")
         
     except Exception as e:
-        print(f"❌ Risk integrator test failed: {e}")
+        logging.info(f"❌ Risk integrator test failed: {e}")
         traceback.print_exc()
     
     finally:
         # Stop risk monitoring
         await risk_integrator.stop_risk_monitoring()
-        print("🎯 F-Series Risk Integrator Test Complete!")
+        logging.info("🎯 F-Series Risk Integrator Test Complete!")
 
 if __name__ == "__main__":
     # Run the risk integrator test

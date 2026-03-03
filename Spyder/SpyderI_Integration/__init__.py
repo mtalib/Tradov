@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -52,7 +53,7 @@ try:
 
     INTEGRATION_HUB_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderI01_IntegrationHub not available: {e}")
+    logging.info(f"⚠️ SpyderI01_IntegrationHub not available: {e}")
     INTEGRATION_HUB_AVAILABLE = False
 
 # Event Router
@@ -64,7 +65,7 @@ try:
 
     EVENT_ROUTER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderI02_EventRouter not available: {e}")
+    logging.info(f"⚠️ SpyderI02_EventRouter not available: {e}")
     EVENT_ROUTER_AVAILABLE = False
 
 # Config Manager
@@ -76,7 +77,7 @@ try:
 
     CONFIG_MANAGER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderI03_ConfigManager not available: {e}")
+    logging.info(f"⚠️ SpyderI03_ConfigManager not available: {e}")
     CONFIG_MANAGER_AVAILABLE = False
 
 # Diagnostics Engine
@@ -88,7 +89,7 @@ try:
 
     DIAGNOSTICS_ENGINE_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderI04_DiagnosticsEngine not available: {e}")
+    logging.info(f"⚠️ SpyderI04_DiagnosticsEngine not available: {e}")
     DIAGNOSTICS_ENGINE_AVAILABLE = False
 
 # Agent Message Bus
@@ -100,7 +101,7 @@ try:
 
     AGENT_MESSAGE_BUS_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderI06_AgentMessageBus not available: {e}")
+    logging.info(f"⚠️ SpyderI06_AgentMessageBus not available: {e}")
     AGENT_MESSAGE_BUS_AVAILABLE = False
 
 # ==============================================================================
@@ -178,23 +179,23 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        print(f"🔌 {info['package_name']} v{info['version']}")
-        print(
+        logging.info(f"🔌 {info['package_name']} v{info['version']}")
+        logging.info(
             f"✅ {info['available_modules']}/{info['total_modules']} modules available"
         )
 
         if info["available_modules"] == info["total_modules"]:
-            print("🚀 All integration modules loaded successfully")
+            logging.info("🚀 All integration modules loaded successfully")
             return True
         else:
-            print("⚠️ Some integration modules are missing")
+            logging.info("⚠️ Some integration modules are missing")
             for module, status in info["module_status"].items():
                 status_icon = "✅" if status else "❌"
-                print(f"   {status_icon} {module}")
+                logging.info(f"   {status_icon} {module}")
             return False
 
     except Exception as e:
-        print(f"❌ Integration package validation failed: {e}")
+        logging.info(f"❌ Integration package validation failed: {e}")
         return False
 
 
@@ -240,12 +241,12 @@ if __name__ != "__main__":
     validate_package()
 else:
     # If running as main, show detailed package info
-    print("=" * 70)
-    print("SPYDER I - INTEGRATION PACKAGE")
-    print("=" * 70)
+    logging.info("=" * 70)
+    logging.info("SPYDER I - INTEGRATION PACKAGE")
+    logging.info("=" * 70)
     validate_package()
     info = get_package_info()
-    print("\nPackage Details:")
+    logging.info("\nPackage Details:")
     for key, value in info.items():
         if key != "module_status":
-            print(f"  {key}: {value}")
+            logging.info(f"  {key}: {value}")

@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                             QPushButton, QRadioButton, QScrollArea, QSlider,
                              QSpinBox, QTableWidget, QTableWidgetItem,
                              QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+import logging
 
 # ==============================================================================
 # CONSTANTS AND STYLING
@@ -859,7 +860,7 @@ class RiskParametersDialog(QDialog):
 
         except Exception as e:
             # If comparison fails, don't change the current state
-            print(f"Change detection error: {e}")  # Debug info
+            logging.info(f"Change detection error: {e}")  # Debug info
 
     def update_save_status(self):
         """Update the save status display"""

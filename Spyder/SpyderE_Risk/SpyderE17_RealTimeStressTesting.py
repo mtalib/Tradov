@@ -49,6 +49,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import MathUtils
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1451,91 +1452,91 @@ def get_stress_testing_instance() -> RealTimeStressTesting:
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER E07 - Real-Time Stress Testing Engine")
-    print("=" * 80)
+    logging.info("🎯 SPYDER E07 - Real-Time Stress Testing Engine")
+    logging.info("=" * 80)
     
     try:
         # Create stress testing engine
         stress_engine = RealTimeStressTesting()
-        print("✅ Stress Testing Engine initialized")
+        logging.info("✅ Stress Testing Engine initialized")
         
         # Initialize engine
         if not stress_engine.initialize():
-            print("❌ Failed to initialize stress testing engine")
+            logging.info("❌ Failed to initialize stress testing engine")
             return False
         
         # Create test portfolio
         portfolio = create_default_portfolio_snapshot()
-        print(f"📊 Created test portfolio: ${portfolio.portfolio_value:,.2f}")
+        logging.info(f"📊 Created test portfolio: ${portfolio.portfolio_value:,.2f}")
         
         # Test single scenario
-        print("\n🔍 Testing Black Monday scenario...")
+        logging.info("\n🔍 Testing Black Monday scenario...")
         black_monday_result = await stress_engine.run_single_scenario("black_monday", portfolio)
         if black_monday_result:
-            print(f"   P&L Impact: {black_monday_result.pnl_percentage:.2%}")
-            print(f"   Portfolio P&L: ${black_monday_result.portfolio_pnl:,.2f}")
-            print(f"   Severity: {black_monday_result.severity.value}")
-            print(f"   Computation Time: {black_monday_result.computation_time:.3f}s")
+            logging.info(f"   P&L Impact: {black_monday_result.pnl_percentage:.2%}")
+            logging.info(f"   Portfolio P&L: ${black_monday_result.portfolio_pnl:,.2f}")
+            logging.info(f"   Severity: {black_monday_result.severity.value}")
+            logging.info(f"   Computation Time: {black_monday_result.computation_time:.3f}s")
         
         # Test all scenarios
-        print("\n🚀 Running all stress scenarios...")
+        logging.info("\n🚀 Running all stress scenarios...")
         all_results = await stress_engine.run_all_scenarios(portfolio)
-        print(f"✅ Completed {len(all_results)} stress scenarios")
+        logging.info(f"✅ Completed {len(all_results)} stress scenarios")
         
         # Show worst case scenarios
         worst_cases = stress_engine.get_worst_case_scenarios(3)
         if worst_cases:
-            print("\n⚠️  WORST CASE SCENARIOS:")
+            logging.info("\n⚠️  WORST CASE SCENARIOS:")
             for i, scenario in enumerate(worst_cases, 1):
-                print(f"   {i}. {scenario['scenario_name']}: {scenario['pnl_impact']:.2%}")
+                logging.info(f"   {i}. {scenario['scenario_name']}: {scenario['pnl_impact']:.2%}")
         
         # Run Monte Carlo simulation
-        print("\n🎲 Running Monte Carlo simulation...")
+        logging.info("\n🎲 Running Monte Carlo simulation...")
         mc_results = stress_engine.run_monte_carlo_simulation(portfolio, iterations=1000)
         if mc_results:
             pnl_stats = mc_results.get('pnl_statistics', {})
             risk_metrics = mc_results.get('risk_metrics', {})
-            print(f"   Mean P&L: ${pnl_stats.get('mean', 0):,.2f}")
-            print(f"   99% VaR: ${risk_metrics.get('var_99', 0):,.2f}")
-            print(f"   Expected Shortfall: ${risk_metrics.get('expected_shortfall_99', 0):,.2f}")
+            logging.info(f"   Mean P&L: ${pnl_stats.get('mean', 0):,.2f}")
+            logging.info(f"   99% VaR: ${risk_metrics.get('var_99', 0):,.2f}")
+            logging.info(f"   Expected Shortfall: ${risk_metrics.get('expected_shortfall_99', 0):,.2f}")
         
         # Generate comprehensive report
-        print("\n📋 Generating stress testing report...")
+        logging.info("\n📋 Generating stress testing report...")
         report = stress_engine.generate_stress_report()
-        print("📊 STRESS TESTING REPORT:")
-        print("-" * 40)
+        logging.info("📊 STRESS TESTING REPORT:")
+        logging.info("-" * 40)
         # Print first few lines of report
         report_lines = report.split('\n')[:15]
         for line in report_lines:
-            print(line)
-        print("   ... (truncated)")
+            logging.info(line)
+        logging.info("   ... (truncated)")
         
         # Test performance
         summary = stress_engine.get_stress_summary()
         perf_metrics = summary.get('performance_metrics', {})
-        print(f"\n⚡ PERFORMANCE METRICS:")
-        print(f"   Total Tests: {perf_metrics.get('total_tests', 0)}")
-        print(f"   Average Computation Time: {perf_metrics.get('avg_computation_time', 0):.3f}s")
-        print(f"   Maximum Computation Time: {perf_metrics.get('max_computation_time', 0):.3f}s")
+        logging.info(f"\n⚡ PERFORMANCE METRICS:")
+        logging.info(f"   Total Tests: {perf_metrics.get('total_tests', 0)}")
+        logging.info(f"   Average Computation Time: {perf_metrics.get('avg_computation_time', 0):.3f}s")
+        logging.info(f"   Maximum Computation Time: {perf_metrics.get('max_computation_time', 0):.3f}s")
         
         # Cleanup
         stress_engine.cleanup()
-        print("\n✅ Real-Time Stress Testing Engine test completed successfully!")
+        logging.info("\n✅ Real-Time Stress Testing Engine test completed successfully!")
         
-        print(f"\n🎯 STRESS TESTING CAPABILITIES:")
-        print(f"   • {len(stress_engine.scenarios)} Built-in Scenarios")
-        print(f"   • Monte Carlo Simulation (10,000 iterations)")
-        print(f"   • Real-time Portfolio Monitoring")
-        print(f"   • Multi-severity Risk Assessment")
-        print(f"   • Performance Optimized (<1s per test)")
-        print(f"   • Comprehensive Alert System")
-        print(f"   • Historical Scenario Replication")
-        print(f"   • Custom Scenario Support")
+        logging.info(f"\n🎯 STRESS TESTING CAPABILITIES:")
+        logging.info(f"   • {len(stress_engine.scenarios)} Built-in Scenarios")
+        logging.info(f"   • Monte Carlo Simulation (10,000 iterations)")
+        logging.info(f"   • Real-time Portfolio Monitoring")
+        logging.info(f"   • Multi-severity Risk Assessment")
+        logging.info(f"   • Performance Optimized (<1s per test)")
+        logging.info(f"   • Comprehensive Alert System")
+        logging.info(f"   • Historical Scenario Replication")
+        logging.info(f"   • Custom Scenario Support")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        logging.info(f"❌ Error during testing: {e}")
         return False
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushBu
     QCheckBox, QGroupBox, QSplitter, QMenu, QApplication, QComboBox
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPointF
 from PySide6.QtGui import QPalette, QColor, QFont, QPen, QBrush, QPixmap, QAction
+import logging
 try:
     import pyqtgraph as pg
 
@@ -56,7 +57,7 @@ try:
     PYQTGRAPH_AVAILABLE = True
 except ImportError:
     PYQTGRAPH_AVAILABLE = False
-    print("Warning: pyqtgraph not available. Install with: pip install pyqtgraph")
+    logging.info("Warning: pyqtgraph not available. Install with: pip install pyqtgraph")
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -65,8 +66,8 @@ try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderA_Core.SpyderA05_EventManager import Event, EventType
 except ImportError as e:
-    print(f"Warning: Cannot import Spyder modules: {e}")
-    print("Creating fallback logger...")
+    logging.info(f"Warning: Cannot import Spyder modules: {e}")
+    logging.info("Creating fallback logger...")
     
     # Create fallback logger
     import logging

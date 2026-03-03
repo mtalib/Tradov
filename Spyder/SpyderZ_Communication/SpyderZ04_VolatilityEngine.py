@@ -1314,9 +1314,9 @@ def create_test_option_chain() -> List[OptionContract]:
 # ==============================================================================
 def example_iv_calculation():
     """Example: Calculate implied volatility."""
-    print("\n" + "="*60)
-    print("Example: Implied Volatility Calculation")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("Example: Implied Volatility Calculation")
+    logging.info("="*60)
     
     bs = BlackScholesCalculator()
     
@@ -1327,12 +1327,12 @@ def example_iv_calculation():
     time_to_expiry = 30 / DAYS_IN_YEAR
     option_type = "CALL"
     
-    print(f"\nOption Parameters:")
-    print(f"  Spot Price: ${spot}")
-    print(f"  Strike: ${strike}")
-    print(f"  Option Price: ${option_price}")
-    print(f"  Days to Expiry: 30")
-    print(f"  Option Type: {option_type}")
+    logging.info(f"\nOption Parameters:")
+    logging.info(f"  Spot Price: ${spot}")
+    logging.info(f"  Strike: ${strike}")
+    logging.info(f"  Option Price: ${option_price}")
+    logging.info(f"  Days to Expiry: 30")
+    logging.info(f"  Option Type: {option_type}")
     
     # Calculate IV
     iv = bs.implied_volatility(
@@ -1340,21 +1340,21 @@ def example_iv_calculation():
         time_to_expiry, option_type
     )
     
-    print(f"\nCalculated Implied Volatility: {iv:.2%}")
+    logging.info(f"\nCalculated Implied Volatility: {iv:.2%}")
     
     # Verify with price calculation
     calculated_price = bs.call_price(
         spot, strike, RISK_FREE_RATE, 0, iv, time_to_expiry
     )
     
-    print(f"Verification - Calculated Price: ${calculated_price:.2f}")
-    print(f"Price Difference: ${abs(calculated_price - option_price):.4f}")
+    logging.info(f"Verification - Calculated Price: ${calculated_price:.2f}")
+    logging.info(f"Price Difference: ${abs(calculated_price - option_price):.4f}")
 
 def example_greeks_calculation():
     """Example: Calculate all Greeks."""
-    print("\n" + "="*60)
-    print("Example: Greeks Calculation")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("Example: Greeks Calculation")
+    logging.info("="*60)
     
     # Create test option
     option = OptionContract(
@@ -1371,34 +1371,34 @@ def example_greeks_calculation():
         underlying_price=450.0
     )
     
-    print(f"\nOption: {option.symbol}")
-    print(f"  Strike: ${option.strike}")
-    print(f"  Spot: ${option.underlying_price}")
-    print(f"  Mid Price: ${(option.bid + option.ask) / 2:.2f}")
+    logging.info(f"\nOption: {option.symbol}")
+    logging.info(f"  Strike: ${option.strike}")
+    logging.info(f"  Spot: ${option.underlying_price}")
+    logging.info(f"  Mid Price: ${(option.bid + option.ask) / 2:.2f}")
     
     # Calculate Greeks
     calculator = GreeksCalculator()
     greeks = calculator.calculate_all_greeks(option)
     
-    print(f"\nGreeks:")
-    print(f"  Delta: {greeks.delta:.4f}")
-    print(f"  Gamma: {greeks.gamma:.4f}")
-    print(f"  Theta: ${greeks.theta:.2f}/day")
-    print(f"  Vega: ${greeks.vega:.2f}/1% vol")
-    print(f"  Rho: ${greeks.rho:.2f}/1% rate")
-    print(f"  Lambda: {greeks.lambda_:.2f}x")
+    logging.info(f"\nGreeks:")
+    logging.info(f"  Delta: {greeks.delta:.4f}")
+    logging.info(f"  Gamma: {greeks.gamma:.4f}")
+    logging.info(f"  Theta: ${greeks.theta:.2f}/day")
+    logging.info(f"  Vega: ${greeks.vega:.2f}/1% vol")
+    logging.info(f"  Rho: ${greeks.rho:.2f}/1% rate")
+    logging.info(f"  Lambda: {greeks.lambda_:.2f}x")
     
-    print(f"\nSecond-Order Greeks:")
-    print(f"  Vanna: {greeks.vanna:.4f}")
-    print(f"  Volga: {greeks.volga:.4f}")
-    print(f"  Charm: {greeks.charm:.4f}")
-    print(f"  Veta: {greeks.veta:.4f}")
+    logging.info(f"\nSecond-Order Greeks:")
+    logging.info(f"  Vanna: {greeks.vanna:.4f}")
+    logging.info(f"  Volga: {greeks.volga:.4f}")
+    logging.info(f"  Charm: {greeks.charm:.4f}")
+    logging.info(f"  Veta: {greeks.veta:.4f}")
 
 def example_volatility_surface():
     """Example: Build volatility surface."""
-    print("\n" + "="*60)
-    print("Example: Volatility Surface")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("Example: Volatility Surface")
+    logging.info("="*60)
     
     # Create option chain
     option_chain = create_test_option_chain()
@@ -1433,19 +1433,19 @@ def example_volatility_surface():
                 )
                 option_chain.append(option)
     
-    print(f"\nOption Chain Size: {len(option_chain)} options")
+    logging.info(f"\nOption Chain Size: {len(option_chain)} options")
     
     # Build surface
     builder = VolatilitySurfaceBuilder()
     surface = builder.build_surface(option_chain, 450.0)
     
-    print(f"\nVolatility Surface:")
-    print(f"  Expiries: {len(surface.expiries)}")
-    print(f"  Strikes: {len(surface.strikes)}")
-    print(f"  Surface Shape: {surface.ivs.shape}")
+    logging.info(f"\nVolatility Surface:")
+    logging.info(f"  Expiries: {len(surface.expiries)}")
+    logging.info(f"  Strikes: {len(surface.strikes)}")
+    logging.info(f"  Surface Shape: {surface.ivs.shape}")
     
     # Sample some IVs
-    print(f"\nSample IVs:")
+    logging.info(f"\nSample IVs:")
     test_points = [
         (30/DAYS_IN_YEAR, 445),
         (30/DAYS_IN_YEAR, 450),
@@ -1455,13 +1455,13 @@ def example_volatility_surface():
     
     for T, K in test_points:
         iv = surface.get_iv(K, T)
-        print(f"  T={T*DAYS_IN_YEAR:.0f} days, K=${K}: IV={iv:.2%}")
+        logging.info(f"  T={T*DAYS_IN_YEAR:.0f} days, K=${K}: IV={iv:.2%}")
 
 def example_volatility_analysis():
     """Example: Comprehensive volatility analysis."""
-    print("\n" + "="*60)
-    print("Example: Volatility Analysis")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("Example: Volatility Analysis")
+    logging.info("="*60)
     
     # Create analyzer
     analyzer = VolatilityAnalyzer()
@@ -1472,23 +1472,23 @@ def example_volatility_analysis():
     # Analyze
     metrics = analyzer.calculate_volatility_metrics(option_chain, 450.0)
     
-    print(f"\nVolatility Metrics:")
-    print(f"  Current IV: {metrics.current_iv:.2%}")
-    print(f"  Historical Vol: {metrics.historical_vol:.2%}")
-    print(f"  IV Rank: {metrics.iv_rank:.1f}")
-    print(f"  IV Percentile: {metrics.iv_percentile:.1f}")
-    print(f"  Skew: {metrics.skew:.4f}")
-    print(f"  Regime: {metrics.regime}")
+    logging.info(f"\nVolatility Metrics:")
+    logging.info(f"  Current IV: {metrics.current_iv:.2%}")
+    logging.info(f"  Historical Vol: {metrics.historical_vol:.2%}")
+    logging.info(f"  IV Rank: {metrics.iv_rank:.1f}")
+    logging.info(f"  IV Percentile: {metrics.iv_percentile:.1f}")
+    logging.info(f"  Skew: {metrics.skew:.4f}")
+    logging.info(f"  Regime: {metrics.regime}")
     
-    print(f"\nTerm Structure:")
+    logging.info(f"\nTerm Structure:")
     for expiry, iv in sorted(metrics.term_structure.items()):
-        print(f"  {expiry*12:.1f} months: {iv:.2%}")
+        logging.info(f"  {expiry*12:.1f} months: {iv:.2%}")
 
 def example_engine_operation():
     """Example: Volatility engine operation."""
-    print("\n" + "="*60)
-    print("Example: Volatility Engine Operation")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("Example: Volatility Engine Operation")
+    logging.info("="*60)
     
     # Create engine
     stop_event = mp.Event()
@@ -1498,27 +1498,27 @@ def example_engine_operation():
         "VOL_ENGINE_001"
     )
     
-    print("✅ Volatility Engine created")
+    logging.info("✅ Volatility Engine created")
     
     # Simulate initialization
-    print("\nInitializing engine...")
+    logging.info("\nInitializing engine...")
     # engine.initialize()  # Would connect to coordinator
     
     # Show capabilities
-    print("\nEngine Capabilities:")
-    print("  • Real-time IV calculation")
-    print("  • Complete Greeks computation") 
-    print("  • Volatility surface modeling")
-    print("  • Historical volatility analysis")
-    print("  • Volatility regime detection")
+    logging.info("\nEngine Capabilities:")
+    logging.info("  • Real-time IV calculation")
+    logging.info("  • Complete Greeks computation") 
+    logging.info("  • Volatility surface modeling")
+    logging.info("  • Historical volatility analysis")
+    logging.info("  • Volatility regime detection")
     
     # Get metrics
     metrics = engine.get_metrics()
-    print("\nEngine Metrics:")
+    logging.info("\nEngine Metrics:")
     for key, value in metrics.items():
-        print(f"  {key}: {value}")
+        logging.info(f"  {key}: {value}")
     
-    print("\n✅ Engine demonstration complete")
+    logging.info("\n✅ Engine demonstration complete")
 
 # ==============================================================================
 # MAIN EXECUTION
@@ -1636,6 +1636,7 @@ from SpyderZ02_MessageProtocol import (
     MessageFactory, ProtocolManager, SerializationFormat,
     MessageCategory, ProtocolMessage, PRIORITY_HIGH
 )
+import logging
 
 # Import from utilities (would be actual imports in production)
 # from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

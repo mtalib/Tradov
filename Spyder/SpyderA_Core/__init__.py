@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -48,43 +49,43 @@ __status__ = "Production"
 try:
     from .SpyderA01_Main import SpyderApplication, SpyderMainWindow, SpyderConfig
 except ImportError as e:
-    print(f"Warning: Could not import Main components: {e}")
+    logging.info(f"Warning: Could not import Main components: {e}")
 
 # Trading Engine
 try:
     from .SpyderA02_TradingEngine import TradingEngine, EngineState, StrategyInfo
 except ImportError as e:
-    print(f"Warning: Could not import TradingEngine: {e}")
+    logging.info(f"Warning: Could not import TradingEngine: {e}")
 
 # Configuration
 try:
     from . import SpyderA03_Configuration
 except ImportError as e:
-    print(f"Warning: Could not import Configuration: {e}")
+    logging.info(f"Warning: Could not import Configuration: {e}")
 
 # Scheduler
 try:
     from . import SpyderA04_Scheduler
 except ImportError as e:
-    print(f"Warning: Could not import Scheduler: {e}")
+    logging.info(f"Warning: Could not import Scheduler: {e}")
 
 # Event Manager
 try:
     from . import SpyderA05_EventManager
 except ImportError as e:
-    print(f"Warning: Could not import EventManager: {e}")
+    logging.info(f"Warning: Could not import EventManager: {e}")
 
 # Master Controller
 try:
     from . import SpyderA06_MasterController
 except ImportError as e:
-    print(f"Warning: Could not import MasterController: {e}")
+    logging.info(f"Warning: Could not import MasterController: {e}")
 
 # F-Series Orchestrator
 try:
     from . import SpyderA08_FSeriesOrchestrator
 except ImportError as e:
-    print(f"Warning: Could not import FSeriesOrchestrator: {e}")
+    logging.info(f"Warning: Could not import FSeriesOrchestrator: {e}")
 
 # ==============================================================================
 # PACKAGE EXPORTS

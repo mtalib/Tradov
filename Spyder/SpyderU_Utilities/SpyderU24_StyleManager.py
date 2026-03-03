@@ -47,7 +47,7 @@ try:
     QDARKSTYLE_AVAILABLE = True
 except ImportError:
     QDARKSTYLE_AVAILABLE = False
-    print("Warning: qdarkstyle not available. Install with: pip install qdarkstyle")
+    logging.info("Warning: qdarkstyle not available. Install with: pip install qdarkstyle")
 
 # QtAwesome icons integration
 try:
@@ -55,12 +55,13 @@ try:
     QTAWESOME_AVAILABLE = True
 except ImportError:
     QTAWESOME_AVAILABLE = False
-    print("Warning: qtawesome not available. Install with: pip install qtawesome")
+    logging.info("Warning: qtawesome not available. Install with: pip install qtawesome")
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+import logging
 
 # ==============================================================================
 # SPYDER COLOR SCHEME - Exact match to existing dashboard
@@ -686,33 +687,33 @@ def get_spyder_color(color_name: str) -> str:
 # ==============================================================================
 def main():
     """Demonstrate style manager capabilities."""
-    print("Spyder Style Manager Demo")
-    print("=" * 50)
+    logging.info("Spyder Style Manager Demo")
+    logging.info("=" * 50)
     
     # Create style manager
     manager = SpyderStyleManager()
     
     # Show theme info
     info = manager.get_theme_info()
-    print("Theme Information:")
+    logging.info("Theme Information:")
     for key, value in info.items():
-        print(f"  {key}: {value}")
+        logging.info(f"  {key}: {value}")
     
     # Test color access
-    print(f"\nColor Examples:")
-    print(f"  Positive: {manager.get_color('positive')}")
-    print(f"  Negative: {manager.get_color('negative')}")
-    print(f"  Neutral: {manager.get_color('neutral')}")
+    logging.info(f"\nColor Examples:")
+    logging.info(f"  Positive: {manager.get_color('positive')}")
+    logging.info(f"  Negative: {manager.get_color('negative')}")
+    logging.info(f"  Neutral: {manager.get_color('neutral')}")
     
     # Test icon availability
     if manager.is_qtawesome_available():
-        print(f"\nIcon system available")
+        logging.info(f"\nIcon system available")
     else:
-        print(f"\nIcon system not available (install qtawesome)")
+        logging.info(f"\nIcon system not available (install qtawesome)")
     
     # Show stylesheet length
     stylesheet = manager.get_stylesheet()
-    print(f"\nStylesheet generated: {len(stylesheet)} characters")
+    logging.info(f"\nStylesheet generated: {len(stylesheet)} characters")
 
 if __name__ == "__main__":
     main()

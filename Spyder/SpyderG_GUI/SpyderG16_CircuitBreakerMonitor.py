@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QTimer, Signal, Qt
 from PySide6.QtGui import QFont, QColor, QPalette
+import logging
 
 # ==============================================================================
 # SPYDER IMPORTS
@@ -54,7 +55,7 @@ try:
     CIRCUIT_BREAKERS_AVAILABLE = True
 except ImportError:
     CIRCUIT_BREAKERS_AVAILABLE = False
-    print("⚠️ Circuit breakers not available - using simulation mode")
+    logging.info("⚠️ Circuit breakers not available - using simulation mode")
 
     # Mock circuit breaker for development
     class CircuitState:
@@ -268,7 +269,7 @@ class CircuitBreakerMonitor(QWidget):
             self.reset_requested.emit(breaker_id)
             self.update_display()
         except Exception as e:
-            print(f"❌ Error resetting {breaker_id} circuit breaker: {e}")
+            logging.info(f"❌ Error resetting {breaker_id} circuit breaker: {e}")
 
 # ==============================================================================
 # FACTORY FUNCTION

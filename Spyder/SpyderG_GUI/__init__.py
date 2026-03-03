@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -67,9 +68,9 @@ try:
             "AppConfig",
         ]
     )
-    print("✅ SpyderG_GUI: Application Manager loaded successfully")
+    logging.info("✅ SpyderG_GUI: Application Manager loaded successfully")
 except Exception as e:
-    print(f"⚠️ SpyderG_GUI: Application Manager not available: {e}")
+    logging.info(f"⚠️ SpyderG_GUI: Application Manager not available: {e}")
 
 # Import GUI modules with error handling and proper initialization
 modules_to_import = [
@@ -114,12 +115,12 @@ for module_info in modules_to_import:
             globals()[items_to_import] = getattr(module, items_to_import)
             __all__.append(items_to_import)
 
-        print(f"✅ SpyderG_GUI: {module_name} loaded successfully")
+        logging.info(f"✅ SpyderG_GUI: {module_name} loaded successfully")
         successful_imports += 1
     except Exception as e:
-        print(f"⚠️ SpyderG_GUI: {module_name} not available: {e}")
+        logging.info(f"⚠️ SpyderG_GUI: {module_name} not available: {e}")
 
-print(f"✅ SpyderG_GUI: {successful_imports} components loaded successfully")
+logging.info(f"✅ SpyderG_GUI: {successful_imports} components loaded successfully")
 
 # Import broker status widget (Tradier + Databento)
 try:
@@ -133,9 +134,9 @@ try:
         "BrokerStatusWidget",
         "StatusConfig", "StatusLevel", "create_status_widget",
     ])
-    print("✅ SpyderG_GUI: BrokerStatusWidget loaded successfully")
+    logging.info("✅ SpyderG_GUI: BrokerStatusWidget loaded successfully")
 except Exception as e:
-    print(f"⚠️ SpyderG_GUI: BrokerStatusWidget not available: {e}")
+    logging.info(f"⚠️ SpyderG_GUI: BrokerStatusWidget not available: {e}")
 
 # Import circuit breaker monitor
 try:
@@ -144,9 +145,9 @@ try:
         create_circuit_breaker_monitor,
     )
     __all__.extend(["CircuitBreakerMonitor", "create_circuit_breaker_monitor"])
-    print("✅ SpyderG_GUI: CircuitBreakerMonitor loaded successfully")
+    logging.info("✅ SpyderG_GUI: CircuitBreakerMonitor loaded successfully")
 except Exception as e:
-    print(f"⚠️ SpyderG_GUI: CircuitBreakerMonitor not available: {e}")
+    logging.info(f"⚠️ SpyderG_GUI: CircuitBreakerMonitor not available: {e}")
 
 
 # Add convenience functions for safe widget creation
@@ -155,7 +156,7 @@ def create_trading_dashboard(*args, **kwargs):
     try:
         # Ensure Qt application is initialized
         if not ensure_qt_application():
-            print("Failed to initialize Qt application")
+            logging.info("Failed to initialize Qt application")
             return None
 
         # Import and create dashboard
@@ -163,7 +164,7 @@ def create_trading_dashboard(*args, **kwargs):
 
         return create_safe_widget(SpyderTradingDashboard, *args, **kwargs)
     except Exception as e:
-        print(f"Failed to create trading dashboard: {e}")
+        logging.info(f"Failed to create trading dashboard: {e}")
         return None
 
 
@@ -172,7 +173,7 @@ def create_chart_widget(*args, **kwargs):
     try:
         # Ensure Qt application is initialized
         if not ensure_qt_application():
-            print("Failed to initialize Qt application")
+            logging.info("Failed to initialize Qt application")
             return None
 
         # Import and create chart widget
@@ -180,7 +181,7 @@ def create_chart_widget(*args, **kwargs):
 
         return create_safe_widget(ChartWidget, *args, **kwargs)
     except Exception as e:
-        print(f"Failed to create chart widget: {e}")
+        logging.info(f"Failed to create chart widget: {e}")
         return None
 
 
@@ -189,7 +190,7 @@ def create_main_window(*args, **kwargs):
     try:
         # Ensure Qt application is initialized
         if not ensure_qt_application():
-            print("Failed to initialize Qt application")
+            logging.info("Failed to initialize Qt application")
             return None
 
         # Import and create main window
@@ -197,7 +198,7 @@ def create_main_window(*args, **kwargs):
 
         return create_safe_widget(SpyderMainWindow, *args, **kwargs)
     except Exception as e:
-        print(f"Failed to create main window: {e}")
+        logging.info(f"Failed to create main window: {e}")
         return None
 
 
@@ -225,10 +226,10 @@ def check_optional_dependencies():
             missing.append(f"{dep} ({description})")
 
     if missing:
-        print("Warning: Optional dependencies not available:")
+        logging.info("Warning: Optional dependencies not available:")
         for dep in missing:
-            print(f"  - {dep}")
-        print("Install with: pip install [package_name]")
+            logging.info(f"  - {dep}")
+        logging.info("Install with: pip install [package_name]")
 
 
 # Run dependency check
@@ -254,7 +255,7 @@ try:
 except Exception:
     pass
 
-print(f"✅ SpyderG_GUI package initialized (v{__version__})")
+logging.info(f"✅ SpyderG_GUI package initialized (v{__version__})")
 
 # Export version
 __all__.append("__version__")

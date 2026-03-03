@@ -26,17 +26,17 @@ import logging
 # Import the comprehensive dashboard from SpyderG05
 try:
     from .SpyderG05_TradingDashboard import SpyderTradingDashboard as SpyderMainWindow
-    print("✅ SpyderG01_MainWindow: Successfully bridged to SpyderG05_TradingDashboard")
+    logging.info("✅ SpyderG01_MainWindow: Successfully bridged to SpyderG05_TradingDashboard")
     BRIDGE_SUCCESSFUL = True
 except ImportError as e:
-    print(f"⚠️ SpyderG01_MainWindow: Could not import SpyderG05_TradingDashboard: {e}")
+    logging.info(f"⚠️ SpyderG01_MainWindow: Could not import SpyderG05_TradingDashboard: {e}")
     # Try alternative import path
     try:
         from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard as SpyderMainWindow
-        print("✅ SpyderG01_MainWindow: Successfully bridged via alternative path")
+        logging.info("✅ SpyderG01_MainWindow: Successfully bridged via alternative path")
         BRIDGE_SUCCESSFUL = True
     except ImportError as e2:
-        print(f"❌ SpyderG01_MainWindow: Failed to bridge to SpyderG05: {e2}")
+        logging.info(f"❌ SpyderG01_MainWindow: Failed to bridge to SpyderG05: {e2}")
         BRIDGE_SUCCESSFUL = False
         
         # Create a minimal fallback class
@@ -58,7 +58,7 @@ except ImportError as e:
                 error_label.setStyleSheet("color: red; font-size: 14px;")
                 self.setCentralWidget(error_label)
                 
-                print("❌ Using minimal fallback window - SpyderG05 not available")
+                logging.info("❌ Using minimal fallback window - SpyderG05 not available")
 
 # ==============================================================================
 # COMPATIBILITY WRAPPER (Optional)

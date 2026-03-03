@@ -887,9 +887,9 @@ class ErrorMessage:
 # ==============================================================================
 def example_usage():
     """Demonstrate protocol usage."""
-    print("\n" + "="*60)
-    print("SPYDER Message Protocol - Enhanced Version")
-    print("="*60)
+    logging.info("\n" + "="*60)
+    logging.info("SPYDER Message Protocol - Enhanced Version")
+    logging.info("="*60)
     
     # Create protocol manager
     manager = ProtocolManager(
@@ -897,8 +897,8 @@ def example_usage():
         default_format=SerializationFormat.COMPRESSED_JSON
     )
     
-    print("\n1. Creating Messages with Validation")
-    print("-" * 40)
+    logging.info("\n1. Creating Messages with Validation")
+    logging.info("-" * 40)
     
     try:
         # Create market data message
@@ -912,7 +912,7 @@ def example_usage():
             bid_size=100,
             ask_size=150
         )
-        print(f"✅ Market data message created: {market_msg.message_id}")
+        logging.info(f"✅ Market data message created: {market_msg.message_id}")
         
         # Create order message
         order_msg = manager.factory.create_order(
@@ -923,7 +923,7 @@ def example_usage():
             price=450.00,
             source="StrategyEngine"
         )
-        print(f"✅ Order message created: {order_msg.message_id}")
+        logging.info(f"✅ Order message created: {order_msg.message_id}")
         
         # Create risk update
         risk_msg = manager.factory.create_risk_update(
@@ -934,13 +934,13 @@ def example_usage():
             portfolio_vega=-523.1,
             portfolio_value=1000000.0
         )
-        print(f"✅ Risk update created: {risk_msg.message_id}")
+        logging.info(f"✅ Risk update created: {risk_msg.message_id}")
         
     except ValueError as e:
-        print(f"❌ Validation error: {e}")
+        logging.info(f"❌ Validation error: {e}")
     
-    print("\n2. Message Serialization")
-    print("-" * 40)
+    logging.info("\n2. Message Serialization")
+    logging.info("-" * 40)
     
     # Test different formats
     formats = [
@@ -956,10 +956,10 @@ def example_usage():
     
     for format in formats:
         serialized = manager.serialize_message(market_msg, format)
-        print(f"   {format.value}: {len(serialized)} bytes")
+        logging.info(f"   {format.value}: {len(serialized)} bytes")
     
-    print("\n3. Message Priorities")
-    print("-" * 40)
+    logging.info("\n3. Message Priorities")
+    logging.info("-" * 40)
     
     # Create messages with different priorities
     critical_alert = manager.factory.create_alert(
@@ -968,7 +968,7 @@ def example_usage():
         source="RiskMonitor",
         severity="CRITICAL"
     )
-    print(f"   Critical alert priority: {critical_alert.priority}")
+    logging.info(f"   Critical alert priority: {critical_alert.priority}")
     
     info_alert = manager.factory.create_alert(
         alert_type="SYSTEM_INFO",
@@ -976,10 +976,10 @@ def example_usage():
         source="SystemMonitor",
         severity="INFO"
     )
-    print(f"   Info alert priority: {info_alert.priority}")
+    logging.info(f"   Info alert priority: {info_alert.priority}")
     
-    print("\n4. Version Migration")
-    print("-" * 40)
+    logging.info("\n4. Version Migration")
+    logging.info("-" * 40)
     
     # Simulate old version message
     old_message = {
@@ -992,25 +992,25 @@ def example_usage():
     }
     
     migrated = manager.version_manager.migrate_message(old_message)
-    print(f"   Migrated from v{old_message['version']} to v{migrated['version']}")
-    print(f"   Added fields: {set(migrated.keys()) - set(old_message.keys())}")
+    logging.info(f"   Migrated from v{old_message['version']} to v{migrated['version']}")
+    logging.info(f"   Added fields: {set(migrated.keys()) - set(old_message.keys())}")
     
-    print("\n5. Protocol Statistics")
-    print("-" * 40)
+    logging.info("\n5. Protocol Statistics")
+    logging.info("-" * 40)
     
     stats = manager.get_stats()
     for key, value in stats.items():
         if value > 0:
-            print(f"   {key}: {value}")
+            logging.info(f"   {key}: {value}")
     
-    print("\n✅ Enhanced Protocol Features:")
-    print("   • Strict JSON Schema validation")
-    print("   • Multiple serialization formats")
-    print("   • Message compression for large payloads")
-    print("   • Priority-based message handling")
-    print("   • Protocol version control and migration")
-    print("   • Comprehensive error handling")
-    print("   • Performance statistics")
+    logging.info("\n✅ Enhanced Protocol Features:")
+    logging.info("   • Strict JSON Schema validation")
+    logging.info("   • Multiple serialization formats")
+    logging.info("   • Message compression for large payloads")
+    logging.info("   • Priority-based message handling")
+    logging.info("   • Protocol version control and migration")
+    logging.info("   • Comprehensive error handling")
+    logging.info("   • Performance statistics")
 
 # ==============================================================================
 # MAIN EXECUTION

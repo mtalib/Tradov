@@ -45,6 +45,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 # STANDARD IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 warnings.filterwarnings("ignore")
 
@@ -66,7 +67,7 @@ try:
     PRICER_AVAILABLE = True
 except ImportError:
     PRICER_AVAILABLE = False
-    print("⚠️ OptionsPricer not available - using internal calculations")
+    logging.info("⚠️ OptionsPricer not available - using internal calculations")
 
 # ==============================================================================
 # CONSTANTS

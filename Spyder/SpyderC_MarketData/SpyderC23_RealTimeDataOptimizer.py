@@ -1136,8 +1136,8 @@ def get_realtime_data_optimizer(config: Optional[Dict[str, Any]] = None) -> Real
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER C23 - Real-Time Data Optimizer")
-    print("=" * 80)
+    logging.info("🎯 SPYDER C23 - Real-Time Data Optimizer")
+    logging.info("=" * 80)
     
     try:
         # Create optimizer
@@ -1148,21 +1148,21 @@ async def main():
         }
         
         optimizer = RealTimeDataOptimizer(config)
-        print("✅ Real-Time Data Optimizer initialized")
+        logging.info("✅ Real-Time Data Optimizer initialized")
         
         # Initialize optimizer
         if not optimizer.initialize():
-            print("❌ Failed to initialize optimizer")
+            logging.info("❌ Failed to initialize optimizer")
             return False
         
-        print("⚡ System Configuration:")
-        print(f"   • CPU Cores: {optimizer.cpu_cores}")
-        print(f"   • Memory Buffers: {len(optimizer.memory_buffers)}")
-        print(f"   • Processing Threads: {len(optimizer.processing_threads)}")
-        print(f"   • Target Latency: {config['target_latency_ns']/1000:.0f}μs")
+        logging.info("⚡ System Configuration:")
+        logging.info(f"   • CPU Cores: {optimizer.cpu_cores}")
+        logging.info(f"   • Memory Buffers: {len(optimizer.memory_buffers)}")
+        logging.info(f"   • Processing Threads: {len(optimizer.processing_threads)}")
+        logging.info(f"   • Target Latency: {config['target_latency_ns']/1000:.0f}μs")
         
         # Test data ingestion with different priorities
-        print(f"\n📊 Testing data ingestion...")
+        logging.info(f"\n📊 Testing data ingestion...")
         
         test_cases = [
             ('tick', {'price': 401.50, 'size': 100}, DataPriority.CRITICAL),
@@ -1178,44 +1178,44 @@ async def main():
             success = optimizer.ingest_data(data_type, data, priority)
             if success:
                 successful_ingests += 1
-                print(f"   ✅ {data_type}: Priority {priority}")
+                logging.info(f"   ✅ {data_type}: Priority {priority}")
             else:
-                print(f"   ❌ {data_type}: Failed")
+                logging.info(f"   ❌ {data_type}: Failed")
         
-        print(f"   Successfully ingested: {successful_ingests}/{len(test_cases)}")
+        logging.info(f"   Successfully ingested: {successful_ingests}/{len(test_cases)}")
         
         # Let the system process data
-        print(f"\n⚡ Processing data for 10 seconds...")
+        logging.info(f"\n⚡ Processing data for 10 seconds...")
         await asyncio.sleep(10)
         
         # Get optimization status
         status = optimizer.get_optimization_status()
         
-        print(f"\n📈 Performance Statistics:")
-        print(f"   • Total Packets Processed: {status['total_packets_processed']:,}")
-        print(f"   • Critical Packets: {status['critical_packets_processed']:,}")
-        print(f"   • Average Latency: {status['average_latency_microseconds']:.2f}μs")
-        print(f"   • P99 Latency: {status['p99_latency_microseconds']:.2f}μs")
-        print(f"   • P99.9 Latency: {status['p99_9_latency_microseconds']:.2f}μs")
-        print(f"   • Throughput: {status['throughput_packets_per_second']:.0f} packets/sec")
-        print(f"   • CPU Utilization: {status['cpu_utilization_percent']:.1f}%")
-        print(f"   • Memory Utilization: {status['memory_utilization_percent']:.1f}%")
+        logging.info(f"\n📈 Performance Statistics:")
+        logging.info(f"   • Total Packets Processed: {status['total_packets_processed']:,}")
+        logging.info(f"   • Critical Packets: {status['critical_packets_processed']:,}")
+        logging.info(f"   • Average Latency: {status['average_latency_microseconds']:.2f}μs")
+        logging.info(f"   • P99 Latency: {status['p99_latency_microseconds']:.2f}μs")
+        logging.info(f"   • P99.9 Latency: {status['p99_9_latency_microseconds']:.2f}μs")
+        logging.info(f"   • Throughput: {status['throughput_packets_per_second']:.0f} packets/sec")
+        logging.info(f"   • CPU Utilization: {status['cpu_utilization_percent']:.1f}%")
+        logging.info(f"   • Memory Utilization: {status['memory_utilization_percent']:.1f}%")
         
-        print(f"\n📊 Queue Utilizations:")
+        logging.info(f"\n📊 Queue Utilizations:")
         for queue_name, utilization in status['queue_utilizations'].items():
-            print(f"   • {queue_name}: {utilization:.1f}%")
+            logging.info(f"   • {queue_name}: {utilization:.1f}%")
         
         if status['queue_overflow_events'] > 0:
-            print(f"\n⚠️  Queue Overflow Events: {status['queue_overflow_events']}")
+            logging.info(f"\n⚠️  Queue Overflow Events: {status['queue_overflow_events']}")
         
         if status['optimization_adjustments'] > 0:
-            print(f"🔧 Optimization Adjustments: {status['optimization_adjustments']}")
+            logging.info(f"🔧 Optimization Adjustments: {status['optimization_adjustments']}")
         
-        print(f"\n🎊 Real-Time Data Optimizer demonstration completed successfully!")
+        logging.info(f"\n🎊 Real-Time Data Optimizer demonstration completed successfully!")
         return True
         
     except Exception as e:
-        print(f"❌ Error in main execution: {e}")
+        logging.info(f"❌ Error in main execution: {e}")
         return False
     
     finally:

@@ -26,6 +26,7 @@ from .SpyderF07_GapAnalyzer import GapAnalyzer
 from .SpyderF08_VolatilityRegime import VolatilityRegimeAnalyzer
 from .SpyderF09_EntryFilters import EntryFilters
 from .SpyderF10_MarketRegimeDetector import MarketRegimeDetector
+import logging
 
 # Renaissance-style indicators
 try:
@@ -42,7 +43,7 @@ try:
     )
     RENAISSANCE_INDICATORS_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: SpyderF21_RenaissanceIndicators not available: {e}")
+    logging.info(f"Warning: SpyderF21_RenaissanceIndicators not available: {e}")
     RENAISSANCE_INDICATORS_AVAILABLE = False
 
 # ==============================================================================

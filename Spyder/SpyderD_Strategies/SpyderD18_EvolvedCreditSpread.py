@@ -1302,8 +1302,8 @@ class EvolvedCreditSpreadStrategy:
 
 def test_evolved_strategy():
     """Test the evolved strategy with comprehensive analysis"""
-    print("🧬 TESTING AI-EVOLVED CREDIT SPREAD STRATEGY")
-    print("=" * 60)
+    logging.info("🧬 TESTING AI-EVOLVED CREDIT SPREAD STRATEGY")
+    logging.info("=" * 60)
 
     try:
         # Initialize strategy
@@ -1331,81 +1331,81 @@ def test_evolved_strategy():
             "daily_change": (prices[-1] - prices[-2]) / prices[-2],
         }
 
-        print(f"📊 Test Market Data:")
-        print(f"   Current Price: ${sample_data['current_price']:.2f}")
-        print(f"   Daily Change: {sample_data['daily_change']:.3%}")
-        print(f"   VIX: {sample_data['vix']}")
-        print(f"   Price Series Length: {len(prices)}")
-        print(f"   Volume Series Length: {len(volumes)}")
+        logging.info(f"📊 Test Market Data:")
+        logging.info(f"   Current Price: ${sample_data['current_price']:.2f}")
+        logging.info(f"   Daily Change: {sample_data['daily_change']:.3%}")
+        logging.info(f"   VIX: {sample_data['vix']}")
+        logging.info(f"   Price Series Length: {len(prices)}")
+        logging.info(f"   Volume Series Length: {len(volumes)}")
 
         # Test market analysis
-        print(f"\n🔍 Running Market Analysis...")
+        logging.info(f"\n🔍 Running Market Analysis...")
         analysis = strategy.analyze_market(sample_data)
 
-        print(f"✅ Analysis Results:")
-        print(f"   Strategy: {strategy.strategy_name}")
-        print(f"   Evolution Fitness: {strategy.evolved_params.fitness_score:.3f}")
-        print(f"   Generation: {strategy.evolved_params.generation}")
-        print(f"   TA Library: {analysis.ta_library or 'fallback'}")
-        print(f"   Signal Strength: {analysis.signal_strength:.3f}")
-        print(f"   AI Confidence: {analysis.ai_confidence:.3f}")
-        print(f"   Market Regime: {analysis.market_regime.value}")
-        print(f"   Volatility Env: {analysis.volatility_environment.value}")
-        print(f"   Analysis Quality: {analysis.analysis_quality:.3f}")
+        logging.info(f"✅ Analysis Results:")
+        logging.info(f"   Strategy: {strategy.strategy_name}")
+        logging.info(f"   Evolution Fitness: {strategy.evolved_params.fitness_score:.3f}")
+        logging.info(f"   Generation: {strategy.evolved_params.generation}")
+        logging.info(f"   TA Library: {analysis.ta_library or 'fallback'}")
+        logging.info(f"   Signal Strength: {analysis.signal_strength:.3f}")
+        logging.info(f"   AI Confidence: {analysis.ai_confidence:.3f}")
+        logging.info(f"   Market Regime: {analysis.market_regime.value}")
+        logging.info(f"   Volatility Env: {analysis.volatility_environment.value}")
+        logging.info(f"   Analysis Quality: {analysis.analysis_quality:.3f}")
 
         # Display technical indicators
         if analysis.technical_indicators:
-            print(f"\n📈 Technical Indicators:")
+            logging.info(f"\n📈 Technical Indicators:")
             if analysis.technical_indicators.rsi is not None:
-                print(f"   RSI: {analysis.technical_indicators.rsi:.1f}")
+                logging.info(f"   RSI: {analysis.technical_indicators.rsi:.1f}")
             if analysis.technical_indicators.volume_ratio is not None:
-                print(f"   Volume Ratio: {analysis.technical_indicators.volume_ratio:.2f}")
+                logging.info(f"   Volume Ratio: {analysis.technical_indicators.volume_ratio:.2f}")
             if analysis.technical_indicators.breakout_score is not None:
-                print(f"   Breakout Score: {analysis.technical_indicators.breakout_score:.3f}")
+                logging.info(f"   Breakout Score: {analysis.technical_indicators.breakout_score:.3f}")
 
         # Display entry signals
-        print(f"\n🎯 Entry Signals:")
+        logging.info(f"\n🎯 Entry Signals:")
         for condition, active in analysis.entry_signals.items():
             status = "✅" if active else "❌"
-            print(f"   {condition}: {status}")
+            logging.info(f"   {condition}: {status}")
 
         # Test signal generation
-        print(f"\n🚨 Generating Trading Signals...")
+        logging.info(f"\n🚨 Generating Trading Signals...")
         signals = strategy.generate_signals(analysis)
 
-        print(f"   Signals Generated: {len(signals)}")
+        logging.info(f"   Signals Generated: {len(signals)}")
 
         if signals:
             signal = signals[0]
-            print(f"\n📋 First Signal Details:")
-            print(f"   Signal ID: {signal.signal_id}")
-            print(f"   Action: {signal.action}")
-            print(f"   Timestamp: {signal.timestamp}")
-            print(f"   Signal Strength: {signal.signal_strength:.3f}")
-            print(f"   AI Confidence: {signal.ai_confidence:.3f}")
+            logging.info(f"\n📋 First Signal Details:")
+            logging.info(f"   Signal ID: {signal.signal_id}")
+            logging.info(f"   Action: {signal.action}")
+            logging.info(f"   Timestamp: {signal.timestamp}")
+            logging.info(f"   Signal Strength: {signal.signal_strength:.3f}")
+            logging.info(f"   AI Confidence: {signal.ai_confidence:.3f}")
 
             if signal.position_details:
                 details = signal.position_details
-                print(f"   Position Details:")
-                print(f"     Short Strike: ${details.get('short_strike', 0):.1f}")
-                print(f"     Long Strike: ${details.get('long_strike', 0):.1f}")
-                print(f"     Estimated Credit: ${details.get('estimated_credit', 0):.2f}")
-                print(f"     Max Profit: ${details.get('max_profit', 0):.2f}")
-                print(f"     Max Loss: ${details.get('max_loss', 0):.2f}")
+                logging.info(f"   Position Details:")
+                logging.info(f"     Short Strike: ${details.get('short_strike', 0):.1f}")
+                logging.info(f"     Long Strike: ${details.get('long_strike', 0):.1f}")
+                logging.info(f"     Estimated Credit: ${details.get('estimated_credit', 0):.2f}")
+                logging.info(f"     Max Profit: ${details.get('max_profit', 0):.2f}")
+                logging.info(f"     Max Loss: ${details.get('max_loss', 0):.2f}")
 
         # Display strategy info
-        print(f"\n🏗️ Strategy Information:")
+        logging.info(f"\n🏗️ Strategy Information:")
         info = strategy.get_strategy_info()
-        print(f"   State: {info['current_state']['state']}")
-        print(f"   Positions: {info['current_state']['positions_count']}")
-        print(f"   Evolution Date: {info['evolved_params']['evolution_date']}")
+        logging.info(f"   State: {info['current_state']['state']}")
+        logging.info(f"   Positions: {info['current_state']['positions_count']}")
+        logging.info(f"   Evolution Date: {info['evolved_params']['evolution_date']}")
 
-        print(f"\n✅ STRATEGY TEST COMPLETED SUCCESSFULLY!")
+        logging.info(f"\n✅ STRATEGY TEST COMPLETED SUCCESSFULLY!")
 
         return strategy, analysis, signals
 
     except Exception as e:
-        print(f"❌ TEST FAILED: {e}")
+        logging.info(f"❌ TEST FAILED: {e}")
         import traceback
 
         traceback.print_exc()

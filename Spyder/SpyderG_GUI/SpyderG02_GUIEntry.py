@@ -26,6 +26,7 @@ Change Log:
 import os
 import sys
 from pathlib import Path
+import logging
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -38,7 +39,7 @@ def main():
             from PySide6.QtWidgets import QApplication
             PYSIDE6_AVAILABLE = True
         except ImportError as e:
-            print(f"PySide6 import error: {e}")
+            logging.info(f"PySide6 import error: {e}")
             PYSIDE6_AVAILABLE = False
             # Fall back to basic window
             raise ImportError("PySide6 not available")
@@ -47,8 +48,8 @@ def main():
         try:
             from SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
         except ImportError as e:
-            print(f"Dashboard import error: {e}")
-            print("This might be due to missing dependencies in the dashboard modules.")
+            logging.info(f"Dashboard import error: {e}")
+            logging.info("This might be due to missing dependencies in the dashboard modules.")
             # Fall back to basic window
             raise ImportError("Dashboard modules not found")
 
@@ -58,7 +59,7 @@ def main():
         # CRITICAL: Desktop Integration for GNOME/Wayland
         desktop_file_name = os.environ.get("SPYDER_DESKTOP_FILE_NAME", "spyder-trading")
         app.setDesktopFileName(desktop_file_name)
-        print(f"✅ Desktop integration: {desktop_file_name}")
+        logging.info(f"✅ Desktop integration: {desktop_file_name}")
 
         # Create and show dashboard
         dashboard = SpyderTradingDashboard()
@@ -67,9 +68,9 @@ def main():
         return app.exec()
 
     except ImportError as e:
-        print(f"Import Error: {e}")
-        print("\nMake sure you have installed all requirements:")
-        print("pip install -r requirements.txt")
+        logging.info(f"Import Error: {e}")
+        logging.info("\nMake sure you have installed all requirements:")
+        logging.info("pip install -r requirements.txt")
 
         # Try a basic PyQt window
         try:
@@ -117,12 +118,12 @@ def main():
             return app.exec()
 
         except ImportError:
-            print("PyQt6 not installed. Please run:")
-            print("pip install PyQt6")
+            logging.info("PyQt6 not installed. Please run:")
+            logging.info("pip install PyQt6")
             return 1
 
     except Exception as e:
-        print(f"Error: {e}")
+        logging.info(f"Error: {e}")
         return 1
 
 

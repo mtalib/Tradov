@@ -451,18 +451,18 @@ async def main():
     for price in current_prices:
         status = await protocol.monitor_market_conditions(price, market_open)
         decline_pct = ((price - market_open) / market_open) * 100
-        print(f"\nPrice: ${price:.2f} (Decline: {decline_pct:.1f}%)")
-        print(f"Level: {status.level.value}")
-        print(f"Halt Active: {status.halt_active}")
+        logging.info(f"\nPrice: ${price:.2f} (Decline: {decline_pct:.1f}%)")
+        logging.info(f"Level: {status.level.value}")
+        logging.info(f"Halt Active: {status.halt_active}")
         if status.required_actions:
-            print("Required Actions:")
+            logging.info("Required Actions:")
             for action in status.required_actions:
-                print(f"  - {action}")
+                logging.info(f"  - {action}")
         # Check order restrictions
         for order_type in ['MARKET', 'LIMIT']:
             allowed, reason = await protocol.check_order_restrictions(order_type)
             if not allowed:
-                print(f"  {order_type} orders: BLOCKED - {reason}")
+                logging.info(f"  {order_type} orders: BLOCKED - {reason}")
         await asyncio.sleep(1)  # Simulate time passing
 if __name__ == "__main__":
     asyncio.run(main())

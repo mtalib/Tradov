@@ -1464,9 +1464,9 @@ def create_volatility_engine(
 # ==============================================================================
 async def main():
     """Demonstration of consolidated volatility engine."""
-    print("=" * 80)
-    print("SPYDER V06 CONSOLIDATED VOLATILITY ENGINE DEMONSTRATION")
-    print("=" * 80)
+    logging.info("=" * 80)
+    logging.info("SPYDER V06 CONSOLIDATED VOLATILITY ENGINE DEMONSTRATION")
+    logging.info("=" * 80)
 
     # Initialize volatility engine
     config = {
@@ -1477,14 +1477,14 @@ async def main():
 
     vol_engine = create_volatility_engine(config)
 
-    print("\n✅ Volatility Engine Initialized")
-    print("   • Consolidated Heston, GARCH, and Rough Volatility models")
-    print("   • Intelligent model selection based on time horizon")
-    print("   • Real-time volatility surface generation")
-    print("   • Comprehensive volatility forecasting")
+    logging.info("\n✅ Volatility Engine Initialized")
+    logging.info("   • Consolidated Heston, GARCH, and Rough Volatility models")
+    logging.info("   • Intelligent model selection based on time horizon")
+    logging.info("   • Real-time volatility surface generation")
+    logging.info("   • Comprehensive volatility forecasting")
 
     # Generate synthetic market data
-    print(f"\n--- Generating Synthetic Market Data ---")
+    logging.info(f"\n--- Generating Synthetic Market Data ---")
     np.random.seed(42)
     n_days = 100
     initial_price = 450.0
@@ -1506,14 +1506,14 @@ async def main():
     # Update engine with market data
     await vol_engine.update_market_data(prices[1:])  # Skip initial price
 
-    print(f"   Generated {len(prices)-1} price observations")
-    print(f"   Current SPY price: ${prices[-1]:.2f}")
-    print(f"   Data quality: {len(vol_engine.return_history)} returns available")
+    logging.info(f"   Generated {len(prices)-1} price observations")
+    logging.info(f"   Current SPY price: ${prices[-1]:.2f}")
+    logging.info(f"   Data quality: {len(vol_engine.return_history)} returns available")
 
     # Test 1: Single Volatility Estimates
-    print(f"\n--- Test 1: Volatility Estimates by Time Horizon ---")
-    print("Horizon              Auto Model        Volatility")
-    print("-" * 55)
+    logging.info(f"\n--- Test 1: Volatility Estimates by Time Horizon ---")
+    logging.info("Horizon              Auto Model        Volatility")
+    logging.info("-" * 55)
 
     horizons = [
         (VolatilityHorizon.INTRADAY, "Intraday"),
@@ -1527,13 +1527,13 @@ async def main():
             volatility = await vol_engine.get_volatility(horizon=horizon)
             selected_model = vol_engine._select_volatility_model(horizon)
 
-            print(f"{name:<20} {selected_model.value:<12} {volatility:.1%}")
+            logging.info(f"{name:<20} {selected_model.value:<12} {volatility:.1%}")
 
         except Exception as e:
-            print(f"{name:<20} ERROR: {str(e)[:20]}")
+            logging.info(f"{name:<20} ERROR: {str(e)[:20]}")
 
     # Test 2: Volatility Forecasting
-    print(f"\n--- Test 2: Volatility Forecasting ---")
+    logging.info(f"\n--- Test 2: Volatility Forecasting ---")
     try:
         forecast_days = 30
         forecast = await vol_engine.forecast_volatility(
@@ -1542,26 +1542,26 @@ async def main():
             confidence_level=0.95,
         )
 
-        print(f"   Forecast Horizon: {forecast.forecast_horizon} days")
-        print(f"   Model Used: {forecast.model_used.value}")
-        print(f"   Final Volatility: {forecast.volatility_forecast:.1%}")
-        print(f"   Model Confidence: {forecast.model_confidence:.1%}")
+        logging.info(f"   Forecast Horizon: {forecast.forecast_horizon} days")
+        logging.info(f"   Model Used: {forecast.model_used.value}")
+        logging.info(f"   Final Volatility: {forecast.volatility_forecast:.1%}")
+        logging.info(f"   Model Confidence: {forecast.model_confidence:.1%}")
 
         # Show regime probabilities
         if forecast.regime_probability:
-            print(f"   Regime Probabilities:")
+            logging.info(f"   Regime Probabilities:")
             for regime, prob in forecast.regime_probability.items():
-                print(f"     {regime.value}: {prob:.1%}")
+                logging.info(f"     {regime.value}: {prob:.1%}")
 
-        print(
+        logging.info(
             f"   Forecast Range: {forecast.forecast_path.min():.1%} - {forecast.forecast_path.max():.1%}"
         )
 
     except Exception as e:
-        print(f"   ❌ Forecast Error: {e}")
+        logging.info(f"   ❌ Forecast Error: {e}")
 
     # Test 3: Volatility Surface Generation
-    print(f"\n--- Test 3: Volatility Surface Generation ---")
+    logging.info(f"\n--- Test 3: Volatility Surface Generation ---")
     try:
         current_spot = prices[-1]
         strikes = [current_spot * m for m in [0.90, 0.95, 1.00, 1.05, 1.10]]
@@ -1574,29 +1574,29 @@ async def main():
             model=VolatilityModel.HESTON,
         )
 
-        print(f"   Surface Model: {surface.model_used.value}")
-        print(f"   Surface Quality: {surface.surface_quality:.1%}")
-        print(f"   Spot Price: ${surface.spot_price:.2f}")
+        logging.info(f"   Surface Model: {surface.model_used.value}")
+        logging.info(f"   Surface Quality: {surface.surface_quality:.1%}")
+        logging.info(f"   Spot Price: ${surface.spot_price:.2f}")
 
-        print(f"\n   Volatility Surface (Strike vs Maturity):")
-        print(f"   {'Strike/Spot':<12}", end="")
+        logging.info(f"\n   Volatility Surface (Strike vs Maturity):")
+        logging.info(f"   {'Strike/Spot':<12}", end="")
         for mat in maturities:
-            print(f"{mat*365:>8.0f}d", end="")
-        print()
+            logging.info(f"{mat*365:>8.0f}d", end="")
+        logging.info()
 
         for i, strike in enumerate(strikes):
             moneyness = strike / current_spot
-            print(f"   {moneyness:<12.2f}", end="")
+            logging.info(f"   {moneyness:<12.2f}", end="")
             for j in range(len(maturities)):
                 vol = surface.volatilities[i, j]
-                print(f"{vol:>8.1%}", end="")
-            print()
+                logging.info(f"{vol:>8.1%}", end="")
+            logging.info()
 
     except Exception as e:
-        print(f"   ❌ Surface Error: {e}")
+        logging.info(f"   ❌ Surface Error: {e}")
 
     # Test 4: Model Comparison
-    print(f"\n--- Test 4: Model Performance Comparison ---")
+    logging.info(f"\n--- Test 4: Model Performance Comparison ---")
     try:
         models_to_test = [
             VolatilityModel.HISTORICAL,
@@ -1605,8 +1605,8 @@ async def main():
             VolatilityModel.ROUGH_VOLATILITY,
         ]
 
-        print("Model                Volatility    Speed      Quality")
-        print("-" * 55)
+        logging.info("Model                Volatility    Speed      Quality")
+        logging.info("-" * 55)
 
         for model in models_to_test:
             try:
@@ -1625,73 +1625,73 @@ async def main():
                 }
                 quality = quality_scores.get(model, 0.7)
 
-                print(
+                logging.info(
                     f"{model.value:<20} {volatility:>8.1%} {calc_time:>8.1f}ms {quality:>8.1%}"
                 )
 
             except Exception as e:
-                print(f"{model.value:<20} ERROR: {str(e)[:25]}")
+                logging.info(f"{model.value:<20} ERROR: {str(e)[:25]}")
 
     except Exception as e:
-        print(f"   ❌ Comparison Error: {e}")
+        logging.info(f"   ❌ Comparison Error: {e}")
 
     # Test 5: Volatility Metrics Analysis
-    print(f"\n--- Test 5: Volatility Metrics Analysis ---")
+    logging.info(f"\n--- Test 5: Volatility Metrics Analysis ---")
     try:
         metrics = vol_engine.get_volatility_metrics()
 
-        print(f"   Current Volatility: {metrics.current_volatility:.1%}")
-        print(f"   Volatility Regime: {metrics.volatility_regime.value}")
-        print(f"   Mean Reversion Speed: {metrics.mean_reversion_speed:.3f}")
-        print(f"   Volatility Clustering: {metrics.volatility_clustering:.3f}")
-        print(f"   Volatility Persistence: {metrics.volatility_persistence:.3f}")
-        print(f"   Vol of Vol: {metrics.volatility_of_volatility:.3f}")
-        print(f"   Return Skewness: {metrics.skew:.3f}")
-        print(f"   Return Kurtosis: {metrics.kurtosis:.3f}")
+        logging.info(f"   Current Volatility: {metrics.current_volatility:.1%}")
+        logging.info(f"   Volatility Regime: {metrics.volatility_regime.value}")
+        logging.info(f"   Mean Reversion Speed: {metrics.mean_reversion_speed:.3f}")
+        logging.info(f"   Volatility Clustering: {metrics.volatility_clustering:.3f}")
+        logging.info(f"   Volatility Persistence: {metrics.volatility_persistence:.3f}")
+        logging.info(f"   Vol of Vol: {metrics.volatility_of_volatility:.3f}")
+        logging.info(f"   Return Skewness: {metrics.skew:.3f}")
+        logging.info(f"   Return Kurtosis: {metrics.kurtosis:.3f}")
 
     except Exception as e:
-        print(f"   ❌ Metrics Error: {e}")
+        logging.info(f"   ❌ Metrics Error: {e}")
 
     # Test 6: Engine Status
-    print(f"\n--- Test 6: Engine Status ---")
+    logging.info(f"\n--- Test 6: Engine Status ---")
     try:
         status = vol_engine.get_engine_status()
 
-        print("   Model Calibration Status:")
+        logging.info("   Model Calibration Status:")
         for model, calibrated in status["models_calibrated"].items():
-            print(f"     {model}: {'✅' if calibrated else '❌'}")
+            logging.info(f"     {model}: {'✅' if calibrated else '❌'}")
 
-        print(f"\n   Data Status:")
-        print(f"     Price Points: {status['data_status']['price_points']}")
-        print(f"     Return Points: {status['data_status']['return_points']}")
-        print(f"     Data Quality: {status['data_status']['data_quality']}")
+        logging.info(f"\n   Data Status:")
+        logging.info(f"     Price Points: {status['data_status']['price_points']}")
+        logging.info(f"     Return Points: {status['data_status']['return_points']}")
+        logging.info(f"     Data Quality: {status['data_status']['data_quality']}")
 
-        print(f"\n   Current State:")
-        print(f"     Volatility: {status['current_state']['volatility']:.1%}")
-        print(f"     Regime: {status['current_state']['regime']}")
+        logging.info(f"\n   Current State:")
+        logging.info(f"     Volatility: {status['current_state']['volatility']:.1%}")
+        logging.info(f"     Regime: {status['current_state']['regime']}")
 
         if status["model_parameters"]["garch"]["persistence"]:
-            print(f"\n   GARCH Parameters:")
+            logging.info(f"\n   GARCH Parameters:")
             garch = status["model_parameters"]["garch"]
-            print(f"     Persistence (α+β): {garch['persistence']:.3f}")
-            print(f"     Alpha (ARCH): {garch['alpha']:.4f}")
-            print(f"     Beta (GARCH): {garch['beta']:.3f}")
+            logging.info(f"     Persistence (α+β): {garch['persistence']:.3f}")
+            logging.info(f"     Alpha (ARCH): {garch['alpha']:.4f}")
+            logging.info(f"     Beta (GARCH): {garch['beta']:.3f}")
 
     except Exception as e:
-        print(f"   ❌ Status Error: {e}")
+        logging.info(f"   ❌ Status Error: {e}")
 
-    print("\n" + "=" * 80)
-    print("✅ CONSOLIDATED VOLATILITY ENGINE FEATURES DEMONSTRATED:")
-    print("   • Unified volatility modeling (Heston + GARCH + RoughVol)")
-    print("   • Intelligent model selection based on time horizon")
-    print("   • Comprehensive volatility forecasting with confidence intervals")
-    print("   • Real-time volatility surface generation")
-    print("   • Automatic volatility regime detection")
-    print("   • Performance optimization with intelligent caching")
-    print("   • Integration-ready with V05_PricingEngine")
-    print("   • Eliminates volatility calculation duplications")
-    print("   • Single source of truth for all volatility needs")
-    print("=" * 80)
+    logging.info("\n" + "=" * 80)
+    logging.info("✅ CONSOLIDATED VOLATILITY ENGINE FEATURES DEMONSTRATED:")
+    logging.info("   • Unified volatility modeling (Heston + GARCH + RoughVol)")
+    logging.info("   • Intelligent model selection based on time horizon")
+    logging.info("   • Comprehensive volatility forecasting with confidence intervals")
+    logging.info("   • Real-time volatility surface generation")
+    logging.info("   • Automatic volatility regime detection")
+    logging.info("   • Performance optimization with intelligent caching")
+    logging.info("   • Integration-ready with V05_PricingEngine")
+    logging.info("   • Eliminates volatility calculation duplications")
+    logging.info("   • Single source of truth for all volatility needs")
+    logging.info("=" * 80)
 
 
 if __name__ == "__main__":

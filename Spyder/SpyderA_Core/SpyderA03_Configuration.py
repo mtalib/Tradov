@@ -55,7 +55,7 @@ try:
     HAS_CRYPTO = True
 except ImportError:
     HAS_CRYPTO = False
-    print("Warning: cryptography not installed - sensitive data will not be encrypted")
+    logging.info("Warning: cryptography not installed - sensitive data will not be encrypted")
 
 import watchdog
 from jsonschema import Draft7Validator, ValidationError, validate
@@ -1232,11 +1232,11 @@ class ConfigManager:
         """Print configuration to console (for debugging)"""
         config = self.get(section) if section else self.get_all()
 
-        print(f"\n{'='*60}")
-        print(f"Configuration ({self.environment})")
-        print(f"{'='*60}")
-        print(yaml.dump(config, default_flow_style=False))
-        print(f"{'='*60}\n")
+        logging.info(f"\n{'='*60}")
+        logging.info(f"Configuration ({self.environment})")
+        logging.info(f"{'='*60}")
+        logging.info(yaml.dump(config, default_flow_style=False))
+        logging.info(f"{'='*60}\n")
 
     def __del__(self):
         """Cleanup on deletion"""

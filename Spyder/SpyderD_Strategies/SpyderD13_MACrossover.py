@@ -53,6 +53,7 @@ from Spyder.SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -784,8 +785,8 @@ class MACrossoverStrategy(BaseStrategy):
 # ==============================================================================
 def test_ma_crossover():
     """Test the MA Crossover strategy"""
-    print("Testing MA Crossover Strategy")
-    print("=" * 60)
+    logging.info("Testing MA Crossover Strategy")
+    logging.info("=" * 60)
     
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
@@ -807,8 +808,8 @@ def test_ma_crossover():
     # Create strategy
     strategy = MACrossoverStrategy(event_manager, risk_profile, config)
     
-    print(f"Strategy: {strategy.name}")
-    print(f"MA Periods: {strategy.fast_period}/{strategy.slow_period}")
+    logging.info(f"Strategy: {strategy.name}")
+    logging.info(f"MA Periods: {strategy.fast_period}/{strategy.slow_period}")
     
     # Create trending market data
     dates = pd.date_range(start=datetime.now().replace(hour=10, minute=30), periods=100, freq='5min')
@@ -856,17 +857,17 @@ def test_ma_crossover():
         
         if signals:
             all_signals.extend(signals)
-            print(f"\nTime: {dates[i].strftime('%H:%M')}")
-            print(f"Price: ${prices[i]:.2f}")
+            logging.info(f"\nTime: {dates[i].strftime('%H:%M')}")
+            logging.info(f"Price: ${prices[i]:.2f}")
             if strategy.fast_ema is not None and strategy.slow_ema is not None:
-                print(f"9 EMA: ${strategy.fast_ema.iloc[-1]:.2f}")
-                print(f"21 EMA: ${strategy.slow_ema.iloc[-1]:.2f}")
+                logging.info(f"9 EMA: ${strategy.fast_ema.iloc[-1]:.2f}")
+                logging.info(f"21 EMA: ${strategy.slow_ema.iloc[-1]:.2f}")
             for signal in signals:
                 crossover = signal.metadata['crossover_signal']
-                print(f"Signal: {signal.metadata['direction']} crossover")
-                print(f"Trend Strength: {crossover['trend_strength']:.2f}")
-                print(f"Volume Surge: {crossover['volume_surge']}")
-                print(f"Confidence: {signal.confidence:.1%}")
+                logging.info(f"Signal: {signal.metadata['direction']} crossover")
+                logging.info(f"Trend Strength: {crossover['trend_strength']:.2f}")
+                logging.info(f"Volume Surge: {crossover['volume_surge']}")
+                logging.info(f"Confidence: {signal.confidence:.1%}")
                 
                 # Create position
                 position = MAPosition(
@@ -886,8 +887,8 @@ def test_ma_crossover():
     
     # Test position management
     if strategy.active_positions:
-        print("\n" + "=" * 40)
-        print("Position Management Test")
+        logging.info("\n" + "=" * 40)
+        logging.info("Position Management Test")
         
         for i in range(len(market_data) - 5, len(market_data)):
             data_slice = market_data.iloc[:i+1]
@@ -895,37 +896,37 @@ def test_ma_crossover():
             
             if exit_signals:
                 for signal in exit_signals:
-                    print(f"\nExit at {dates[i].strftime('%H:%M')}")
-                    print(f"Reason: {signal.metadata['exit_reason']}")
-                    print(f"Bars in trade: {signal.metadata['bars_in_trade']}")
-                    print(f"P&L: ${signal.metadata['pnl']:.2f}")
+                    logging.info(f"\nExit at {dates[i].strftime('%H:%M')}")
+                    logging.info(f"Reason: {signal.metadata['exit_reason']}")
+                    logging.info(f"Bars in trade: {signal.metadata['bars_in_trade']}")
+                    logging.info(f"P&L: ${signal.metadata['pnl']:.2f}")
     
     # Print final stats
     stats = strategy.get_strategy_stats()
-    print("\n" + "=" * 40)
-    print("Strategy Statistics:")
-    print(f"MA State: {stats['ma_state']}")
-    print(f"Current 9 EMA: ${stats['fast_ema']:.2f}" if stats['fast_ema'] else "9 EMA: N/A")
-    print(f"Current 21 EMA: ${stats['slow_ema']:.2f}" if stats['slow_ema'] else "21 EMA: N/A")
-    print(f"Total Crossovers: {stats['total_crossovers']}")
-    print(f"Traded Crossovers: {stats['traded_crossovers']}")
-    print(f"Win Rate: {stats['win_rate']:.1%}")
-    print(f"False Signal Rate: {stats['false_signal_rate']:.1%}")
-    print(f"Avg Bars in Trade: {stats['avg_bars_in_trade']:.1f}")
-    print(f"Best Trade: ${stats['best_trade']:.2f}")
-    print(f"Worst Trade: ${stats['worst_trade']:.2f}")
+    logging.info("\n" + "=" * 40)
+    logging.info("Strategy Statistics:")
+    logging.info(f"MA State: {stats['ma_state']}")
+    logging.info(f"Current 9 EMA: ${stats['fast_ema']:.2f}" if stats['fast_ema'] else "9 EMA: N/A")
+    logging.info(f"Current 21 EMA: ${stats['slow_ema']:.2f}" if stats['slow_ema'] else "21 EMA: N/A")
+    logging.info(f"Total Crossovers: {stats['total_crossovers']}")
+    logging.info(f"Traded Crossovers: {stats['traded_crossovers']}")
+    logging.info(f"Win Rate: {stats['win_rate']:.1%}")
+    logging.info(f"False Signal Rate: {stats['false_signal_rate']:.1%}")
+    logging.info(f"Avg Bars in Trade: {stats['avg_bars_in_trade']:.1f}")
+    logging.info(f"Best Trade: ${stats['best_trade']:.2f}")
+    logging.info(f"Worst Trade: ${stats['worst_trade']:.2f}")
     
-    print("\n✅ MA Crossover Strategy Test Complete!")
-    print("\nKey Features Tested:")
-    print("- ✅ 9/21 EMA calculation and crossover detection")
-    print("- ✅ Volume surge confirmation")
-    print("- ✅ Trend strength assessment")
-    print("- ✅ Whipsaw protection")
-    print("- ✅ Multiple timeframe analysis")
-    print("- ✅ Dynamic position management")
-    print("- ✅ Trailing stop implementation")
-    print("- ✅ MA recross exit conditions")
-    print("- ✅ Performance tracking and statistics")
+    logging.info("\n✅ MA Crossover Strategy Test Complete!")
+    logging.info("\nKey Features Tested:")
+    logging.info("- ✅ 9/21 EMA calculation and crossover detection")
+    logging.info("- ✅ Volume surge confirmation")
+    logging.info("- ✅ Trend strength assessment")
+    logging.info("- ✅ Whipsaw protection")
+    logging.info("- ✅ Multiple timeframe analysis")
+    logging.info("- ✅ Dynamic position management")
+    logging.info("- ✅ Trailing stop implementation")
+    logging.info("- ✅ MA recross exit conditions")
+    logging.info("- ✅ Performance tracking and statistics")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -26,7 +27,7 @@ try:
 
     __all__.extend(["DataAccessLayer", "get_data_access_layer"])
 except ImportError:
-    print("Warning: SpyderH01_DataAccessLayer not available")
+    logging.info("Warning: SpyderH01_DataAccessLayer not available")
 
 # Trade Repository
 try:
@@ -34,7 +35,7 @@ try:
 
     __all__.extend(["TradeRepository"])
 except ImportError:
-    print("Warning: SpyderH04_TradeRepository not available")
+    logging.info("Warning: SpyderH04_TradeRepository not available")
 
 # Market Data Cache
 try:
@@ -42,7 +43,7 @@ try:
 
     __all__.extend(["MarketDataCache"])
 except ImportError:
-    print("Warning: SpyderH03_MarketDataCache not available")
+    logging.info("Warning: SpyderH03_MarketDataCache not available")
 
 # Performance Analytics Storage
 try:
@@ -50,7 +51,7 @@ try:
 
     __all__.extend(["PerformanceAnalytics"])
 except ImportError:
-    print("Warning: SpyderH07_PerformanceAnalytics not available")
+    logging.info("Warning: SpyderH07_PerformanceAnalytics not available")
 
 # ==============================================================================
 # PACKAGE METADATA

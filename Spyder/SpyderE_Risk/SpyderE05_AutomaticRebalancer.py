@@ -756,8 +756,8 @@ async def main():
     await asyncio.sleep(30)
     # Get stats
     stats = rebalancer.get_rebalancing_stats(period_days=1)
-    print("\nRebalancing Statistics:")
-    print(json.dumps(stats, indent=2, default=str))
+    logging.info("\nRebalancing Statistics:")
+    logging.info(json.dumps(stats, indent=2, default=str))
     # Stop monitoring
     rebalancer.stop_monitoring()
     await monitor_task

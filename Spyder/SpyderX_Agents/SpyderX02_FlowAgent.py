@@ -47,7 +47,7 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
-    print("Warning: Ollama not installed. AI features will be limited.")
+    logging.info("Warning: Ollama not installed. AI features will be limited.")
 
 # ==============================================================================
 # LOCAL IMPORTS

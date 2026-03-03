@@ -59,14 +59,14 @@ try:
     )
     HAS_PROMETHEUS = True
 except ImportError:
-    print("WARNING: prometheus_client not available - metrics collection disabled")
+    logging.info("WARNING: prometheus_client not available - metrics collection disabled")
     HAS_PROMETHEUS = False
 
 try:
     import psutil
     HAS_PSUTIL = True
 except ImportError:
-    print("WARNING: psutil not available - system metrics limited")
+    logging.info("WARNING: psutil not available - system metrics limited")
     HAS_PSUTIL = False
 
 # ==============================================================================
@@ -75,7 +75,7 @@ except ImportError:
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:
-    print("WARNING: SpyderLogger not available - using basic logging")
+    logging.info("WARNING: SpyderLogger not available - using basic logging")
     import logging
     class SpyderLogger:
         @staticmethod
@@ -85,16 +85,16 @@ except ImportError:
 try:
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
-    print("WARNING: SpyderErrorHandler not available - using basic error handling")
+    logging.info("WARNING: SpyderErrorHandler not available - using basic error handling")
     class SpyderErrorHandler:
         def handle_error(self, error, context=""):
-            print(f"ERROR in {context}: {error}")
+            logging.info(f"ERROR in {context}: {error}")
 
 try:
     from SpyderA_Core.SpyderA05_EventManager import EventManager, Event, EventType
     HAS_EVENT_MANAGER = True
 except ImportError:
-    print("WARNING: EventManager not available - no event notifications")
+    logging.info("WARNING: EventManager not available - no event notifications")
     HAS_EVENT_MANAGER = False
     class EventManager:
         def emit_event(self, event): pass

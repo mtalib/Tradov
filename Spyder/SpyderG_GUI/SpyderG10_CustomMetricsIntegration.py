@@ -64,7 +64,7 @@ try:
     METRICS_CLIENT_AVAILABLE = True
 except ImportError:
     METRICS_CLIENT_AVAILABLE = False
-    print("⚠️ Custom Metrics Client modules not available")
+    logging.info("⚠️ Custom Metrics Client modules not available")
 
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger

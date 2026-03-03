@@ -1614,8 +1614,8 @@ def get_realtime_analytics_engine(config: Optional[Dict[str, Any]] = None) -> Re
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("Real-Time Analytics Engine - Spyder F16")
-    print("=" * 80)
+    logging.info("Real-Time Analytics Engine - Spyder F16")
+    logging.info("=" * 80)
     
     try:
         # Create real-time analytics engine
@@ -1628,31 +1628,31 @@ async def main():
         }
         
         engine = RealTimeAnalyticsEngine(config)
-        print("Real-Time Analytics Engine initialized")
+        logging.info("Real-Time Analytics Engine initialized")
         
         # Initialize engine
         if not await engine.initialize(enable_integrations=True):
-            print("Failed to initialize real-time analytics engine")
+            logging.info("Failed to initialize real-time analytics engine")
             return False
         
-        print("Integration status:")
-        print(f"   F12 Backtesting: {'Connected' if engine.backtesting_engine else 'Not available'}")
-        print(f"   F13 Model Validation: {'Connected' if engine.model_validator else 'Not available'}")
-        print(f"   F14 Market Microstructure: {'Connected' if engine.microstructure_engine else 'Not available'}")
-        print(f"   F15 Performance Attribution: {'Connected' if engine.attribution_engine else 'Not available'}")
+        logging.info("Integration status:")
+        logging.info(f"   F12 Backtesting: {'Connected' if engine.backtesting_engine else 'Not available'}")
+        logging.info(f"   F13 Model Validation: {'Connected' if engine.model_validator else 'Not available'}")
+        logging.info(f"   F14 Market Microstructure: {'Connected' if engine.microstructure_engine else 'Not available'}")
+        logging.info(f"   F15 Performance Attribution: {'Connected' if engine.attribution_engine else 'Not available'}")
         
-        print(f"\nWebSocket server: ws://localhost:{config['websocket_port']}")
-        print(f"HTTP server: http://localhost:{config['http_port']}")
-        print("\nAvailable streams:")
+        logging.info(f"\nWebSocket server: ws://localhost:{config['websocket_port']}")
+        logging.info(f"HTTP server: http://localhost:{config['http_port']}")
+        logging.info("\nAvailable streams:")
         for stream in STREAM_TYPES:
-            print(f"   • {stream}")
+            logging.info(f"   • {stream}")
         
         # Generate sample data
-        print("\nGenerating sample real-time data...")
+        logging.info("\nGenerating sample real-time data...")
         data_task = asyncio.create_task(create_sample_realtime_data(engine, 30))
         
         # Run for 30 seconds
-        print("Running real-time analytics for 30 seconds...")
+        logging.info("Running real-time analytics for 30 seconds...")
         await asyncio.sleep(30)
         
         # Cancel data generation
@@ -1660,33 +1660,33 @@ async def main():
         
         # Get final status
         status = await engine._get_system_status()
-        print(f"\nFinal Statistics:")
-        print(f"   Messages Processed: {engine.performance_stats['messages_processed']:,}")
-        print(f"   Alerts Generated: {engine.performance_stats['alerts_generated']}")
-        print(f"   WebSocket Messages Sent: {engine.performance_stats['websocket_messages_sent']:,}")
-        print(f"   Active Connections: {status.active_connections}")
-        print(f"   Active Subscriptions: {status.streams_active}")
-        print(f"   Active Alerts: {status.alerts_active}")
+        logging.info(f"\nFinal Statistics:")
+        logging.info(f"   Messages Processed: {engine.performance_stats['messages_processed']:,}")
+        logging.info(f"   Alerts Generated: {engine.performance_stats['alerts_generated']}")
+        logging.info(f"   WebSocket Messages Sent: {engine.performance_stats['websocket_messages_sent']:,}")
+        logging.info(f"   Active Connections: {status.active_connections}")
+        logging.info(f"   Active Subscriptions: {status.streams_active}")
+        logging.info(f"   Active Alerts: {status.alerts_active}")
         
         if engine.performance_stats['processing_latency']:
             avg_latency = np.mean(list(engine.performance_stats['processing_latency']))
-            print(f"   Average Processing Latency: {avg_latency:.6f}s ({avg_latency*1000:.2f}ms)")
+            logging.info(f"   Average Processing Latency: {avg_latency:.6f}s ({avg_latency*1000:.2f}ms)")
         
-        print(f"   System Uptime: {status.uptime_seconds:.1f}s")
+        logging.info(f"   System Uptime: {status.uptime_seconds:.1f}s")
         
         # Demonstrate API endpoints
-        print(f"\nAPI Endpoints:")
-        print(f"   Health: GET http://localhost:{config['http_port']}/health")
-        print(f"   Status: GET http://localhost:{config['http_port']}/status")
-        print(f"   Metrics: GET http://localhost:{config['http_port']}/metrics")
-        print(f"   Alerts: GET http://localhost:{config['http_port']}/alerts")
-        print(f"   Subscribe: POST http://localhost:{config['http_port']}/subscribe")
+        logging.info(f"\nAPI Endpoints:")
+        logging.info(f"   Health: GET http://localhost:{config['http_port']}/health")
+        logging.info(f"   Status: GET http://localhost:{config['http_port']}/status")
+        logging.info(f"   Metrics: GET http://localhost:{config['http_port']}/metrics")
+        logging.info(f"   Alerts: GET http://localhost:{config['http_port']}/alerts")
+        logging.info(f"   Subscribe: POST http://localhost:{config['http_port']}/subscribe")
         
-        print(f"\nSpyder F16 Real-Time Analytics Engine demonstration completed successfully!")
+        logging.info(f"\nSpyder F16 Real-Time Analytics Engine demonstration completed successfully!")
         return True
         
     except Exception as e:
-        print(f"Error in main execution: {e}")
+        logging.info(f"Error in main execution: {e}")
         traceback.print_exc()
         return False
     

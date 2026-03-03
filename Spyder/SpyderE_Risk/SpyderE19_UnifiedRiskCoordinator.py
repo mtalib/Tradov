@@ -86,7 +86,7 @@ try:
     CORE_RISK_AVAILABLE = True
 except ImportError as e:
     CORE_RISK_AVAILABLE = False
-    print(f"⚠️  Core risk modules not available: {e}")
+    logging.info(f"⚠️  Core risk modules not available: {e}")
 
 # V04 Quantitative Risk Specialist
 try:
@@ -94,7 +94,7 @@ try:
     QUANT_RISK_AVAILABLE = True
 except ImportError:
     QUANT_RISK_AVAILABLE = False
-    print("⚠️  V04 Quantitative Risk Manager not available")
+    logging.info("⚠️  V04 Quantitative Risk Manager not available")
 
 # X04 AI Risk Enhancement
 try:
@@ -102,7 +102,7 @@ try:
     AI_RISK_AVAILABLE = True
 except ImportError:
     AI_RISK_AVAILABLE = False
-    print("⚠️  X04 AI Risk Guardian not available")
+    logging.info("⚠️  X04 AI Risk Guardian not available")
 
 # Integration with unified regime engine
 try:

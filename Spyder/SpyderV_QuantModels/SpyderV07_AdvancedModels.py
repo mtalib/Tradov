@@ -1151,9 +1151,9 @@ def create_advanced_models_engine(
 # ==============================================================================
 async def main():
     """Demonstration of updated advanced models engine."""
-    print("=" * 80)
-    print("SPYDER V07 - ADVANCED MODELS ENGINE (UPDATED - REGIME FUNCTIONS REMOVED)")
-    print("=" * 80)
+    logging.info("=" * 80)
+    logging.info("SPYDER V07 - ADVANCED MODELS ENGINE (UPDATED - REGIME FUNCTIONS REMOVED)")
+    logging.info("=" * 80)
 
     # Initialize advanced models engine
     config = {
@@ -1164,52 +1164,52 @@ async def main():
 
     advanced_engine = create_advanced_models_engine(config)
 
-    print("\n✅ Advanced Models Engine Initialized")
-    print("   • Merton Jump-Diffusion modeling for crisis and event-driven periods")
-    print("   • Real-time jump detection with statistical significance testing")
-    print("   • Crisis probability assessment and market stress indicators")
-    print("   • Event-driven strategy recommendations")
-    print(
+    logging.info("\n✅ Advanced Models Engine Initialized")
+    logging.info("   • Merton Jump-Diffusion modeling for crisis and event-driven periods")
+    logging.info("   • Real-time jump detection with statistical significance testing")
+    logging.info("   • Crisis probability assessment and market stress indicators")
+    logging.info("   • Event-driven strategy recommendations")
+    logging.info(
         "   ⚠️ REGIME SWITCHING FUNCTIONS REMOVED - now handled by L09_UnifiedRegimeEngine"
     )
 
     # Generate synthetic market data with jumps
-    print(f"\n--- Generating Synthetic Market Data with Jumps ---")
+    logging.info(f"\n--- Generating Synthetic Market Data with Jumps ---")
     await advanced_engine.update_market_data([450.0])  # Initialize with starting price
 
     # Force generation of synthetic data for demonstration
     advanced_engine._generate_synthetic_data()
 
-    print(f"   Generated {len(advanced_engine.return_history)} return observations")
-    print(
+    logging.info(f"   Generated {len(advanced_engine.return_history)} return observations")
+    logging.info(
         f"   Price range: ${min(advanced_engine.price_history):.2f} - ${max(advanced_engine.price_history):.2f}"
     )
 
     # Test 1: Merton Model Calibration
-    print(f"\n--- Test 1: Merton Jump-Diffusion Model Calibration ---")
+    logging.info(f"\n--- Test 1: Merton Jump-Diffusion Model Calibration ---")
     try:
         calibration_success = await advanced_engine.calibrate_merton_model()
 
         if calibration_success and advanced_engine.merton_params:
             params = advanced_engine.merton_params
-            print(f"   ✅ Calibration successful!")
-            print(f"   Annual Drift (μ): {params.mu:.3f}")
-            print(f"   Annual Volatility (σ): {params.sigma:.3f}")
-            print(f"   Jump Intensity (λ): {params.lambda_jump:.3f} jumps/year")
-            print(f"   Mean Jump Size: {params.mu_jump:.3f}")
-            print(f"   Jump Volatility: {params.sigma_jump:.3f}")
+            logging.info(f"   ✅ Calibration successful!")
+            logging.info(f"   Annual Drift (μ): {params.mu:.3f}")
+            logging.info(f"   Annual Volatility (σ): {params.sigma:.3f}")
+            logging.info(f"   Jump Intensity (λ): {params.lambda_jump:.3f} jumps/year")
+            logging.info(f"   Mean Jump Size: {params.mu_jump:.3f}")
+            logging.info(f"   Jump Volatility: {params.sigma_jump:.3f}")
 
             performance = advanced_engine.model_performance
-            print(f"   Model AIC: {performance.get('aic', 'N/A'):.1f}")
-            print(f"   Volatility Error: {performance.get('volatility_error', 0):.1%}")
+            logging.info(f"   Model AIC: {performance.get('aic', 'N/A'):.1f}")
+            logging.info(f"   Volatility Error: {performance.get('volatility_error', 0):.1%}")
         else:
-            print(f"   ❌ Calibration failed")
+            logging.info(f"   ❌ Calibration failed")
 
     except Exception as e:
-        print(f"   ❌ Calibration Error: {e}")
+        logging.info(f"   ❌ Calibration Error: {e}")
 
     # Test 2: Jump Detection
-    print(f"\n--- Test 2: Jump Detection Analysis ---")
+    logging.info(f"\n--- Test 2: Jump Detection Analysis ---")
     try:
         # Add some artificial jumps to demonstrate detection
         jump_returns = [
@@ -1224,43 +1224,43 @@ async def main():
         await advanced_engine._detect_new_jumps(jump_returns)
 
         recent_jumps = await advanced_engine._analyze_recent_jumps()
-        print(f"   Detected {len(recent_jumps)} recent jumps")
+        logging.info(f"   Detected {len(recent_jumps)} recent jumps")
 
         for i, jump in enumerate(recent_jumps[:3]):  # Show top 3
-            print(
+            logging.info(
                 f"   Jump {i+1}: {jump.jump_type.value}, size={jump.jump_size:.4f}, "
                 f"significance={jump.significance_level:.2f}"
             )
 
     except Exception as e:
-        print(f"   ❌ Jump Detection Error: {e}")
+        logging.info(f"   ❌ Jump Detection Error: {e}")
 
     # Test 3: Crisis Assessment
-    print(f"\n--- Test 3: Crisis Probability Assessment ---")
+    logging.info(f"\n--- Test 3: Crisis Probability Assessment ---")
     try:
         crisis_assessment = await advanced_engine._assess_crisis_probability()
 
-        print(f"   Crisis Level: {crisis_assessment.crisis_level.value.upper()}")
-        print(f"   Crisis Probability: {crisis_assessment.crisis_probability:.1%}")
-        print(f"   Jump Frequency: {crisis_assessment.jump_frequency:.3f} jumps/day")
-        print(f"   Volatility Regime: {crisis_assessment.volatility_regime}")
+        logging.info(f"   Crisis Level: {crisis_assessment.crisis_level.value.upper()}")
+        logging.info(f"   Crisis Probability: {crisis_assessment.crisis_probability:.1%}")
+        logging.info(f"   Jump Frequency: {crisis_assessment.jump_frequency:.3f} jumps/day")
+        logging.info(f"   Volatility Regime: {crisis_assessment.volatility_regime}")
 
         if crisis_assessment.recommendations:
-            print(f"   Top Recommendations:")
+            logging.info(f"   Top Recommendations:")
             for i, rec in enumerate(crisis_assessment.recommendations[:2]):
-                print(f"     • {rec}")
+                logging.info(f"     • {rec}")
 
     except Exception as e:
-        print(f"   ❌ Crisis Assessment Error: {e}")
+        logging.info(f"   ❌ Crisis Assessment Error: {e}")
 
     # Test 4: Comprehensive Analysis
-    print(f"\n--- Test 4: Comprehensive Market Analysis ---")
+    logging.info(f"\n--- Test 4: Comprehensive Market Analysis ---")
     try:
         results = await advanced_engine.analyze_market_conditions()
 
-        print(f"   Model Status: {results.validation_status.value}")
-        print(f"   Recent Jumps: {len(results.recent_jumps)}")
-        print(
+        logging.info(f"   Model Status: {results.validation_status.value}")
+        logging.info(f"   Recent Jumps: {len(results.recent_jumps)}")
+        logging.info(
             f"   Crisis Level: {results.crisis_assessment.crisis_level.value if results.crisis_assessment else 'N/A'}"
         )
 
@@ -1269,51 +1269,51 @@ async def main():
             and "total_forecast_volatility" in results.volatility_forecast
         ):
             vol_forecast = results.volatility_forecast["total_forecast_volatility"]
-            print(f"   Volatility Forecast: {vol_forecast:.1%}")
+            logging.info(f"   Volatility Forecast: {vol_forecast:.1%}")
 
         if results.strategy_recommendations:
-            print(f"   Strategy Recommendations:")
+            logging.info(f"   Strategy Recommendations:")
             for i, rec in enumerate(results.strategy_recommendations[:2]):
-                print(f"     • {rec}")
+                logging.info(f"     • {rec}")
 
     except Exception as e:
-        print(f"   ❌ Analysis Error: {e}")
+        logging.info(f"   ❌ Analysis Error: {e}")
 
     # Show model status
-    print(f"\n--- Model Status Report ---")
+    logging.info(f"\n--- Model Status Report ---")
     status = advanced_engine.get_model_status()
 
     if "error" not in status:
-        print(
+        logging.info(
             f"   Merton Model: {'✅ Calibrated' if status['models_calibrated']['merton'] else '❌ Not calibrated'}"
         )
-        print(f"   Data Quality: {status['data_status']['data_quality']}")
-        print(f"   Total Jumps: {status['jump_analysis']['total_jumps_detected']}")
-        print(
+        logging.info(f"   Data Quality: {status['data_status']['data_quality']}")
+        logging.info(f"   Total Jumps: {status['jump_analysis']['total_jumps_detected']}")
+        logging.info(
             f"   Current Crisis Level: {status['crisis_analysis']['current_crisis_level'].upper()}"
         )
 
         if status["performance_metrics"].get("calibration_success"):
-            print(f"   Model Performance: ✅ Good")
+            logging.info(f"   Model Performance: ✅ Good")
         else:
-            print(f"   Model Performance: ⚠️ Needs attention")
+            logging.info(f"   Model Performance: ⚠️ Needs attention")
 
-    print(f"\n🎯 CONSOLIDATION BENEFITS ACHIEVED:")
-    print("   ✅ Regime switching functions removed and consolidated into L09")
-    print("   ✅ Focus on Merton Jump-Diffusion and crisis detection")
-    print("   ✅ Enhanced jump detection with real-time significance testing")
-    print("   ✅ Sophisticated crisis probability assessment")
-    print("   ✅ Event-driven strategy recommendations")
-    print("   ✅ Optimized performance with numba acceleration")
-    print("   ✅ Integration-ready with V06 VolatilityEngine")
-    print("   ✅ Eliminates regime switching overlap with L09")
+    logging.info(f"\n🎯 CONSOLIDATION BENEFITS ACHIEVED:")
+    logging.info("   ✅ Regime switching functions removed and consolidated into L09")
+    logging.info("   ✅ Focus on Merton Jump-Diffusion and crisis detection")
+    logging.info("   ✅ Enhanced jump detection with real-time significance testing")
+    logging.info("   ✅ Sophisticated crisis probability assessment")
+    logging.info("   ✅ Event-driven strategy recommendations")
+    logging.info("   ✅ Optimized performance with numba acceleration")
+    logging.info("   ✅ Integration-ready with V06 VolatilityEngine")
+    logging.info("   ✅ Eliminates regime switching overlap with L09")
 
-    print(f"\n" + "=" * 80)
-    print("✅ V07 ADVANCED MODELS ENGINE UPDATED SUCCESSFULLY!")
-    print("❌ Regime switching functions REMOVED")
-    print("✅ Enhanced jump-diffusion modeling RETAINED")
-    print("✅ Crisis detection and tail risk analysis ENHANCED")
-    print("=" * 80)
+    logging.info(f"\n" + "=" * 80)
+    logging.info("✅ V07 ADVANCED MODELS ENGINE UPDATED SUCCESSFULLY!")
+    logging.info("❌ Regime switching functions REMOVED")
+    logging.info("✅ Enhanced jump-diffusion modeling RETAINED")
+    logging.info("✅ Crisis detection and tail risk analysis ENHANCED")
+    logging.info("=" * 80)
 
 
 if __name__ == "__main__":

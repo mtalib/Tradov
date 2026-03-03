@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import logging
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS - TA LIBRARY (NOT TA-LIB)
@@ -61,7 +62,7 @@ try:
 
     TA_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: TA library not fully available: {e}")
+    logging.info(f"Warning: TA library not fully available: {e}")
     TA_AVAILABLE = False
 
 # ==============================================================================
@@ -71,7 +72,7 @@ try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
-    print("Warning: Logger and ErrorHandler not available")
+    logging.info("Warning: Logger and ErrorHandler not available")
     SpyderLogger = None
     SpyderErrorHandler = None
 
@@ -686,4 +687,4 @@ __all__ = [
 ]
 
 # Log module initialization
-print(f"✅ Technical Analysis Module Loaded - VWAP Integration Complete")
+logging.info(f"✅ Technical Analysis Module Loaded - VWAP Integration Complete")

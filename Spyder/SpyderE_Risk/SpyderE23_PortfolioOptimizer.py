@@ -65,6 +65,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import MathUtils
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1881,52 +1882,52 @@ def get_portfolio_optimizer_instance() -> PortfolioOptimizer:
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER E14 - Portfolio Optimizer")
-    print("=" * 80)
+    logging.info("🎯 SPYDER E14 - Portfolio Optimizer")
+    logging.info("=" * 80)
     
     try:
         # Create portfolio optimizer
         optimizer = PortfolioOptimizer()
-        print("✅ Portfolio Optimizer initialized")
+        logging.info("✅ Portfolio Optimizer initialized")
         
         # Initialize optimizer
         if not optimizer.initialize():
-            print("❌ Failed to initialize portfolio optimizer")
+            logging.info("❌ Failed to initialize portfolio optimizer")
             return False
         
         # Create sample scenario
-        print("\n📊 Creating sample optimization scenario...")
+        logging.info("\n📊 Creating sample optimization scenario...")
         scenario = create_sample_optimization_scenario()
-        print(f"   Created scenario: {scenario['assets']} assets, {scenario['periods']} periods")
+        logging.info(f"   Created scenario: {scenario['assets']} assets, {scenario['periods']} periods")
         
         # Test portfolio optimization
-        print("\n🚀 Testing portfolio optimization...")
-        print("   Method: Mean-Variance Optimization")
-        print("   Objective: Maximize Sharpe Ratio")
+        logging.info("\n🚀 Testing portfolio optimization...")
+        logging.info("   Method: Mean-Variance Optimization")
+        logging.info("   Objective: Maximize Sharpe Ratio")
         
         result = await optimizer.optimize_portfolio(
             scenario['returns_data'],
             scenario['current_weights']
         )
         
-        print(f"   ✅ Optimization completed!")
-        print(f"   Expected Return: {result.expected_return:.2%}")
-        print(f"   Expected Risk: {result.expected_risk:.2%}")
-        print(f"   Sharpe Ratio: {result.sharpe_ratio:.3f}")
-        print(f"   Quality Score: {result.get_quality_score():.1f}/100")
-        print(f"   Optimization Time: {result.optimization_time:.3f}s")
+        logging.info(f"   ✅ Optimization completed!")
+        logging.info(f"   Expected Return: {result.expected_return:.2%}")
+        logging.info(f"   Expected Risk: {result.expected_risk:.2%}")
+        logging.info(f"   Sharpe Ratio: {result.sharpe_ratio:.3f}")
+        logging.info(f"   Quality Score: {result.get_quality_score():.1f}/100")
+        logging.info(f"   Optimization Time: {result.optimization_time:.3f}s")
         
         # Test rebalancing recommendation
-        print("\n🔄 Generating rebalancing recommendation...")
+        logging.info("\n🔄 Generating rebalancing recommendation...")
         recommendation = await optimizer.generate_rebalancing_recommendation(result)
         
-        print(f"   Total Turnover: {recommendation.total_turnover:.1%}")
-        print(f"   Urgency Level: {recommendation.urgency_level}/5")
-        print(f"   Implementation Complexity: {recommendation.get_implementation_complexity()}")
-        print(f"   Expected Benefits: {len(recommendation.expected_benefits)} items")
+        logging.info(f"   Total Turnover: {recommendation.total_turnover:.1%}")
+        logging.info(f"   Urgency Level: {recommendation.urgency_level}/5")
+        logging.info(f"   Implementation Complexity: {recommendation.get_implementation_complexity()}")
+        logging.info(f"   Expected Benefits: {len(recommendation.expected_benefits)} items")
         
         # Test different optimization methods
-        print("\n🧪 Testing different optimization methods...")
+        logging.info("\n🧪 Testing different optimization methods...")
         
         methods_to_test = [
             OptimizationMethod.RISK_PARITY,
@@ -1941,78 +1942,78 @@ async def main():
                 scenario['current_weights'],
                 custom_parameters=test_params
             )
-            print(f"   {method.value}: Sharpe {test_result.sharpe_ratio:.3f}, Risk {test_result.expected_risk:.2%}")
+            logging.info(f"   {method.value}: Sharpe {test_result.sharpe_ratio:.3f}, Risk {test_result.expected_risk:.2%}")
         
         # Test performance attribution
-        print("\n📈 Testing performance attribution...")
+        logging.info("\n📈 Testing performance attribution...")
         start_date = scenario['returns_data'].index[100]
         end_date = scenario['returns_data'].index[200]
         
         attribution = optimizer.calculate_performance_attribution(start_date, end_date)
-        print(f"   Attribution Period: {start_date.date()} to {end_date.date()}")
-        print(f"   Total Return: {attribution.total_return:.2%}")
-        print(f"   Active Return: {attribution.active_return:.2%}")
-        print(f"   Information Ratio: {attribution.information_ratio:.3f}")
-        print(f"   Tracking Error: {attribution.tracking_error:.2%}")
+        logging.info(f"   Attribution Period: {start_date.date()} to {end_date.date()}")
+        logging.info(f"   Total Return: {attribution.total_return:.2%}")
+        logging.info(f"   Active Return: {attribution.active_return:.2%}")
+        logging.info(f"   Information Ratio: {attribution.information_ratio:.3f}")
+        logging.info(f"   Tracking Error: {attribution.tracking_error:.2%}")
         
         # Generate comprehensive report
-        print("\n📋 Generating optimization report...")
+        logging.info("\n📋 Generating optimization report...")
         report = optimizer.generate_optimization_report()
-        print("📊 PORTFOLIO OPTIMIZATION REPORT:")
-        print("-" * 50)
+        logging.info("📊 PORTFOLIO OPTIMIZATION REPORT:")
+        logging.info("-" * 50)
         # Print first portion of report
         report_lines = report.split('\n')[:25]
         for line in report_lines:
-            print(line)
-        print("   ... (truncated)")
+            logging.info(line)
+        logging.info("   ... (truncated)")
         
         # Get optimizer summary
         summary = optimizer.get_optimizer_summary()
-        print(f"\n📊 OPTIMIZER SUMMARY:")
-        print(f"   Status: {summary['optimizer_status']['status'].upper()}")
-        print(f"   Total Optimizations: {summary['optimizer_status']['total_optimizations']}")
-        print(f"   Method: {summary['configuration']['method'].upper()}")
-        print(f"   Constraints: {summary['configuration']['constraints_count']}")
+        logging.info(f"\n📊 OPTIMIZER SUMMARY:")
+        logging.info(f"   Status: {summary['optimizer_status']['status'].upper()}")
+        logging.info(f"   Total Optimizations: {summary['optimizer_status']['total_optimizations']}")
+        logging.info(f"   Method: {summary['configuration']['method'].upper()}")
+        logging.info(f"   Constraints: {summary['configuration']['constraints_count']}")
         
         if summary.get('performance_metrics'):
             metrics = summary['performance_metrics']
-            print(f"   Latest Sharpe Ratio: {metrics['sharpe_ratio']:.3f}")
-            print(f"   Effective Assets: {metrics['effective_assets']:.1f}")
-            print(f"   Diversification Ratio: {metrics['diversification_ratio']:.3f}")
+            logging.info(f"   Latest Sharpe Ratio: {metrics['sharpe_ratio']:.3f}")
+            logging.info(f"   Effective Assets: {metrics['effective_assets']:.1f}")
+            logging.info(f"   Diversification Ratio: {metrics['diversification_ratio']:.3f}")
         
         if summary.get('optimization_quality'):
             quality = summary['optimization_quality']
-            print(f"   Average Quality Score: {quality['average_quality_score']:.1f}/100")
-            print(f"   Convergence Rate: {quality['convergence_rate']:.0%}")
-            print(f"   Avg Optimization Time: {quality['average_optimization_time']:.3f}s")
+            logging.info(f"   Average Quality Score: {quality['average_quality_score']:.1f}/100")
+            logging.info(f"   Convergence Rate: {quality['convergence_rate']:.0%}")
+            logging.info(f"   Avg Optimization Time: {quality['average_optimization_time']:.3f}s")
         
         # Test rebalancing execution
-        print("\n⚡ Testing rebalancing execution...")
+        logging.info("\n⚡ Testing rebalancing execution...")
         execution_result = optimizer.execute_rebalancing(recommendation, "gradual")
-        print(f"   Execution ID: {execution_result['execution_id']}")
-        print(f"   Execution Quality: {execution_result['execution_quality']}")
-        print(f"   Success Rate: {execution_result['success_rate']:.0%}")
+        logging.info(f"   Execution ID: {execution_result['execution_id']}")
+        logging.info(f"   Execution Quality: {execution_result['execution_quality']}")
+        logging.info(f"   Success Rate: {execution_result['success_rate']:.0%}")
         
         # Cleanup
         optimizer.cleanup()
-        print("\n✅ Portfolio Optimizer test completed successfully!")
+        logging.info("\n✅ Portfolio Optimizer test completed successfully!")
         
-        print(f"\n🎯 PORTFOLIO OPTIMIZATION CAPABILITIES:")
-        print(f"   • 9 Advanced Optimization Methods")
-        print(f"   • Multi-Objective Optimization")
-        print(f"   • Real-time Rebalancing Engine")
-        print(f"   • Transaction Cost Optimization")
-        print(f"   • Machine Learning Integration")
-        print(f"   • Comprehensive Constraint Management")
-        print(f"   • Performance Attribution Analysis")
-        print(f"   • Risk-Adjusted Portfolio Construction")
-        print(f"   • Institutional-Grade Quality Assessment")
-        print(f"   • Seamless E-Series Integration")
+        logging.info(f"\n🎯 PORTFOLIO OPTIMIZATION CAPABILITIES:")
+        logging.info(f"   • 9 Advanced Optimization Methods")
+        logging.info(f"   • Multi-Objective Optimization")
+        logging.info(f"   • Real-time Rebalancing Engine")
+        logging.info(f"   • Transaction Cost Optimization")
+        logging.info(f"   • Machine Learning Integration")
+        logging.info(f"   • Comprehensive Constraint Management")
+        logging.info(f"   • Performance Attribution Analysis")
+        logging.info(f"   • Risk-Adjusted Portfolio Construction")
+        logging.info(f"   • Institutional-Grade Quality Assessment")
+        logging.info(f"   • Seamless E-Series Integration")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        logging.info(f"❌ Error during testing: {e}")
         return False
 
 if __name__ == "__main__":

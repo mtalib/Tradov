@@ -70,6 +70,7 @@ from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
 from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer
 from Spyder.SpyderL_ML.SpyderL13_LSTMPricer import LSTMPricer
 from Spyder.SpyderL_ML.SpyderL11_MLModelManager import MLModelManager
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -718,12 +719,12 @@ async def main():
 
     if args.info:
         info = predictor.get_model_info()
-        print("\n=== MOMENT Predictor Information ===")
+        logging.info("\n=== MOMENT Predictor Information ===")
         for key, value in info.items():
-            print(f"{key}: {value}")
+            logging.info(f"{key}: {value}")
 
     if args.test:
-        print("\n=== Running Test Predictions ===")
+        logging.info("\n=== Running Test Predictions ===")
 
         # Create test data
         test_data = pd.DataFrame(
@@ -749,13 +750,13 @@ async def main():
         )
 
         if isinstance(result, EnsemblePrediction):
-            print(f"\nPrice Direction: {result.price_direction}")
-            print(f"Price Magnitude: {result.price_magnitude:.2f}")
-            print(f"Regime State: {result.regime_state}")
-            print(f"Confidence Score: {result.confidence_score:.2%}")
-            print(f"External Risks: {result.external_risks}")
-            print(f"Ensemble Weights: {result.ensemble_weights}")
-            print(f"Processing Time: {result.moment_result.processing_time_ms:.1f}ms")
+            logging.info(f"\nPrice Direction: {result.price_direction}")
+            logging.info(f"Price Magnitude: {result.price_magnitude:.2f}")
+            logging.info(f"Regime State: {result.regime_state}")
+            logging.info(f"Confidence Score: {result.confidence_score:.2%}")
+            logging.info(f"External Risks: {result.external_risks}")
+            logging.info(f"Ensemble Weights: {result.ensemble_weights}")
+            logging.info(f"Processing Time: {result.moment_result.processing_time_ms:.1f}ms")
 
 
 if __name__ == "__main__":

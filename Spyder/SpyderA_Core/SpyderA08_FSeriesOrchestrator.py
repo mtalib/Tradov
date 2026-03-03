@@ -1151,7 +1151,7 @@ class MasterControllerIntegration:
 
 async def main():
     """Main execution function for testing and demonstration"""
-    print("🚀 F-Series Orchestrator Starting...")
+    logging.info("🚀 F-Series Orchestrator Starting...")
     
     # Create orchestrator with custom configuration
     config = OrchestrationConfig(
@@ -1168,7 +1168,7 @@ async def main():
         await orchestrator.start_orchestration()
         
         # Simulate task submissions
-        print("📝 Submitting test tasks...")
+        logging.info("📝 Submitting test tasks...")
         
         # Submit various F-series tasks
         task_ids = []
@@ -1197,14 +1197,14 @@ async def main():
         )
         task_ids.append(task_id)
         
-        print(f"✅ Submitted {len(task_ids)} test tasks")
+        logging.info(f"✅ Submitted {len(task_ids)} test tasks")
         
         # Monitor execution for 30 seconds
-        print("📊 Monitoring execution for 30 seconds...")
+        logging.info("📊 Monitoring execution for 30 seconds...")
         
         for i in range(30):
             status = orchestrator.get_system_status()
-            print(f"Running: {status['running_tasks']}, "
+            logging.info(f"Running: {status['running_tasks']}, "
                   f"Queued: {status['queued_tasks']}, "
                   f"Completed: {status['completed_tasks']}, "
                   f"CPU: {status['system_resources']['cpu_usage_percent']:.1f}%")
@@ -1212,25 +1212,25 @@ async def main():
             await asyncio.sleep(1)
         
         # Generate and print performance report
-        print("\n📈 Generating Performance Report...")
+        logging.info("\n📈 Generating Performance Report...")
         report = orchestrator.generate_performance_report()
         
-        print(f"Overall Success Rate: {report['aggregate_metrics']['overall_success_rate']:.1f}%")
-        print(f"Tasks Completed: {report['aggregate_metrics']['total_tasks_completed']}")
-        print(f"Average CPU Usage: {report['system_performance']['average_cpu_usage_percent']:.1f}%")
+        logging.info(f"Overall Success Rate: {report['aggregate_metrics']['overall_success_rate']:.1f}%")
+        logging.info(f"Tasks Completed: {report['aggregate_metrics']['total_tasks_completed']}")
+        logging.info(f"Average CPU Usage: {report['system_performance']['average_cpu_usage_percent']:.1f}%")
         
         # Export performance data
         export_file = orchestrator.export_performance_data()
-        print(f"Performance data exported to: {export_file}")
+        logging.info(f"Performance data exported to: {export_file}")
         
     except Exception as e:
-        print(f"❌ Orchestrator test failed: {e}")
+        logging.info(f"❌ Orchestrator test failed: {e}")
         traceback.print_exc()
     
     finally:
         # Stop orchestration
         await orchestrator.stop_orchestration()
-        print("🎯 F-Series Orchestrator Test Complete!")
+        logging.info("🎯 F-Series Orchestrator Test Complete!")
 
 if __name__ == "__main__":
     # Run the orchestrator test

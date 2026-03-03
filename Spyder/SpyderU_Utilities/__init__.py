@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -26,7 +27,7 @@ try:
 
     __all__.extend(["SpyderLogger", "get_logger"])
 except ImportError as e:
-    print(f"Critical: SpyderU01_Logger import failed: {e}")
+    logging.info(f"Critical: SpyderU01_Logger import failed: {e}")
 
 # SpyderU02_ErrorHandler - COMPREHENSIVE LEAN VERSION
 try:
@@ -35,7 +36,7 @@ try:
 
     __all__.extend(["SpyderErrorHandler", "ErrorCategory", "ErrorSeverity"])
 except ImportError as e:
-    print(f"Warning: SpyderU02_ErrorHandler import failed: {e}")
+    logging.info(f"Warning: SpyderU02_ErrorHandler import failed: {e}")
 
 # SpyderU03_DateTimeUtils - DATE/TIME UTILITIES
 try:
@@ -43,7 +44,7 @@ try:
 
     __all__.extend(["DateTimeUtils", "TradingCalendar"])
 except ImportError as e:
-    print(f"Warning: SpyderU03_DateTimeUtils import failed: {e}")
+    logging.info(f"Warning: SpyderU03_DateTimeUtils import failed: {e}")
 
 # SpyderU04_Encryption - SECURITY UTILITIES
 try:
@@ -52,7 +53,7 @@ try:
 
     __all__.extend(["EncryptionManager", "encrypt_data", "decrypt_data"])
 except ImportError as e:
-    print(f"Warning: SpyderU04_Encryption import failed: {e}")
+    logging.info(f"Warning: SpyderU04_Encryption import failed: {e}")
 
 # SpyderU05_NetworkUtils - NETWORK UTILITIES
 try:
@@ -60,7 +61,7 @@ try:
 
     __all__.extend(["NetworkUtils", "check_internet_connection"])
 except ImportError as e:
-    print(f"Warning: SpyderU05_NetworkUtils import failed: {e}")
+    logging.info(f"Warning: SpyderU05_NetworkUtils import failed: {e}")
 
 # SpyderU06_MathUtils - MATHEMATICAL UTILITIES
 try:
@@ -68,7 +69,7 @@ try:
 
     __all__.extend(["MathUtils", "calculate_sharpe_ratio"])
 except ImportError as e:
-    print(f"Warning: SpyderU06_MathUtils import failed: {e}")
+    logging.info(f"Warning: SpyderU06_MathUtils import failed: {e}")
 
 # SpyderU07_Constants - SYSTEM CONSTANTS
 try:
@@ -76,7 +77,7 @@ try:
 
     # Note: Constants are typically imported with * to make them globally available
 except ImportError as e:
-    print(f"Warning: SpyderU07_Constants import failed: {e}")
+    logging.info(f"Warning: SpyderU07_Constants import failed: {e}")
 
 # SpyderU08_Validators - DATA VALIDATION
 try:
@@ -84,7 +85,7 @@ try:
 
     __all__.extend(["DataValidators", "validate_order_data"])
 except ImportError as e:
-    print(f"Warning: SpyderU08_Validators import failed: {e}")
+    logging.info(f"Warning: SpyderU08_Validators import failed: {e}")
 
 # SpyderU09_DataTypes - DATA TYPE DEFINITIONS
 try:
@@ -92,7 +93,7 @@ try:
 
     __all__.extend(["MarketData", "OrderData", "PositionData"])
 except ImportError as e:
-    print(f"Warning: SpyderU09_DataTypes import failed: {e}")
+    logging.info(f"Warning: SpyderU09_DataTypes import failed: {e}")
 
 # SpyderU10_TradingCalendar - TRADING CALENDAR
 try:
@@ -101,7 +102,7 @@ try:
 
     __all__.extend(["Calendar", "get_trading_calendar"])
 except ImportError as e:
-    print(f"Warning: SpyderU10_TradingCalendar import failed: {e}")
+    logging.info(f"Warning: SpyderU10_TradingCalendar import failed: {e}")
 
 # SpyderU11_FeatureFlags - FEATURE FLAG MANAGEMENT
 try:
@@ -109,7 +110,7 @@ try:
 
     __all__.extend(["FeatureFlags", "check_feature_enabled"])
 except ImportError as e:
-    print(f"Warning: SpyderU11_FeatureFlags import failed: {e}")
+    logging.info(f"Warning: SpyderU11_FeatureFlags import failed: {e}")
 
 # SpyderU13_TechnicalIndicators - TECHNICAL ANALYSIS INDICATORS
 try:
@@ -118,7 +119,7 @@ try:
 
     __all__.extend(["TechnicalIndicators", "calculate_rsi", "calculate_macd"])
 except ImportError as e:
-    print(f"Warning: SpyderU13_TechnicalIndicators import failed: {e}")
+    logging.info(f"Warning: SpyderU13_TechnicalIndicators import failed: {e}")
 
 # SpyderU14_OptionStrategies - OPTION STRATEGY UTILITIES
 try:
@@ -127,7 +128,7 @@ try:
 
     __all__.extend(["OptionStrategy", "calculate_option_payoff"])
 except ImportError as e:
-    print(f"Warning: SpyderU14_OptionStrategies import failed: {e}")
+    logging.info(f"Warning: SpyderU14_OptionStrategies import failed: {e}")
 
 # SpyderU15_PerformanceMetrics - PERFORMANCE CALCULATION
 try:
@@ -136,14 +137,14 @@ try:
 
     __all__.extend(["PerformanceCalculator", "calculate_metrics"])
 except ImportError as e:
-    print(f"Warning: SpyderU15_PerformanceMetrics import failed: {e}")
+    logging.info(f"Warning: SpyderU15_PerformanceMetrics import failed: {e}")
 
 # SpyderU16_TechnicalAnalysis - ADVANCED TECHNICAL ANALYSIS
 try:
     
     __all__.extend(["TechnicalAnalysis", ])
 except ImportError as e:
-    print(f"Warning: SpyderU16_TechnicalAnalysis import failed: {e}")
+    logging.info(f"Warning: SpyderU16_TechnicalAnalysis import failed: {e}")
 
 # SpyderU18_DependencyAnalyzer - DEPENDENCY ANALYSIS
 try:
@@ -151,7 +152,7 @@ try:
 
     __all__.extend(["DependencyAnalyzer"])
 except ImportError as e:
-    print(f"Warning: SpyderU18_DependencyAnalyzer import failed: {e}")
+    logging.info(f"Warning: SpyderU18_DependencyAnalyzer import failed: {e}")
 
 # SpyderU19_InteractionMatrix - MODULE INTERACTION MATRIX
 try:
@@ -159,7 +160,7 @@ try:
 
     __all__.extend(["InteractionMatrix"])
 except ImportError as e:
-    print(f"Warning: SpyderU19_InteractionMatrix import failed: {e}")
+    logging.info(f"Warning: SpyderU19_InteractionMatrix import failed: {e}")
 
 # ==============================================================================
 # UTILITY FUNCTIONS
@@ -189,7 +190,7 @@ def list_available_utilities():
 # ==============================================================================
 # Count successfully loaded modules
 loaded_modules = len([m for m in __all__ if m in globals()])
-print(f"✅ SpyderU_Utilities: {loaded_modules} modules loaded successfully")
+logging.info(f"✅ SpyderU_Utilities: {loaded_modules} modules loaded successfully")
 
 # ==============================================================================
 # BACKWARDS COMPATIBILITY ALIASES

@@ -64,7 +64,7 @@ try:
     
     CONSOLIDATED_MODULES_AVAILABLE = True
 except ImportError:
-    print("Warning: Consolidated V-series modules not available")
+    logging.info("Warning: Consolidated V-series modules not available")
     CONSOLIDATED_MODULES_AVAILABLE = False
     # Define fallback types so class definitions don't fail
     RiskParameters = None  # type: ignore
@@ -926,31 +926,31 @@ def create_enhanced_model_manager(config: Optional[Dict[str, Any]] = None,
 # ==============================================================================
 async def main():
     """Demonstration of enhanced model manager."""
-    print("=" * 80)
-    print("SPYDER V02 ENHANCED MODEL MANAGER DEMONSTRATION")
-    print("=" * 80)
+    logging.info("=" * 80)
+    logging.info("SPYDER V02 ENHANCED MODEL MANAGER DEMONSTRATION")
+    logging.info("=" * 80)
     
     # Initialize enhanced model manager
     model_manager = create_enhanced_model_manager()
     
-    print("\nEnhanced Model Manager Initialized")
-    print("   • Manages all consolidated V-series engines (V04-V08)")
-    print("   • Intelligent model selection and routing")
-    print("   • Performance-based adaptive optimization")
-    print("   • Real-time monitoring and health checks")
+    logging.info("\nEnhanced Model Manager Initialized")
+    logging.info("   • Manages all consolidated V-series engines (V04-V08)")
+    logging.info("   • Intelligent model selection and routing")
+    logging.info("   • Performance-based adaptive optimization")
+    logging.info("   • Real-time monitoring and health checks")
     
     # Test 1: Initialize all engines
-    print(f"\n--- Test 1: Engine Initialization ---")
+    logging.info(f"\n--- Test 1: Engine Initialization ---")
     
     initialization_results = await model_manager.initialize_all_engines()
     
-    print("Engine Initialization Results:")
+    logging.info("Engine Initialization Results:")
     for engine_type, success in initialization_results.items():
         status_icon = "✅" if success else "❌"
-        print(f"   {status_icon} {engine_type.value}: {'Ready' if success else 'Failed'}")
+        logging.info(f"   {status_icon} {engine_type.value}: {'Ready' if success else 'Failed'}")
     
     # Test 2: Model Selection Intelligence
-    print(f"\n--- Test 2: Intelligent Model Selection ---")
+    logging.info(f"\n--- Test 2: Intelligent Model Selection ---")
     
     # Test different contexts
     contexts = [
@@ -975,37 +975,37 @@ async def main():
     ]
     
     for context_name, context in contexts:
-        print(f"\n{context_name} Context:")
+        logging.info(f"\n{context_name} Context:")
         
         # Test pricing operation selection
         recommendation = await model_manager.select_optimal_engine("price_option", context)
-        print(f"   Pricing: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
-        print(f"   Reasoning: {recommendation.reasoning}")
+        logging.info(f"   Pricing: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
+        logging.info(f"   Reasoning: {recommendation.reasoning}")
         
         # Test risk analysis selection
         recommendation = await model_manager.select_optimal_engine("calculate_risk_metrics", context)
-        print(f"   Risk: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
+        logging.info(f"   Risk: {recommendation.engine_type.value} (Confidence: {recommendation.confidence:.1%})")
     
     # Test 3: Performance Monitoring
-    print(f"\n--- Test 3: Performance Monitoring ---")
+    logging.info(f"\n--- Test 3: Performance Monitoring ---")
     
     health_report = model_manager.get_consolidated_health_report()
     
-    print(f"System Health Report:")
-    print(f"   Total Engines: {health_report['total_engines']}")
-    print(f"   Healthy Engines: {health_report['healthy_engines']}")
-    print(f"   System Load: {health_report['system_load']:.1%}")
-    print(f"   Market Regime: {health_report['market_regime']}")
+    logging.info(f"System Health Report:")
+    logging.info(f"   Total Engines: {health_report['total_engines']}")
+    logging.info(f"   Healthy Engines: {health_report['healthy_engines']}")
+    logging.info(f"   System Load: {health_report['system_load']:.1%}")
+    logging.info(f"   Market Regime: {health_report['market_regime']}")
     
-    print("\nEngine Status:")
+    logging.info("\nEngine Status:")
     for engine_name, status in health_report['engine_status'].items():
         status_icon = "✅" if status == "ready" else "⚠️" if status == "degraded" else "❌"
-        print(f"   {status_icon} {engine_name}: {status}")
+        logging.info(f"   {status_icon} {engine_name}: {status}")
     
     # Test 4: Unified Operations Interface
-    print(f"\n--- Test 4: Unified Operations Interface ---")
+    logging.info(f"\n--- Test 4: Unified Operations Interface ---")
     
-    print("Available Operations:")
+    logging.info("Available Operations:")
     operations = [
         "calculate_risk_metrics - V04 Risk Manager",
         "price_option - V05 Pricing Engine", 
@@ -1015,21 +1015,21 @@ async def main():
     ]
     
     for operation in operations:
-        print(f"   • {operation}")
+        logging.info(f"   • {operation}")
     
     # Test 5: Configuration Display
-    print(f"\n--- Test 5: Engine Configurations ---")
+    logging.info(f"\n--- Test 5: Engine Configurations ---")
     
     for engine_type, config in model_manager.engine_configs.items():
-        print(f"\n{engine_type.value.upper()}:")
-        print(f"   Enabled: {config.enabled}")
-        print(f"   Priority: {config.priority}")
-        print(f"   Performance Threshold: {config.performance_threshold:.1%}")
-        print(f"   Max Response Time: {config.max_response_time_ms:.0f}ms")
-        print(f"   Calibration Schedule: {config.calibration_schedule}")
+        logging.info(f"\n{engine_type.value.upper()}:")
+        logging.info(f"   Enabled: {config.enabled}")
+        logging.info(f"   Priority: {config.priority}")
+        logging.info(f"   Performance Threshold: {config.performance_threshold:.1%}")
+        logging.info(f"   Max Response Time: {config.max_response_time_ms:.0f}ms")
+        logging.info(f"   Calibration Schedule: {config.calibration_schedule}")
     
     # Test 6: Architecture Summary
-    print(f"\n--- Consolidated V-Series Architecture ---")
+    logging.info(f"\n--- Consolidated V-Series Architecture ---")
     
     architecture = [
         "V01_QuantEngine2 (Orchestrator)",
@@ -1043,13 +1043,13 @@ async def main():
     ]
     
     for line in architecture:
-        print(f"   {line}")
+        logging.info(f"   {line}")
     
-    print(f"\n🎯 CONSOLIDATED V-SERIES COMPLETE!")
-    print("   • 8 modules with zero duplications")
-    print("   • Intelligent model selection across all engines") 
-    print("   • Performance-based adaptive optimization")
-    print("   • Unified interface for seamless integration")
+    logging.info(f"\n🎯 CONSOLIDATED V-SERIES COMPLETE!")
+    logging.info("   • 8 modules with zero duplications")
+    logging.info("   • Intelligent model selection across all engines") 
+    logging.info("   • Performance-based adaptive optimization")
+    logging.info("   • Unified interface for seamless integration")
 
 if __name__ == "__main__":
     import asyncio

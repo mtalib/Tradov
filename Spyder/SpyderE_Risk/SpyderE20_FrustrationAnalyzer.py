@@ -72,6 +72,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1536,94 +1537,94 @@ def create_sample_data(n_assets: int = 20, n_periods: int = 200) -> pd.DataFrame
 
 async def main():
     """Test the FrustrationAnalyzer."""
-    print("=" * 80)
-    print("SPYDER E11 - Frustration Analyzer (Spin Glass Theory)")
-    print("=" * 80)
+    logging.info("=" * 80)
+    logging.info("SPYDER E11 - Frustration Analyzer (Spin Glass Theory)")
+    logging.info("=" * 80)
 
     # Create analyzer
     analyzer = FrustrationAnalyzer()
 
     # Initialize
-    print("\n1. Initializing analyzer...")
+    logging.info("\n1. Initializing analyzer...")
     if not analyzer.initialize():
-        print("   Failed to initialize")
+        logging.info("   Failed to initialize")
         return
-    print("   Initialized successfully")
+    logging.info("   Initialized successfully")
 
     # Create sample data
-    print("\n2. Creating sample market data...")
+    logging.info("\n2. Creating sample market data...")
     returns_data = create_sample_data(n_assets=15, n_periods=150)
-    print(f"   Created: {len(returns_data)} periods, {len(returns_data.columns)} assets")
+    logging.info(f"   Created: {len(returns_data)} periods, {len(returns_data.columns)} assets")
 
     # Train HMM if available
     if analyzer.use_hmm:
-        print("\n3. Training HMM regime detector...")
+        logging.info("\n3. Training HMM regime detector...")
         if analyzer.train_hmm(returns_data):
-            print("   HMM trained successfully")
+            logging.info("   HMM trained successfully")
         else:
-            print("   HMM training failed (insufficient data or not available)")
+            logging.info("   HMM training failed (insufficient data or not available)")
 
     # Run analysis
-    print("\n4. Running spin glass analysis...")
+    logging.info("\n4. Running spin glass analysis...")
     analysis = analyzer.analyze(returns_data)
 
     # Print results
-    print("\n" + "=" * 80)
-    print("ANALYSIS RESULTS")
-    print("=" * 80)
+    logging.info("\n" + "=" * 80)
+    logging.info("ANALYSIS RESULTS")
+    logging.info("=" * 80)
 
-    print(f"\nFRUSTRATION METRICS:")
-    print(f"  Frustration Index: {analysis.frustration.frustration_index:.1%}")
-    print(f"  Frustrated Triangles: {analysis.frustration.frustrated_triangle_count}/{analysis.frustration.total_triangle_count}")
-    print(f"  Level: {analysis.frustration.frustration_level.value.upper()}")
-    print(f"  Strong Frustration: {analysis.frustration.strong_frustration:.1%}")
+    logging.info(f"\nFRUSTRATION METRICS:")
+    logging.info(f"  Frustration Index: {analysis.frustration.frustration_index:.1%}")
+    logging.info(f"  Frustrated Triangles: {analysis.frustration.frustrated_triangle_count}/{analysis.frustration.total_triangle_count}")
+    logging.info(f"  Level: {analysis.frustration.frustration_level.value.upper()}")
+    logging.info(f"  Strong Frustration: {analysis.frustration.strong_frustration:.1%}")
 
-    print(f"\nENERGY METRICS:")
-    print(f"  Hamiltonian: {analysis.energy.hamiltonian:.4f}")
-    print(f"  Normalized Energy: {analysis.energy.normalized_energy:.3f}")
-    print(f"  Barrier Height: {analysis.energy.barrier_height:.3f}")
-    print(f"  Stability Score: {analysis.energy.stability_score:.1f}/100")
+    logging.info(f"\nENERGY METRICS:")
+    logging.info(f"  Hamiltonian: {analysis.energy.hamiltonian:.4f}")
+    logging.info(f"  Normalized Energy: {analysis.energy.normalized_energy:.3f}")
+    logging.info(f"  Barrier Height: {analysis.energy.barrier_height:.3f}")
+    logging.info(f"  Stability Score: {analysis.energy.stability_score:.1f}/100")
 
-    print(f"\nPHASE TRANSITION:")
-    print(f"  Current Phase: {analysis.phase_transition.current_phase.value.upper()}")
-    print(f"  Warning Score: {analysis.phase_transition.warning_score:.1f}/100")
-    print(f"  Transition Detected: {analysis.phase_transition.transition_detected}")
-    print(f"  Trading Implication: {analysis.phase_transition.trading_implication.value.upper()}")
+    logging.info(f"\nPHASE TRANSITION:")
+    logging.info(f"  Current Phase: {analysis.phase_transition.current_phase.value.upper()}")
+    logging.info(f"  Warning Score: {analysis.phase_transition.warning_score:.1f}/100")
+    logging.info(f"  Transition Detected: {analysis.phase_transition.transition_detected}")
+    logging.info(f"  Trading Implication: {analysis.phase_transition.trading_implication.value.upper()}")
 
-    print(f"\nREPLICA SYMMETRY:")
-    print(f"  RSB Detected: {analysis.replica_symmetry.rsb_detected}")
-    print(f"  RSB Strength: {analysis.replica_symmetry.rsb_strength:.3f}")
-    print(f"  Order Parameter: {analysis.replica_symmetry.order_parameter:.3f}")
+    logging.info(f"\nREPLICA SYMMETRY:")
+    logging.info(f"  RSB Detected: {analysis.replica_symmetry.rsb_detected}")
+    logging.info(f"  RSB Strength: {analysis.replica_symmetry.rsb_strength:.3f}")
+    logging.info(f"  Order Parameter: {analysis.replica_symmetry.order_parameter:.3f}")
 
-    print(f"\nULTRAMETRIC ANALYSIS:")
-    print(f"  MST Length (normalized): {analysis.ultrametric.mst_normalized_length:.3f}")
-    print(f"  Collapse Detected: {analysis.ultrametric.collapse_detected}")
-    print(f"  Ultrametric Score: {analysis.ultrametric.ultrametric_score:.3f}")
-    print(f"  Clusters: {analysis.ultrametric.n_clusters}")
+    logging.info(f"\nULTRAMETRIC ANALYSIS:")
+    logging.info(f"  MST Length (normalized): {analysis.ultrametric.mst_normalized_length:.3f}")
+    logging.info(f"  Collapse Detected: {analysis.ultrametric.collapse_detected}")
+    logging.info(f"  Ultrametric Score: {analysis.ultrametric.ultrametric_score:.3f}")
+    logging.info(f"  Clusters: {analysis.ultrametric.n_clusters}")
 
     if analysis.hmm_regime:
-        print(f"\nHMM REGIME:")
-        print(f"  Current: {analysis.hmm_regime}")
-        print(f"  Probability: {analysis.hmm_regime_probability:.1%}")
+        logging.info(f"\nHMM REGIME:")
+        logging.info(f"  Current: {analysis.hmm_regime}")
+        logging.info(f"  Probability: {analysis.hmm_regime_probability:.1%}")
 
     if analysis.evt_shape_parameter is not None:
-        print(f"\nEVT TAIL RISK:")
-        print(f"  Shape Parameter (xi): {analysis.evt_shape_parameter:.3f}")
-        print(f"  Tail Probability: {analysis.evt_tail_probability:.4f}")
+        logging.info(f"\nEVT TAIL RISK:")
+        logging.info(f"  Shape Parameter (xi): {analysis.evt_shape_parameter:.3f}")
+        logging.info(f"  Tail Probability: {analysis.evt_tail_probability:.4f}")
 
-    print(f"\nOVERALL ASSESSMENT:")
-    print(f"  Market Stability: {analysis.market_stability.upper()}")
-    print(f"  Confidence: {analysis.confidence:.1%}")
-    print(f"  Recommendation: {analysis.trading_recommendation.value.upper()}")
+    logging.info(f"\nOVERALL ASSESSMENT:")
+    logging.info(f"  Market Stability: {analysis.market_stability.upper()}")
+    logging.info(f"  Confidence: {analysis.confidence:.1%}")
+    logging.info(f"  Recommendation: {analysis.trading_recommendation.value.upper()}")
 
     if analysis.signals:
-        print(f"\nSIGNALS:")
+        logging.info(f"\nSIGNALS:")
         for signal in analysis.signals:
-            print(f"  - {signal}")
+            logging.info(f"  - {signal}")
 
-    print("\n" + "=" * 80)
-    print("Test completed successfully!")
-    print("=" * 80)
+    logging.info("\n" + "=" * 80)
+    logging.info("Test completed successfully!")
+    logging.info("=" * 80)
 
 
 if __name__ == "__main__":

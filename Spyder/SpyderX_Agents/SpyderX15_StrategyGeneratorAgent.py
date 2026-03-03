@@ -40,6 +40,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import hashlib
+import logging
 
 try:
     from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
@@ -389,62 +390,62 @@ class SimplifiedStrategyGenerator:
 # ==============================================================================
 async def main():
     """Test the simplified strategy generator"""
-    print("🧬 SPYDER SIMPLIFIED STRATEGY GENERATOR TEST")
-    print("=" * 60)
+    logging.info("🧬 SPYDER SIMPLIFIED STRATEGY GENERATOR TEST")
+    logging.info("=" * 60)
     
     # Create generator
     generator = SimplifiedStrategyGenerator()
     
     # Initialize population
-    print("\n1️⃣ Initializing random population...")
+    logging.info("\n1️⃣ Initializing random population...")
     generator.initialize_population(20)
     
     # Show initial report
     report = generator.get_report()
-    print(f"   Population: {report['population_size']} strategies")
-    print(f"   Best fitness: {report['best_fitness']:.3f}")
-    print(f"   Average fitness: {report['avg_fitness']:.3f}")
+    logging.info(f"   Population: {report['population_size']} strategies")
+    logging.info(f"   Best fitness: {report['best_fitness']:.3f}")
+    logging.info(f"   Average fitness: {report['avg_fitness']:.3f}")
     
     if report['best_strategy']:
         best = report['best_strategy']
-        print(f"   Best strategy: {best['name']} ({best['type']})")
-        print(f"   Entry conditions: {', '.join(best['entry_conditions'])}")
+        logging.info(f"   Best strategy: {best['name']} ({best['type']})")
+        logging.info(f"   Entry conditions: {', '.join(best['entry_conditions'])}")
     
     # Evolve for a few generations
-    print("\n2️⃣ Running evolution...")
+    logging.info("\n2️⃣ Running evolution...")
     generator.evolve(5)
     
     # Final report
     final_report = generator.get_report()
-    print(f"\n3️⃣ Evolution Results:")
-    print(f"   Generations completed: {final_report['generation']}")
-    print(f"   Final best fitness: {final_report['best_fitness']:.3f}")
-    print(f"   Final avg fitness: {final_report['avg_fitness']:.3f}")
+    logging.info(f"\n3️⃣ Evolution Results:")
+    logging.info(f"   Generations completed: {final_report['generation']}")
+    logging.info(f"   Final best fitness: {final_report['best_fitness']:.3f}")
+    logging.info(f"   Final avg fitness: {final_report['avg_fitness']:.3f}")
     
-    print(f"\n🏆 Best Strategy:")
+    logging.info(f"\n🏆 Best Strategy:")
     if final_report['best_strategy']:
         best = final_report['best_strategy']
-        print(f"   Name: {best['name']}")
-        print(f"   Type: {best['type']}")
-        print(f"   Fitness: {best['fitness']:.3f}")
-        print(f"   Entry: {', '.join(best['entry_conditions'])}")
-        print(f"   Exit: {', '.join(best['exit_conditions'])}")
-        print(f"   Risk Factor: {best['risk_factor']:.3f}")
+        logging.info(f"   Name: {best['name']}")
+        logging.info(f"   Type: {best['type']}")
+        logging.info(f"   Fitness: {best['fitness']:.3f}")
+        logging.info(f"   Entry: {', '.join(best['entry_conditions'])}")
+        logging.info(f"   Exit: {', '.join(best['exit_conditions'])}")
+        logging.info(f"   Risk Factor: {best['risk_factor']:.3f}")
     
-    print(f"\n📊 Top 5 Strategies:")
+    logging.info(f"\n📊 Top 5 Strategies:")
     for i, strategy in enumerate(final_report['top_strategies'], 1):
-        print(f"   {i}. {strategy['name']} ({strategy['type']}) - {strategy['fitness']:.3f}")
+        logging.info(f"   {i}. {strategy['name']} ({strategy['type']}) - {strategy['fitness']:.3f}")
     
-    print(f"\n📈 Strategy Type Distribution:")
+    logging.info(f"\n📈 Strategy Type Distribution:")
     for stype, count in final_report['strategy_type_distribution'].items():
-        print(f"   {stype}: {count}")
+        logging.info(f"   {stype}: {count}")
     
-    print(f"\n🎯 Common Entry Conditions:")
+    logging.info(f"\n🎯 Common Entry Conditions:")
     for condition, count in final_report['common_entry_conditions']:
-        print(f"   {condition}: {count}")
+        logging.info(f"   {condition}: {count}")
     
-    print("\n✅ Simplified Strategy Generator test completed!")
-    print("🚀 Ready for full institutional strategy evolution!")
+    logging.info("\n✅ Simplified Strategy Generator test completed!")
+    logging.info("🚀 Ready for full institutional strategy evolution!")
 
 if __name__ == "__main__":
     import sys

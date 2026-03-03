@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -59,7 +60,7 @@ try:
 
     QUANT_ENGINE_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV01_QuantEngine not available: {e}")
+    logging.info(f"⚠️ SpyderV01_QuantEngine not available: {e}")
     QUANT_ENGINE_AVAILABLE = False
 
 # Model Manager
@@ -71,7 +72,7 @@ try:
 
     MODEL_MANAGER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV02_ModelManager not available: {e}")
+    logging.info(f"⚠️ SpyderV02_ModelManager not available: {e}")
     MODEL_MANAGER_AVAILABLE = False
 
 # Data Interface
@@ -83,7 +84,7 @@ try:
 
     DATA_INTERFACE_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV03_DataInterface not available: {e}")
+    logging.info(f"⚠️ SpyderV03_DataInterface not available: {e}")
     DATA_INTERFACE_AVAILABLE = False
 
 # Risk Manager
@@ -97,7 +98,7 @@ try:
 
     RISK_MANAGER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV04_RiskManager not available: {e}")
+    logging.info(f"⚠️ SpyderV04_RiskManager not available: {e}")
     RISK_MANAGER_AVAILABLE = False
 
 # Pricing Engine
@@ -116,7 +117,7 @@ try:
 
     PRICING_ENGINE_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV05_PricingEngine not available: {e}")
+    logging.info(f"⚠️ SpyderV05_PricingEngine not available: {e}")
     PRICING_ENGINE_AVAILABLE = False
 
 # Volatility Engine
@@ -130,7 +131,7 @@ try:
 
     VOLATILITY_ENGINE_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV06_VolatilityEngine not available: {e}")
+    logging.info(f"⚠️ SpyderV06_VolatilityEngine not available: {e}")
     VOLATILITY_ENGINE_AVAILABLE = False
 
 # Advanced Models
@@ -144,7 +145,7 @@ try:
 
     ADVANCED_MODELS_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV07_AdvancedModels not available: {e}")
+    logging.info(f"⚠️ SpyderV07_AdvancedModels not available: {e}")
     ADVANCED_MODELS_AVAILABLE = False
 
 # Machine Learning
@@ -158,7 +159,7 @@ try:
 
     MACHINE_LEARNING_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV08_MachineLearning not available: {e}")
+    logging.info(f"⚠️ SpyderV08_MachineLearning not available: {e}")
     MACHINE_LEARNING_AVAILABLE = False
 
 # Statistical Models
@@ -172,7 +173,7 @@ try:
 
     STATISTICAL_MODELS_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV09_StatisticalModels not available: {e}")
+    logging.info(f"⚠️ SpyderV09_StatisticalModels not available: {e}")
     STATISTICAL_MODELS_AVAILABLE = False
 
 # Optimization Engines
@@ -186,7 +187,7 @@ try:
 
     OPTIMIZATION_ENGINES_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderV10_OptimizationEngines not available: {e}")
+    logging.info(f"⚠️ SpyderV10_OptimizationEngines not available: {e}")
     OPTIMIZATION_ENGINES_AVAILABLE = False
 
 # ==============================================================================
@@ -379,23 +380,23 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        print(f"🧮 {info['package_name']} v{info['version']}")
-        print(
+        logging.info(f"🧮 {info['package_name']} v{info['version']}")
+        logging.info(
             f"✅ {info['available_modules']}/{info['total_modules']} modules available"
         )
 
         if info["available_modules"] == info["total_modules"]:
-            print("🚀 All quantitative model modules loaded successfully")
+            logging.info("🚀 All quantitative model modules loaded successfully")
             return True
         else:
-            print("⚠️ Some quantitative model modules are missing")
+            logging.info("⚠️ Some quantitative model modules are missing")
             for module, status in info["module_status"].items():
                 status_icon = "✅" if status else "❌"
-                print(f"   {status_icon} {module}")
+                logging.info(f"   {status_icon} {module}")
             return False
 
     except Exception as e:
-        print(f"❌ Quantitative models package validation failed: {e}")
+        logging.info(f"❌ Quantitative models package validation failed: {e}")
         return False
 
 
@@ -457,12 +458,12 @@ if __name__ != "__main__":
     validate_package()
 else:
     # If running as main, show detailed package info
-    print("=" * 70)
-    print("SPYDER V - QUANTITATIVE MODELS PACKAGE")
-    print("=" * 70)
+    logging.info("=" * 70)
+    logging.info("SPYDER V - QUANTITATIVE MODELS PACKAGE")
+    logging.info("=" * 70)
     validate_package()
     info = get_package_info()
-    print("\nPackage Details:")
+    logging.info("\nPackage Details:")
     for key, value in info.items():
         if key != "module_status":
-            print(f"  {key}: {value}")
+            logging.info(f"  {key}: {value}")

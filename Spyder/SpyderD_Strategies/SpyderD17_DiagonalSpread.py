@@ -53,6 +53,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (SPY_CONTRACT_MULTIPLIER,
                                                    OptionType, SignalType)
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1186,8 +1187,8 @@ class DiagonalSpreadStrategy(BaseStrategy):
 # ==============================================================================
 def test_diagonal_spread():
     """Test the Diagonal Spread strategy"""
-    print("Testing Diagonal Spread Strategy")
-    print("=" * 60)
+    logging.info("Testing Diagonal Spread Strategy")
+    logging.info("=" * 60)
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
@@ -1211,9 +1212,9 @@ def test_diagonal_spread():
     # Create strategy
     strategy = DiagonalSpreadStrategy(event_manager, risk_profile, config)
 
-    print(f"Strategy: {strategy.name}")
-    print(f"Require Trend: {strategy.require_trend}")
-    print(f"Track Cost Basis: {strategy.track_cost_basis}")
+    logging.info(f"Strategy: {strategy.name}")
+    logging.info(f"Require Trend: {strategy.require_trend}")
+    logging.info(f"Track Cost Basis: {strategy.track_cost_basis}")
 
     # Create trending market data
     dates = pd.date_range(end=datetime.now(), periods=100, freq="D")
@@ -1239,43 +1240,43 @@ def test_diagonal_spread():
     )
 
     # Test trend analysis
-    print("\nTrend Analysis:")
+    logging.info("\nTrend Analysis:")
     trend_data = strategy._analyze_trend(market_data)
-    print(f"Direction: {trend_data.direction}")
-    print(f"Strength: {trend_data.strength:.2f}")
-    print(f"Momentum: {trend_data.momentum:.2f}")
-    print(f"Support: ${trend_data.support:.2f}")
-    print(f"Resistance: ${trend_data.resistance:.2f}")
-    print(f"Trend Age: {trend_data.trend_age} bars")
-    print(f"Reliability: {trend_data.reliability:.2f}")
+    logging.info(f"Direction: {trend_data.direction}")
+    logging.info(f"Strength: {trend_data.strength:.2f}")
+    logging.info(f"Momentum: {trend_data.momentum:.2f}")
+    logging.info(f"Support: ${trend_data.support:.2f}")
+    logging.info(f"Resistance: ${trend_data.resistance:.2f}")
+    logging.info(f"Trend Age: {trend_data.trend_age} bars")
+    logging.info(f"Reliability: {trend_data.reliability:.2f}")
 
     # Add IV data
     market_data["iv"] = iv_series
 
     # Generate signals
-    print("\nGenerating Signals...")
+    logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
 
-    print(f"Generated {len(signals)} signals")
+    logging.info(f"Generated {len(signals)} signals")
 
     for signal in signals:
         setup = signal.metadata
-        print(f"\nDiagonal Type: {setup['diagonal_type']}")
-        print(f"Bias: {setup['bias']}")
-        print(f"Trend Direction: {setup['trend_direction']}")
-        print(f"Trend Strength: {setup['trend_strength']:.2f}")
-        print(f"Net Debit: ${setup['net_debit']:.2f}")
-        print(f"Max Profit: ${setup['max_profit']:.2f}")
-        print(f"Target Price: ${setup['target_price']:.2f}")
-        print(f"Confidence: {signal.confidence:.1%}")
+        logging.info(f"\nDiagonal Type: {setup['diagonal_type']}")
+        logging.info(f"Bias: {setup['bias']}")
+        logging.info(f"Trend Direction: {setup['trend_direction']}")
+        logging.info(f"Trend Strength: {setup['trend_strength']:.2f}")
+        logging.info(f"Net Debit: ${setup['net_debit']:.2f}")
+        logging.info(f"Max Profit: ${setup['max_profit']:.2f}")
+        logging.info(f"Target Price: ${setup['target_price']:.2f}")
+        logging.info(f"Confidence: {signal.confidence:.1%}")
 
         # Add position
         position_id = strategy.add_position(signal)
 
     # Test position management
     if strategy.active_positions:
-        print("\n" + "=" * 40)
-        print("Position Management Test")
+        logging.info("\n" + "=" * 40)
+        logging.info("Position Management Test")
 
         # Simulate time passing and price movement
         for i in range(30):  # 30 days
@@ -1301,61 +1302,61 @@ def test_diagonal_spread():
                 if management_signals:
                     for signal in management_signals:
                         if signal.signal_type == SignalType.ADJUST:
-                            print(f"\nRoll Signal Day {i}")
-                            print(f"Action: {signal.metadata['action']}")
-                            print(f"Roll Credit: ${signal.metadata.get('roll_credit', 0):.2f}")
-                            print(f"Short DTE: {signal.metadata['current_short_dte']}")
-                            print(f"Roll Count: {signal.metadata['roll_count']}")
+                            logging.info(f"\nRoll Signal Day {i}")
+                            logging.info(f"Action: {signal.metadata['action']}")
+                            logging.info(f"Roll Credit: ${signal.metadata.get('roll_credit', 0):.2f}")
+                            logging.info(f"Short DTE: {signal.metadata['current_short_dte']}")
+                            logging.info(f"Roll Count: {signal.metadata['roll_count']}")
                         elif signal.signal_type == SignalType.EXIT:
-                            print(f"\nExit Signal Day {i}")
-                            print(f"Reason: {signal.metadata['exit_reason']}")
-                            print(f"Days Held: {signal.metadata['days_held']}")
-                            print(f"Total P&L: ${signal.metadata['total_pnl']:.2f}")
-                            print(f"Basis Reduction: ${signal.metadata['basis_reduction']:.2f}")
+                            logging.info(f"\nExit Signal Day {i}")
+                            logging.info(f"Reason: {signal.metadata['exit_reason']}")
+                            logging.info(f"Days Held: {signal.metadata['days_held']}")
+                            logging.info(f"Total P&L: ${signal.metadata['total_pnl']:.2f}")
+                            logging.info(f"Basis Reduction: ${signal.metadata['basis_reduction']:.2f}")
 
     # Print position summary
     positions = strategy.get_position_summary()
     if positions:
-        print("\n" + "=" * 40)
-        print("Active Positions:")
+        logging.info("\n" + "=" * 40)
+        logging.info("Active Positions:")
         for pos in positions:
-            print(f"\n{pos['position_id']}:")
-            print(f"  Type: {pos['type']}")
-            print(f"  Bias: {pos['bias']}")
-            print(f"  Short DTE: {pos['short_dte']}")
-            print(f"  Long DTE: {pos['long_dte']}")
-            print(f"  Total P&L: ${pos['total_pnl']:.2f}")
-            print(f"  Roll Count: {pos['roll_count']}")
-            print(f"  Cost Basis: ${pos['cost_basis']:.2f}")
+            logging.info(f"\n{pos['position_id']}:")
+            logging.info(f"  Type: {pos['type']}")
+            logging.info(f"  Bias: {pos['bias']}")
+            logging.info(f"  Short DTE: {pos['short_dte']}")
+            logging.info(f"  Long DTE: {pos['long_dte']}")
+            logging.info(f"  Total P&L: ${pos['total_pnl']:.2f}")
+            logging.info(f"  Roll Count: {pos['roll_count']}")
+            logging.info(f"  Cost Basis: ${pos['cost_basis']:.2f}")
 
     # Print final statistics
     stats = strategy.get_strategy_stats()
-    print("\n" + "=" * 40)
-    print("Strategy Statistics:")
-    print(f"Active Positions: {stats['active_positions']}")
-    print(f"Current Trend: {stats['current_trend']}")
-    print(f"Trend Strength: {stats['trend_strength']:.2f}")
-    print(f"Total Trades: {stats['total_trades']}")
-    print(f"Win Rate: {stats['win_rate']:.1%}")
-    print(f"Avg Holding Period: {stats['avg_holding_period']:.1f} days")
-    print(f"Total Rolls: {stats['total_rolls']}")
-    print(f"Roll Success Rate: {stats['roll_success_rate']:.1%}")
-    print(f"Avg Basis Reduction: ${stats['avg_basis_reduction']:.2f}")
-    print(f"Best Trade: ${stats['best_trade']:.2f}")
-    print(f"Worst Trade: ${stats['worst_trade']:.2f}")
+    logging.info("\n" + "=" * 40)
+    logging.info("Strategy Statistics:")
+    logging.info(f"Active Positions: {stats['active_positions']}")
+    logging.info(f"Current Trend: {stats['current_trend']}")
+    logging.info(f"Trend Strength: {stats['trend_strength']:.2f}")
+    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info(f"Win Rate: {stats['win_rate']:.1%}")
+    logging.info(f"Avg Holding Period: {stats['avg_holding_period']:.1f} days")
+    logging.info(f"Total Rolls: {stats['total_rolls']}")
+    logging.info(f"Roll Success Rate: {stats['roll_success_rate']:.1%}")
+    logging.info(f"Avg Basis Reduction: ${stats['avg_basis_reduction']:.2f}")
+    logging.info(f"Best Trade: ${stats['best_trade']:.2f}")
+    logging.info(f"Worst Trade: ${stats['worst_trade']:.2f}")
 
-    print("\n✅ Diagonal Spread Strategy Test Complete!")
-    print("\nKey Features Tested:")
-    print("- ✅ Comprehensive trend analysis")
-    print("- ✅ Multi-timeframe trend detection")
-    print("- ✅ Diagonal type selection based on trend")
-    print("- ✅ Strike selection with proper relationships")
-    print("- ✅ Time spread optimization")
-    print("- ✅ Cost basis tracking and management")
-    print("- ✅ Roll opportunity detection")
-    print("- ✅ Assignment risk management")
-    print("- ✅ Trend reversal detection")
-    print("- ✅ Performance statistics with basis reduction")
+    logging.info("\n✅ Diagonal Spread Strategy Test Complete!")
+    logging.info("\nKey Features Tested:")
+    logging.info("- ✅ Comprehensive trend analysis")
+    logging.info("- ✅ Multi-timeframe trend detection")
+    logging.info("- ✅ Diagonal type selection based on trend")
+    logging.info("- ✅ Strike selection with proper relationships")
+    logging.info("- ✅ Time spread optimization")
+    logging.info("- ✅ Cost basis tracking and management")
+    logging.info("- ✅ Roll opportunity detection")
+    logging.info("- ✅ Assignment risk management")
+    logging.info("- ✅ Trend reversal detection")
+    logging.info("- ✅ Performance statistics with basis reduction")
 
 
 if __name__ == "__main__":

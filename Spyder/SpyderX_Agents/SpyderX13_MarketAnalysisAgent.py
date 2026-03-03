@@ -28,7 +28,7 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
-    print("Warning: Ollama not installed. AI features will be limited.")
+    logging.info("Warning: Ollama not installed. AI features will be limited.")
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -39,6 +39,7 @@ from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import is_spyderx_enabled, 
 from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector
 from Spyder.SpyderF_Analysis.SpyderF05_TrendDetection import TrendDetector
 from Spyder.SpyderF_Analysis.SpyderF02_PriceAction import PriceActionAnalyzer
+import logging
 
 # ==============================================================================
 # CONSTANTS

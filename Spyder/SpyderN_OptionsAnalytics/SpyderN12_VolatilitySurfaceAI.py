@@ -81,6 +81,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChain
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1193,7 +1194,7 @@ async def main():
     surface_ai = create_volatility_surface_ai()
 
     if args.build:
-        print("\n=== Building Test Volatility Surface ===")
+        logging.info("\n=== Building Test Volatility Surface ===")
 
         # Create test option chain
         from SpyderC_MarketData.SpyderC03_OptionChain import OptionChain
@@ -1228,13 +1229,13 @@ async def main():
         surface = await surface_ai.build_surface(option_chain, spot)
 
         if surface:
-            print(f"Surface built successfully!")
-            print(f"Strikes: {len(surface.strikes)}")
-            print(f"Expiries: {len(surface.expiries)}")
-            print(f"ATM Vol: {surface.implied_vols[25, 5]:.1%}")
+            logging.info(f"Surface built successfully!")
+            logging.info(f"Strikes: {len(surface.strikes)}")
+            logging.info(f"Expiries: {len(surface.expiries)}")
+            logging.info(f"ATM Vol: {surface.implied_vols[25, 5]:.1%}")
 
     if args.plot and surface_ai.current_surface:
-        print("\n=== Plotting Volatility Surface ===")
+        logging.info("\n=== Plotting Volatility Surface ===")
 
         # 3D surface
         fig = surface_ai.plot_surface_3d(surface_ai.current_surface)
@@ -1249,34 +1250,34 @@ async def main():
         fig.show()
 
     if args.metrics and surface_ai.current_surface:
-        print("\n=== Surface Metrics ===")
+        logging.info("\n=== Surface Metrics ===")
         metrics = surface_ai.get_current_metrics()
 
-        print(f"ATM Volatility: {metrics.atm_vol:.1%}")
-        print(f"Skew (RR): {metrics.skew:.3f}")
-        print(f"Kurtosis (BF): {metrics.kurtosis:.3f}")
-        print(f"Term Slope: {metrics.term_structure_slope:.3f}")
-        print(f"Smoothness: {metrics.surface_smoothness:.4f}")
-        print(f"Smile Asymmetry: {metrics.smile_asymmetry:.3f}")
+        logging.info(f"ATM Volatility: {metrics.atm_vol:.1%}")
+        logging.info(f"Skew (RR): {metrics.skew:.3f}")
+        logging.info(f"Kurtosis (BF): {metrics.kurtosis:.3f}")
+        logging.info(f"Term Slope: {metrics.term_structure_slope:.3f}")
+        logging.info(f"Smoothness: {metrics.surface_smoothness:.4f}")
+        logging.info(f"Smile Asymmetry: {metrics.smile_asymmetry:.3f}")
 
         if metrics.arbitrage_violations:
-            print(f"\nArbitrage Violations: {len(metrics.arbitrage_violations)}")
+            logging.info(f"\nArbitrage Violations: {len(metrics.arbitrage_violations)}")
             for v in metrics.arbitrage_violations[:3]:
-                print(f"  {v['type']}: {v}")
+                logging.info(f"  {v['type']}: {v}")
 
     if args.greeks and surface_ai.current_surface:
-        print("\n=== Calculating Greeks Surfaces ===")
+        logging.info("\n=== Calculating Greeks Surfaces ===")
 
         greeks = surface_ai.calculate_greeks_surfaces(
             surface_ai.current_surface, spot_price=450.0
         )
 
-        print("Greeks at ATM (1-month):")
+        logging.info("Greeks at ATM (1-month):")
         atm_idx = 25
         one_month_idx = 5
 
         for greek, values in greeks.items():
-            print(f"  {greek.title()}: {values[atm_idx, one_month_idx]:.4f}")
+            logging.info(f"  {greek.title()}: {values[atm_idx, one_month_idx]:.4f}")
 
         # Plot Greeks
         fig = surface_ai.plot_greeks_surfaces(surface_ai.current_surface, 450.0)

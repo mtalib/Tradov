@@ -57,7 +57,7 @@ try:
     from SpyderB08_MultiClientDataManager import MultiClientDataManager
     from SpyderB08_MultiClientDataManager import ClientPurpose
 except ImportError:
-    print("⚠️  SpyderB08 not available - running in standalone mode")
+    logging.info("⚠️  SpyderB08 not available - running in standalone mode")
     MultiClientDataManager = None
     ClientPurpose = None
 
@@ -73,7 +73,7 @@ try:
 
     CONSOLIDATED_MODULES_AVAILABLE = True
 except ImportError:
-    print("⚠️  Consolidated V04/V05 modules not available")
+    logging.info("⚠️  Consolidated V04/V05 modules not available")
     SpyderRiskManager = None
     SpyderPricingEngine = None
     CONSOLIDATED_MODULES_AVAILABLE = False
@@ -772,9 +772,9 @@ def create_quant_engine(
 # ==============================================================================
 async def main():
     """Demonstration of pure orchestration engine."""
-    print("=" * 80)
-    print("SPYDER V01 PURE ORCHESTRATION ENGINE DEMONSTRATION")
-    print("=" * 80)
+    logging.info("=" * 80)
+    logging.info("SPYDER V01 PURE ORCHESTRATION ENGINE DEMONSTRATION")
+    logging.info("=" * 80)
 
     # Initialize orchestration engine
     config = {
@@ -792,14 +792,14 @@ async def main():
         quant_engine = create_quant_engine(config)
         await quant_engine.start()
 
-        print("\n✅ Pure Orchestration Engine Started")
-        print("   • No calculation code - pure coordination only")
-        print("   • Delegates pricing to V05_PricingEngine")
-        print("   • Delegates risk to V04_RiskManager")
-        print("   • Unified interface for external consumers")
+        logging.info("\n✅ Pure Orchestration Engine Started")
+        logging.info("   • No calculation code - pure coordination only")
+        logging.info("   • Delegates pricing to V05_PricingEngine")
+        logging.info("   • Delegates risk to V04_RiskManager")
+        logging.info("   • Unified interface for external consumers")
 
         # Test 1: Single Option Pricing
-        print(f"\n--- Test 1: Single Option Pricing (Delegated to V05) ---")
+        logging.info(f"\n--- Test 1: Single Option Pricing (Delegated to V05) ---")
         try:
             result = await quant_engine.price_option(
                 underlying_price=450.0,
@@ -809,16 +809,16 @@ async def main():
                 option_type="call",
             )
 
-            print(f"   Option Price: ${result['price']:.4f}")
-            print(f"   Delta: {result['greeks']['delta']:.4f}")
-            print(f"   Model Used: {result['model_used']}")
-            print(f"   Calculation Time: {result['calculation_time_ms']:.1f}ms")
+            logging.info(f"   Option Price: ${result['price']:.4f}")
+            logging.info(f"   Delta: {result['greeks']['delta']:.4f}")
+            logging.info(f"   Model Used: {result['model_used']}")
+            logging.info(f"   Calculation Time: {result['calculation_time_ms']:.1f}ms")
 
         except Exception as e:
-            print(f"   ❌ Error: {e}")
+            logging.info(f"   ❌ Error: {e}")
 
         # Test 2: Portfolio Risk Assessment
-        print(f"\n--- Test 2: Portfolio Risk Assessment (Delegated to V04) ---")
+        logging.info(f"\n--- Test 2: Portfolio Risk Assessment (Delegated to V04) ---")
         try:
             sample_portfolio = [
                 {
@@ -843,16 +843,16 @@ async def main():
                 portfolio=sample_portfolio, confidence_level=0.95, method="historical"
             )
 
-            print(f"   Portfolio VaR (95%): ${risk_result['var']:,.2f}")
-            print(f"   Portfolio CVaR (95%): ${risk_result['cvar']:,.2f}")
-            print(f"   Risk Utilization: {risk_result['risk_utilization']:.1%}")
-            print(f"   Calculation Method: {risk_result['calculation_method']}")
+            logging.info(f"   Portfolio VaR (95%): ${risk_result['var']:,.2f}")
+            logging.info(f"   Portfolio CVaR (95%): ${risk_result['cvar']:,.2f}")
+            logging.info(f"   Risk Utilization: {risk_result['risk_utilization']:.1%}")
+            logging.info(f"   Calculation Method: {risk_result['calculation_method']}")
 
         except Exception as e:
-            print(f"   ❌ Error: {e}")
+            logging.info(f"   ❌ Error: {e}")
 
         # Test 3: Unified Request Processing
-        print(f"\n--- Test 3: Unified Request Processing ---")
+        logging.info(f"\n--- Test 3: Unified Request Processing ---")
         try:
             # Create a unified request
             unified_request = QuantRequest(
@@ -882,63 +882,63 @@ async def main():
             response = await quant_engine.process_request(unified_request)
 
             if response.success:
-                print(f"   Request ID: {response.request_id}")
-                print(f"   Portfolio Value: ${response.data['portfolio_value']:.2f}")
-                print(
+                logging.info(f"   Request ID: {response.request_id}")
+                logging.info(f"   Portfolio Value: ${response.data['portfolio_value']:.2f}")
+                logging.info(
                     f"   Portfolio Delta: {response.data['portfolio_greeks']['delta']:.4f}"
                 )
-                print(f"   Execution Time: {response.execution_time_ms:.1f}ms")
-                print(f"   Contracts Processed: {response.data['total_contracts']}")
+                logging.info(f"   Execution Time: {response.execution_time_ms:.1f}ms")
+                logging.info(f"   Contracts Processed: {response.data['total_contracts']}")
             else:
-                print(f"   ❌ Request Failed: {response.data.get('error')}")
+                logging.info(f"   ❌ Request Failed: {response.data.get('error')}")
 
         except Exception as e:
-            print(f"   ❌ Error: {e}")
+            logging.info(f"   ❌ Error: {e}")
 
         # Test 4: Orchestration Status
-        print(f"\n--- Test 4: Orchestration Performance ---")
+        logging.info(f"\n--- Test 4: Orchestration Performance ---")
         try:
             status = quant_engine.get_orchestration_status()
 
-            print(f"   Engine Running: {status['engine_running']}")
-            print(f"   Total Requests: {status['total_requests_processed']}")
-            print(f"   Success Rate: {status['success_rate']:.1%}")
-            print(f"   Avg Response Time: {status['avg_response_time_ms']:.1f}ms")
-            print(f"   Pricing Engine Calls: {status['pricing_engine_calls']}")
-            print(f"   Risk Manager Calls: {status['risk_manager_calls']}")
+            logging.info(f"   Engine Running: {status['engine_running']}")
+            logging.info(f"   Total Requests: {status['total_requests_processed']}")
+            logging.info(f"   Success Rate: {status['success_rate']:.1%}")
+            logging.info(f"   Avg Response Time: {status['avg_response_time_ms']:.1f}ms")
+            logging.info(f"   Pricing Engine Calls: {status['pricing_engine_calls']}")
+            logging.info(f"   Risk Manager Calls: {status['risk_manager_calls']}")
 
-            print(f"\n   Engines Available:")
+            logging.info(f"\n   Engines Available:")
             for engine, available in status["engines_available"].items():
-                print(f"     {engine}: {'✅' if available else '❌'}")
+                logging.info(f"     {engine}: {'✅' if available else '❌'}")
 
             if status["requests_by_type"]:
-                print(f"\n   Requests by Type:")
+                logging.info(f"\n   Requests by Type:")
                 for req_type, count in status["requests_by_type"].items():
-                    print(f"     {req_type}: {count}")
+                    logging.info(f"     {req_type}: {count}")
 
         except Exception as e:
-            print(f"   ❌ Error: {e}")
+            logging.info(f"   ❌ Error: {e}")
 
         # Shutdown
         await quant_engine.shutdown()
 
-        print("\n" + "=" * 80)
-        print("✅ PURE ORCHESTRATION ENGINE FEATURES DEMONSTRATED:")
-        print("   • REMOVED: All pricing calculations (delegated to V05)")
-        print("   • REMOVED: All risk calculations (delegated to V04)")
-        print("   • ENHANCED: Pure coordination and orchestration logic")
-        print("   • ENHANCED: Unified external interface for all quant operations")
-        print("   • ENHANCED: Intelligent request routing and data flow management")
-        print("   • ENHANCED: Performance monitoring and metrics tracking")
-        print("   • MAINTAINED: Backward compatibility with existing interfaces")
-        print("   • OPTIMIZED: For coordination performance, not calculation")
-        print("   • INTEGRATED: Seamless V04/V05 engine coordination")
-        print("   • ELIMINATED: All calculation duplications across V-series")
-        print("=" * 80)
+        logging.info("\n" + "=" * 80)
+        logging.info("✅ PURE ORCHESTRATION ENGINE FEATURES DEMONSTRATED:")
+        logging.info("   • REMOVED: All pricing calculations (delegated to V05)")
+        logging.info("   • REMOVED: All risk calculations (delegated to V04)")
+        logging.info("   • ENHANCED: Pure coordination and orchestration logic")
+        logging.info("   • ENHANCED: Unified external interface for all quant operations")
+        logging.info("   • ENHANCED: Intelligent request routing and data flow management")
+        logging.info("   • ENHANCED: Performance monitoring and metrics tracking")
+        logging.info("   • MAINTAINED: Backward compatibility with existing interfaces")
+        logging.info("   • OPTIMIZED: For coordination performance, not calculation")
+        logging.info("   • INTEGRATED: Seamless V04/V05 engine coordination")
+        logging.info("   • ELIMINATED: All calculation duplications across V-series")
+        logging.info("=" * 80)
 
     except Exception as e:
-        print(f"\n❌ INITIALIZATION ERROR: {e}")
-        print("   Make sure V04_RiskManager and V05_PricingEngine are available")
+        logging.info(f"\n❌ INITIALIZATION ERROR: {e}")
+        logging.info("   Make sure V04_RiskManager and V05_PricingEngine are available")
 
 
 if __name__ == "__main__":

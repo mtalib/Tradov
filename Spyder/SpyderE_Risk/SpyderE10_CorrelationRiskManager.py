@@ -55,6 +55,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import MathUtils
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1813,133 +1814,133 @@ def get_correlation_manager_instance() -> CorrelationRiskManager:
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER E10 - Correlation Risk Manager")
-    print("=" * 80)
+    logging.info("🎯 SPYDER E10 - Correlation Risk Manager")
+    logging.info("=" * 80)
     
     try:
         # Create correlation risk manager
         corr_manager = CorrelationRiskManager()
-        print("✅ Correlation Risk Manager initialized")
+        logging.info("✅ Correlation Risk Manager initialized")
         
         # Initialize manager
         if not corr_manager.initialize():
-            print("❌ Failed to initialize correlation risk manager")
+            logging.info("❌ Failed to initialize correlation risk manager")
             return False
         
         # Create sample data
-        print("\n📊 Creating sample portfolio returns...")
+        logging.info("\n📊 Creating sample portfolio returns...")
         returns_data = create_sample_returns_data(n_assets=8, n_periods=150)
-        print(f"   Created data: {len(returns_data)} periods, {len(returns_data.columns)} assets")
+        logging.info(f"   Created data: {len(returns_data)} periods, {len(returns_data.columns)} assets")
         
         # Analyze portfolio correlation
-        print("\n🔍 Analyzing portfolio correlation...")
+        logging.info("\n🔍 Analyzing portfolio correlation...")
         metrics = await corr_manager.analyze_portfolio_correlation(returns_data)
         
-        print(f"   Average Correlation: {metrics.average_correlation:.3f}")
-        print(f"   Max Correlation: {metrics.max_correlation:.3f}")
-        print(f"   Diversification Ratio: {metrics.diversification_ratio:.3f}")
-        print(f"   Effective Assets: {metrics.effective_assets:.1f}")
-        print(f"   Current Regime: {metrics.current_regime.value}")
-        print(f"   Health Score: {metrics.health_score:.1f}/100")
-        print(f"   Diversification Health: {metrics.diversification_health.value}")
+        logging.info(f"   Average Correlation: {metrics.average_correlation:.3f}")
+        logging.info(f"   Max Correlation: {metrics.max_correlation:.3f}")
+        logging.info(f"   Diversification Ratio: {metrics.diversification_ratio:.3f}")
+        logging.info(f"   Effective Assets: {metrics.effective_assets:.1f}")
+        logging.info(f"   Current Regime: {metrics.current_regime.value}")
+        logging.info(f"   Health Score: {metrics.health_score:.1f}/100")
+        logging.info(f"   Diversification Health: {metrics.diversification_health.value}")
         
         # Test rolling correlation
-        print("\n📈 Calculating rolling correlations...")
+        logging.info("\n📈 Calculating rolling correlations...")
         rolling_corr = corr_manager.calculate_rolling_correlation(returns_data, window=30)
-        print(f"   Rolling periods calculated: {len(rolling_corr)}")
+        logging.info(f"   Rolling periods calculated: {len(rolling_corr)}")
         if not rolling_corr.empty:
-            print(f"   Latest avg correlation: {rolling_corr['avg_correlation'].iloc[-1]:.3f}")
-            print(f"   Correlation trend: {rolling_corr['avg_correlation'].iloc[-5:].mean() - rolling_corr['avg_correlation'].iloc[:5].mean():.3f}")
+            logging.info(f"   Latest avg correlation: {rolling_corr['avg_correlation'].iloc[-1]:.3f}")
+            logging.info(f"   Correlation trend: {rolling_corr['avg_correlation'].iloc[-5:].mean() - rolling_corr['avg_correlation'].iloc[:5].mean():.3f}")
         
         # Test regime detection
-        print("\n🎛️ Testing regime detection...")
+        logging.info("\n🎛️ Testing regime detection...")
         regime_info = corr_manager.detect_correlation_regimes(returns_data)
-        print(f"   Current Regime: {regime_info['current_regime'].value}")
-        print(f"   Regime Confidence: {regime_info.get('confidence', 0):.1%}")
-        print(f"   Z-Score: {regime_info.get('z_score', 0):.2f}")
+        logging.info(f"   Current Regime: {regime_info['current_regime'].value}")
+        logging.info(f"   Regime Confidence: {regime_info.get('confidence', 0):.1%}")
+        logging.info(f"   Z-Score: {regime_info.get('z_score', 0):.2f}")
         
         # Test correlation clustering
-        print("\n🔗 Testing correlation clustering...")
+        logging.info("\n🔗 Testing correlation clustering...")
         if len(corr_manager.correlation_matrices) > 0:
             matrix = list(corr_manager.correlation_matrices.values())[0]
             clusters = await corr_manager.perform_correlation_clustering(
                 matrix, returns_data.columns.tolist()
             )
-            print(f"   Created clusters: {len(clusters)}")
+            logging.info(f"   Created clusters: {len(clusters)}")
             for cluster_id, cluster in clusters.items():
-                print(f"     {cluster_id}: {cluster.cluster_size} assets, {cluster.internal_correlation:.3f} internal corr")
+                logging.info(f"     {cluster_id}: {cluster.cluster_size} assets, {cluster.internal_correlation:.3f} internal corr")
         
         # Test diversification analysis
-        print("\n📊 Testing diversification effectiveness...")
+        logging.info("\n📊 Testing diversification effectiveness...")
         weights = np.ones(len(returns_data.columns)) / len(returns_data.columns)
         volatilities = returns_data.std().values
         if len(corr_manager.correlation_matrices) > 0:
             matrix = list(corr_manager.correlation_matrices.values())[0]
             div_metrics = corr_manager.calculate_diversification_effectiveness(matrix, weights, volatilities)
-            print(f"   Diversification Ratio: {div_metrics['diversification_ratio']:.3f}")
-            print(f"   Risk Reduction Benefit: {div_metrics['risk_reduction_benefit']:.1%}")
-            print(f"   Diversification Efficiency: {div_metrics['diversification_efficiency']:.1%}")
+            logging.info(f"   Diversification Ratio: {div_metrics['diversification_ratio']:.3f}")
+            logging.info(f"   Risk Reduction Benefit: {div_metrics['risk_reduction_benefit']:.1%}")
+            logging.info(f"   Diversification Efficiency: {div_metrics['diversification_efficiency']:.1%}")
         
         # Test alert system
-        print("\n⚠️ Testing alert system...")
+        logging.info("\n⚠️ Testing alert system...")
         active_alerts = corr_manager.get_active_alerts()
-        print(f"   Active alerts: {len(active_alerts)}")
+        logging.info(f"   Active alerts: {len(active_alerts)}")
         for alert in active_alerts[:3]:  # Show first 3 alerts
-            print(f"     {alert.alert_type} ({alert.severity.value}): {alert.message}")
+            logging.info(f"     {alert.alert_type} ({alert.severity.value}): {alert.message}")
         
         # Generate report
-        print("\n📋 Generating correlation risk report...")
+        logging.info("\n📋 Generating correlation risk report...")
         report = corr_manager.generate_correlation_report()
-        print("📊 CORRELATION RISK REPORT:")
-        print("-" * 50)
+        logging.info("📊 CORRELATION RISK REPORT:")
+        logging.info("-" * 50)
         # Print first few lines of report
         report_lines = report.split('\n')[:20]
         for line in report_lines:
-            print(line)
+            logging.info(line)
         if len(report.split('\n')) > 20:
-            print("   ... (truncated)")
+            logging.info("   ... (truncated)")
         
         # Test breakdown analysis
-        print("\n💥 Testing correlation breakdown analysis...")
+        logging.info("\n💥 Testing correlation breakdown analysis...")
         breakdown_analysis = analyze_correlation_breakdown(
             returns_data, returns_data.index[75].strftime('%Y-%m-%d')
         )
         if 'error' not in breakdown_analysis:
-            print(f"   Correlation Change: {breakdown_analysis['correlation_change']:.3f}")
-            print(f"   Breakdown Magnitude: {breakdown_analysis['breakdown_magnitude']:.1%}")
-            print(f"   Affected Pairs: {breakdown_analysis['affected_pairs']}/{breakdown_analysis['total_pairs']}")
+            logging.info(f"   Correlation Change: {breakdown_analysis['correlation_change']:.3f}")
+            logging.info(f"   Breakdown Magnitude: {breakdown_analysis['breakdown_magnitude']:.1%}")
+            logging.info(f"   Affected Pairs: {breakdown_analysis['affected_pairs']}/{breakdown_analysis['total_pairs']}")
         
         # Get summary
         summary = corr_manager.get_correlation_summary()
-        print(f"\n📈 CORRELATION MANAGER SUMMARY:")
-        print(f"   Status: {summary['manager_status']['status'].upper()}")
-        print(f"   Assets Monitored: {summary['manager_status']['assets_monitored']}")
-        print(f"   Total Alerts: {summary['alert_summary']['total_alerts']}")
-        print(f"   Correlation Clusters: {summary['cluster_summary']['total_clusters']}")
+        logging.info(f"\n📈 CORRELATION MANAGER SUMMARY:")
+        logging.info(f"   Status: {summary['manager_status']['status'].upper()}")
+        logging.info(f"   Assets Monitored: {summary['manager_status']['assets_monitored']}")
+        logging.info(f"   Total Alerts: {summary['alert_summary']['total_alerts']}")
+        logging.info(f"   Correlation Clusters: {summary['cluster_summary']['total_clusters']}")
         if summary.get('current_metrics'):
             metrics_summary = summary['current_metrics']
-            print(f"   Health Score: {metrics_summary['health_score']:.1f}/100")
-            print(f"   Diversification Health: {metrics_summary['diversification_health'].upper()}")
+            logging.info(f"   Health Score: {metrics_summary['health_score']:.1f}/100")
+            logging.info(f"   Diversification Health: {metrics_summary['diversification_health'].upper()}")
         
         # Cleanup
         corr_manager.cleanup()
-        print("\n✅ Correlation Risk Manager test completed successfully!")
+        logging.info("\n✅ Correlation Risk Manager test completed successfully!")
         
-        print(f"\n🎯 CORRELATION RISK MANAGEMENT CAPABILITIES:")
-        print(f"   • Real-time Correlation Monitoring")
-        print(f"   • 7 Correlation Estimation Models")
-        print(f"   • Regime Detection & Analysis")
-        print(f"   • Tail Correlation Assessment")
-        print(f"   • Hierarchical Clustering Analysis")
-        print(f"   • Diversification Effectiveness Metrics")
-        print(f"   • Correlation Breakdown Detection")
-        print(f"   • Professional Alert System")
-        print(f"   • Comprehensive Risk Reporting")
+        logging.info(f"\n🎯 CORRELATION RISK MANAGEMENT CAPABILITIES:")
+        logging.info(f"   • Real-time Correlation Monitoring")
+        logging.info(f"   • 7 Correlation Estimation Models")
+        logging.info(f"   • Regime Detection & Analysis")
+        logging.info(f"   • Tail Correlation Assessment")
+        logging.info(f"   • Hierarchical Clustering Analysis")
+        logging.info(f"   • Diversification Effectiveness Metrics")
+        logging.info(f"   • Correlation Breakdown Detection")
+        logging.info(f"   • Professional Alert System")
+        logging.info(f"   • Comprehensive Risk Reporting")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        logging.info(f"❌ Error during testing: {e}")
         return False
 
 if __name__ == "__main__":

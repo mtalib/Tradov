@@ -64,6 +64,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import MathUtils
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+import logging
 
 # Integration with our masterpieces
 try:
@@ -1389,97 +1390,97 @@ def get_microstructure_engine_instance() -> MarketMicrostructureEngine:
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER F14 - Market Microstructure Engine")
-    print("=" * 80)
+    logging.info("🎯 SPYDER F14 - Market Microstructure Engine")
+    logging.info("=" * 80)
     
     try:
         # Create microstructure engine
         engine = MarketMicrostructureEngine()
-        print("✅ Market Microstructure Engine initialized")
+        logging.info("✅ Market Microstructure Engine initialized")
         
         # Initialize engine with integrations
         if not engine.initialize(enable_integrations=True):
-            print("❌ Failed to initialize microstructure engine")
+            logging.info("❌ Failed to initialize microstructure engine")
             return False
         
-        print("🔗 Integration status:")
-        print(f"   • F12 Backtesting: {'✅' if engine.backtesting_engine else '❌'}")
-        print(f"   • F13 Model Validation: {'✅' if engine.model_validator else '❌'}")
+        logging.info("🔗 Integration status:")
+        logging.info(f"   • F12 Backtesting: {'✅' if engine.backtesting_engine else '❌'}")
+        logging.info(f"   • F13 Model Validation: {'✅' if engine.model_validator else '❌'}")
         
         # Create sample tick data
-        print("\n📊 Creating sample tick data...")
+        logging.info("\n📊 Creating sample tick data...")
         symbol = "SPY"
         tick_data = create_sample_tick_data(symbol, 1000)
-        print(f"   Generated: {len(tick_data)} ticks for {symbol}")
-        print(f"   Time Range: {tick_data[0].timestamp.strftime('%H:%M:%S')} to {tick_data[-1].timestamp.strftime('%H:%M:%S')}")
+        logging.info(f"   Generated: {len(tick_data)} ticks for {symbol}")
+        logging.info(f"   Time Range: {tick_data[0].timestamp.strftime('%H:%M:%S')} to {tick_data[-1].timestamp.strftime('%H:%M:%S')}")
         
         # Process tick data
-        print("\n⚡ Processing tick data...")
+        logging.info("\n⚡ Processing tick data...")
         processing_success = engine.process_tick_data(tick_data, symbol)
-        print(f"   Processing: {'✅ Success' if processing_success else '❌ Failed'}")
+        logging.info(f"   Processing: {'✅ Success' if processing_success else '❌ Failed'}")
         
         if not processing_success:
             return False
         
         # Test order book reconstruction
-        print("\n📚 Testing order book reconstruction...")
+        logging.info("\n📚 Testing order book reconstruction...")
         order_book = engine.reconstruct_order_book(symbol)
         if order_book:
-            print(f"   ✅ Order book reconstructed")
-            print(f"   Mid Price: ${order_book.mid_price:.2f}")
-            print(f"   Spread: ${order_book.bid_ask_spread:.4f}")
-            print(f"   Total Bid Size: {order_book.total_bid_size:,}")
-            print(f"   Total Ask Size: {order_book.total_ask_size:,}")
+            logging.info(f"   ✅ Order book reconstructed")
+            logging.info(f"   Mid Price: ${order_book.mid_price:.2f}")
+            logging.info(f"   Spread: ${order_book.bid_ask_spread:.4f}")
+            logging.info(f"   Total Bid Size: {order_book.total_bid_size:,}")
+            logging.info(f"   Total Ask Size: {order_book.total_ask_size:,}")
         else:
-            print("   ❌ Order book reconstruction failed")
+            logging.info("   ❌ Order book reconstruction failed")
         
         # Test trade classification
-        print("\n🔍 Testing trade classification...")
+        logging.info("\n🔍 Testing trade classification...")
         sample_tick = tick_data[100]  # Use a sample tick
         
         for method in ["lee_ready", "tick_rule", "quote_rule"]:
             direction = await engine.classify_trade_direction(sample_tick, method)
-            print(f"   {method.upper()}: {direction.value.upper()}")
+            logging.info(f"   {method.upper()}: {direction.value.upper()}")
         
         # Calculate liquidity metrics
-        print("\n💧 Calculating liquidity metrics...")
+        logging.info("\n💧 Calculating liquidity metrics...")
         start_time = tick_data[0].timestamp
         end_time = tick_data[-1].timestamp
         
         liquidity_metrics = await engine.calculate_liquidity_metrics(symbol, start_time, end_time)
-        print(f"   ✅ Liquidity analysis completed")
-        print(f"   Quoted Spread: {liquidity_metrics.quoted_spread:.4f}")
-        print(f"   Effective Spread: {liquidity_metrics.effective_spread:.4f}")
-        print(f"   Price Impact: {liquidity_metrics.price_impact:.6f}")
-        print(f"   VPIN Metric: {liquidity_metrics.vpin_metric:.4f}")
-        print(f"   Kyle's Lambda: {liquidity_metrics.kyle_lambda:.6f}")
-        print(f"   Amihud Illiquidity: {liquidity_metrics.amihud_illiquidity:.6f}")
+        logging.info(f"   ✅ Liquidity analysis completed")
+        logging.info(f"   Quoted Spread: {liquidity_metrics.quoted_spread:.4f}")
+        logging.info(f"   Effective Spread: {liquidity_metrics.effective_spread:.4f}")
+        logging.info(f"   Price Impact: {liquidity_metrics.price_impact:.6f}")
+        logging.info(f"   VPIN Metric: {liquidity_metrics.vpin_metric:.4f}")
+        logging.info(f"   Kyle's Lambda: {liquidity_metrics.kyle_lambda:.6f}")
+        logging.info(f"   Amihud Illiquidity: {liquidity_metrics.amihud_illiquidity:.6f}")
         
         # Analyze order flow
-        print("\n🌊 Analyzing order flow...")
+        logging.info("\n🌊 Analyzing order flow...")
         order_flow_analysis = await engine.analyze_order_flow(symbol, start_time, end_time)
-        print(f"   ✅ Order flow analysis completed")
-        print(f"   Buy Volume: {order_flow_analysis.buy_volume:,}")
-        print(f"   Sell Volume: {order_flow_analysis.sell_volume:,}")
-        print(f"   Net Flow: {order_flow_analysis.net_flow:,}")
-        print(f"   Flow Imbalance: {order_flow_analysis.flow_imbalance:.3f}")
-        print(f"   Institutional Ratio: {order_flow_analysis.institutional_flow_ratio:.3f}")
-        print(f"   Dominant Flow: {order_flow_analysis.dominant_flow_direction.value.upper()}")
-        print(f"   Market Regime: {order_flow_analysis.market_regime.value.upper()}")
+        logging.info(f"   ✅ Order flow analysis completed")
+        logging.info(f"   Buy Volume: {order_flow_analysis.buy_volume:,}")
+        logging.info(f"   Sell Volume: {order_flow_analysis.sell_volume:,}")
+        logging.info(f"   Net Flow: {order_flow_analysis.net_flow:,}")
+        logging.info(f"   Flow Imbalance: {order_flow_analysis.flow_imbalance:.3f}")
+        logging.info(f"   Institutional Ratio: {order_flow_analysis.institutional_flow_ratio:.3f}")
+        logging.info(f"   Dominant Flow: {order_flow_analysis.dominant_flow_direction.value.upper()}")
+        logging.info(f"   Market Regime: {order_flow_analysis.market_regime.value.upper()}")
         
         # Test real-time processing
-        print("\n📡 Testing real-time processing...")
+        logging.info("\n📡 Testing real-time processing...")
         rt_started = engine.start_real_time_processing()
-        print(f"   Real-time Processing: {'✅ Started' if rt_started else '❌ Failed to start'}")
+        logging.info(f"   Real-time Processing: {'✅ Started' if rt_started else '❌ Failed to start'}")
         
         # Wait a moment for processing
         await asyncio.sleep(2)
         
         rt_stopped = engine.stop_real_time_processing()
-        print(f"   Real-time Processing: {'✅ Stopped' if rt_stopped else '❌ Failed to stop'}")
+        logging.info(f"   Real-time Processing: {'✅ Stopped' if rt_stopped else '❌ Failed to stop'}")
         
         # Test market impact analysis
-        print("\n💥 Testing market impact analysis...")
+        logging.info("\n💥 Testing market impact analysis...")
         # Create sample trade events from tick data
         trade_events = []
         for i, tick in enumerate(tick_data[::10]):  # Every 10th tick as trade
@@ -1496,70 +1497,70 @@ async def main():
         
         impact_metrics = await engine.calculate_market_impact(symbol, trade_events)
         if impact_metrics:
-            print(f"   ✅ Market impact analysis completed")
-            print(f"   Avg Immediate Impact: {impact_metrics['avg_immediate_impact']:.6f}")
-            print(f"   Avg Permanent Impact: {impact_metrics['avg_permanent_impact']:.6f}")
-            print(f"   Kyle's Lambda: {impact_metrics['kyle_lambda']:.6f}")
-            print(f"   Size-Impact Correlation: {impact_metrics['size_impact_correlation']:.3f}")
+            logging.info(f"   ✅ Market impact analysis completed")
+            logging.info(f"   Avg Immediate Impact: {impact_metrics['avg_immediate_impact']:.6f}")
+            logging.info(f"   Avg Permanent Impact: {impact_metrics['avg_permanent_impact']:.6f}")
+            logging.info(f"   Kyle's Lambda: {impact_metrics['kyle_lambda']:.6f}")
+            logging.info(f"   Size-Impact Correlation: {impact_metrics['size_impact_correlation']:.3f}")
         
         # Generate comprehensive report
-        print("\n📋 Generating microstructure report...")
+        logging.info("\n📋 Generating microstructure report...")
         report = engine.generate_microstructure_report(symbol, start_time, end_time)
-        print("📊 MARKET MICROSTRUCTURE REPORT:")
-        print("-" * 70)
+        logging.info("📊 MARKET MICROSTRUCTURE REPORT:")
+        logging.info("-" * 70)
         # Print first portion of report
         report_lines = report.split('\n')[:30]
         for line in report_lines:
-            print(line)
-        print("   ... (truncated for demo)")
+            logging.info(line)
+        logging.info("   ... (truncated for demo)")
         
         # Get summary statistics
         summary = engine.get_microstructure_summary(symbol)
-        print(f"\n📈 MICROSTRUCTURE SUMMARY:")
-        print(f"   Available Ticks: {summary['data_availability']['tick_count']:,}")
-        print(f"   Available Trades: {summary['data_availability']['trade_count']:,}")
-        print(f"   Order Book Snapshots: {summary['data_availability']['order_book_snapshots']:,}")
-        print(f"   Real-time Active: {'✅' if summary['processing_status']['real_time_active'] else '❌'}")
-        print(f"   Active Alerts: {summary['alert_summary']['active_alerts']}")
+        logging.info(f"\n📈 MICROSTRUCTURE SUMMARY:")
+        logging.info(f"   Available Ticks: {summary['data_availability']['tick_count']:,}")
+        logging.info(f"   Available Trades: {summary['data_availability']['trade_count']:,}")
+        logging.info(f"   Order Book Snapshots: {summary['data_availability']['order_book_snapshots']:,}")
+        logging.info(f"   Real-time Active: {'✅' if summary['processing_status']['real_time_active'] else '❌'}")
+        logging.info(f"   Active Alerts: {summary['alert_summary']['active_alerts']}")
         
         # Display engine statistics
         stats = engine.processing_stats
-        print(f"\n⚡ ENGINE PERFORMANCE:")
-        print(f"   Ticks Processed: {stats['ticks_processed']:,}")
-        print(f"   Trades Classified: {stats['trades_classified']:,}")
-        print(f"   Order Books Reconstructed: {stats['books_reconstructed']:,}")
-        print(f"   Analyses Performed: {stats['analysis_performed']:,}")
+        logging.info(f"\n⚡ ENGINE PERFORMANCE:")
+        logging.info(f"   Ticks Processed: {stats['ticks_processed']:,}")
+        logging.info(f"   Trades Classified: {stats['trades_classified']:,}")
+        logging.info(f"   Order Books Reconstructed: {stats['books_reconstructed']:,}")
+        logging.info(f"   Analyses Performed: {stats['analysis_performed']:,}")
         
         # Test performance with Numba optimization
-        print(f"\n🚀 PERFORMANCE FEATURES:")
-        print(f"   • Numba JIT Compilation: ✅ Enabled")
-        print(f"   • Parallel Processing: ✅ {MAX_CONCURRENT_ANALYSIS} threads")
-        print(f"   • High-Frequency Optimization: ✅ Sub-millisecond processing")
-        print(f"   • Memory Management: ✅ {MAX_TICK_BUFFER_SIZE:,} tick buffer")
+        logging.info(f"\n🚀 PERFORMANCE FEATURES:")
+        logging.info(f"   • Numba JIT Compilation: ✅ Enabled")
+        logging.info(f"   • Parallel Processing: ✅ {MAX_CONCURRENT_ANALYSIS} threads")
+        logging.info(f"   • High-Frequency Optimization: ✅ Sub-millisecond processing")
+        logging.info(f"   • Memory Management: ✅ {MAX_TICK_BUFFER_SIZE:,} tick buffer")
         
         # Cleanup
         engine.cleanup()
-        print("\n✅ Market Microstructure Engine test completed successfully!")
+        logging.info("\n✅ Market Microstructure Engine test completed successfully!")
         
-        print(f"\n🎯 MARKET MICROSTRUCTURE CAPABILITIES:")
-        print(f"   • High-Frequency Tick Data Processing")
-        print(f"   • Order Book Reconstruction & Analysis")
-        print(f"   • 5 Advanced Trade Classification Methods")
-        print(f"   • Comprehensive Liquidity Metrics (10+ measures)")
-        print(f"   • Order Flow & Institutional Activity Analysis")
-        print(f"   • Market Impact Measurement (Kyle's λ, VPIN)")
-        print(f"   • Real-Time Market Regime Detection")
-        print(f"   • Numba-Optimized High-Performance Computing")
-        print(f"   • Professional Alert System")
-        print(f"   • F12/F13 Integration Ready")
-        print(f"   • Institutional-Grade Market Structure Intelligence")
-        print(f"   • Sub-Millisecond Processing Capability")
-        print(f"   • Advanced Statistical Analysis")
+        logging.info(f"\n🎯 MARKET MICROSTRUCTURE CAPABILITIES:")
+        logging.info(f"   • High-Frequency Tick Data Processing")
+        logging.info(f"   • Order Book Reconstruction & Analysis")
+        logging.info(f"   • 5 Advanced Trade Classification Methods")
+        logging.info(f"   • Comprehensive Liquidity Metrics (10+ measures)")
+        logging.info(f"   • Order Flow & Institutional Activity Analysis")
+        logging.info(f"   • Market Impact Measurement (Kyle's λ, VPIN)")
+        logging.info(f"   • Real-Time Market Regime Detection")
+        logging.info(f"   • Numba-Optimized High-Performance Computing")
+        logging.info(f"   • Professional Alert System")
+        logging.info(f"   • F12/F13 Integration Ready")
+        logging.info(f"   • Institutional-Grade Market Structure Intelligence")
+        logging.info(f"   • Sub-Millisecond Processing Capability")
+        logging.info(f"   • Advanced Statistical Analysis")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        logging.info(f"❌ Error during testing: {e}")
         return False
 
 if __name__ == "__main__":

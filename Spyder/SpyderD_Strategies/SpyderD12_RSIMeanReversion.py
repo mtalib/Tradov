@@ -53,6 +53,7 @@ from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 from Spyder.SpyderF_Analysis.SpyderF04_VolatilityAnalysis import VolatilityAnalyzer
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -889,8 +890,8 @@ class RSIMeanReversionStrategy(BaseStrategy):
 # ==============================================================================
 def test_rsi_mean_reversion():
     """Test the RSI Mean Reversion strategy"""
-    print("Testing RSI Mean Reversion Strategy")
-    print("=" * 60)
+    logging.info("Testing RSI Mean Reversion Strategy")
+    logging.info("=" * 60)
     
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
@@ -913,8 +914,8 @@ def test_rsi_mean_reversion():
     strategy = RSIMeanReversionStrategy(event_manager, risk_profile, config)
     
     # Simulate RSI extremes
-    print("RSI Mean Reversion Strategy Test")
-    print("=" * 40)
+    logging.info("RSI Mean Reversion Strategy Test")
+    logging.info("=" * 40)
     
     # Create sample data with RSI extremes
     dates = pd.date_range(start=datetime.now().replace(hour=11, minute=0), periods=100, freq='5min')
@@ -949,18 +950,18 @@ def test_rsi_mean_reversion():
         
         if signals:
             all_signals.extend(signals)
-            print(f"\nTime: {dates[i].strftime('%H:%M')}")
-            print(f"Price: ${prices[i]:.2f}")
-            print(f"RSI: {strategy.current_rsi:.1f}")
+            logging.info(f"\nTime: {dates[i].strftime('%H:%M')}")
+            logging.info(f"Price: ${prices[i]:.2f}")
+            logging.info(f"RSI: {strategy.current_rsi:.1f}")
             for signal in signals:
                 rsi_signal = signal.metadata['rsi_signal']
-                print(f"Signal: Buy {rsi_signal['option_type']}")
-                print(f"RSI State: {rsi_signal['rsi_state']}")
-                print(f"Strike: ${rsi_signal['strike']}")
-                print(f"Target: ${rsi_signal['target_price']:.2f}")
-                print(f"Stop: ${rsi_signal['stop_price']:.2f}")
-                print(f"Quality: {signal.metadata['signal_quality']}")
-                print(f"Confidence: {signal.confidence:.1%}")
+                logging.info(f"Signal: Buy {rsi_signal['option_type']}")
+                logging.info(f"RSI State: {rsi_signal['rsi_state']}")
+                logging.info(f"Strike: ${rsi_signal['strike']}")
+                logging.info(f"Target: ${rsi_signal['target_price']:.2f}")
+                logging.info(f"Stop: ${rsi_signal['stop_price']:.2f}")
+                logging.info(f"Quality: {signal.metadata['signal_quality']}")
+                logging.info(f"Confidence: {signal.confidence:.1%}")
                 
                 # Add position
                 position_id = strategy.add_position(signal)
@@ -968,12 +969,12 @@ def test_rsi_mean_reversion():
                 # Check for divergence
                 if signal.metadata.get('divergence'):
                     div = signal.metadata['divergence']
-                    print(f"Divergence: {div['divergence_type']}")
-                    print(f"Divergence Strength: {div['strength']:.2f}")
+                    logging.info(f"Divergence: {div['divergence_type']}")
+                    logging.info(f"Divergence Strength: {div['strength']:.2f}")
     
     # Simulate position management
-    print("\n" + "=" * 40)
-    print("Position Management Test")
+    logging.info("\n" + "=" * 40)
+    logging.info("Position Management Test")
     
     if strategy.active_positions:
         # Run through remaining data
@@ -983,44 +984,44 @@ def test_rsi_mean_reversion():
             
             if exit_signals:
                 for signal in exit_signals:
-                    print(f"\nExit Signal at {dates[i].strftime('%H:%M')}")
-                    print(f"Reason: {signal.metadata['exit_reason']}")
-                    print(f"Entry RSI: {signal.metadata['entry_rsi']:.1f}")
-                    print(f"Exit RSI: {signal.metadata['exit_rsi']:.1f}")
-                    print(f"Bars Held: {signal.metadata['bars_held']}")
-                    print(f"P&L: ${signal.metadata['pnl']:.2f}")
-                    print(f"P&L %: {signal.metadata['pnl_percent']:.1%}")
+                    logging.info(f"\nExit Signal at {dates[i].strftime('%H:%M')}")
+                    logging.info(f"Reason: {signal.metadata['exit_reason']}")
+                    logging.info(f"Entry RSI: {signal.metadata['entry_rsi']:.1f}")
+                    logging.info(f"Exit RSI: {signal.metadata['exit_rsi']:.1f}")
+                    logging.info(f"Bars Held: {signal.metadata['bars_held']}")
+                    logging.info(f"P&L: ${signal.metadata['pnl']:.2f}")
+                    logging.info(f"P&L %: {signal.metadata['pnl_percent']:.1%}")
     
     # Print final stats
     stats = strategy.get_strategy_stats()
-    print("\n" + "=" * 40)
-    print("Strategy Statistics:")
-    print(f"Current RSI: {stats['current_rsi']:.1f}")
-    print(f"RSI State: {stats['rsi_state']}")
-    print(f"Total Trades: {stats['total_trades']}")
-    print(f"Win Rate: {stats['win_rate']:.1%}")
-    print(f"Avg Reversion Time: {stats['avg_reversion_time_bars']:.1f} bars")
-    print(f"Best Trade: ${stats['best_trade_pnl']:.2f}")
-    print(f"Worst Trade: ${stats['worst_trade_pnl']:.2f}")
+    logging.info("\n" + "=" * 40)
+    logging.info("Strategy Statistics:")
+    logging.info(f"Current RSI: {stats['current_rsi']:.1f}")
+    logging.info(f"RSI State: {stats['rsi_state']}")
+    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info(f"Win Rate: {stats['win_rate']:.1%}")
+    logging.info(f"Avg Reversion Time: {stats['avg_reversion_time_bars']:.1f} bars")
+    logging.info(f"Best Trade: ${stats['best_trade_pnl']:.2f}")
+    logging.info(f"Worst Trade: ${stats['worst_trade_pnl']:.2f}")
     
     # Get position summary
     positions = strategy.get_position_summary()
     if positions:
-        print("\nActive Positions:")
+        logging.info("\nActive Positions:")
         for pos in positions:
-            print(f"- {pos['position_id']}: {pos['option_type']}, P&L: ${pos['pnl']:.2f}")
+            logging.info(f"- {pos['position_id']}: {pos['option_type']}, P&L: ${pos['pnl']:.2f}")
     
-    print("\n✅ RSI Mean Reversion Strategy Test Complete!")
-    print("\nKey Features Tested:")
-    print("- ✅ RSI calculation and state detection")
-    print("- ✅ Oversold/overbought signal generation")
-    print("- ✅ Divergence detection (price/RSI)")
-    print("- ✅ Optimal trading time window (11 AM - 2 PM)")
-    print("- ✅ Dynamic position sizing")
-    print("- ✅ Target and stop loss management")
-    print("- ✅ Trailing stop activation")
-    print("- ✅ RSI reversion exit conditions")
-    print("- ✅ Performance tracking and statistics")
+    logging.info("\n✅ RSI Mean Reversion Strategy Test Complete!")
+    logging.info("\nKey Features Tested:")
+    logging.info("- ✅ RSI calculation and state detection")
+    logging.info("- ✅ Oversold/overbought signal generation")
+    logging.info("- ✅ Divergence detection (price/RSI)")
+    logging.info("- ✅ Optimal trading time window (11 AM - 2 PM)")
+    logging.info("- ✅ Dynamic position sizing")
+    logging.info("- ✅ Target and stop loss management")
+    logging.info("- ✅ Trailing stop activation")
+    logging.info("- ✅ RSI reversion exit conditions")
+    logging.info("- ✅ Performance tracking and statistics")
 
 
 if __name__ == "__main__":

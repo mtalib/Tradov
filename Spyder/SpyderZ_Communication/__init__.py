@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -39,7 +40,7 @@ try:
     from . import SpyderZ06_AutoHedger
     from . import SpyderZ07_MultiProcessManager
 except ImportError as e:
-    print(f"Warning: Could not import communication modules: {e}")
+    logging.info(f"Warning: Could not import communication modules: {e}")
 
 # Package exports
 __all__ = [

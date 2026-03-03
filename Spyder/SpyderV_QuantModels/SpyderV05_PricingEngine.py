@@ -1351,9 +1351,9 @@ def create_pricing_engine(
 # ==============================================================================
 async def main():
     """Demonstration of consolidated pricing engine functionality."""
-    print("=" * 80)
-    print("SPYDER V05 CONSOLIDATED PRICING ENGINE DEMONSTRATION")
-    print("=" * 80)
+    logging.info("=" * 80)
+    logging.info("SPYDER V05 CONSOLIDATED PRICING ENGINE DEMONSTRATION")
+    logging.info("=" * 80)
 
     # Initialize pricing engine
     config = {
@@ -1366,11 +1366,11 @@ async def main():
 
     pricing_engine = create_pricing_engine(config)
 
-    print("\n✅ Pricing Engine Initialized")
-    print(f"   Default model: {pricing_engine.default_params.model.value}")
-    print(f"   Binomial steps: {pricing_engine.default_params.binomial_steps}")
-    print(f"   Monte Carlo sims: {pricing_engine.default_params.monte_carlo_sims}")
-    print(f"   Cache enabled: {pricing_engine.default_params.use_cache}")
+    logging.info("\n✅ Pricing Engine Initialized")
+    logging.info(f"   Default model: {pricing_engine.default_params.model.value}")
+    logging.info(f"   Binomial steps: {pricing_engine.default_params.binomial_steps}")
+    logging.info(f"   Monte Carlo sims: {pricing_engine.default_params.monte_carlo_sims}")
+    logging.info(f"   Cache enabled: {pricing_engine.default_params.use_cache}")
 
     # Create sample option contracts
     test_contracts = [
@@ -1406,14 +1406,14 @@ async def main():
         ),
     ]
 
-    print(f"\n📊 Test Contracts Created: {len(test_contracts)}")
+    logging.info(f"\n📊 Test Contracts Created: {len(test_contracts)}")
 
     # Test individual pricing with different models
-    print("\n--- Model Comparison for SPY Call Option ---")
-    print(
+    logging.info("\n--- Model Comparison for SPY Call Option ---")
+    logging.info(
         "Model                    Price      Delta    Gamma    Vega     Theta    Time(ms)"
     )
-    print("-" * 80)
+    logging.info("-" * 80)
 
     call_contract = test_contracts[0]
     models_to_test = [
@@ -1430,7 +1430,7 @@ async def main():
             result = await pricing_engine.price_option(call_contract, params)
             calc_time = (time.time() - start_time) * 1000
 
-            print(
+            logging.info(
                 f"{model.value:<20} ${result.theoretical_price:>7.4f} "
                 f"{result.greeks.delta:>8.4f} {result.greeks.gamma:>8.4f} "
                 f"{result.greeks.vega:>8.4f} {result.greeks.theta:>8.4f} "
@@ -1438,31 +1438,31 @@ async def main():
             )
 
         except Exception as e:
-            print(f"{model.value:<20} ERROR: {str(e)[:50]}")
+            logging.info(f"{model.value:<20} ERROR: {str(e)[:50]}")
 
     # Test intelligent model selection
-    print(f"\n--- Intelligent Model Selection ---")
+    logging.info(f"\n--- Intelligent Model Selection ---")
     for i, contract in enumerate(test_contracts):
         try:
             result = await pricing_engine.price_option(contract)
 
-            print(
+            logging.info(
                 f"\nContract {i+1}: {contract.option_type.value.upper()} "
                 f"K=${contract.strike_price} T={contract.time_to_expiry*365:.0f}d"
             )
-            print(f"   Selected Model: {result.model_used.value}")
-            print(f"   Price: ${result.theoretical_price:.4f}")
-            print(
+            logging.info(f"   Selected Model: {result.model_used.value}")
+            logging.info(f"   Price: ${result.theoretical_price:.4f}")
+            logging.info(
                 f"   Early Exercise Premium: ${result.early_exercise_premium or 0:.4f}"
             )
-            print(f"   Delta: {result.greeks.delta:.4f}")
-            print(f"   Calculation Time: {result.calculation_time_ms:.1f}ms")
+            logging.info(f"   Delta: {result.greeks.delta:.4f}")
+            logging.info(f"   Calculation Time: {result.calculation_time_ms:.1f}ms")
 
         except Exception as e:
-            print(f"Contract {i+1}: ERROR - {e}")
+            logging.info(f"Contract {i+1}: ERROR - {e}")
 
     # Test portfolio pricing
-    print(f"\n--- Portfolio Pricing (Parallel Processing) ---")
+    logging.info(f"\n--- Portfolio Pricing (Parallel Processing) ---")
     try:
         start_time = time.time()
         results = await pricing_engine.price_portfolio(test_contracts)
@@ -1474,17 +1474,17 @@ async def main():
         portfolio_delta = sum(result.greeks.delta * 100 for result in results)
         portfolio_gamma = sum(result.greeks.gamma * 100 for result in results)
 
-        print(f"   Portfolio Value: ${portfolio_value:,.2f}")
-        print(f"   Portfolio Delta: {portfolio_delta:.2f}")
-        print(f"   Portfolio Gamma: {portfolio_gamma:.4f}")
-        print(f"   Total Calculation Time: {total_time:.1f}ms")
-        print(f"   Average per Option: {total_time/len(test_contracts):.1f}ms")
+        logging.info(f"   Portfolio Value: ${portfolio_value:,.2f}")
+        logging.info(f"   Portfolio Delta: {portfolio_delta:.2f}")
+        logging.info(f"   Portfolio Gamma: {portfolio_gamma:.4f}")
+        logging.info(f"   Total Calculation Time: {total_time:.1f}ms")
+        logging.info(f"   Average per Option: {total_time/len(test_contracts):.1f}ms")
 
     except Exception as e:
-        print(f"   ERROR: {e}")
+        logging.info(f"   ERROR: {e}")
 
     # Test Greeks calculations
-    print(f"\n--- Comprehensive Greeks Analysis ---")
+    logging.info(f"\n--- Comprehensive Greeks Analysis ---")
     greeks_contract = test_contracts[0]  # Use first contract
 
     try:
@@ -1494,66 +1494,66 @@ async def main():
 
         greeks = result.greeks
 
-        print(
+        logging.info(
             f"   Option: {greeks_contract.option_type.value.upper()} "
             f"${greeks_contract.strike_price} "
             f"({greeks_contract.time_to_expiry*365:.0f} days)"
         )
-        print(f"   Price: ${result.theoretical_price:.4f}")
-        print(f"\n   First Order Greeks:")
-        print(f"     Delta:  {greeks.delta:>8.4f}  (Price sensitivity to underlying)")
-        print(f"\n   Second Order Greeks:")
-        print(f"     Gamma:  {greeks.gamma:>8.4f}  (Delta sensitivity)")
-        print(f"     Vega:   {greeks.vega:>8.4f}  (Volatility sensitivity)")
-        print(f"     Theta:  {greeks.theta:>8.4f}  (Time decay per day)")
-        print(f"     Rho:    {greeks.rho:>8.4f}  (Rate sensitivity)")
-        print(f"\n   Cross Derivatives:")
-        print(f"     Vanna:  {greeks.vanna:>8.4f}  (Delta-Vol sensitivity)")
-        print(f"     Volga:  {greeks.volga:>8.4f}  (Vega-Vol sensitivity)")
-        print(f"     Charm:  {greeks.charm:>8.4f}  (Delta-Time sensitivity)")
-        print(f"     Veta:   {greeks.veta:>8.4f}  (Vega-Time sensitivity)")
+        logging.info(f"   Price: ${result.theoretical_price:.4f}")
+        logging.info(f"\n   First Order Greeks:")
+        logging.info(f"     Delta:  {greeks.delta:>8.4f}  (Price sensitivity to underlying)")
+        logging.info(f"\n   Second Order Greeks:")
+        logging.info(f"     Gamma:  {greeks.gamma:>8.4f}  (Delta sensitivity)")
+        logging.info(f"     Vega:   {greeks.vega:>8.4f}  (Volatility sensitivity)")
+        logging.info(f"     Theta:  {greeks.theta:>8.4f}  (Time decay per day)")
+        logging.info(f"     Rho:    {greeks.rho:>8.4f}  (Rate sensitivity)")
+        logging.info(f"\n   Cross Derivatives:")
+        logging.info(f"     Vanna:  {greeks.vanna:>8.4f}  (Delta-Vol sensitivity)")
+        logging.info(f"     Volga:  {greeks.volga:>8.4f}  (Vega-Vol sensitivity)")
+        logging.info(f"     Charm:  {greeks.charm:>8.4f}  (Delta-Time sensitivity)")
+        logging.info(f"     Veta:   {greeks.veta:>8.4f}  (Vega-Time sensitivity)")
 
     except Exception as e:
-        print(f"   ERROR: {e}")
+        logging.info(f"   ERROR: {e}")
 
     # Performance summary
-    print(f"\n--- Performance Summary ---")
+    logging.info(f"\n--- Performance Summary ---")
     try:
         performance = pricing_engine.get_performance_summary()
 
-        print(f"   Total Calculations: {performance['total_calculations']}")
-        print(f"   Cache Hit Rate: {performance['cache_hit_rate']:.1%}")
-        print(f"   Error Rate: {performance['error_rate']:.1%}")
-        print(f"   Cache Size: {performance['cache_size']} entries")
+        logging.info(f"   Total Calculations: {performance['total_calculations']}")
+        logging.info(f"   Cache Hit Rate: {performance['cache_hit_rate']:.1%}")
+        logging.info(f"   Error Rate: {performance['error_rate']:.1%}")
+        logging.info(f"   Cache Size: {performance['cache_size']} entries")
 
         if performance["models"]:
-            print(f"\n   Model Performance:")
+            logging.info(f"\n   Model Performance:")
             for model_name, stats in performance["models"].items():
-                print(
+                logging.info(
                     f"     {model_name:<20}: {stats['calculations']:>3} calls, "
                     f"{stats['avg_time_ms']:>6.1f}ms avg, "
                     f"{stats['success_rate']:>5.1%} success"
                 )
 
     except Exception as e:
-        print(f"   ERROR: {e}")
+        logging.info(f"   ERROR: {e}")
 
     # Cleanup
     await pricing_engine.shutdown()
 
-    print("\n" + "=" * 80)
-    print("✅ CONSOLIDATED PRICING ENGINE FEATURES DEMONSTRATED:")
-    print("   • Eliminated 4-way pricing duplication from V01, V06, V07, V08")
-    print("   • Intelligent model selection based on contract characteristics")
-    print("   • Ultra-fast Barone-Adesi-Whaley analytical pricing (<0.5ms)")
-    print("   • High-accuracy binomial tree for American options")
-    print("   • Flexible Monte Carlo LSM for complex derivatives")
-    print("   • Comprehensive Greeks including cross-derivatives")
-    print("   • Performance optimization with caching and parallelization")
-    print("   • Real-time portfolio pricing capabilities")
-    print("   • Integration-ready with V04_RiskManager")
-    print("   • Single source of truth for all V-series pricing")
-    print("=" * 80)
+    logging.info("\n" + "=" * 80)
+    logging.info("✅ CONSOLIDATED PRICING ENGINE FEATURES DEMONSTRATED:")
+    logging.info("   • Eliminated 4-way pricing duplication from V01, V06, V07, V08")
+    logging.info("   • Intelligent model selection based on contract characteristics")
+    logging.info("   • Ultra-fast Barone-Adesi-Whaley analytical pricing (<0.5ms)")
+    logging.info("   • High-accuracy binomial tree for American options")
+    logging.info("   • Flexible Monte Carlo LSM for complex derivatives")
+    logging.info("   • Comprehensive Greeks including cross-derivatives")
+    logging.info("   • Performance optimization with caching and parallelization")
+    logging.info("   • Real-time portfolio pricing capabilities")
+    logging.info("   • Integration-ready with V04_RiskManager")
+    logging.info("   • Single source of truth for all V-series pricing")
+    logging.info("=" * 80)
 
 
 if __name__ == "__main__":

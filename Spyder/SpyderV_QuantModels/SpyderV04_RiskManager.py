@@ -1151,9 +1151,9 @@ def create_risk_manager(
 # ==============================================================================
 async def main():
     """Demonstration of consolidated risk manager functionality."""
-    print("=" * 70)
-    print("SPYDER V04 CONSOLIDATED RISK MANAGER DEMONSTRATION")
-    print("=" * 70)
+    logging.info("=" * 70)
+    logging.info("SPYDER V04 CONSOLIDATED RISK MANAGER DEMONSTRATION")
+    logging.info("=" * 70)
 
     # Initialize risk manager
     config = {
@@ -1165,12 +1165,12 @@ async def main():
 
     risk_manager = create_risk_manager(config)
 
-    print("\n✅ Risk Manager Initialized")
-    print(
+    logging.info("\n✅ Risk Manager Initialized")
+    logging.info(
         f"   Default confidence level: {risk_manager.default_params.confidence_level}"
     )
-    print(f"   Default method: {risk_manager.default_params.method.value}")
-    print(f"   Stress scenarios available: {len(risk_manager.stress_scenarios)}")
+    logging.info(f"   Default method: {risk_manager.default_params.method.value}")
+    logging.info(f"   Stress scenarios available: {len(risk_manager.stress_scenarios)}")
 
     # Create sample options portfolio
     sample_portfolio = [
@@ -1224,14 +1224,14 @@ async def main():
         },
     ]
 
-    print(f"\n📊 Sample Portfolio Created")
-    print(f"   Positions: {len(sample_portfolio)}")
-    print(
+    logging.info(f"\n📊 Sample Portfolio Created")
+    logging.info(f"   Positions: {len(sample_portfolio)}")
+    logging.info(
         f"   Total Value: ${sum(pos['market_value'] for pos in sample_portfolio):,.2f}"
     )
 
     # Calculate comprehensive risk metrics
-    print("\n--- Calculating Portfolio Risk Metrics ---")
+    logging.info("\n--- Calculating Portfolio Risk Metrics ---")
 
     try:
         risk_metrics = await risk_manager.calculate_portfolio_risk(
@@ -1241,25 +1241,25 @@ async def main():
             ),
         )
 
-        print(f"\n📈 Risk Metrics (95% Confidence):")
-        print(f"   Portfolio Value: ${risk_metrics.portfolio_value:,.2f}")
-        print(f"   VaR (1-day): ${risk_metrics.var:,.2f}")
-        print(f"   CVaR (1-day): ${risk_metrics.cvar:,.2f}")
-        print(f"   CVaR/VaR Ratio: {risk_metrics.cvar_var_ratio:.2f}")
-        print(f"   Risk Utilization: {risk_metrics.risk_utilization:.1%}")
-        print(f"   Max Drawdown: {risk_metrics.maximum_drawdown:.1%}")
-        print(f"   Sharpe Ratio: {risk_metrics.sharpe_ratio:.2f}")
-        print(f"   Diversification: {risk_metrics.diversification_ratio:.1%}")
-        print(f"   Model Accuracy: {risk_metrics.model_accuracy:.1%}")
+        logging.info(f"\n📈 Risk Metrics (95% Confidence):")
+        logging.info(f"   Portfolio Value: ${risk_metrics.portfolio_value:,.2f}")
+        logging.info(f"   VaR (1-day): ${risk_metrics.var:,.2f}")
+        logging.info(f"   CVaR (1-day): ${risk_metrics.cvar:,.2f}")
+        logging.info(f"   CVaR/VaR Ratio: {risk_metrics.cvar_var_ratio:.2f}")
+        logging.info(f"   Risk Utilization: {risk_metrics.risk_utilization:.1%}")
+        logging.info(f"   Max Drawdown: {risk_metrics.maximum_drawdown:.1%}")
+        logging.info(f"   Sharpe Ratio: {risk_metrics.sharpe_ratio:.2f}")
+        logging.info(f"   Diversification: {risk_metrics.diversification_ratio:.1%}")
+        logging.info(f"   Model Accuracy: {risk_metrics.model_accuracy:.1%}")
 
         # Store for later use
         risk_manager._last_risk_metrics = risk_metrics
 
     except Exception as e:
-        print(f"   ❌ Error calculating risk metrics: {e}")
+        logging.info(f"   ❌ Error calculating risk metrics: {e}")
 
     # Test different VaR methods
-    print("\n--- Comparing VaR Methods ---")
+    logging.info("\n--- Comparing VaR Methods ---")
     methods_to_test = [
         RiskMethod.HISTORICAL,
         RiskMethod.PARAMETRIC,
@@ -1272,23 +1272,23 @@ async def main():
             metrics = await risk_manager.calculate_portfolio_risk(
                 portfolio=sample_portfolio, parameters=params
             )
-            print(
+            logging.info(
                 f"   {method.value.title():<12}: VaR=${metrics.var:>8,.0f}  CVaR=${metrics.cvar:>8,.0f}"
             )
         except Exception as e:
-            print(f"   {method.value.title():<12}: ❌ {str(e)[:50]}")
+            logging.info(f"   {method.value.title():<12}: ❌ {str(e)[:50]}")
 
     # Run stress tests
-    print("\n--- Running Stress Tests ---")
+    logging.info("\n--- Running Stress Tests ---")
     try:
         stress_results = await risk_manager.run_stress_tests()
 
-        print(f"   Scenarios tested: {len(stress_results)}")
-        print(f"   {'Scenario':<20} {'Loss':<12} {'VaR Breach':<12} {'CVaR Breach'}")
-        print("   " + "-" * 60)
+        logging.info(f"   Scenarios tested: {len(stress_results)}")
+        logging.info(f"   {'Scenario':<20} {'Loss':<12} {'VaR Breach':<12} {'CVaR Breach'}")
+        logging.info("   " + "-" * 60)
 
         for result in stress_results[:5]:  # Show first 5
-            print(
+            logging.info(
                 f"   {result.scenario.name:<20} "
                 f"${result.portfolio_loss:>8,.0f}   "
                 f"{'Yes' if result.var_breach else 'No':<11} "
@@ -1297,59 +1297,59 @@ async def main():
 
         # Show worst scenario
         worst_scenario = max(stress_results, key=lambda x: abs(x.portfolio_loss))
-        print(f"\n   🔥 Worst Scenario: {worst_scenario.scenario.name}")
-        print(
+        logging.info(f"\n   🔥 Worst Scenario: {worst_scenario.scenario.name}")
+        logging.info(
             f"      Loss: ${worst_scenario.portfolio_loss:,.2f} ({worst_scenario.loss_percentage:.1%})"
         )
-        print(f"      Recovery Estimate: {worst_scenario.recovery_time_estimate} days")
-        print(
+        logging.info(f"      Recovery Estimate: {worst_scenario.recovery_time_estimate} days")
+        logging.info(
             f"      Recommendations: {', '.join(worst_scenario.hedge_recommendations[:2])}"
         )
 
     except Exception as e:
-        print(f"   ❌ Error in stress testing: {e}")
+        logging.info(f"   ❌ Error in stress testing: {e}")
 
     # Show performance metrics
-    print("\n--- Performance Metrics ---")
+    logging.info("\n--- Performance Metrics ---")
     performance = risk_manager.get_performance_metrics()
 
     for operation, metrics in performance.items():
         if isinstance(metrics, dict) and "avg_time_ms" in metrics:
-            print(
+            logging.info(
                 f"   {operation.replace('_', ' ').title():<20}: "
                 f"{metrics['avg_time_ms']:.1f}ms avg "
                 f"({metrics['calls']} calls)"
             )
 
-    print(f"   Cache entries: {performance.get('cache_size', 0)}")
-    print(f"   Active positions: {performance.get('active_positions', 0)}")
+    logging.info(f"   Cache entries: {performance.get('cache_size', 0)}")
+    logging.info(f"   Active positions: {performance.get('active_positions', 0)}")
 
     # Generate risk report
-    print("\n--- Risk Report Export ---")
+    logging.info("\n--- Risk Report Export ---")
     try:
         report = risk_manager.export_risk_report("dict")
-        print(f"   Report generated with {len(report)} sections")
-        print(
+        logging.info(f"   Report generated with {len(report)} sections")
+        logging.info(
             f"   Portfolio positions: {report['portfolio_summary']['total_positions']}"
         )
-        print(f"   Risk metrics included: ✅")
-        print(f"   Stress test results: {len(report['stress_test_results'])}")
-        print(f"   Performance data: ✅")
+        logging.info(f"   Risk metrics included: ✅")
+        logging.info(f"   Stress test results: {len(report['stress_test_results'])}")
+        logging.info(f"   Performance data: ✅")
     except Exception as e:
-        print(f"   ❌ Error generating report: {e}")
+        logging.info(f"   ❌ Error generating report: {e}")
 
-    print("\n" + "=" * 70)
-    print("✅ CONSOLIDATED RISK MANAGER FEATURES DEMONSTRATED:")
-    print("   • Eliminated duplications from V01 and original V04")
-    print("   • Multiple VaR/CVaR calculation methods")
-    print("   • Comprehensive stress testing framework")
-    print("   • Model validation and backtesting")
-    print("   • Performance tracking and caching")
-    print("   • Options-specific risk adjustments")
-    print("   • Real-time portfolio risk monitoring")
-    print("   • Integration-ready with SpyderB08 data feeds")
-    print("   • Single source of truth for all V-series risk calculations")
-    print("=" * 70)
+    logging.info("\n" + "=" * 70)
+    logging.info("✅ CONSOLIDATED RISK MANAGER FEATURES DEMONSTRATED:")
+    logging.info("   • Eliminated duplications from V01 and original V04")
+    logging.info("   • Multiple VaR/CVaR calculation methods")
+    logging.info("   • Comprehensive stress testing framework")
+    logging.info("   • Model validation and backtesting")
+    logging.info("   • Performance tracking and caching")
+    logging.info("   • Options-specific risk adjustments")
+    logging.info("   • Real-time portfolio risk monitoring")
+    logging.info("   • Integration-ready with SpyderB08 data feeds")
+    logging.info("   • Single source of truth for all V-series risk calculations")
+    logging.info("=" * 70)
 
 
 if __name__ == "__main__":

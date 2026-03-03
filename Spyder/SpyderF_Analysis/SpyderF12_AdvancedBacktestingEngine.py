@@ -68,6 +68,7 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskManager
 from Spyder.SpyderE_Risk.SpyderE17_RealTimeStressTesting import RealTimeStressTesting
 from Spyder.SpyderE_Risk.SpyderE10_CorrelationRiskManager import CorrelationRiskManager  
 from Spyder.SpyderE_Risk.SpyderE23_PortfolioOptimizer import PortfolioOptimizer
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1746,30 +1747,30 @@ def get_backtesting_engine_instance() -> AdvancedBacktestingEngine:
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER F12 - Advanced Backtesting Engine")
-    print("=" * 80)
+    logging.info("🎯 SPYDER F12 - Advanced Backtesting Engine")
+    logging.info("=" * 80)
     
     try:
         # Create backtesting engine
         engine = AdvancedBacktestingEngine()
-        print("✅ Advanced Backtesting Engine initialized")
+        logging.info("✅ Advanced Backtesting Engine initialized")
         
         # Initialize engine with E-series integration
         if not engine.initialize(enable_risk_integration=True):
-            print("❌ Failed to initialize backtesting engine")
+            logging.info("❌ Failed to initialize backtesting engine")
             return False
         
-        print("🔗 E-series risk integration: ENABLED")
-        print(f"   • Risk Manager (E01): {'✅' if engine.risk_manager else '❌'}")
-        print(f"   • Stress Tester (E07): {'✅' if engine.stress_tester else '❌'}")
-        print(f"   • Correlation Manager (E10): {'✅' if engine.correlation_manager else '❌'}")
-        print(f"   • Portfolio Optimizer (E14): {'✅' if engine.portfolio_optimizer else '❌'}")
+        logging.info("🔗 E-series risk integration: ENABLED")
+        logging.info(f"   • Risk Manager (E01): {'✅' if engine.risk_manager else '❌'}")
+        logging.info(f"   • Stress Tester (E07): {'✅' if engine.stress_tester else '❌'}")
+        logging.info(f"   • Correlation Manager (E10): {'✅' if engine.correlation_manager else '❌'}")
+        logging.info(f"   • Portfolio Optimizer (E14): {'✅' if engine.portfolio_optimizer else '❌'}")
         
         # Create sample scenario
-        print("\n📊 Creating sample backtesting scenario...")
+        logging.info("\n📊 Creating sample backtesting scenario...")
         scenario = create_sample_backtest_scenario()
-        print(f"   Market Data: {scenario['total_periods']} days")
-        print(f"   Period: {scenario['start_date'].date()} to {scenario['end_date'].date()}")
+        logging.info(f"   Market Data: {scenario['total_periods']} days")
+        logging.info(f"   Period: {scenario['start_date'].date()} to {scenario['end_date'].date()}")
         
         # Create mock strategy
         strategy = MockStrategy("TestStrategy")
@@ -1786,30 +1787,30 @@ async def main():
             out_of_sample_ratio=0.2
         )
         
-        print("\n🚀 Running single strategy backtest...")
-        print(f"   Strategy: {strategy.name}")
-        print(f"   Initial Capital: ${config.initial_capital:,.2f}")
-        print(f"   Validation: {config.validation_method.value}")
+        logging.info("\n🚀 Running single strategy backtest...")
+        logging.info(f"   Strategy: {strategy.name}")
+        logging.info(f"   Initial Capital: ${config.initial_capital:,.2f}")
+        logging.info(f"   Validation: {config.validation_method.value}")
         
         # Run backtest
         results = await engine.run_single_strategy_backtest(
             strategy, scenario['market_data'], config
         )
         
-        print(f"   ✅ Backtest completed!")
-        print(f"   Status: {results.status.value.upper()}")
-        print(f"   Execution Time: {results.execution_time:.2f}s")
-        print(f"   Total Trades: {len(results.trades)}")
+        logging.info(f"   ✅ Backtest completed!")
+        logging.info(f"   Status: {results.status.value.upper()}")
+        logging.info(f"   Execution Time: {results.execution_time:.2f}s")
+        logging.info(f"   Total Trades: {len(results.trades)}")
         
         if results.performance_metrics:
             pm = results.performance_metrics
-            print(f"   Total Return: {pm.total_return:.2%}")
-            print(f"   Sharpe Ratio: {pm.sharpe_ratio:.3f}")
-            print(f"   Max Drawdown: {pm.max_drawdown:.2%}")
-            print(f"   Win Rate: {pm.win_rate:.1%}")
+            logging.info(f"   Total Return: {pm.total_return:.2%}")
+            logging.info(f"   Sharpe Ratio: {pm.sharpe_ratio:.3f}")
+            logging.info(f"   Max Drawdown: {pm.max_drawdown:.2%}")
+            logging.info(f"   Win Rate: {pm.win_rate:.1%}")
         
         # Test parameter optimization
-        print("\n🧪 Testing parameter optimization...")
+        logging.info("\n🧪 Testing parameter optimization...")
         param_ranges = [
             ParameterRange("param1", 1, 10, 1),
             ParameterRange("param2", 0.1, 1.0, 0.1)
@@ -1820,13 +1821,13 @@ async def main():
             OptimizationObjective.MAXIMIZE_SHARPE, config
         )
         
-        print(f"   Optimization completed: {optimization_result.optimization_time:.2f}s")
-        print(f"   Best Score: {optimization_result.best_score:.3f}")
-        print(f"   Converged: {optimization_result.converged}")
-        print(f"   Stability Score: {optimization_result.stability_score:.3f}")
+        logging.info(f"   Optimization completed: {optimization_result.optimization_time:.2f}s")
+        logging.info(f"   Best Score: {optimization_result.best_score:.3f}")
+        logging.info(f"   Converged: {optimization_result.converged}")
+        logging.info(f"   Stability Score: {optimization_result.stability_score:.3f}")
         
         # Test scenario analysis
-        print("\n📈 Testing scenario analysis...")
+        logging.info("\n📈 Testing scenario analysis...")
         scenarios = {
             "Bull Market": {"return_multiplier": 1.5, "volatility_multiplier": 0.8},
             "Bear Market": {"return_multiplier": 0.5, "volatility_multiplier": 1.3},
@@ -1834,63 +1835,63 @@ async def main():
         }
         
         # Note: In demo, we'll skip actual scenario analysis for brevity
-        print(f"   Scenarios configured: {len(scenarios)}")
-        print(f"   • Bull Market: +50% returns, -20% volatility")
-        print(f"   • Bear Market: -50% returns, +30% volatility") 
-        print(f"   • High Volatility: Same returns, +100% volatility")
+        logging.info(f"   Scenarios configured: {len(scenarios)}")
+        logging.info(f"   • Bull Market: +50% returns, -20% volatility")
+        logging.info(f"   • Bear Market: -50% returns, +30% volatility") 
+        logging.info(f"   • High Volatility: Same returns, +100% volatility")
         
         # Generate comprehensive report
-        print("\n📋 Generating comprehensive report...")
+        logging.info("\n📋 Generating comprehensive report...")
         report = engine.generate_comprehensive_report(results)
-        print("📊 ADVANCED BACKTESTING REPORT:")
-        print("-" * 60)
+        logging.info("📊 ADVANCED BACKTESTING REPORT:")
+        logging.info("-" * 60)
         # Print first portion of report
         report_lines = report.split('\n')[:30]
         for line in report_lines:
-            print(line)
-        print("   ... (truncated for demo)")
+            logging.info(line)
+        logging.info("   ... (truncated for demo)")
         
         # Get engine summary
         summary = engine.get_backtest_summary(results.backtest_id)
         if summary:
-            print(f"\n📈 BACKTEST SUMMARY:")
-            print(f"   Backtest ID: {summary['backtest_id']}")
-            print(f"   Status: {summary['status'].upper()}")
-            print(f"   Total Trades: {summary['total_trades']}")
-            print(f"   Errors: {summary['errors']}")
-            print(f"   Warnings: {summary['warnings']}")
+            logging.info(f"\n📈 BACKTEST SUMMARY:")
+            logging.info(f"   Backtest ID: {summary['backtest_id']}")
+            logging.info(f"   Status: {summary['status'].upper()}")
+            logging.info(f"   Total Trades: {summary['total_trades']}")
+            logging.info(f"   Errors: {summary['errors']}")
+            logging.info(f"   Warnings: {summary['warnings']}")
         
         # Display execution statistics
         stats = engine.execution_stats
-        print(f"\n⚡ ENGINE STATISTICS:")
-        print(f"   Total Backtests: {stats['total_backtests']}")
-        print(f"   Successful Backtests: {stats['successful_backtests']}")
-        print(f"   Average Execution Time: {stats['average_execution_time']:.2f}s")
-        print(f"   Success Rate: {stats['successful_backtests'] / max(1, stats['total_backtests']):.0%}")
+        logging.info(f"\n⚡ ENGINE STATISTICS:")
+        logging.info(f"   Total Backtests: {stats['total_backtests']}")
+        logging.info(f"   Successful Backtests: {stats['successful_backtests']}")
+        logging.info(f"   Average Execution Time: {stats['average_execution_time']:.2f}s")
+        logging.info(f"   Success Rate: {stats['successful_backtests'] / max(1, stats['total_backtests']):.0%}")
         
         # Cleanup
         engine.cleanup()
-        print("\n✅ Advanced Backtesting Engine test completed successfully!")
+        logging.info("\n✅ Advanced Backtesting Engine test completed successfully!")
         
-        print(f"\n🎯 ADVANCED BACKTESTING CAPABILITIES:")
-        print(f"   • Institutional-Grade Backtesting Framework")
-        print(f"   • Seamless E-Series Risk Integration (E01, E07, E10, E14)")
-        print(f"   • Multi-Strategy Comparative Analysis")
-        print(f"   • Walk-Forward Optimization")
-        print(f"   • Monte Carlo Validation")
-        print(f"   • Parameter Optimization (9 objectives)")
-        print(f"   • Scenario Analysis Testing")
-        print(f"   • Out-of-Sample Validation")
-        print(f"   • Transaction Cost Modeling")
-        print(f"   • Comprehensive Performance Metrics (25+ metrics)")
-        print(f"   • Professional Statistical Analysis")
-        print(f"   • Advanced Risk Analytics")
-        print(f"   • Parallel Processing Capabilities")
+        logging.info(f"\n🎯 ADVANCED BACKTESTING CAPABILITIES:")
+        logging.info(f"   • Institutional-Grade Backtesting Framework")
+        logging.info(f"   • Seamless E-Series Risk Integration (E01, E07, E10, E14)")
+        logging.info(f"   • Multi-Strategy Comparative Analysis")
+        logging.info(f"   • Walk-Forward Optimization")
+        logging.info(f"   • Monte Carlo Validation")
+        logging.info(f"   • Parameter Optimization (9 objectives)")
+        logging.info(f"   • Scenario Analysis Testing")
+        logging.info(f"   • Out-of-Sample Validation")
+        logging.info(f"   • Transaction Cost Modeling")
+        logging.info(f"   • Comprehensive Performance Metrics (25+ metrics)")
+        logging.info(f"   • Professional Statistical Analysis")
+        logging.info(f"   • Advanced Risk Analytics")
+        logging.info(f"   • Parallel Processing Capabilities")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        logging.info(f"❌ Error during testing: {e}")
         return False
 
 if __name__ == "__main__":

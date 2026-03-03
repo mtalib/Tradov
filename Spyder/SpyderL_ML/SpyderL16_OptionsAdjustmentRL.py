@@ -82,6 +82,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 try:
     from Spyder.SpyderF_Analysis.SpyderF06_GreeksCalculator import GreeksCalculator
 except ImportError:
@@ -1462,20 +1463,20 @@ async def main():
     rl_system = create_options_adjustment_rl()
 
     if args.train:
-        print(f"\n=== Training {args.train} Strategy ===")
+        logging.info(f"\n=== Training {args.train} Strategy ===")
         results = rl_system.train(strategy=args.train, episodes=args.episodes)
 
-        print(f"\nTraining Results:")
-        print(f"Mean Return: {results['final_performance']['mean_return']:.3f}")
-        print(f"Sharpe Ratio: {results['final_performance']['sharpe_ratio']:.3f}")
-        print(f"Win Rate: {results['final_performance']['win_rate']:.2%}")
-        print(f"Max Drawdown: {results['final_performance']['max_drawdown']:.2%}")
+        logging.info(f"\nTraining Results:")
+        logging.info(f"Mean Return: {results['final_performance']['mean_return']:.3f}")
+        logging.info(f"Sharpe Ratio: {results['final_performance']['sharpe_ratio']:.3f}")
+        logging.info(f"Win Rate: {results['final_performance']['win_rate']:.2%}")
+        logging.info(f"Max Drawdown: {results['final_performance']['max_drawdown']:.2%}")
 
         # Save models
         rl_system.save_models()
 
     if args.test:
-        print(f"\n=== Testing {args.test} Strategy ===")
+        logging.info(f"\n=== Testing {args.test} Strategy ===")
 
         # Load models if needed
         rl_system.load_models()
@@ -1503,13 +1504,13 @@ async def main():
             test_position, test_market
         )
 
-        print(f"\nRecommendation: {recommendation.action_type}")
-        print(f"Confidence: {recommendation.confidence:.2%}")
-        print(f"Reason: {recommendation.reason}")
-        print(f"Parameters: {recommendation.parameters}")
+        logging.info(f"\nRecommendation: {recommendation.action_type}")
+        logging.info(f"Confidence: {recommendation.confidence:.2%}")
+        logging.info(f"Reason: {recommendation.reason}")
+        logging.info(f"Parameters: {recommendation.parameters}")
 
     if args.demo:
-        print("\n=== Adjustment Demo ===")
+        logging.info("\n=== Adjustment Demo ===")
 
         # Simulate position lifecycle
         position = {
@@ -1549,10 +1550,10 @@ async def main():
             rec = rl_system.get_adjustment_recommendation(position, market)
 
             if rec.action_type != "hold":
-                print(f"\nDay {day}: Price=${market['price']:.2f}")
-                print(f"Action: {rec.action_type}")
-                print(f"Reason: {rec.reason}")
-                print(f"P&L: ${position['unrealized_pnl']:.2f}")
+                logging.info(f"\nDay {day}: Price=${market['price']:.2f}")
+                logging.info(f"Action: {rec.action_type}")
+                logging.info(f"Reason: {rec.reason}")
+                logging.info(f"P&L: ${position['unrealized_pnl']:.2f}")
 
 
 if __name__ == "__main__":

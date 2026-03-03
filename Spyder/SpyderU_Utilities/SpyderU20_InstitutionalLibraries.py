@@ -834,22 +834,22 @@ def reset_institutional_libraries():
 def test_institutional_libraries():
     """Test institutional libraries functionality."""
     
-    print("🧪 TESTING INSTITUTIONAL LIBRARIES")
-    print("=" * 50)
+    logging.info("🧪 TESTING INSTITUTIONAL LIBRARIES")
+    logging.info("=" * 50)
     
     libs = get_institutional_libraries()
     
     # Test library availability
     available, total = libs.get_available_libraries_count()
-    print(f"📊 Libraries Available: {available}/{total}")
+    logging.info(f"📊 Libraries Available: {available}/{total}")
     
     # Test OptionType access
     try:
         put_option = libs.OptionType.PUT
         call_option = libs.OptionType.CALL
-        print(f"✅ OptionType access: PUT={put_option.value}, CALL={call_option.value}")
+        logging.info(f"✅ OptionType access: PUT={put_option.value}, CALL={call_option.value}")
     except Exception as e:
-        print(f"❌ OptionType access failed: {e}")
+        logging.info(f"❌ OptionType access failed: {e}")
     
     # Test options pricing if QuantLib available
     if libs.is_library_available('quantlib'):
@@ -864,15 +864,15 @@ def test_institutional_libraries():
             )
             
             if pricing:
-                print(f"✅ Options pricing: ${pricing.theoretical_price:.2f}")
-                print(f"   Greeks: Δ={pricing.delta:.3f}, Γ={pricing.gamma:.3f}, Θ={pricing.theta:.3f}")
+                logging.info(f"✅ Options pricing: ${pricing.theoretical_price:.2f}")
+                logging.info(f"   Greeks: Δ={pricing.delta:.3f}, Γ={pricing.gamma:.3f}, Θ={pricing.theta:.3f}")
             else:
-                print("❌ Options pricing returned None")
+                logging.info("❌ Options pricing returned None")
                 
         except Exception as e:
-            print(f"❌ Options pricing failed: {e}")
+            logging.info(f"❌ Options pricing failed: {e}")
     else:
-        print("⚠️ QuantLib not available for options pricing test")
+        logging.info("⚠️ QuantLib not available for options pricing test")
     
     # Test performance metrics
     try:
@@ -883,17 +883,17 @@ def test_institutional_libraries():
         metrics = libs.calculate_institutional_metrics(returns)
         
         if metrics:
-            print(f"✅ Performance metrics calculated:")
-            print(f"   Annual Return: {metrics.annual_return:.2%}")
-            print(f"   Sharpe Ratio: {metrics.sharpe_ratio:.2f}")
-            print(f"   Max Drawdown: {metrics.max_drawdown:.2%}")
+            logging.info(f"✅ Performance metrics calculated:")
+            logging.info(f"   Annual Return: {metrics.annual_return:.2%}")
+            logging.info(f"   Sharpe Ratio: {metrics.sharpe_ratio:.2f}")
+            logging.info(f"   Max Drawdown: {metrics.max_drawdown:.2%}")
         else:
-            print("❌ Performance metrics calculation failed")
+            logging.info("❌ Performance metrics calculation failed")
             
     except Exception as e:
-        print(f"❌ Performance metrics test failed: {e}")
+        logging.info(f"❌ Performance metrics test failed: {e}")
     
-    print(f"\n🎯 Test Complete: {available}/{total} libraries operational")
+    logging.info(f"\n🎯 Test Complete: {available}/{total} libraries operational")
     return available >= total * 0.6  # Pass if 60%+ libraries work
 
 # ==============================================================================

@@ -54,6 +54,7 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
     CALENDAR_SPREAD_PROFIT_TARGET, CALENDAR_SPREAD_STOP_LOSS,
     SPY_CONTRACT_MULTIPLIER, OptionType, SignalType)
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1059,8 +1060,8 @@ class CalendarSpreadStrategy(BaseStrategy):
 # ==============================================================================
 def test_calendar_spread():
     """Test the Calendar Spread strategy"""
-    print("Testing Calendar Spread Strategy")
-    print("=" * 60)
+    logging.info("Testing Calendar Spread Strategy")
+    logging.info("=" * 60)
 
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
@@ -1076,8 +1077,8 @@ def test_calendar_spread():
     # Create strategy
     strategy = CalendarSpreadStrategy(event_manager, risk_profile, config)
 
-    print(f"Strategy: {strategy.name}")
-    print(f"Max Positions: {strategy.max_positions}")
+    logging.info(f"Strategy: {strategy.name}")
+    logging.info(f"Max Positions: {strategy.max_positions}")
 
     # Create sample market data with IV
     dates = pd.date_range(end=datetime.now(), periods=252, freq="D")
@@ -1103,49 +1104,49 @@ def test_calendar_spread():
     )
 
     # Test IV analysis
-    print("\nTesting IV Analysis...")
+    logging.info("\nTesting IV Analysis...")
     iv_analysis = strategy._analyze_iv_environment(market_data)
-    print(f"Current IV: {iv_analysis.get('current_iv', 0):.1%}")
-    print(f"IV Rank: {iv_analysis.get('iv_rank', 0):.1f}")
-    print(f"IV Regime: {iv_analysis.get('iv_regime', IVRegime.NORMAL).value}")
-    print(f"Term Structure: {iv_analysis.get('term_structure', TermStructure.CONTANGO).value}")
-    print(f"Calendar Favorable: {iv_analysis.get('calendar_favorable', False)}")
+    logging.info(f"Current IV: {iv_analysis.get('current_iv', 0):.1%}")
+    logging.info(f"IV Rank: {iv_analysis.get('iv_rank', 0):.1f}")
+    logging.info(f"IV Regime: {iv_analysis.get('iv_regime', IVRegime.NORMAL).value}")
+    logging.info(f"Term Structure: {iv_analysis.get('term_structure', TermStructure.CONTANGO).value}")
+    logging.info(f"Calendar Favorable: {iv_analysis.get('calendar_favorable', False)}")
 
     # Test expiry selection
-    print("\nTesting Expiry Selection...")
+    logging.info("\nTesting Expiry Selection...")
     near_expiry, far_expiry = strategy._select_optimal_expiries(iv_analysis)
     if near_expiry and far_expiry:
-        print(
+        logging.info(
             f"Near Expiry: {near_expiry.strftime('%Y-%m-%d')} ({(near_expiry - datetime.now()).days} days)"
         )
-        print(
+        logging.info(
             f"Far Expiry: {far_expiry.strftime('%Y-%m-%d')} ({(far_expiry - datetime.now()).days} days)"
         )
-        print(f"Time Spread: {(far_expiry - near_expiry).days} days")
+        logging.info(f"Time Spread: {(far_expiry - near_expiry).days} days")
 
     # Generate signals
-    print("\nGenerating Signals...")
+    logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
 
-    print(f"Generated {len(signals)} signals")
+    logging.info(f"Generated {len(signals)} signals")
 
     for signal in signals:
-        print(f"\nSignal Type: {signal.metadata['calendar_type']}")
-        print(f"Strike: ${signal.metadata['strike']}")
-        print(f"Near Expiry: {signal.metadata['near_expiry']}")
-        print(f"Far Expiry: {signal.metadata['far_expiry']}")
-        print(f"Net Debit: ${signal.metadata['net_debit']:.2f}")
-        print(f"Max Profit: ${signal.metadata['max_profit']:.2f}")
-        print(f"IV Skew: {signal.metadata['iv_skew']:.3f}")
-        print(f"Confidence: {signal.confidence:.1%}")
+        logging.info(f"\nSignal Type: {signal.metadata['calendar_type']}")
+        logging.info(f"Strike: ${signal.metadata['strike']}")
+        logging.info(f"Near Expiry: {signal.metadata['near_expiry']}")
+        logging.info(f"Far Expiry: {signal.metadata['far_expiry']}")
+        logging.info(f"Net Debit: ${signal.metadata['net_debit']:.2f}")
+        logging.info(f"Max Profit: ${signal.metadata['max_profit']:.2f}")
+        logging.info(f"IV Skew: {signal.metadata['iv_skew']:.3f}")
+        logging.info(f"Confidence: {signal.confidence:.1%}")
 
         # Add position
         position_id = strategy.add_position(signal)
 
     # Test position management
     if strategy.active_positions:
-        print("\n" + "=" * 40)
-        print("Position Management Test")
+        logging.info("\n" + "=" * 40)
+        logging.info("Position Management Test")
 
         # Simulate price movement
         new_prices = prices[-1] + np.cumsum(np.random.randn(20) * 1.5)
@@ -1167,43 +1168,43 @@ def test_calendar_spread():
             if management_signals:
                 for signal in management_signals:
                     if signal.signal_type == SignalType.ADJUST:
-                        print(f"\nRoll Signal Day {i}")
-                        print(f"Action: {signal.metadata['action']}")
-                        print(f"Current P&L: ${signal.metadata['current_pnl']:.2f}")
-                        print(f"Near DTE: {signal.metadata['near_expiry_dte']}")
+                        logging.info(f"\nRoll Signal Day {i}")
+                        logging.info(f"Action: {signal.metadata['action']}")
+                        logging.info(f"Current P&L: ${signal.metadata['current_pnl']:.2f}")
+                        logging.info(f"Near DTE: {signal.metadata['near_expiry_dte']}")
                     elif signal.signal_type == SignalType.EXIT:
-                        print(f"\nExit Signal Day {i}")
-                        print(f"Reason: {signal.metadata['exit_reason']}")
-                        print(f"Days Held: {signal.metadata['days_held']}")
-                        print(f"Final P&L: ${signal.metadata['unrealized_pnl']:.2f}")
+                        logging.info(f"\nExit Signal Day {i}")
+                        logging.info(f"Reason: {signal.metadata['exit_reason']}")
+                        logging.info(f"Days Held: {signal.metadata['days_held']}")
+                        logging.info(f"Final P&L: ${signal.metadata['unrealized_pnl']:.2f}")
 
     # Print final stats
     stats = strategy.get_strategy_stats()
-    print("\n" + "=" * 40)
-    print("Strategy Statistics:")
-    print(f"Active Positions: {stats['active_positions']}")
-    print(f"Current IV Regime: {stats['current_iv_regime']}")
-    print(f"Total Trades: {stats['total_trades']}")
-    print(f"Win Rate: {stats['win_rate']:.1%}")
-    print(f"Avg Holding Days: {stats['avg_holding_days']:.1f}")
-    print(f"Total Rolls: {stats['total_rolls']}")
-    print(f"Roll Success Rate: {stats['roll_success_rate']:.1%}")
-    print(f"Best Trade: ${stats['best_trade']:.2f}")
-    print(f"Worst Trade: ${stats['worst_trade']:.2f}")
+    logging.info("\n" + "=" * 40)
+    logging.info("Strategy Statistics:")
+    logging.info(f"Active Positions: {stats['active_positions']}")
+    logging.info(f"Current IV Regime: {stats['current_iv_regime']}")
+    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info(f"Win Rate: {stats['win_rate']:.1%}")
+    logging.info(f"Avg Holding Days: {stats['avg_holding_days']:.1f}")
+    logging.info(f"Total Rolls: {stats['total_rolls']}")
+    logging.info(f"Roll Success Rate: {stats['roll_success_rate']:.1%}")
+    logging.info(f"Best Trade: ${stats['best_trade']:.2f}")
+    logging.info(f"Worst Trade: ${stats['worst_trade']:.2f}")
 
-    print("\n✅ Calendar Spread Strategy Test Complete!")
-    print("\nKey Features Tested:")
-    print("- ✅ IV environment analysis and regime detection")
-    print("- ✅ Term structure analysis (contango/backwardation)")
-    print("- ✅ Optimal expiry selection")
-    print("- ✅ IV skew validation")
-    print("- ✅ Strike selection for calls and puts")
-    print("- ✅ Premium estimation using Black-Scholes")
-    print("- ✅ Probability calculations")
-    print("- ✅ Position value updates")
-    print("- ✅ Roll opportunity detection")
-    print("- ✅ Pin risk management")
-    print("- ✅ Performance tracking")
+    logging.info("\n✅ Calendar Spread Strategy Test Complete!")
+    logging.info("\nKey Features Tested:")
+    logging.info("- ✅ IV environment analysis and regime detection")
+    logging.info("- ✅ Term structure analysis (contango/backwardation)")
+    logging.info("- ✅ Optimal expiry selection")
+    logging.info("- ✅ IV skew validation")
+    logging.info("- ✅ Strike selection for calls and puts")
+    logging.info("- ✅ Premium estimation using Black-Scholes")
+    logging.info("- ✅ Probability calculations")
+    logging.info("- ✅ Position value updates")
+    logging.info("- ✅ Roll opportunity detection")
+    logging.info("- ✅ Pin risk management")
+    logging.info("- ✅ Performance tracking")
 
 
 if __name__ == "__main__":

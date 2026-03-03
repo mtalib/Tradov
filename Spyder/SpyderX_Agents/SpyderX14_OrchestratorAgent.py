@@ -77,6 +77,7 @@ from SpyderX_Agents import (
     SpyderX12_SystemHealthAgent,
     SpyderX13_MarketAnalysisAgent,
 )
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1039,11 +1040,11 @@ async def main():
     orchestrator = create_orchestrator_agent()
 
     if args.train:
-        print("Training meta-learner...")
+        logging.info("Training meta-learner...")
         orchestrator.train_meta_learner(episodes=100)
 
     if args.test:
-        print("\n=== Testing Agent Coordination ===")
+        logging.info("\n=== Testing Agent Coordination ===")
 
         # Test market state
         market_state = {
@@ -1060,30 +1061,30 @@ async def main():
             market_state, "should_enter_iron_condor"
         )
 
-        print(f"\nDecision: {decision.action}")
-        print(f"Confidence: {decision.confidence:.2%}")
-        print(f"Consensus Score: {decision.consensus_score:.2%}")
-        print(f"Contributing Agents: {len(decision.contributing_agents)}")
-        print(f"\nReasoning:\n{decision.reasoning}")
+        logging.info(f"\nDecision: {decision.action}")
+        logging.info(f"Confidence: {decision.confidence:.2%}")
+        logging.info(f"Consensus Score: {decision.consensus_score:.2%}")
+        logging.info(f"Contributing Agents: {len(decision.contributing_agents)}")
+        logging.info(f"\nReasoning:\n{decision.reasoning}")
 
         if decision.dissenting_opinions:
-            print(f"\nDissenting Opinions: {len(decision.dissenting_opinions)}")
+            logging.info(f"\nDissenting Opinions: {len(decision.dissenting_opinions)}")
             for dissent in decision.dissenting_opinions[:3]:
-                print(
+                logging.info(
                     f"- {dissent['agent']}: {dissent['prediction']} ({dissent['confidence']:.2%})"
                 )
 
     if args.status:
-        print("\n=== Agent Status ===")
+        logging.info("\n=== Agent Status ===")
         status = orchestrator.get_agent_status()
 
         for agent_id, info in status.items():
-            print(f"\n{agent_id}:")
-            print(f"  State: {info['state']}")
-            print(f"  Reliability: {info['reliability']:.2%}")
-            print(f"  Avg Latency: {info['avg_latency']:.3f}s")
-            print(f"  Recent Weight: {info['recent_weight']:.2%}")
-            print(f"  Success Rate: {info['success_rate']:.2%}")
+            logging.info(f"\n{agent_id}:")
+            logging.info(f"  State: {info['state']}")
+            logging.info(f"  Reliability: {info['reliability']:.2%}")
+            logging.info(f"  Avg Latency: {info['avg_latency']:.3f}s")
+            logging.info(f"  Recent Weight: {info['recent_weight']:.2%}")
+            logging.info(f"  Success Rate: {info['success_rate']:.2%}")
 
 
 if __name__ == "__main__":

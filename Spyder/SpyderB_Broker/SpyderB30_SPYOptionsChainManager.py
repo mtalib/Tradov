@@ -133,7 +133,7 @@ try:
     MANAGER_AVAILABLE = True
 except ImportError as e:
     MANAGER_AVAILABLE = False
-    print(f"⚠️ MultiClientDataManager not available: {e}")
+    logging.info(f"⚠️ MultiClientDataManager not available: {e}")
 
     # Create placeholder classes when MultiClientDataManager is not available
     class MultiClientDataManager:

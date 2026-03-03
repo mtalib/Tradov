@@ -81,6 +81,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QUrl
 from PySide6.QtGui import QPalette, QColor, QFont
+import logging
 
 # Import WebEngine for Plotly embedding
 WEBENGINE_AVAILABLE = False
@@ -94,15 +95,15 @@ try:
     from PySide6.QtWebEngineCore import QWebEngineSettings
 
     WEBENGINE_AVAILABLE = True
-    print("✅ QWebEngineView available for Plotly embedding")
+    logging.info("✅ QWebEngineView available for Plotly embedding")
 except ImportError as e:
     WEBENGINE_AVAILABLE = False
     WEBENGINE_ERROR = str(e)
-    print(f"⚠️ QWebEngineView not available: {e}")
-    print("   Solutions for Ubuntu/Wayland:")
-    print("   1. sudo apt install python3-pyside6.qtwebengine")
-    print("   2. sudo apt install libqt6webengine6-data")
-    print("   3. pip install 'PySide6>=6.5' (includes WebEngine)")
+    logging.info(f"⚠️ QWebEngineView not available: {e}")
+    logging.info("   Solutions for Ubuntu/Wayland:")
+    logging.info("   1. sudo apt install python3-pyside6.qtwebengine")
+    logging.info("   2. sudo apt install libqt6webengine6-data")
+    logging.info("   3. pip install 'PySide6>=6.5' (includes WebEngine)")
 
     # Create dummy classes to prevent runtime errors
     class DummyWebEngineView:
@@ -122,10 +123,10 @@ try:
     import plotly.io as pio
 
     PLOTLY_AVAILABLE = True
-    print("✅ Plotly available for financial charting")
+    logging.info("✅ Plotly available for financial charting")
 except ImportError:
     PLOTLY_AVAILABLE = False
-    print("⚠️ Plotly not available - install plotly")
+    logging.info("⚠️ Plotly not available - install plotly")
 
 # ==============================================================================
 # CONSTANTS & STYLING
@@ -349,7 +350,7 @@ class PlotlyChartWidget(QWidget):
         settings.setAttribute(QWebEngineSettings.AutoLoadImages, True)
         settings.setAttribute(QWebEngineSettings.PlaybackRequiresUserGesture, False)
 
-        print("✅ WebEngine configured for optimal Plotly performance")
+        logging.info("✅ WebEngine configured for optimal Plotly performance")
 
     def setup_timers(self):
         """Setup timers for real-time updates."""
@@ -831,7 +832,7 @@ class PlotlyChartWidget(QWidget):
     ):
         """Add trade marker to chart (placeholder for compatibility)."""
         # This would require JavaScript bridge to add annotations to Plotly chart
-        print(f"Trade marker: {trade_type} {size} @ {price} at {timestamp}")
+        logging.info(f"Trade marker: {trade_type} {size} @ {price} at {timestamp}")
 
     def clear_chart(self):
         """Clear chart data."""

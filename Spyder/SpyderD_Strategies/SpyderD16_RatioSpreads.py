@@ -54,6 +54,7 @@ from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeD
 from Spyder.SpyderE_Risk.SpyderE08_PositionGroupValidator import PositionGroupValidator
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1311,8 +1312,8 @@ class RatioSpreadsStrategy(BaseStrategy):
 # ==============================================================================
 def test_ratio_spreads():
     """Test the Ratio Spreads strategy"""
-    print("Testing Ratio Spreads Strategy")
-    print("=" * 60)
+    logging.info("Testing Ratio Spreads Strategy")
+    logging.info("=" * 60)
     
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
@@ -1336,8 +1337,8 @@ def test_ratio_spreads():
     # Create strategy
     strategy = RatioSpreadsStrategy(event_manager, risk_profile, config)
     
-    print(f"Strategy: {strategy.name}")
-    print(f"Available Margin: ${strategy.available_margin:,.2f}")
+    logging.info(f"Strategy: {strategy.name}")
+    logging.info(f"Available Margin: ${strategy.available_margin:,.2f}")
     
     # Create sample market data
     dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
@@ -1361,41 +1362,41 @@ def test_ratio_spreads():
     })
     
     # Analyze market conditions
-    print("\nMarket Analysis:")
+    logging.info("\nMarket Analysis:")
     conditions = strategy._analyze_market_conditions(market_data)
-    print(f"Current Price: ${conditions.get('current_price', 0):.2f}")
-    print(f"IV Rank: {conditions.get('iv_rank', 0):.1f}")
-    print(f"Trend: {conditions.get('trend', 'unknown')}")
-    print(f"Expected Move: ${conditions.get('expected_move', 0):.2f}")
-    print(f"Suitable for Ratios: {conditions.get('suitable_for_ratios', False)}")
+    logging.info(f"Current Price: ${conditions.get('current_price', 0):.2f}")
+    logging.info(f"IV Rank: {conditions.get('iv_rank', 0):.1f}")
+    logging.info(f"Trend: {conditions.get('trend', 'unknown')}")
+    logging.info(f"Expected Move: ${conditions.get('expected_move', 0):.2f}")
+    logging.info(f"Suitable for Ratios: {conditions.get('suitable_for_ratios', False)}")
     
     # Generate signals
-    print("\nGenerating Signals...")
+    logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
     
-    print(f"Generated {len(signals)} signals")
+    logging.info(f"Generated {len(signals)} signals")
     
     for signal in signals:
         setup = signal.metadata
-        print(f"\nStrategy Type: {setup['strategy_type']}")
+        logging.info(f"\nStrategy Type: {setup['strategy_type']}")
         
         # Add position
         position_id = strategy.add_position(signal)
         
         # Create mock position for testing
         if 'jade' in setup['strategy_type']:
-            print("Jade Lizard Details:")
-            print("- No upside risk design")
-            print("- Collecting premium from put and call spread")
+            logging.info("Jade Lizard Details:")
+            logging.info("- No upside risk design")
+            logging.info("- Collecting premium from put and call spread")
         else:
-            print("Ratio Spread Details:")
-            print("- Unbalanced option position")
-            print("- Premium collection strategy")
+            logging.info("Ratio Spread Details:")
+            logging.info("- Unbalanced option position")
+            logging.info("- Premium collection strategy")
     
     # Test position management
     if strategy.active_positions:
-        print("\n" + "=" * 40)
-        print("Position Management Test")
+        logging.info("\n" + "=" * 40)
+        logging.info("Position Management Test")
         
         # Simulate price movement
         for i in range(10):
@@ -1421,43 +1422,43 @@ def test_ratio_spreads():
             if management_signals:
                 for signal in management_signals:
                     if signal.signal_type == SignalType.ADJUST:
-                        print(f"\nAdjustment Signal Day {i}")
-                        print(f"Action: {signal.metadata['action']}")
-                        print(f"Risk Zone: {signal.metadata['current_risk_zone']}")
+                        logging.info(f"\nAdjustment Signal Day {i}")
+                        logging.info(f"Action: {signal.metadata['action']}")
+                        logging.info(f"Risk Zone: {signal.metadata['current_risk_zone']}")
                     elif signal.signal_type == SignalType.EXIT:
-                        print(f"\nExit Signal Day {i}")
-                        print(f"Reason: {signal.metadata['exit_reason']}")
-                        print(f"Days Held: {signal.metadata['days_held']}")
-                        print(f"P&L: ${signal.metadata['unrealized_pnl']:.2f}")
+                        logging.info(f"\nExit Signal Day {i}")
+                        logging.info(f"Reason: {signal.metadata['exit_reason']}")
+                        logging.info(f"Days Held: {signal.metadata['days_held']}")
+                        logging.info(f"P&L: ${signal.metadata['unrealized_pnl']:.2f}")
     
     # Print final statistics
     stats = strategy.get_strategy_stats()
-    print("\n" + "=" * 40)
-    print("Strategy Statistics:")
-    print(f"Active Positions: {stats['active_positions']}")
-    print(f"Total Trades: {stats['total_trades']}")
-    print(f"Win Rate: {stats['win_rate']:.1%}")
-    print(f"Jade Lizard Trades: {stats['jade_lizard_trades']}")
-    print(f"Jade Lizard Win Rate: {stats['jade_lizard_win_rate']:.1%}")
-    print(f"Total Adjustments: {stats['total_adjustments']}")
-    print(f"Average Credit: ${stats['avg_credit']:.2f}")
-    print(f"Best Trade: ${stats['best_trade']:.2f}")
-    print(f"Worst Trade: ${stats['worst_trade']:.2f}")
-    print(f"Margin Used: ${stats['margin_used']:,.2f}")
-    print(f"Margin Available: ${stats['margin_available']:,.2f}")
+    logging.info("\n" + "=" * 40)
+    logging.info("Strategy Statistics:")
+    logging.info(f"Active Positions: {stats['active_positions']}")
+    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info(f"Win Rate: {stats['win_rate']:.1%}")
+    logging.info(f"Jade Lizard Trades: {stats['jade_lizard_trades']}")
+    logging.info(f"Jade Lizard Win Rate: {stats['jade_lizard_win_rate']:.1%}")
+    logging.info(f"Total Adjustments: {stats['total_adjustments']}")
+    logging.info(f"Average Credit: ${stats['avg_credit']:.2f}")
+    logging.info(f"Best Trade: ${stats['best_trade']:.2f}")
+    logging.info(f"Worst Trade: ${stats['worst_trade']:.2f}")
+    logging.info(f"Margin Used: ${stats['margin_used']:,.2f}")
+    logging.info(f"Margin Available: ${stats['margin_available']:,.2f}")
     
-    print("\n✅ Ratio Spreads Strategy Test Complete!")
-    print("\nKey Features Tested:")
-    print("- ✅ Ratio spread construction (1x2, 1x3)")
-    print("- ✅ Jade Lizard setup with no upside risk")
-    print("- ✅ Dynamic ratio selection")
-    print("- ✅ Strike selection by delta")
-    print("- ✅ Margin requirement calculations")
-    print("- ✅ Risk zone monitoring")
-    print("- ✅ Adjustment detection")
-    print("- ✅ Profit/loss zone calculations")
-    print("- ✅ Breakeven calculations")
-    print("- ✅ Performance tracking")
+    logging.info("\n✅ Ratio Spreads Strategy Test Complete!")
+    logging.info("\nKey Features Tested:")
+    logging.info("- ✅ Ratio spread construction (1x2, 1x3)")
+    logging.info("- ✅ Jade Lizard setup with no upside risk")
+    logging.info("- ✅ Dynamic ratio selection")
+    logging.info("- ✅ Strike selection by delta")
+    logging.info("- ✅ Margin requirement calculations")
+    logging.info("- ✅ Risk zone monitoring")
+    logging.info("- ✅ Adjustment detection")
+    logging.info("- ✅ Profit/loss zone calculations")
+    logging.info("- ✅ Breakeven calculations")
+    logging.info("- ✅ Performance tracking")
 
 
 if __name__ == "__main__":

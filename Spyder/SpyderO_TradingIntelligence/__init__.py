@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -59,7 +60,7 @@ try:
 
     CORE_INDICATORS_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderO01_CoreTechnicalIndicators not available: {e}")
+    logging.info(f"⚠️ SpyderO01_CoreTechnicalIndicators not available: {e}")
     CORE_INDICATORS_AVAILABLE = False
 
 # Trading Opportunity Scanner
@@ -79,7 +80,7 @@ try:
 
     OPPORTUNITY_SCANNER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderO02_TradingOpportunityScanner not available: {e}")
+    logging.info(f"⚠️ SpyderO02_TradingOpportunityScanner not available: {e}")
     OPPORTUNITY_SCANNER_AVAILABLE = False
 
 # Strategy Optimizers
@@ -102,7 +103,7 @@ try:
 
     STRATEGY_OPTIMIZERS_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderO03_StrategyOptimizers not available: {e}")
+    logging.info(f"⚠️ SpyderO03_StrategyOptimizers not available: {e}")
     STRATEGY_OPTIMIZERS_AVAILABLE = False
 
 # ==============================================================================
@@ -217,23 +218,23 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        print(f"📊 {info['package_name']} v{info['version']}")
-        print(
+        logging.info(f"📊 {info['package_name']} v{info['version']}")
+        logging.info(
             f"✅ {info['available_modules']}/{info['total_modules']} modules available"
         )
 
         if info["available_modules"] == info["total_modules"]:
-            print("🚀 All modules loaded successfully")
+            logging.info("🚀 All modules loaded successfully")
             return True
         else:
-            print("⚠️ Some modules are missing - package partially functional")
+            logging.info("⚠️ Some modules are missing - package partially functional")
             for module, status in info["module_status"].items():
                 status_icon = "✅" if status else "❌"
-                print(f"   {status_icon} {module}")
+                logging.info(f"   {status_icon} {module}")
             return False
 
     except Exception as e:
-        print(f"❌ Package validation failed: {e}")
+        logging.info(f"❌ Package validation failed: {e}")
         return False
 
 
@@ -337,12 +338,12 @@ if __name__ != "__main__":
     validate_package()
 else:
     # If running as main, show detailed package info
-    print("=" * 70)
-    print("SPYDER O - TRADING INTELLIGENCE PACKAGE")
-    print("=" * 70)
+    logging.info("=" * 70)
+    logging.info("SPYDER O - TRADING INTELLIGENCE PACKAGE")
+    logging.info("=" * 70)
     validate_package()
     info = get_package_info()
-    print("\nPackage Details:")
+    logging.info("\nPackage Details:")
     for key, value in info.items():
         if key != "module_status":
-            print(f"  {key}: {value}")
+            logging.info(f"  {key}: {value}")

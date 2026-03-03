@@ -46,7 +46,7 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
-    print("Warning: Ollama not installed. AI features will be limited.")
+    logging.info("Warning: Ollama not installed. AI features will be limited.")
 
 # ==============================================================================
 # CONSTANTS
@@ -1435,15 +1435,15 @@ def get_module_instance() -> SpyderX10_QuantModelsAgent:
 
 async def test_quant_models():
     """Test the Quantitative Models Agent functionality."""
-    print("="*80)
-    print("Testing SpyderX10_QuantModelsAgent")
-    print("="*80)
+    logging.info("="*80)
+    logging.info("Testing SpyderX10_QuantModelsAgent")
+    logging.info("="*80)
     
     agent = create_quant_models_agent()
     
     # Test 1: Option Pricing
-    print("\nTest 1: Option Pricing")
-    print("-"*40)
+    logging.info("\nTest 1: Option Pricing")
+    logging.info("-"*40)
     
     contract = OptionContract(
         symbol="SPY",
@@ -1459,21 +1459,21 @@ async def test_quant_models():
     
     pricing_result = await agent.price_option(contract)
     
-    print(f"Model Type: {pricing_result.model_type.value}")
-    print(f"Theoretical Price: ${pricing_result.theoretical_price:.2f}")
-    print(f"Market Price: ${contract.market_price:.2f}")
-    print(f"Price Difference: ${pricing_result.theoretical_price - contract.market_price:.2f}")
-    print(f"\nGreeks:")
+    logging.info(f"Model Type: {pricing_result.model_type.value}")
+    logging.info(f"Theoretical Price: ${pricing_result.theoretical_price:.2f}")
+    logging.info(f"Market Price: ${contract.market_price:.2f}")
+    logging.info(f"Price Difference: ${pricing_result.theoretical_price - contract.market_price:.2f}")
+    logging.info(f"\nGreeks:")
     for greek, value in pricing_result.greeks.items():
-        print(f"  {greek}: {value:.4f}")
-    print(f"\nImplied Volatility: {pricing_result.implied_volatility:.1%}" 
+        logging.info(f"  {greek}: {value:.4f}")
+    logging.info(f"\nImplied Volatility: {pricing_result.implied_volatility:.1%}" 
           if pricing_result.implied_volatility else "N/A")
-    print(f"Confidence Interval: ${pricing_result.confidence_interval[0]:.2f} - "
+    logging.info(f"Confidence Interval: ${pricing_result.confidence_interval[0]:.2f} - "
           f"${pricing_result.confidence_interval[1]:.2f}")
     
     # Test 2: Volatility Forecast
-    print("\n\nTest 2: Volatility Forecast")
-    print("-"*40)
+    logging.info("\n\nTest 2: Volatility Forecast")
+    logging.info("-"*40)
     
     # Generate sample price data
     np.random.seed(42)
@@ -1484,20 +1484,20 @@ async def test_quant_models():
     
     vol_forecast = await agent.forecast_volatility("SPY", prices, 30)
     
-    print(f"Current Volatility: {vol_forecast.current_volatility:.1%}")
-    print(f"Volatility Regime: {vol_forecast.volatility_regime}")
-    print(f"\nForecasts:")
-    print(f"  1-day: {vol_forecast.forecast_1d:.1%}")
-    print(f"  5-day: {vol_forecast.forecast_5d:.1%}")
-    print(f"  30-day: {vol_forecast.forecast_30d:.1%}")
-    print(f"\nConfidence Bands (5-day):")
+    logging.info(f"Current Volatility: {vol_forecast.current_volatility:.1%}")
+    logging.info(f"Volatility Regime: {vol_forecast.volatility_regime}")
+    logging.info(f"\nForecasts:")
+    logging.info(f"  1-day: {vol_forecast.forecast_1d:.1%}")
+    logging.info(f"  5-day: {vol_forecast.forecast_5d:.1%}")
+    logging.info(f"  30-day: {vol_forecast.forecast_30d:.1%}")
+    logging.info(f"\nConfidence Bands (5-day):")
     if '5d' in vol_forecast.confidence_bands:
         lower, upper = vol_forecast.confidence_bands['5d']
-        print(f"  95% CI: {lower:.1%} - {upper:.1%}")
+        logging.info(f"  95% CI: {lower:.1%} - {upper:.1%}")
     
     # Test 3: Model Validation
-    print("\n\nTest 3: Model Validation")
-    print("-"*40)
+    logging.info("\n\nTest 3: Model Validation")
+    logging.info("-"*40)
     
     # Create sample historical data
     historical_data = pd.DataFrame({
@@ -1507,14 +1507,14 @@ async def test_quant_models():
     
     validation = await agent.validate_model(ModelType.BLACK_SCHOLES, historical_data)
     
-    print(f"Model: {validation.model_type.value}")
-    print(f"Overall Score: {validation.overall_score:.2f}/1.00")
-    print(f"\nValidation Metrics:")
+    logging.info(f"Model: {validation.model_type.value}")
+    logging.info(f"Overall Score: {validation.overall_score:.2f}/1.00")
+    logging.info(f"\nValidation Metrics:")
     for metric, value in list(validation.validation_metrics.items())[:5]:
-        print(f"  {metric}: {value:.4f}")
-    print(f"\nRecommendations:")
+        logging.info(f"  {metric}: {value:.4f}")
+    logging.info(f"\nRecommendations:")
     for i, rec in enumerate(validation.recommendations[:3], 1):
-        print(f"  {i}. {rec}")
+        logging.info(f"  {i}. {rec}")
 
 # ==============================================================================
 # MAIN EXECUTION

@@ -1155,8 +1155,8 @@ def get_factor_data_provider(config: Optional[Dict[str, Any]] = None) -> FactorD
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER C22 - Factor Data Provider")
-    print("=" * 80)
+    logging.info("🎯 SPYDER C22 - Factor Data Provider")
+    logging.info("=" * 80)
     
     try:
         # Create factor data provider
@@ -1167,24 +1167,24 @@ async def main():
         }
         
         provider = FactorDataProvider(config)
-        print("✅ Factor Data Provider initialized")
+        logging.info("✅ Factor Data Provider initialized")
         
         # Initialize provider
         if not provider.initialize():
-            print("❌ Failed to initialize factor data provider")
+            logging.info("❌ Failed to initialize factor data provider")
             return False
         
         # Get available factors
         available_factors = provider.get_available_factors()
-        print(f"\n📊 Available Factors:")
+        logging.info(f"\n📊 Available Factors:")
         for category, factors in available_factors.items():
-            print(f"   • {category}: {', '.join(factors)}")
+            logging.info(f"   • {category}: {', '.join(factors)}")
         
         # Test factor model data retrieval
-        print(f"\n⚡ Testing factor model data retrieval...")
+        logging.info(f"\n⚡ Testing factor model data retrieval...")
         
         for model_name in ['CAPM', 'FF3', 'OPTIONS_CUSTOM']:
-            print(f"\n📈 Testing {model_name} model:")
+            logging.info(f"\n📈 Testing {model_name} model:")
             
             factor_data = provider.get_factor_model_data(
                 model_name=model_name,
@@ -1193,21 +1193,21 @@ async def main():
             )
             
             if factor_data is not None:
-                print(f"   ✅ Retrieved {len(factor_data)} observations")
-                print(f"   Factors: {list(factor_data.columns)}")
-                print(f"   Date range: {factor_data.index.min().strftime('%Y-%m-%d')} to {factor_data.index.max().strftime('%Y-%m-%d')}")
+                logging.info(f"   ✅ Retrieved {len(factor_data)} observations")
+                logging.info(f"   Factors: {list(factor_data.columns)}")
+                logging.info(f"   Date range: {factor_data.index.min().strftime('%Y-%m-%d')} to {factor_data.index.max().strftime('%Y-%m-%d')}")
                 
                 # Show sample statistics
-                print(f"   Sample statistics:")
+                logging.info(f"   Sample statistics:")
                 for factor in factor_data.columns[:3]:  # Show first 3 factors
                     mean_return = factor_data[factor].mean()
                     volatility = factor_data[factor].std()
-                    print(f"     • {factor}: μ={mean_return:.4f}, σ={volatility:.4f}")
+                    logging.info(f"     • {factor}: μ={mean_return:.4f}, σ={volatility:.4f}")
             else:
-                print(f"   ❌ Failed to retrieve data")
+                logging.info(f"   ❌ Failed to retrieve data")
         
         # Test factor exposure calculation
-        print(f"\n🔍 Testing factor exposure calculation...")
+        logging.info(f"\n🔍 Testing factor exposure calculation...")
         
         # Create sample return series
         dates = pd.date_range(start=datetime.now() - timedelta(days=60), end=datetime.now(), freq='D')
@@ -1223,43 +1223,43 @@ async def main():
         )
         
         if exposure:
-            print(f"   ✅ Factor exposures calculated for {exposure.entity_name}")
-            print(f"   Model: {exposure.factor_model}")
-            print(f"   Exposures:")
+            logging.info(f"   ✅ Factor exposures calculated for {exposure.entity_name}")
+            logging.info(f"   Model: {exposure.factor_model}")
+            logging.info(f"   Exposures:")
             for factor, exp in exposure.exposures.items():
                 t_stat = exposure.t_statistics.get(factor, 0)
-                print(f"     • {factor}: {exp:.4f} (t={t_stat:.2f})")
+                logging.info(f"     • {factor}: {exp:.4f} (t={t_stat:.2f})")
         else:
-            print(f"   ❌ Failed to calculate exposures")
+            logging.info(f"   ❌ Failed to calculate exposures")
         
         # Test quality validation
-        print(f"\n🔍 Testing data quality validation...")
+        logging.info(f"\n🔍 Testing data quality validation...")
         
         for factor_name in ['MKT', 'VIX_LEVEL']:
             quality_report = provider.validate_factor_data_quality(factor_name)
-            print(f"   📊 {factor_name} Quality Report:")
-            print(f"     • Overall Quality: {quality_report.overall_quality:.3f}")
-            print(f"     • Completeness: {quality_report.completeness_score:.3f}")
-            print(f"     • Timeliness: {quality_report.timeliness_score:.3f}")
-            print(f"     • Validity: {quality_report.validity_score:.3f}")
+            logging.info(f"   📊 {factor_name} Quality Report:")
+            logging.info(f"     • Overall Quality: {quality_report.overall_quality:.3f}")
+            logging.info(f"     • Completeness: {quality_report.completeness_score:.3f}")
+            logging.info(f"     • Timeliness: {quality_report.timeliness_score:.3f}")
+            logging.info(f"     • Validity: {quality_report.validity_score:.3f}")
             
             if quality_report.issues_found:
-                print(f"     • Issues: {', '.join(quality_report.issues_found)}")
+                logging.info(f"     • Issues: {', '.join(quality_report.issues_found)}")
         
         # Get provider status
         status = provider.get_provider_status()
-        print(f"\n🔌 Provider Status:")
-        print(f"   • FRED Available: {'✅' if status['fred_available'] else '❌'}")
-        print(f"   • Yahoo Available: {'✅' if status['yahoo_available'] else '❌'}")
-        print(f"   • Cache Enabled: {'✅' if status['cache_enabled'] else '❌'}")
-        print(f"   • Cache Size: {status['cache_size']} items")
-        print(f"   • Quality Reports: {status['quality_reports']}")
+        logging.info(f"\n🔌 Provider Status:")
+        logging.info(f"   • FRED Available: {'✅' if status['fred_available'] else '❌'}")
+        logging.info(f"   • Yahoo Available: {'✅' if status['yahoo_available'] else '❌'}")
+        logging.info(f"   • Cache Enabled: {'✅' if status['cache_enabled'] else '❌'}")
+        logging.info(f"   • Cache Size: {status['cache_size']} items")
+        logging.info(f"   • Quality Reports: {status['quality_reports']}")
         
-        print(f"\n🎊 Factor Data Provider demonstration completed successfully!")
+        logging.info(f"\n🎊 Factor Data Provider demonstration completed successfully!")
         return True
         
     except Exception as e:
-        print(f"❌ Error in main execution: {e}")
+        logging.info(f"❌ Error in main execution: {e}")
         return False
     
     finally:

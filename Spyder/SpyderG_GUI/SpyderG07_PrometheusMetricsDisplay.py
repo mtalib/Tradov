@@ -68,6 +68,7 @@ from PySide6.QtGui import (
     QFont,
     QColor,
 )
+import logging
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -86,7 +87,7 @@ try:
     B15_AVAILABLE = True
 except ImportError:
     B15_AVAILABLE = False
-    print("⚠️ SpyderB15_PrometheusMetrics not available - using simulation mode")
+    logging.info("⚠️ SpyderB15_PrometheusMetrics not available - using simulation mode")
 
 # ==============================================================================
 # CONSTANTS
@@ -478,14 +479,14 @@ class PrometheusMetricsDisplay(QGroupBox):
     def on_connection_changed(self, connected: bool):
         """Handle B15 connection status change"""
         if connected:
-            print("✅ Connected to SpyderB15 Prometheus Metrics")
+            logging.info("✅ Connected to SpyderB15 Prometheus Metrics")
         else:
-            print("⚠️ Running in simulation mode (B15 not available)")
+            logging.info("⚠️ Running in simulation mode (B15 not available)")
     
     @Slot(str)
     def on_error(self, error: str):
         """Handle errors from worker"""
-        print(f"❌ Metrics error: {error}")
+        logging.info(f"❌ Metrics error: {error}")
         
     def update_display(self):
         """Update the display with current metrics"""

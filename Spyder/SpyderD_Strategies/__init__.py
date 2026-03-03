@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -25,7 +26,7 @@ try:
 
     __all__.extend(["BaseStrategy", "StrategySignal"])
 except ImportError:
-    print("Warning: SpyderD01_BaseStrategy not fully available")
+    logging.info("Warning: SpyderD01_BaseStrategy not fully available")
 
 # Iron Condor Strategy
 try:
@@ -33,7 +34,7 @@ try:
 
     __all__.extend(["IronCondorStrategy"])
 except ImportError:
-    print("Warning: SpyderD02_IronCondor not available")
+    logging.info("Warning: SpyderD02_IronCondor not available")
 
 # Credit Spread Strategy
 try:
@@ -41,7 +42,7 @@ try:
 
     __all__.extend(["CreditSpreadStrategy"])
 except ImportError:
-    print("Warning: SpyderD03_CreditSpread not available")
+    logging.info("Warning: SpyderD03_CreditSpread not available")
 
 # Zero DTE Strategy
 try:
@@ -49,7 +50,7 @@ try:
 
     __all__.extend(["ZeroDTEStrategy"])
 except ImportError:
-    print("Warning: SpyderD04_ZeroDTE not available")
+    logging.info("Warning: SpyderD04_ZeroDTE not available")
 
 # Straddle Strategy
 try:
@@ -57,7 +58,7 @@ try:
 
     __all__.extend(["StraddleStrategy"])
 except ImportError:
-    print("Warning: SpyderD05_Straddle not available")
+    logging.info("Warning: SpyderD05_Straddle not available")
 
 # Bull Put Spread Strategy
 try:
@@ -65,7 +66,7 @@ try:
 
     __all__.extend(["BullPutSpreadStrategy"])
 except ImportError:
-    print("Warning: SpyderD06_BullPutSpread not available")
+    logging.info("Warning: SpyderD06_BullPutSpread not available")
 
 # Bear Call Spread Strategy
 try:
@@ -73,7 +74,7 @@ try:
 
     __all__.extend(["BearCallSpreadStrategy"])
 except ImportError:
-    print("Warning: SpyderD07_BearCallSpread not available")
+    logging.info("Warning: SpyderD07_BearCallSpread not available")
 
 # Opening Range Breakout Strategy
 try:
@@ -81,7 +82,7 @@ try:
 
     __all__.extend(["OpeningRangeBreakoutStrategy"])
 except ImportError:
-    print("Warning: SpyderD08_OpeningRangeBreakout not available")
+    logging.info("Warning: SpyderD08_OpeningRangeBreakout not available")
 
 # Greeks Based Strategy
 try:
@@ -89,7 +90,7 @@ try:
 
     __all__.extend(["GreeksBasedStrategy"])
 except ImportError:
-    print("Warning: SpyderD09_GreeksBasedStrategy not available")
+    logging.info("Warning: SpyderD09_GreeksBasedStrategy not available")
 
 # Iron Butterfly Strategy
 try:
@@ -97,7 +98,7 @@ try:
 
     __all__.extend(["IronButterflyStrategy"])
 except ImportError:
-    print("Warning: SpyderD10_IronButterfly not available")
+    logging.info("Warning: SpyderD10_IronButterfly not available")
 
 # Additional strategies (if they exist)
 try:
@@ -139,7 +140,7 @@ try:
         "create_renaissance_strategy",
     ])
 except ImportError as e:
-    print(f"Warning: SpyderD33_RenaissanceMeanReversion not available: {e}")
+    logging.info(f"Warning: SpyderD33_RenaissanceMeanReversion not available: {e}")
 
 # ==============================================================================
 # PACKAGE METADATA

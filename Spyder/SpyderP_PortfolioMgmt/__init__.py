@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -53,7 +54,7 @@ try:
 
     PORTFOLIO_MANAGER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderP01_PortfolioManager not available: {e}")
+    logging.info(f"⚠️ SpyderP01_PortfolioManager not available: {e}")
     PORTFOLIO_MANAGER_AVAILABLE = False
 
 # Allocation Optimizer
@@ -65,7 +66,7 @@ try:
 
     ALLOCATION_OPTIMIZER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderP02_AllocationOptimizer not available: {e}")
+    logging.info(f"⚠️ SpyderP02_AllocationOptimizer not available: {e}")
     ALLOCATION_OPTIMIZER_AVAILABLE = False
 
 # Correlation Analyzer
@@ -77,7 +78,7 @@ try:
 
     CORRELATION_ANALYZER_AVAILABLE = True
 except Exception as e:
-    print(f"⚠️ SpyderP03_CorrelationAnalyzer not available: {e}")
+    logging.info(f"⚠️ SpyderP03_CorrelationAnalyzer not available: {e}")
     CORRELATION_ANALYZER_AVAILABLE = False
 
 # Capital Allocator
@@ -89,7 +90,7 @@ try:
 
     CAPITAL_ALLOCATOR_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderP04_CapitalAllocator not available: {e}")
+    logging.info(f"⚠️ SpyderP04_CapitalAllocator not available: {e}")
     CAPITAL_ALLOCATOR_AVAILABLE = False
 
 # Multi-Strategy Allocator
@@ -101,7 +102,7 @@ try:
 
     MULTI_STRATEGY_ALLOCATOR_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderP05_MultiStrategyAllocator not available: {e}")
+    logging.info(f"⚠️ SpyderP05_MultiStrategyAllocator not available: {e}")
     MULTI_STRATEGY_ALLOCATOR_AVAILABLE = False
 
 # Strategy Rotation
@@ -113,7 +114,7 @@ try:
 
     STRATEGY_ROTATION_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderP06_StrategyRotation not available: {e}")
+    logging.info(f"⚠️ SpyderP06_StrategyRotation not available: {e}")
     STRATEGY_ROTATION_AVAILABLE = False
 
 # Renaissance Position Sizer
@@ -129,7 +130,7 @@ try:
 
     RENAISSANCE_POSITION_SIZER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ SpyderP07_RenaissancePositionSizer not available: {e}")
+    logging.info(f"⚠️ SpyderP07_RenaissancePositionSizer not available: {e}")
     RENAISSANCE_POSITION_SIZER_AVAILABLE = False
 
 # ==============================================================================
@@ -243,23 +244,23 @@ def validate_package():
     """
     try:
         info = get_package_info()
-        print(f"💼 {info['package_name']} v{info['version']}")
-        print(
+        logging.info(f"💼 {info['package_name']} v{info['version']}")
+        logging.info(
             f"✅ {info['available_modules']}/{info['total_modules']} modules available"
         )
 
         if info["available_modules"] == info["total_modules"]:
-            print("🚀 All portfolio management modules loaded successfully")
+            logging.info("🚀 All portfolio management modules loaded successfully")
             return True
         else:
-            print("⚠️ Some portfolio management modules are missing")
+            logging.info("⚠️ Some portfolio management modules are missing")
             for module, status in info["module_status"].items():
                 status_icon = "✅" if status else "❌"
-                print(f"   {status_icon} {module}")
+                logging.info(f"   {status_icon} {module}")
             return False
 
     except Exception as e:
-        print(f"❌ Portfolio management package validation failed: {e}")
+        logging.info(f"❌ Portfolio management package validation failed: {e}")
         return False
 
 
@@ -317,12 +318,12 @@ if __name__ != "__main__":
     validate_package()
 else:
     # If running as main, show detailed package info
-    print("=" * 70)
-    print("SPYDER P - PORTFOLIO MANAGEMENT PACKAGE")
-    print("=" * 70)
+    logging.info("=" * 70)
+    logging.info("SPYDER P - PORTFOLIO MANAGEMENT PACKAGE")
+    logging.info("=" * 70)
     validate_package()
     info = get_package_info()
-    print("\nPackage Details:")
+    logging.info("\nPackage Details:")
     for key, value in info.items():
         if key != "module_status":
-            print(f"  {key}: {value}")
+            logging.info(f"  {key}: {value}")

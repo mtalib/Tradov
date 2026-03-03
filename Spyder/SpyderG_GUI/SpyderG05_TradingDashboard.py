@@ -148,6 +148,7 @@ if str(project_root) not in sys.path:
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # Tradier client for API connectivity checks
 try:
@@ -162,11 +163,11 @@ try:
     from Spyder.SpyderG_GUI.SpyderG12_SignalInfoDialog import SignalInfoDialog
 
     signal_dialog_available = True
-    print("✅ Signal Info Dialog module available")
+    logging.info("✅ Signal Info Dialog module available")
 except ImportError:
     SignalInfoDialog = None  # type: ignore
     signal_dialog_available = False
-    print("⚠️ Signal Info Dialog not available - using fallback QMessageBox")
+    logging.info("⚠️ Signal Info Dialog not available - using fallback QMessageBox")
 
 # Import Risk Parameters Dialog
 try:
@@ -176,33 +177,33 @@ try:
     )
 
     risk_dialog_available = True
-    print("✅ Risk Parameters Dialog module available")
+    logging.info("✅ Risk Parameters Dialog module available")
 except ImportError:
     RiskParametersDialog = None  # type: ignore
     show_risk_parameters_dialog = None  # type: ignore
     risk_dialog_available = False
-    print("⚠️ Risk Parameters Dialog not available")
+    logging.info("⚠️ Risk Parameters Dialog not available")
 
 # Import HMM and SKEW Dialog modules
 try:
     from Spyder.SpyderM_Monitoring.SpyderM06_HMMRegimeDetector import HMMMonitorDialog
 
     hmm_dialog_available = True
-    print("✅ HMM Monitor Dialog available")
+    logging.info("✅ HMM Monitor Dialog available")
 except ImportError:
     HMMMonitorDialog = None  # type: ignore
     hmm_dialog_available = False
-    print("⚠️ HMM Monitor Dialog not available")
+    logging.info("⚠️ HMM Monitor Dialog not available")
 
 try:
     from Spyder.SpyderG_GUI.SpyderG11_SkewMonitorDialog import SkewMonitorDialog
 
     skew_dialog_available = True
-    print("✅ SKEW Monitor Dialog available")
+    logging.info("✅ SKEW Monitor Dialog available")
 except ImportError:
     SkewMonitorDialog = None  # type: ignore
     skew_dialog_available = False
-    print("⚠️ SKEW Monitor Dialog not available")
+    logging.info("⚠️ SKEW Monitor Dialog not available")
 
 # Try to import Prometheus metrics display module if available
 try:
@@ -212,12 +213,12 @@ try:
     )
 
     prometheus_available = True
-    print("✅ Prometheus metrics collector available")
+    logging.info("✅ Prometheus metrics collector available")
 except ImportError:
     get_client_status = None  # type: ignore
     get_system_metrics = None  # type: ignore
     prometheus_available = False
-    print("⚠️ Prometheus metrics collector not available - using simulation")
+    logging.info("⚠️ Prometheus metrics collector not available - using simulation")
 
 # ==============================================================================
 # DEPRECATED: Gateway Control Panel (removed in Tradier migration)
@@ -235,11 +236,11 @@ try:
     from Spyder.SpyderG_GUI.SpyderG16_CircuitBreakerMonitor import create_circuit_breaker_monitor
 
     circuit_breaker_monitor_available = True
-    print("✅ Circuit Breaker Monitor available")
+    logging.info("✅ Circuit Breaker Monitor available")
 except ImportError:
     create_circuit_breaker_monitor = None  # type: ignore
     circuit_breaker_monitor_available = False
-    print("⚠️ Circuit Breaker Monitor not available")
+    logging.info("⚠️ Circuit Breaker Monitor not available")
 
 # Client Connection Manager — DEPRECATED (IB multi-client no longer used)
 ClientConnectionManager = None
@@ -444,8 +445,8 @@ class ThreadSafeMarketDataWorker(QObject):
         self.last_data_update = {}
         self._init_simulation_data()
 
-        print(f"🔧 Market Data Worker initialized with heartbeat monitoring")
-        print(f"📊 Market: {'OPEN' if self.market_hours else 'CLOSED'}")
+        logging.info(f"🔧 Market Data Worker initialized with heartbeat monitoring")
+        logging.info(f"📊 Market: {'OPEN' if self.market_hours else 'CLOSED'}")
 
     def start(self):
         """Start the worker - called when thread starts (runs in worker thread)"""
@@ -472,29 +473,29 @@ class ThreadSafeMarketDataWorker(QObject):
         self.heartbeat_warning_timer = QTimer()
         self.heartbeat_warning_timer.timeout.connect(self._heartbeat_warning)
 
-        print("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
-        print(
+        logging.info("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
+        logging.info(
             f"📡 Initial API Connection: {'CONNECTED' if self.api_connected else 'DISCONNECTED'}"
         )
 
     def _check_initial_connection(self):
         """Check actual Tradier API connection on startup - ENHANCED WITH DEBUG"""
         try:
-            print("🔍 Checking initial Tradier API connection...")
+            logging.info("🔍 Checking initial Tradier API connection...")
             connected, mode = check_api_connection()
             self.api_connected = connected
 
             if connected:
-                print(f"✅ Tradier API detected: {mode}")
+                logging.info(f"✅ Tradier API detected: {mode}")
                 # Emit log message instead of error
                 self.log_message.emit(f"✅ Tradier API detected at startup: {mode}")
             else:
-                print(f"❌ No Tradier API connection detected")
+                logging.info(f"❌ No Tradier API connection detected")
                 # Emit log message instead of error
                 self.log_message.emit("❌ No Tradier API connection detected at startup")
 
         except Exception as e:
-            print(f"⚠️ Connection check error: {e}")
+            logging.info(f"⚠️ Connection check error: {e}")
             # Emit log message instead of error
             self.log_message.emit(f"⚠️ Initial connection check error: {e}")
             self.api_connected = False
@@ -596,7 +597,7 @@ class ThreadSafeMarketDataWorker(QObject):
 
         if current_market_hours != self.market_hours:
             self.market_hours = current_market_hours
-            print(
+            logging.info(
                 f"📊 Market hours changed: {'OPEN' if self.market_hours else 'CLOSED'}"
             )
 
@@ -607,7 +608,7 @@ class ThreadSafeMarketDataWorker(QObject):
     @Slot()
     def start(self):
         """Start the worker - FIXED TO EMIT PROPER INITIAL STATUS"""
-        print("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
+        logging.info("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
 
         # FIXED: Re-check connection at start and emit proper status
         try:
@@ -618,15 +619,15 @@ class ThreadSafeMarketDataWorker(QObject):
                 self.connection_status_changed.emit(True, f"API CONNECTED ({mode})")
                 self.market_data_status_changed.emit("LIVE")
                 self.heartbeat_status_changed.emit("connected")  # Green heart
-                print(f"✅ Tradier API connected at startup: {mode}")
+                logging.info(f"✅ Tradier API connected at startup: {mode}")
             else:
                 self.connection_status_changed.emit(False, "API DISCONNECTED")
                 self.market_data_status_changed.emit("NONE")
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
-                print("❌ Tradier API disconnected at startup")
+                logging.info("❌ Tradier API disconnected at startup")
 
         except Exception as e:
-            print(f"⚠️ Startup connection check error: {e}")
+            logging.info(f"⚠️ Startup connection check error: {e}")
             self.api_connected = False
             self.connection_status_changed.emit(False, "API DISCONNECTED")
             self.market_data_status_changed.emit("NONE")
@@ -668,9 +669,9 @@ class ThreadSafeMarketDataWorker(QObject):
 
     def force_connect(self):
         """Manual connect - now checks actual connection"""
-        print("🔥 Manual connect requested")
+        logging.info("🔥 Manual connect requested")
         if not is_market_hours():
-            print("📊 Cannot connect - market is closed")
+            logging.info("📊 Cannot connect - market is closed")
             return False
 
         # Check actual connection
@@ -688,14 +689,14 @@ class ThreadSafeMarketDataWorker(QObject):
 
     def force_disconnect(self):
         """Manual disconnect"""
-        print("🔥 Manual disconnect requested")
+        logging.info("🔥 Manual disconnect requested")
         self.api_connected = False
         self.connection_status_changed.emit(False, "API DISCONNECTED")
         self.market_data_status_changed.emit("NONE")
 
     def stop(self):
         """Stop worker and all timers"""
-        print("🛑 Stopping worker and heartbeat monitoring...")
+        logging.info("🛑 Stopping worker and heartbeat monitoring...")
         if self.update_timer:
             self.update_timer.stop()
         if self.market_hours_timer:
@@ -2226,7 +2227,7 @@ class SpyderTradingDashboard(QMainWindow):
                 layout.addSpacing(8)
                 layout.addWidget(circuit_breaker_widget)
             except Exception as e:
-                print(f"⚠️ Failed to create circuit breaker monitor: {e}")
+                logging.info(f"⚠️ Failed to create circuit breaker monitor: {e}")
 
         # Account info — compact flat grid, no QGroupBox overhead
         self.risk_params_btn = QPushButton("RISK LEVELS")
@@ -4092,7 +4093,7 @@ class SpyderTradingDashboard(QMainWindow):
             event.accept()
 
         except Exception as e:
-            print(f"Error during enhanced dashboard close: {e}")
+            logging.info(f"Error during enhanced dashboard close: {e}")
             event.accept()
 
 
@@ -4143,7 +4144,7 @@ def apply_real_data_patch_to_dashboard(dashboard, data_file):
             update_toolbar_with_real_data_helper(dashboard, live_data)
 
         except Exception as e:
-            print(f"❌ Error updating real data: {e}")
+            logging.info(f"❌ Error updating real data: {e}")
 
     # Stop original simulation
     try:
@@ -4151,13 +4152,13 @@ def apply_real_data_patch_to_dashboard(dashboard, data_file):
             worker = dashboard.market_worker
             if hasattr(worker, "update_timer") and worker.update_timer:
                 worker.update_timer.stop()
-                print("✅ Stopped simulation timer")
+                logging.info("✅ Stopped simulation timer")
 
         if hasattr(dashboard, "automation_timer"):
             dashboard.automation_timer.setInterval(20000)  # Slow down automation
 
     except Exception as e:
-        print(f"⚠️ Could not stop simulation: {e}")
+        logging.info(f"⚠️ Could not stop simulation: {e}")
 
     # Start real data updates
     dashboard._real_data_timer = QTimer()
@@ -4171,7 +4172,7 @@ def apply_real_data_patch_to_dashboard(dashboard, data_file):
     dashboard.add_system_log("🔥 REAL MARKET DATA ACTIVE - Tradier API prices")
     dashboard.add_automation_log("Real-time market data from Tradier")
 
-    print("✅ Real data patch applied successfully!")
+    logging.info("✅ Real data patch applied successfully!")
 
 
 def setup_real_data_monitoring_for_dashboard(dashboard, data_file):
@@ -4188,7 +4189,7 @@ def setup_real_data_monitoring_for_dashboard(dashboard, data_file):
                     data = json.load(f)
 
                 if data:
-                    print("🔥 Real data detected - switching from simulation!")
+                    logging.info("🔥 Real data detected - switching from simulation!")
                     dashboard.add_system_log(
                         "🔥 Real data detected - switching from simulation!"
                     )
@@ -4299,7 +4300,7 @@ def apply_external_real_data_patch(dashboard, data_file_path=None):
                 dashboard.real_data_active = True
                 return True
         except Exception as e:
-            print(f"❌ Error applying external real data patch: {e}")
+            logging.info(f"❌ Error applying external real data patch: {e}")
 
     return False
 
@@ -4309,14 +4310,14 @@ def apply_external_real_data_patch(dashboard, data_file_path=None):
 # ==============================================================================
 def main():
     """Main function for standalone testing"""
-    print("=" * 70)
-    print("🔥 SPYDER G05 - ENHANCED TRADING DASHBOARD")
-    print("=" * 70)
-    print("🔗 Tradier API integration")
-    print("📡 Databento market data feeds")
-    print("💔💚💙 30-second heartbeat monitoring")
-    print("📊 Clean 4-status data display")
-    print("=" * 70)
+    logging.info("=" * 70)
+    logging.info("🔥 SPYDER G05 - ENHANCED TRADING DASHBOARD")
+    logging.info("=" * 70)
+    logging.info("🔗 Tradier API integration")
+    logging.info("📡 Databento market data feeds")
+    logging.info("💔💚💙 30-second heartbeat monitoring")
+    logging.info("📊 Clean 4-status data display")
+    logging.info("=" * 70)
 
     # Create Qt application
     app = QApplication(sys.argv)
@@ -4340,8 +4341,8 @@ def main():
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
 
-        print("✅ qasync event loop integration enabled - preventing asyncio errors")
-        print("🔗 Qt and asyncio event loops properly synchronized")
+        logging.info("✅ qasync event loop integration enabled - preventing asyncio errors")
+        logging.info("🔗 Qt and asyncio event loops properly synchronized")
 
         # Create a simple event to signal when the app should close
         app_close_event = asyncio.Event()
@@ -4351,7 +4352,7 @@ def main():
 
         try:
             # Create fixed dashboard
-            print("🔧 Initializing fixed dashboard with heartbeat monitoring...")
+            logging.info("🔧 Initializing fixed dashboard with heartbeat monitoring...")
             dashboard = SpyderTradingDashboard()
 
             # Show dashboard
@@ -4364,30 +4365,30 @@ def main():
                     with open(data_file, "r") as f:
                         data = json.load(f)
                     spy_price = data.get("SPY", {}).get("last", "N/A")
-                    print(f"✅ Real data detected - SPY: ${spy_price}")
+                    logging.info(f"✅ Real data detected - SPY: ${spy_price}")
                 except:
-                    print("⚠️ Real data file exists but couldn't read it")
+                    logging.info("⚠️ Real data file exists but couldn't read it")
             else:
-                print("📊 No real data detected - using simulation")
-                print("   Start injector: python temp_WorkingDataInjector.py")
+                logging.info("📊 No real data detected - using simulation")
+                logging.info("   Start injector: python temp_WorkingDataInjector.py")
 
-            print("\n💔💚💙 FIXED FEATURES:")
-            print("   • API connection starts DISCONNECTED with proper status display")
-            print(
+            logging.info("\n💔💚💙 FIXED FEATURES:")
+            logging.info("   • API connection starts DISCONNECTED with proper status display")
+            logging.info(
                 "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
             )
-            print(
+            logging.info(
                 "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
             )
-            print("   • Blue simulation button only visible when API disconnected")
-            print("   • Fixed-width status containers (no UI jumping)")
-            print("   • Removed 'REAL DATA (FILE)' override - shows proper API status")
-            print("   • Correct Tradier phone number in all trading button messages")
+            logging.info("   • Blue simulation button only visible when API disconnected")
+            logging.info("   • Fixed-width status containers (no UI jumping)")
+            logging.info("   • Removed 'REAL DATA (FILE)' override - shows proper API status")
+            logging.info("   • Correct Tradier phone number in all trading button messages")
 
-            print("\n🔥 Enhanced Trading Dashboard is ready!")
-            print("   Heartbeat will check API connection every 30 seconds")
-            print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
-            print("🔄 Running with qasync event loop integration...")
+            logging.info("\n🔥 Enhanced Trading Dashboard is ready!")
+            logging.info("   Heartbeat will check API connection every 30 seconds")
+            logging.info("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+            logging.info("🔄 Running with qasync event loop integration...")
 
             # Run the event loop until the app closes
             with loop:
@@ -4396,7 +4397,7 @@ def main():
             return 0
 
         except Exception as e:
-            print(f"\n❌ Startup error: {e}")
+            logging.info(f"\n❌ Startup error: {e}")
             import traceback
 
             traceback.print_exc()
@@ -4416,12 +4417,12 @@ def main():
 
     except ImportError:
         # Fallback to standard event loop if qasync is not available
-        print("⚠️ qasync not available - using standard event loop (may have asyncio issues)")
-        print("   Install with: pip install qasync")
+        logging.info("⚠️ qasync not available - using standard event loop (may have asyncio issues)")
+        logging.info("   Install with: pip install qasync")
 
         try:
             # Create fixed dashboard
-            print("🔧 Initializing fixed dashboard with heartbeat monitoring...")
+            logging.info("🔧 Initializing fixed dashboard with heartbeat monitoring...")
             dashboard = SpyderTradingDashboard()
 
             # Show dashboard
@@ -4434,35 +4435,35 @@ def main():
                     with open(data_file, "r") as f:
                         data = json.load(f)
                     spy_price = data.get("SPY", {}).get("last", "N/A")
-                    print(f"✅ Real data detected - SPY: ${spy_price}")
+                    logging.info(f"✅ Real data detected - SPY: ${spy_price}")
                 except:
-                    print("⚠️ Real data file exists but couldn't read it")
+                    logging.info("⚠️ Real data file exists but couldn't read it")
             else:
-                print("📊 No real data detected - using simulation")
-                print("   Start injector: python temp_WorkingDataInjector.py")
+                logging.info("📊 No real data detected - using simulation")
+                logging.info("   Start injector: python temp_WorkingDataInjector.py")
 
-            print("\n💔💚💙 FIXED FEATURES:")
-            print("   • API connection starts DISCONNECTED with proper status display")
-            print(
+            logging.info("\n💔💚💙 FIXED FEATURES:")
+            logging.info("   • API connection starts DISCONNECTED with proper status display")
+            logging.info(
                 "   • 30-second heartbeat: 💔 Red (disconnected) → 💚 Green (connected) → 💙 Blue (20s warning)"
             )
-            print(
+            logging.info(
                 "   • Clean data status: LIVE DATA, END-OF-DAY DATA, FROZEN DATA, SIMULATED DATA"
             )
-            print("   • Blue simulation button only visible when API disconnected")
-            print("   • Fixed-width status containers (no UI jumping)")
-            print("   • Removed 'REAL DATA (FILE)' override - shows proper API status")
-            print("   • Correct Tradier phone number in all trading button messages")
+            logging.info("   • Blue simulation button only visible when API disconnected")
+            logging.info("   • Fixed-width status containers (no UI jumping)")
+            logging.info("   • Removed 'REAL DATA (FILE)' override - shows proper API status")
+            logging.info("   • Correct Tradier phone number in all trading button messages")
 
-            print("\n🔥 Enhanced Trading Dashboard is ready!")
-            print("   Heartbeat will check API connection every 30 seconds")
-            print("   💔→💚→💙 Heart shows connection health with 20s warning\n")
+            logging.info("\n🔥 Enhanced Trading Dashboard is ready!")
+            logging.info("   Heartbeat will check API connection every 30 seconds")
+            logging.info("   💔→💚→💙 Heart shows connection health with 20s warning\n")
 
             # Run application with standard event loop
             return app.exec()
 
         except Exception as e:
-            print(f"\n❌ Startup error: {e}")
+            logging.info(f"\n❌ Startup error: {e}")
             import traceback
 
             traceback.print_exc()

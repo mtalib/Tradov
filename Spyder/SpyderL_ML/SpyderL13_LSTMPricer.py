@@ -700,18 +700,18 @@ async def main():
         noise = np.random.normal(0, price * 0.05)  # 5% noise
         option_prices.append(max(0.01, price + noise))
     training_data["option_price"] = option_prices
-    print("=== LSTM Options Pricer ===")
-    print(f"Training samples: {len(training_data)}")
-    print(f"Device: {device}")
+    logging.info("=== LSTM Options Pricer ===")
+    logging.info(f"Training samples: {len(training_data)}")
+    logging.info(f"Device: {device}")
     # Train model
-    print("\n=== Training Model ===")
+    logging.info("\n=== Training Model ===")
     metrics = await lstm_pricer.train(training_data, validation_split=0.2)
-    print(f"\nTraining Results:")
-    print(f"Final Validation RMSE: ${metrics.val_rmse:.3f}")
-    print(f"Improvement vs Black-Scholes: {metrics.improvement_vs_bs:.1f}%")
-    print(f"Training Time: {metrics.training_time:.1f} seconds")
+    logging.info(f"\nTraining Results:")
+    logging.info(f"Final Validation RMSE: ${metrics.val_rmse:.3f}")
+    logging.info(f"Improvement vs Black-Scholes: {metrics.improvement_vs_bs:.1f}%")
+    logging.info(f"Training Time: {metrics.training_time:.1f} seconds")
     # Test predictions
-    print("\n=== Testing Predictions ===")
+    logging.info("\n=== Testing Predictions ===")
     # Create test data
     test_data = pd.DataFrame(
         {
@@ -727,26 +727,26 @@ async def main():
     )
     # Make predictions
     predictions, uncertainties = lstm_pricer.predict(test_data, return_uncertainty=True)
-    print("\nPredictions:")
+    logging.info("\nPredictions:")
     for i, row in test_data.iterrows():
-        print(
+        logging.info(
             f"{row['option_type'].upper()} Strike {row['strike']}: "
             f"${predictions[i]:.2f} ± ${uncertainties[i]:.2f}"
         )
     # Analyze feature importance
-    print("\n=== Feature Importance ===")
+    logging.info("\n=== Feature Importance ===")
     importance = lstm_pricer.analyze_feature_importance(training_data.iloc[:1000])
     for feature, score in sorted(importance.items(), key=lambda x: x[1], reverse=True):
-        print(f"{feature}: {score:.1%}")
+        logging.info(f"{feature}: {score:.1%}")
     # Get model diagnostics
-    print("\n=== Model Diagnostics ===")
+    logging.info("\n=== Model Diagnostics ===")
     diagnostics = lstm_pricer.get_model_diagnostics()
-    print(f"Model Version: {diagnostics['model_info']['version']}")
-    print(f"Total Parameters: {diagnostics['model_info']['total_parameters']:,}")
-    print(f"Average Inference Time: {diagnostics['performance']['avg_inference_time_ms']:.1f} ms")
+    logging.info(f"Model Version: {diagnostics['model_info']['version']}")
+    logging.info(f"Total Parameters: {diagnostics['model_info']['total_parameters']:,}")
+    logging.info(f"Average Inference Time: {diagnostics['performance']['avg_inference_time_ms']:.1f} ms")
     if "training" in diagnostics:
-        print(f"Final Validation RMSE: ${diagnostics['training']['final_val_rmse']:.3f}")
-        print(f"Improvement vs BS: {diagnostics['training']['improvement_vs_bs']:.1f}%")
+        logging.info(f"Final Validation RMSE: ${diagnostics['training']['final_val_rmse']:.3f}")
+        logging.info(f"Improvement vs BS: {diagnostics['training']['improvement_vs_bs']:.1f}%")
 
 
 if __name__ == "__main__":

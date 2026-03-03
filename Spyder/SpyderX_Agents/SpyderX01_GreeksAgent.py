@@ -56,7 +56,7 @@ try:
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
-    print("INFO: scikit-learn not available. ML features will be limited.")
+    logging.info("INFO: scikit-learn not available. ML features will be limited.")
 
 # Deep Learning (optional)
 try:
@@ -80,6 +80,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 # Optional Greeks calculation imports (functions may not exist in U06 yet)
 try:
     from Spyder.SpyderU_Utilities.SpyderU06_MathUtils import (

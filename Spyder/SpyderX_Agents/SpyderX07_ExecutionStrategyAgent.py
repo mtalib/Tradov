@@ -44,7 +44,7 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
-    print("Warning: Ollama not installed. AI features will be limited.")
+    logging.info("Warning: Ollama not installed. AI features will be limited.")
 
 # ==============================================================================
 # CONSTANTS
@@ -827,15 +827,15 @@ def get_module_instance() -> SpyderX07_ExecutionStrategyAgent:
 
 async def test_execution_agent():
     """Test the Execution Strategy Agent functionality."""
-    print("="*80)
-    print("Testing SpyderX07_ExecutionStrategyAgent")
-    print("="*80)
+    logging.info("="*80)
+    logging.info("Testing SpyderX07_ExecutionStrategyAgent")
+    logging.info("="*80)
     
     agent = create_execution_strategy_agent()
     
     # Test case 1: Market order execution
-    print("\nTest 1: Market Order Execution")
-    print("-"*40)
+    logging.info("\nTest 1: Market Order Execution")
+    logging.info("-"*40)
     
     request = ExecutionRequest(
         symbol="SPY",
@@ -857,17 +857,17 @@ async def test_execution_agent():
     )
     
     result = await agent.execute_order(request, market)
-    print(f"Execution Result:")
-    print(f"  Success: {result.success}")
-    print(f"  Filled: {result.filled_quantity}/{request.quantity}")
-    print(f"  Avg Price: ${result.average_price:.2f}")
-    print(f"  Slippage: {result.slippage_bps:.1f} bps")
-    print(f"  Algorithm: {result.algorithm_used}")
-    print(f"  Time: {result.execution_time:.1f}s")
+    logging.info(f"Execution Result:")
+    logging.info(f"  Success: {result.success}")
+    logging.info(f"  Filled: {result.filled_quantity}/{request.quantity}")
+    logging.info(f"  Avg Price: ${result.average_price:.2f}")
+    logging.info(f"  Slippage: {result.slippage_bps:.1f} bps")
+    logging.info(f"  Algorithm: {result.algorithm_used}")
+    logging.info(f"  Time: {result.execution_time:.1f}s")
     
     # Test case 2: Large order in illiquid market
-    print("\nTest 2: Large Order in Illiquid Market")
-    print("-"*40)
+    logging.info("\nTest 2: Large Order in Illiquid Market")
+    logging.info("-"*40)
     
     request2 = ExecutionRequest(
         symbol="SPY",
@@ -890,17 +890,17 @@ async def test_execution_agent():
     )
     
     result2 = await agent.execute_order(request2, market2)
-    print(f"Execution Result:")
-    print(f"  Success: {result2.success}")
-    print(f"  Filled: {result2.filled_quantity}/{request2.quantity}")
-    print(f"  Avg Price: ${result2.average_price:.2f}")
-    print(f"  Slippage: {result2.slippage_bps:.1f} bps")
-    print(f"  Algorithm: {result2.algorithm_used}")
-    print(f"  Time: {result2.execution_time:.1f}s")
+    logging.info(f"Execution Result:")
+    logging.info(f"  Success: {result2.success}")
+    logging.info(f"  Filled: {result2.filled_quantity}/{request2.quantity}")
+    logging.info(f"  Avg Price: ${result2.average_price:.2f}")
+    logging.info(f"  Slippage: {result2.slippage_bps:.1f} bps")
+    logging.info(f"  Algorithm: {result2.algorithm_used}")
+    logging.info(f"  Time: {result2.execution_time:.1f}s")
     
     # Test case 3: Critical urgency order
-    print("\nTest 3: Critical Urgency Order")
-    print("-"*40)
+    logging.info("\nTest 3: Critical Urgency Order")
+    logging.info("-"*40)
     
     request3 = ExecutionRequest(
         symbol="SPY",
@@ -922,24 +922,24 @@ async def test_execution_agent():
     )
     
     result3 = await agent.execute_order(request3, market3)
-    print(f"Execution Result:")
-    print(f"  Success: {result3.success}")
-    print(f"  Filled: {result3.filled_quantity}/{request3.quantity}")
-    print(f"  Avg Price: ${result3.average_price:.2f}")
-    print(f"  Slippage: {result3.slippage_bps:.1f} bps")
-    print(f"  Algorithm: {result3.algorithm_used}")
-    print(f"  Time: {result3.execution_time:.1f}s")
+    logging.info(f"Execution Result:")
+    logging.info(f"  Success: {result3.success}")
+    logging.info(f"  Filled: {result3.filled_quantity}/{request3.quantity}")
+    logging.info(f"  Avg Price: ${result3.average_price:.2f}")
+    logging.info(f"  Slippage: {result3.slippage_bps:.1f} bps")
+    logging.info(f"  Algorithm: {result3.algorithm_used}")
+    logging.info(f"  Time: {result3.execution_time:.1f}s")
     
     # Show performance statistics
-    print("\nPerformance Statistics")
-    print("-"*40)
+    logging.info("\nPerformance Statistics")
+    logging.info("-"*40)
     stats = agent.get_performance_stats()
-    print(f"Overall Success Rate: {stats['overall_success_rate']:.1%}")
-    print(f"Average Slippage: {stats['average_slippage_bps']:.1f} bps")
-    print(f"Average Execution Time: {stats['average_execution_time']:.1f}s")
-    print("\nAlgorithm Performance:")
+    logging.info(f"Overall Success Rate: {stats['overall_success_rate']:.1%}")
+    logging.info(f"Average Slippage: {stats['average_slippage_bps']:.1f} bps")
+    logging.info(f"Average Execution Time: {stats['average_execution_time']:.1f}s")
+    logging.info("\nAlgorithm Performance:")
     for algo, perf in stats['algorithm_performance'].items():
-        print(f"  {algo}: {perf['success_rate']:.1%} "
+        logging.info(f"  {algo}: {perf['success_rate']:.1%} "
               f"({perf['total_executions']} executions)")
 
 # ==============================================================================

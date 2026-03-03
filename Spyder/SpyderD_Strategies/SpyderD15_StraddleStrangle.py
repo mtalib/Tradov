@@ -54,6 +54,7 @@ from Spyder.SpyderF_Analysis.SpyderF08_VolatilityRegime import VolatilityRegimeA
 from Spyder.SpyderC_MarketData.SpyderC09_NewsManager import NewsManager
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType
 from Spyder.SpyderE_Risk.SpyderE01_RiskManager import RiskProfile
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -1217,8 +1218,8 @@ class StraddleStrangleStrategy(BaseStrategy):
 # ==============================================================================
 def test_straddle_strangle():
     """Test the Straddle/Strangle strategy"""
-    print("Testing Straddle/Strangle Strategy")
-    print("=" * 60)
+    logging.info("Testing Straddle/Strangle Strategy")
+    logging.info("=" * 60)
     
     # Create mock components
     from SpyderA_Core.SpyderA05_EventManager import EventManager
@@ -1242,9 +1243,9 @@ def test_straddle_strangle():
     # Create strategy
     strategy = StraddleStrangleStrategy(event_manager, risk_profile, config)
     
-    print(f"Strategy: {strategy.name}")
-    print(f"Allow Short: {strategy.allow_short}")
-    print(f"Gamma Scalping: {strategy.enable_gamma_scalping}")
+    logging.info(f"Strategy: {strategy.name}")
+    logging.info(f"Allow Short: {strategy.allow_short}")
+    logging.info(f"Gamma Scalping: {strategy.enable_gamma_scalping}")
     
     # Create sample market data
     dates = pd.date_range(end=datetime.now(), periods=100, freq='5min')
@@ -1270,47 +1271,47 @@ def test_straddle_strangle():
     })
     
     # Test IV rank calculation
-    print(f"\nCurrent IV Rank: {strategy._calculate_iv_rank(market_data):.1f}")
+    logging.info(f"\nCurrent IV Rank: {strategy._calculate_iv_rank(market_data):.1f}")
     
     # Test event detection
-    print("\nDetecting Events...")
+    logging.info("\nDetecting Events...")
     events = strategy._detect_upcoming_events(market_data)
-    print(f"Found {len(events)} upcoming events")
+    logging.info(f"Found {len(events)} upcoming events")
     for event in events:
-        print(f"- {event['type'].value}: {event.get('date', 'N/A')}, Impact: {event['impact']}")
+        logging.info(f"- {event['type'].value}: {event.get('date', 'N/A')}, Impact: {event['impact']}")
     
     # Test volatility surface analysis
-    print("\nAnalyzing Volatility Surface...")
+    logging.info("\nAnalyzing Volatility Surface...")
     vol_analysis = strategy._analyze_volatility_surface(market_data)
-    print(f"ATM IV: {vol_analysis.get('atm_iv', 0):.1%}")
-    print(f"Put Skew: {vol_analysis.get('put_skew', 1):.2f}")
-    print(f"Call Skew: {vol_analysis.get('call_skew', 1):.2f}")
-    print(f"Smile Type: {vol_analysis.get('smile_type', 'unknown')}")
-    print(f"Term Structure: {vol_analysis.get('term_structure', 'unknown')}")
+    logging.info(f"ATM IV: {vol_analysis.get('atm_iv', 0):.1%}")
+    logging.info(f"Put Skew: {vol_analysis.get('put_skew', 1):.2f}")
+    logging.info(f"Call Skew: {vol_analysis.get('call_skew', 1):.2f}")
+    logging.info(f"Smile Type: {vol_analysis.get('smile_type', 'unknown')}")
+    logging.info(f"Term Structure: {vol_analysis.get('term_structure', 'unknown')}")
     
     # Generate signals
-    print("\nGenerating Signals...")
+    logging.info("\nGenerating Signals...")
     signals = strategy.generate_signals(market_data)
     
-    print(f"Generated {len(signals)} signals")
+    logging.info(f"Generated {len(signals)} signals")
     
     for signal in signals:
         setup = signal.metadata
-        print(f"\nStrategy: {setup['strategy_type']}")
-        print(f"Strikes: Call ${setup['strikes']['call']}, Put ${setup['strikes']['put']}")
-        print(f"Expiry: {setup['expiry']}")
-        print(f"Net Debit: ${setup['net_debit']:.2f}")
-        print(f"Breakevens: ${setup['breakevens']['lower']:.2f} - ${setup['breakevens']['upper']:.2f}")
-        print(f"Event: {setup.get('event', 'None')}")
-        print(f"Confidence: {signal.confidence:.1%}")
+        logging.info(f"\nStrategy: {setup['strategy_type']}")
+        logging.info(f"Strikes: Call ${setup['strikes']['call']}, Put ${setup['strikes']['put']}")
+        logging.info(f"Expiry: {setup['expiry']}")
+        logging.info(f"Net Debit: ${setup['net_debit']:.2f}")
+        logging.info(f"Breakevens: ${setup['breakevens']['lower']:.2f} - ${setup['breakevens']['upper']:.2f}")
+        logging.info(f"Event: {setup.get('event', 'None')}")
+        logging.info(f"Confidence: {signal.confidence:.1%}")
         
         # Add position
         position_id = strategy.add_position(signal)
     
     # Simulate position management
     if strategy.active_positions:
-        print("\n" + "=" * 40)
-        print("Position Management Test")
+        logging.info("\n" + "=" * 40)
+        logging.info("Position Management Test")
         
         # Simulate price movement
         for i in range(20):
@@ -1339,41 +1340,41 @@ def test_straddle_strangle():
             if management_signals:
                 for mgmt_signal in management_signals:
                     if mgmt_signal.signal_type == SignalType.ADJUST:
-                        print(f"\nGamma Scalp at iteration {i}")
-                        print(f"Gamma: {mgmt_signal.metadata['gamma']:.1f}")
-                        print(f"Suggested Hedge: ${mgmt_signal.metadata['suggested_hedge']:.2f}")
+                        logging.info(f"\nGamma Scalp at iteration {i}")
+                        logging.info(f"Gamma: {mgmt_signal.metadata['gamma']:.1f}")
+                        logging.info(f"Suggested Hedge: ${mgmt_signal.metadata['suggested_hedge']:.2f}")
                     elif mgmt_signal.signal_type == SignalType.EXIT:
-                        print(f"\nExit at iteration {i}")
-                        print(f"Reason: {mgmt_signal.metadata['exit_reason']}")
-                        print(f"Total P&L: ${mgmt_signal.metadata['total_pnl']:.2f}")
-                        print(f"Gamma Scalps: {mgmt_signal.metadata['gamma_scalps']}")
+                        logging.info(f"\nExit at iteration {i}")
+                        logging.info(f"Reason: {mgmt_signal.metadata['exit_reason']}")
+                        logging.info(f"Total P&L: ${mgmt_signal.metadata['total_pnl']:.2f}")
+                        logging.info(f"Gamma Scalps: {mgmt_signal.metadata['gamma_scalps']}")
     
     # Print final statistics
     stats = strategy.get_strategy_stats()
-    print("\n" + "=" * 40)
-    print("Strategy Statistics:")
-    print(f"Active Positions: {stats['active_positions']}")
-    print(f"Current IV Rank: {stats['current_iv_rank']:.1f}")
-    print(f"Total Trades: {stats['total_trades']}")
-    print(f"Win Rate: {stats['win_rate']:.1%}")
-    print(f"Total Gamma Scalps: {stats['total_gamma_scalps']}")
-    print(f"Gamma Scalp P&L: ${stats['gamma_scalp_pnl']:.2f}")
-    print(f"Avg IV Expansion: {stats['avg_iv_expansion']:.1%}")
-    print(f"Best Trade: ${stats['best_trade']:.2f}")
-    print(f"Worst Trade: ${stats['worst_trade']:.2f}")
+    logging.info("\n" + "=" * 40)
+    logging.info("Strategy Statistics:")
+    logging.info(f"Active Positions: {stats['active_positions']}")
+    logging.info(f"Current IV Rank: {stats['current_iv_rank']:.1f}")
+    logging.info(f"Total Trades: {stats['total_trades']}")
+    logging.info(f"Win Rate: {stats['win_rate']:.1%}")
+    logging.info(f"Total Gamma Scalps: {stats['total_gamma_scalps']}")
+    logging.info(f"Gamma Scalp P&L: ${stats['gamma_scalp_pnl']:.2f}")
+    logging.info(f"Avg IV Expansion: {stats['avg_iv_expansion']:.1%}")
+    logging.info(f"Best Trade: ${stats['best_trade']:.2f}")
+    logging.info(f"Worst Trade: ${stats['worst_trade']:.2f}")
     
-    print("\n✅ Straddle/Strangle Strategy Test Complete!")
-    print("\nKey Features Tested:")
-    print("- ✅ Event detection (earnings, Fed, technical)")
-    print("- ✅ Volatility surface analysis")
-    print("- ✅ IV rank calculation")
-    print("- ✅ Strike selection (ATM/OTM)")
-    print("- ✅ Long/short strategy selection")
-    print("- ✅ Greeks calculation and monitoring")
-    print("- ✅ Gamma scalping detection")
-    print("- ✅ Position value updates")
-    print("- ✅ Multiple exit conditions")
-    print("- ✅ Performance tracking")
+    logging.info("\n✅ Straddle/Strangle Strategy Test Complete!")
+    logging.info("\nKey Features Tested:")
+    logging.info("- ✅ Event detection (earnings, Fed, technical)")
+    logging.info("- ✅ Volatility surface analysis")
+    logging.info("- ✅ IV rank calculation")
+    logging.info("- ✅ Strike selection (ATM/OTM)")
+    logging.info("- ✅ Long/short strategy selection")
+    logging.info("- ✅ Greeks calculation and monitoring")
+    logging.info("- ✅ Gamma scalping detection")
+    logging.info("- ✅ Position value updates")
+    logging.info("- ✅ Multiple exit conditions")
+    logging.info("- ✅ Performance tracking")
 
 
 if __name__ == "__main__":

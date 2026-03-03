@@ -46,7 +46,7 @@ try:
     from SpyderB08_MultiClientDataManager import ClientPurpose
     B08_AVAILABLE = True
 except ImportError:
-    print("⚠️  SpyderB08 not available - using simulated data")
+    logging.info("⚠️  SpyderB08 not available - using simulated data")
     MultiClientDataManager = None
     ClientPurpose = None
     B08_AVAILABLE = False
@@ -618,60 +618,60 @@ class SpyderDataInterface:
 # ==============================================================================
 async def test_data_interface():
     """Test the data interface functionality."""
-    print("🧪 TESTING SPYDER DATA INTERFACE")
-    print("=" * 50)
+    logging.info("🧪 TESTING SPYDER DATA INTERFACE")
+    logging.info("=" * 50)
     
     # Create interface
     interface = SpyderDataInterface()
     
     # Test 1: Start interface
-    print("\n📡 Test 1: Starting data interface...")
+    logging.info("\n📡 Test 1: Starting data interface...")
     start_success = await interface.start()
-    print(f"✅ Interface started: {start_success}")
+    logging.info(f"✅ Interface started: {start_success}")
     
     # Wait for some data
     await asyncio.sleep(2)
     
     # Test 2: Get spot price
-    print("\n💰 Test 2: Getting spot prices...")
+    logging.info("\n💰 Test 2: Getting spot prices...")
     spy_price = interface.get_spot_price('SPY')
-    print(f"✅ SPY spot price: ${spy_price:.2f}" if spy_price else "❌ No SPY price")
+    logging.info(f"✅ SPY spot price: ${spy_price:.2f}" if spy_price else "❌ No SPY price")
     
     # Test 3: Get options chain
-    print("\n📊 Test 3: Getting options chain...")
+    logging.info("\n📊 Test 3: Getting options chain...")
     options = interface.get_options_chain('SPY')
-    print(f"✅ SPY options available: {len(options)}")
+    logging.info(f"✅ SPY options available: {len(options)}")
     
     if options:
-        print(f"✅ Sample option: {options[0].strike} {options[0].option_type} @ ${options[0].mid:.2f}")
+        logging.info(f"✅ Sample option: {options[0].strike} {options[0].option_type} @ ${options[0].mid:.2f}")
     
     # Test 4: Get market sentiment
-    print("\n📈 Test 4: Getting market sentiment...")
+    logging.info("\n📈 Test 4: Getting market sentiment...")
     sentiment = interface.get_market_sentiment('SPY')
     if sentiment:
-        print(f"✅ Put/Call Ratio: {sentiment.put_call_ratio:.2f}")
-        print(f"✅ VIX Level: {sentiment.vix_level:.1f}")
+        logging.info(f"✅ Put/Call Ratio: {sentiment.put_call_ratio:.2f}")
+        logging.info(f"✅ VIX Level: {sentiment.vix_level:.1f}")
     
     # Test 5: Get statistics
-    print("\n📊 Test 5: Getting statistics...")
+    logging.info("\n📊 Test 5: Getting statistics...")
     stats = interface.get_statistics()
-    print(f"✅ Updates processed: {stats['updates_processed']}")
-    print(f"✅ Cache hit ratio: {stats['cache_hit_ratio']:.2%}")
-    print(f"✅ Avg latency: {stats['avg_latency_ms']:.1f}ms")
+    logging.info(f"✅ Updates processed: {stats['updates_processed']}")
+    logging.info(f"✅ Cache hit ratio: {stats['cache_hit_ratio']:.2%}")
+    logging.info(f"✅ Avg latency: {stats['avg_latency_ms']:.1f}ms")
     
     # Test 6: Get volatility surface data
-    print("\n🌊 Test 6: Getting volatility surface data...")
+    logging.info("\n🌊 Test 6: Getting volatility surface data...")
     surface_data = interface.get_volatility_surface_data()
     if surface_data:
-        print(f"✅ Surface points: {len(surface_data.get('surface_points', []))}")
-        print(f"✅ Spot price: ${surface_data.get('spot_price', 0):.2f}")
+        logging.info(f"✅ Surface points: {len(surface_data.get('surface_points', []))}")
+        logging.info(f"✅ Spot price: ${surface_data.get('spot_price', 0):.2f}")
     
     # Test 7: Stop interface
-    print("\n🛑 Test 7: Stopping interface...")
+    logging.info("\n🛑 Test 7: Stopping interface...")
     stop_success = await interface.stop()
-    print(f"✅ Interface stopped: {stop_success}")
+    logging.info(f"✅ Interface stopped: {stop_success}")
     
-    print("\n🎯 DATA INTERFACE TEST COMPLETE")
+    logging.info("\n🎯 DATA INTERFACE TEST COMPLETE")
 
 if __name__ == "__main__":
     asyncio.run(test_data_interface())

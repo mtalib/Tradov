@@ -74,13 +74,14 @@ try:
     NUMBA_AVAILABLE = True
 except ImportError:
     NUMBA_AVAILABLE = False
-    print("Warning: numba not available - performance will be reduced")
+    logging.info("Warning: numba not available - performance will be reduced")
 
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+import logging
 
 # ==============================================================================
 # CONSTANTS
@@ -747,8 +748,8 @@ async def benchmark_latency():
     feed.start()
     
     # Generate test data
-    print("\n=== Running Latency Benchmark with ib_async ===")
-    print("Sending 10,000 test quotes...")
+    logging.info("\n=== Running Latency Benchmark with ib_async ===")
+    logging.info("Sending 10,000 test quotes...")
     
     start_time = time.perf_counter_ns()
     
@@ -765,16 +766,16 @@ async def benchmark_latency():
     # Get statistics
     stats = feed.get_latency_stats()
     
-    print(f"\nTotal time: {total_time_ms:.2f}ms")
-    print(f"Throughput: {10000 / (total_time_ms/1000):.0f} quotes/second")
-    print(f"Quotes received: {len(received_quotes)}")
+    logging.info(f"\nTotal time: {total_time_ms:.2f}ms")
+    logging.info(f"Throughput: {10000 / (total_time_ms/1000):.0f} quotes/second")
+    logging.info(f"Quotes received: {len(received_quotes)}")
     
-    print("\nLatency Statistics:")
+    logging.info("\nLatency Statistics:")
     for stage, metrics in stats.items():
-        print(f"\n{stage.upper()}:")
-        print(f"  Mean: {metrics['mean_ms']:.3f}ms")
-        print(f"  P99: {metrics['p99_ms']:.3f}ms")
-        print(f"  P99.9: {metrics['p999_ms']:.3f}ms")
+        logging.info(f"\n{stage.upper()}:")
+        logging.info(f"  Mean: {metrics['mean_ms']:.3f}ms")
+        logging.info(f"  P99: {metrics['p99_ms']:.3f}ms")
+        logging.info(f"  P99.9: {metrics['p999_ms']:.3f}ms")
     
     feed.stop()
 
@@ -799,7 +800,7 @@ async def main():
         await benchmark_latency()
         
     elif args.test_orders:
-        print("\n=== Testing Order Pre-calculation ===")
+        logging.info("\n=== Testing Order Pre-calculation ===")
         feed = create_ultra_low_latency_feed()
         
         # Test market conditions
@@ -809,30 +810,30 @@ async def main():
         
         # Show pre-calculated orders
         for strategy, orders in feed.order_cache.pre_calculated_orders.items():
-            print(f"\n{strategy.upper()}:")
+            logging.info(f"\n{strategy.upper()}:")
             for order in orders:
-                print(f"  {order['action']} {order['type']} @ {order['strike']}")
+                logging.info(f"  {order['action']} {order['type']} @ {order['strike']}")
                 
     elif args.stats:
-        print("\n=== Performance Capabilities with ib_async ===")
-        print("Target Latencies:")
-        print("  Market Data: <5ms")
-        print("  Order Prep: <10ms")
-        print("  Total RTT: <50ms")
-        print("\nOptimizations:")
-        print("  ✓ Lock-free ring buffers")
-        print("  ✓ Memory-mapped data")
-        print("  ✓ Nanosecond timestamping")
-        print("  ✓ CPU affinity")
-        print("  ✓ Pre-calculated orders")
-        print("  ✓ Zero-copy operations")
-        print("  ✓ Modern ib_async integration")
-        print("  ✓ Enhanced IB Gateway 10.37 compatibility")
+        logging.info("\n=== Performance Capabilities with ib_async ===")
+        logging.info("Target Latencies:")
+        logging.info("  Market Data: <5ms")
+        logging.info("  Order Prep: <10ms")
+        logging.info("  Total RTT: <50ms")
+        logging.info("\nOptimizations:")
+        logging.info("  ✓ Lock-free ring buffers")
+        logging.info("  ✓ Memory-mapped data")
+        logging.info("  ✓ Nanosecond timestamping")
+        logging.info("  ✓ CPU affinity")
+        logging.info("  ✓ Pre-calculated orders")
+        logging.info("  ✓ Zero-copy operations")
+        logging.info("  ✓ Modern ib_async integration")
+        logging.info("  ✓ Enhanced IB Gateway 10.37 compatibility")
         
         if NUMBA_AVAILABLE:
-            print("  ✓ JIT compilation available")
+            logging.info("  ✓ JIT compilation available")
         else:
-            print("  ✗ JIT compilation not available (install numba)")
+            logging.info("  ✗ JIT compilation not available (install numba)")
 
 if __name__ == "__main__":
     asyncio.run(main())

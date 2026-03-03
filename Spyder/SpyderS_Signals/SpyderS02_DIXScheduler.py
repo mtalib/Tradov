@@ -62,7 +62,7 @@ except ImportError:
 
     class SpyderEmailSender:
         def send_email(self, subject, body, attachments=None):
-            print(f"Email: {subject}\n{body}")
+            logging.info(f"Email: {subject}\n{body}")
 
 
 # ==============================================================================

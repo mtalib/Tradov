@@ -41,13 +41,14 @@ import math
 import statistics
 import numpy as np
 import pandas as pd
+import logging
 
 try:
     from scipy import stats
     HAS_SCIPY = True
 except ImportError:
     HAS_SCIPY = False
-    print("WARNING: scipy not available. Some risk calculations will be limited.")
+    logging.info("WARNING: scipy not available. Some risk calculations will be limited.")
 
 try:
     import empyrical

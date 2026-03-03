@@ -1332,8 +1332,8 @@ def get_model_data_pipeline(config: Optional[Dict[str, Any]] = None) -> ModelDat
 # ==============================================================================
 async def main():
     """Main execution function for testing and demonstration."""
-    print("🎯 SPYDER C24 - Model Data Pipeline")
-    print("=" * 80)
+    logging.info("🎯 SPYDER C24 - Model Data Pipeline")
+    logging.info("=" * 80)
     
     try:
         # Create pipeline
@@ -1344,15 +1344,15 @@ async def main():
         }
         
         pipeline = ModelDataPipeline(config)
-        print("✅ Model Data Pipeline initialized")
+        logging.info("✅ Model Data Pipeline initialized")
         
         # Initialize pipeline
         if not pipeline.initialize():
-            print("❌ Failed to initialize pipeline")
+            logging.info("❌ Failed to initialize pipeline")
             return False
         
         # Create sample market data
-        print("📊 Creating sample market data...")
+        logging.info("📊 Creating sample market data...")
         dates = pd.date_range(start='2024-01-01', end='2024-12-31', freq='D')
         
         # Generate realistic OHLCV data
@@ -1369,19 +1369,19 @@ async def main():
             'volume': np.random.randint(1000000, 10000000, len(dates))
         }, index=dates)
         
-        print(f"   Generated market data: {len(market_data)} days")
-        print(f"   Price range: ${market_data['close'].min():.2f} - ${market_data['close'].max():.2f}")
+        logging.info(f"   Generated market data: {len(market_data)} days")
+        logging.info(f"   Price range: ${market_data['close'].min():.2f} - ${market_data['close'].max():.2f}")
         
         # Test feature engineering
-        print("🔧 Testing feature engineering...")
+        logging.info("🔧 Testing feature engineering...")
         feature_set = pipeline.engineer_features(
             market_data,
             feature_categories=['technical', 'market_structure', 'options', 'time_series']
         )
         
-        print(f"   ✅ Engineered {len(feature_set.feature_names)} features")
-        print(f"   Quality score: {feature_set.quality_score:.3f}")
-        print(f"   Feature categories:")
+        logging.info(f"   ✅ Engineered {len(feature_set.feature_names)} features")
+        logging.info(f"   Quality score: {feature_set.quality_score:.3f}")
+        logging.info(f"   Feature categories:")
         
         # Count features by category
         category_counts = {}
@@ -1390,18 +1390,18 @@ async def main():
             category_counts[category] = category_counts.get(category, 0) + 1
         
         for category, count in category_counts.items():
-            print(f"     • {category}: {count} features")
+            logging.info(f"     • {category}: {count} features")
         
         # Test data quality validation
-        print("🔍 Testing data quality validation...")
+        logging.info("🔍 Testing data quality validation...")
         quality_scores = pipeline.validate_data_quality(market_data)
         
-        print(f"   Data Quality Scores:")
+        logging.info(f"   Data Quality Scores:")
         for dimension, score in quality_scores.items():
-            print(f"     • {dimension}: {score:.3f}")
+            logging.info(f"     • {dimension}: {score:.3f}")
         
         # Test drift detection
-        print("⚠️  Testing drift detection...")
+        logging.info("⚠️  Testing drift detection...")
         
         # Create slightly drifted data
         drift_data = market_data.copy()
@@ -1414,38 +1414,38 @@ async def main():
             methods=['ks_test', 'psi', 'statistical_moments']
         )
         
-        print(f"   Drift Detection Results:")
-        print(f"     • Drift Detected: {'Yes' if drift_report.drift_detected else 'No'}")
-        print(f"     • Drift Score: {drift_report.drift_score:.3f}")
-        print(f"     • Drifted Features: {len(drift_report.drift_features)}")
+        logging.info(f"   Drift Detection Results:")
+        logging.info(f"     • Drift Detected: {'Yes' if drift_report.drift_detected else 'No'}")
+        logging.info(f"     • Drift Score: {drift_report.drift_score:.3f}")
+        logging.info(f"     • Drifted Features: {len(drift_report.drift_features)}")
         
         if drift_report.drift_features:
-            print(f"     • Top Drifted: {', '.join(drift_report.drift_features[:3])}")
+            logging.info(f"     • Top Drifted: {', '.join(drift_report.drift_features[:3])}")
         
-        print(f"   Recommendations:")
+        logging.info(f"   Recommendations:")
         for rec in drift_report.recommendations[:3]:
-            print(f"     • {rec}")
+            logging.info(f"     • {rec}")
         
         # Get pipeline status
         status = pipeline.get_pipeline_status()
         
-        print("📈 Pipeline Status:")
-        print(f"   • Running: {'Yes' if status['is_running'] else 'No'}")
-        print(f"   • Features Processed: {status['features_processed']:,}")
-        print(f"   • Data Quality Score: {status['data_quality_score']:.3f}")
-        print(f"   • Processing Latency: {status['processing_latency_ms']:.1f}ms")
-        print(f"   • Uptime: {status['uptime_percent']:.1f}%")
-        print(f"   • Drift Alerts: {status['drift_alerts_generated']}")
+        logging.info("📈 Pipeline Status:")
+        logging.info(f"   • Running: {'Yes' if status['is_running'] else 'No'}")
+        logging.info(f"   • Features Processed: {status['features_processed']:,}")
+        logging.info(f"   • Data Quality Score: {status['data_quality_score']:.3f}")
+        logging.info(f"   • Processing Latency: {status['processing_latency_ms']:.1f}ms")
+        logging.info(f"   • Uptime: {status['uptime_percent']:.1f}%")
+        logging.info(f"   • Drift Alerts: {status['drift_alerts_generated']}")
         
-        print("🔌 Integration Status:")
+        logging.info("🔌 Integration Status:")
         for integration, connected in status['integrations'].items():
-            print(f"   • {integration}: {'✅' if connected else '❌'}")
+            logging.info(f"   • {integration}: {'✅' if connected else '❌'}")
         
-        print("🎊 Model Data Pipeline demonstration completed successfully!")
+        logging.info("🎊 Model Data Pipeline demonstration completed successfully!")
         return True
         
     except Exception as e:
-        print(f"❌ Error in main execution: {e}")
+        logging.info(f"❌ Error in main execution: {e}")
         return False
     
     finally:

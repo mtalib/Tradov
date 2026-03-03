@@ -62,7 +62,7 @@ try:
     import ollama
     OLLAMA_AVAILABLE = True
 except ImportError:
-    print("Warning: ollama package not installed. Install with: pip install ollama")
+    logging.info("Warning: ollama package not installed. Install with: pip install ollama")
     OLLAMA_AVAILABLE = False
 
 # ==============================================================================

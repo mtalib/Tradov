@@ -1356,27 +1356,27 @@ class Scheduler:
 
     def print_schedule(self):
         """Print current schedule to console"""
-        print("\n" + "="*80)
-        print("SCHEDULED TASKS")
-        print("="*80)
+        logging.info("\n" + "="*80)
+        logging.info("SCHEDULED TASKS")
+        logging.info("="*80)
         
         jobs = sorted(self.scheduler.get_jobs(), key=lambda x: x.next_run_time or datetime.max)
         
         for job in jobs:
             task = self.tasks.get(job.id)
             if task:
-                print(f"\nTask: {task.name}")
-                print(f"  ID: {job.id}")
-                print(f"  Type: {task.schedule_type.name}")
-                print(f"  Next Run: {job.next_run_time}")
-                print(f"  Enabled: {task.enabled}")
-                print(f"  Run Count: {task.run_count}")
-                print(f"  Error Count: {task.error_count}")
+                logging.info(f"\nTask: {task.name}")
+                logging.info(f"  ID: {job.id}")
+                logging.info(f"  Type: {task.schedule_type.name}")
+                logging.info(f"  Next Run: {job.next_run_time}")
+                logging.info(f"  Enabled: {task.enabled}")
+                logging.info(f"  Run Count: {task.run_count}")
+                logging.info(f"  Error Count: {task.error_count}")
                 
                 if task.last_run:
-                    print(f"  Last Run: {task.last_run}")
+                    logging.info(f"  Last Run: {task.last_run}")
         
-        print("\n" + "="*80)
+        logging.info("\n" + "="*80)
 
     def export_schedule(self, output_path: Path) -> bool:
         """Export schedule to file"""

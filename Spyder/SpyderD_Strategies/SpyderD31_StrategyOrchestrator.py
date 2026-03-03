@@ -100,7 +100,7 @@ try:
     
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ Some Spyder modules not available: {e}")
+    logging.info(f"⚠️ Some Spyder modules not available: {e}")
     SPYDER_MODULES_AVAILABLE = False
     
     # Fallback enums
@@ -2037,8 +2037,8 @@ def create_orchestrator_dashboard(orchestrator: Optional[StrategyOrchestrator] =
 
 def main():
     """Main execution function for testing and demonstration"""
-    print("🎯 SPYDER D12 - Strategy Orchestrator")
-    print("=" * 60)
+    logging.info("🎯 SPYDER D12 - Strategy Orchestrator")
+    logging.info("=" * 60)
     
     try:
         # Create orchestrator
@@ -2048,25 +2048,25 @@ def main():
             allocation_method=AllocationMethod.PERFORMANCE_BASED
         )
         
-        print("✅ Strategy Orchestrator initialized")
-        print(f"📊 Configuration:")
-        print(f"  Base Capital: ${orchestrator.base_capital:,.2f}")
-        print(f"  Orchestration Mode: {orchestrator.orchestration_mode.value}")
-        print(f"  Allocation Method: {orchestrator.allocation_method.value}")
-        print(f"  Available Strategies: {len(orchestrator.available_strategies)}")
+        logging.info("✅ Strategy Orchestrator initialized")
+        logging.info(f"📊 Configuration:")
+        logging.info(f"  Base Capital: ${orchestrator.base_capital:,.2f}")
+        logging.info(f"  Orchestration Mode: {orchestrator.orchestration_mode.value}")
+        logging.info(f"  Allocation Method: {orchestrator.allocation_method.value}")
+        logging.info(f"  Available Strategies: {len(orchestrator.available_strategies)}")
         
         # Test portfolio status
         status = orchestrator.get_portfolio_status()
-        print(f"\n📈 Portfolio Status:")
-        print(f"  Total Capital: ${status['total_capital']:,.2f}")
-        print(f"  Available Capital: ${status['available_capital']:,.2f}")
-        print(f"  Active Strategies: {status['active_strategies']}")
-        print(f"  Market Regime: {status['market_regime']}")
+        logging.info(f"\n📈 Portfolio Status:")
+        logging.info(f"  Total Capital: ${status['total_capital']:,.2f}")
+        logging.info(f"  Available Capital: ${status['available_capital']:,.2f}")
+        logging.info(f"  Active Strategies: {status['active_strategies']}")
+        logging.info(f"  Market Regime: {status['market_regime']}")
         
-        print(f"\n✅ Strategy Orchestrator test completed!")
+        logging.info(f"\n✅ Strategy Orchestrator test completed!")
         
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        logging.info(f"❌ Error during testing: {e}")
         return False
         
     return True

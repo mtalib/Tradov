@@ -66,6 +66,7 @@ from PySide6.QtCore import QTimer, QObject, Signal
 
 # Import dashboard
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
+import logging
 
 # ⚠️ DEPRECATED: ib_async integration is legacy code
 # The Spyder system no longer uses IB Gateway or ib_async
@@ -75,8 +76,8 @@ try:
     IB_AVAILABLE = True
 except ImportError:
     IB_AVAILABLE = False
-    print("Warning: ib_async not available (module deprecated)")
-    print("Use Tradier API via SpyderB40_TradierClient for broker integration")
+    logging.info("Warning: ib_async not available (module deprecated)")
+    logging.info("Use Tradier API via SpyderB40_TradierClient for broker integration")
 
 # ==============================================================================
 # CONSTANTS
@@ -402,7 +403,7 @@ class DashboardWithWorkingBridge(SpyderTradingDashboard):
                 self.working_bridge.disconnect()
             super().closeEvent(event)
         except Exception as e:
-            print(f"Error during close: {e}")
+            logging.info(f"Error during close: {e}")
             event.accept()
 
 # ==============================================================================
@@ -417,29 +418,29 @@ def test_ib_connection() -> bool:
         bool: True if any client ID works, False otherwise
     """
     if not IB_AVAILABLE:
-        print("❌ ib_async not available")
+        logging.info("❌ ib_async not available")
         return False
     
-    print(f"Testing IB Gateway connection at {IB_HOST}:{IB_PORT}")
+    logging.info(f"Testing IB Gateway connection at {IB_HOST}:{IB_PORT}")
     
     for client_id in VALID_CLIENT_IDS:
         try:
-            print(f"Testing client ID {client_id}...")
+            logging.info(f"Testing client ID {client_id}...")
             
             ib = IB()
             ib.connect(IB_HOST, IB_PORT, clientId=client_id, timeout=10)
             
             if ib.isConnected():
-                print(f"✅ Client ID {client_id} works!")
+                logging.info(f"✅ Client ID {client_id} works!")
                 ib.disconnect()
                 return True
             else:
                 ib.disconnect()
                 
         except Exception as e:
-            print(f"❌ Client ID {client_id} failed: {e}")
+            logging.info(f"❌ Client ID {client_id} failed: {e}")
     
-    print("❌ All client IDs failed")
+    logging.info("❌ All client IDs failed")
     return False
 
 def get_working_client_id() -> int:
@@ -463,7 +464,7 @@ def get_working_client_id() -> int:
 
         except Exception as e:
             # Log connection failure for this client ID
-            print(f"⚠️ Client ID {client_id} connection failed: {e}")
+            logging.info(f"⚠️ Client ID {client_id} connection failed: {e}")
             continue
 
     return -1
@@ -474,18 +475,18 @@ def get_working_client_id() -> int:
 
 def main():
     """Main execution for standalone testing."""
-    print("=" * 60)
-    print("SPYDER WORKING IB BRIDGE WITH ib_async")
-    print("=" * 60)
-    print(f"ib_async available: {IB_AVAILABLE}")
-    print(f"Target: {IB_HOST}:{IB_PORT}")
-    print(f"Client IDs to test: {VALID_CLIENT_IDS}")
-    print("=" * 60)
+    logging.info("=" * 60)
+    logging.info("SPYDER WORKING IB BRIDGE WITH ib_async")
+    logging.info("=" * 60)
+    logging.info(f"ib_async available: {IB_AVAILABLE}")
+    logging.info(f"Target: {IB_HOST}:{IB_PORT}")
+    logging.info(f"Client IDs to test: {VALID_CLIENT_IDS}")
+    logging.info("=" * 60)
     
     # Test connection
     if test_ib_connection():
         working_id = get_working_client_id()
-        print(f"✅ Connection successful with client ID {working_id}")
+        logging.info(f"✅ Connection successful with client ID {working_id}")
         
         # Launch dashboard with working bridge
         app = QApplication(sys.argv)
@@ -494,18 +495,18 @@ def main():
         dashboard = DashboardWithWorkingBridge()
         dashboard.show()
         
-        print("🚀 Dashboard launched with Working IB Bridge")
-        print("Monitor the dashboard for real-time connection status")
+        logging.info("🚀 Dashboard launched with Working IB Bridge")
+        logging.info("Monitor the dashboard for real-time connection status")
         
         sys.exit(app.exec())
         
     else:
-        print("❌ No working IB connection found")
-        print("\nTroubleshooting:")
-        print("1. Ensure IB Gateway is running and logged in")
-        print("2. Verify port 4002 is correct (paper trading)")
-        print("3. Check that API connections are enabled in Gateway")
-        print("4. Try restarting IB Gateway")
+        logging.info("❌ No working IB connection found")
+        logging.info("\nTroubleshooting:")
+        logging.info("1. Ensure IB Gateway is running and logged in")
+        logging.info("2. Verify port 4002 is correct (paper trading)")
+        logging.info("3. Check that API connections are enabled in Gateway")
+        logging.info("4. Try restarting IB Gateway")
 
 if __name__ == "__main__":
     main()

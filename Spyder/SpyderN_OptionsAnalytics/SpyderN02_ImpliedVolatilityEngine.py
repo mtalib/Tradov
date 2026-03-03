@@ -55,6 +55,7 @@ import pandas as pd
 from scipy import stats, optimize, interpolate
 from scipy.stats import norm
 import warnings
+import logging
 warnings.filterwarnings('ignore')
 
 # ==============================================================================
@@ -80,7 +81,7 @@ except ImportError:
     
     class SpyderErrorHandler:
         def handle_error(self, error, context):
-            print(f"Error in {context}: {error}")
+            logging.info(f"Error in {context}: {error}")
     
     class OptionType(Enum):
         CALL = "CALL"
