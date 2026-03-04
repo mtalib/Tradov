@@ -364,13 +364,17 @@ class TradingCalendar:
             # Check if market is open
             if self.is_market_open(timestamp):
                 # Check if closing soon (last 30 minutes)
-                closing_time = datetime.combine(check_date, hours.market_close)
+                closing_time = datetime.combine(check_date, hours.market_close).replace(
+                    tzinfo=self.timezone
+                )
                 if timestamp >= closing_time - timedelta(minutes=30):
                     return MarketStatus.CLOSING_SOON
                 return MarketStatus.OPEN
 
             # Check if opening soon (30 minutes before open)
-            opening_time = datetime.combine(check_date, hours.market_open)
+            opening_time = datetime.combine(check_date, hours.market_open).replace(
+                tzinfo=self.timezone
+            )
             if timestamp >= opening_time - timedelta(minutes=30) and timestamp < opening_time:
                 return MarketStatus.OPENING_SOON
 
