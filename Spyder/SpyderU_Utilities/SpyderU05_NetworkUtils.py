@@ -250,7 +250,7 @@ class NetworkUtils:
                             latencies.append(latency * 1000)  # Convert to ms
                     except (OSError, TimeoutError) as e:
                         # Ping failed, continue to next attempt
-                        logger.debug(f"Ping attempt failed: {e}")
+                        self.logger.debug(f"Ping attempt failed: {e}")
                         continue
             else:
                 # Fallback to socket connection timing
@@ -262,7 +262,7 @@ class NetworkUtils:
                         latencies.append(latency)
                     except (OSError, TimeoutError, socket.timeout) as e:
                         # Connection attempt failed, continue to next attempt
-                        logger.debug(f"Socket connection failed: {e}")
+                        self.logger.debug(f"Socket connection failed: {e}")
                         continue
             
             if latencies:
@@ -439,11 +439,11 @@ class NetworkUtils:
                         return True
                 except (requests.RequestException, OSError, TimeoutError) as e:
                     # URL check failed, try next URL
-                    logger.debug(f"HTTP check failed for {url}: {e}")
+                    self.logger.debug(f"HTTP check failed for {url}: {e}")
                     continue
             return False
         except (requests.RequestException, OSError) as e:
-            logger.warning(f"Internet connectivity check failed: {e}")
+            self.logger.warning(f"Internet connectivity check failed: {e}")
             return False
 
 # ==============================================================================
