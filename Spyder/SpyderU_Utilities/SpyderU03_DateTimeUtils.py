@@ -1780,11 +1780,11 @@ class TradingTimeUtils:
         current_time = dt.time()
 
         # Market sessions
-        if datetime.time(4, 0) <= current_time < datetime.time(9, 30):
+        if time(4, 0) <= current_time < time(9, 30):
             return "pre_market"
-        elif datetime.time(9, 30) <= current_time <= datetime.time(16, 0):
+        elif time(9, 30) <= current_time <= time(16, 0):
             return "regular"
-        elif datetime.time(16, 0) < current_time <= datetime.time(20, 0):
+        elif time(16, 0) < current_time <= time(20, 0):
             return "after_hours"
         else:
             return "closed"
