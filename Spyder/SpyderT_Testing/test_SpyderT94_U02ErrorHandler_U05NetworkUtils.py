@@ -49,6 +49,12 @@ _logger_mod.SpyderLogger = _FakeSpyderLogger
 _logger_mod.get_logger = MagicMock(return_value=MagicMock())
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _logger_mod
 
+# Remove any stub installed by earlier T-files for SpyderU02_ErrorHandler
+# so that we import the REAL module below.
+for _key in list(sys.modules.keys()):
+    if "SpyderU02_ErrorHandler" in _key:
+        del sys.modules[_key]
+
 # NOTE: We do NOT stub SpyderErrorHandler here — we import the real one from U02.
 # U05 will use the real SpyderErrorHandler as well.
 
