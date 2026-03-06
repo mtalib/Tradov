@@ -190,6 +190,12 @@ except ImportError as e:
     logging.info(f"⚠️ SpyderV10_OptimizationEngines not available: {e}")
     OPTIMIZATION_ENGINES_AVAILABLE = False
 
+# Map legacy/expected variable names to the actual ones defined above
+OPTIONS_MODELS_AVAILABLE = PRICING_ENGINE_AVAILABLE
+RISK_MODELS_AVAILABLE = RISK_MANAGER_AVAILABLE
+VOLATILITY_MODELS_AVAILABLE = VOLATILITY_ENGINE_AVAILABLE
+CORRELATION_MODELS_AVAILABLE = ADVANCED_MODELS_AVAILABLE
+
 # ==============================================================================
 # PACKAGE CONVENIENCE FUNCTIONS
 # ==============================================================================
