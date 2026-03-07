@@ -23,6 +23,7 @@ Last Updated: 2026-03-03 Time: 00:00:00
 import asyncio
 import unittest
 from datetime import datetime
+from enum import Enum, auto
 from typing import Any, Dict
 
 # ==============================================================================
@@ -42,6 +43,23 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
 # ==============================================================================
 # SHARED MOCK INFRASTRUCTURE (mirrors T46 so no cross-file coupling)
 # ==============================================================================
+
+class _MockMessageType(Enum):
+    POSITION_UPDATE = auto()
+    ACCOUNT_SUMMARY_UPDATE = auto()
+    ORDER_STATUS = auto()
+
+
+# Patch MessageType into the E01 module's globals dict directly so
+# RiskManager._register_handlers can reference it (E01 sets it to None
+# because B01_ConnectAPI no longer exists).
+RiskManager._register_handlers.__globals__["MessageType"] = _MockMessageType
+
+
+def _patch_message_type():
+    """Re-apply MessageType mock in case another test module reset it."""
+    RiskManager._register_handlers.__globals__["MessageType"] = _MockMessageType
+
 
 class _MockConnectAPI:
     def __init__(self):
@@ -116,6 +134,7 @@ class TestOrderSizeBoundary(unittest.TestCase):
     """Exact threshold: max_single_order_size = 500 (default)."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_at_limit_allowed(self):
@@ -153,6 +172,7 @@ class TestPositionSizeBoundary(unittest.TestCase):
     """Exact threshold: max_position_size = 1000 (default)."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_new_position_at_limit_allowed(self):
@@ -206,6 +226,7 @@ class TestSellSideOrdersReducePosition(unittest.TestCase):
     """Selling reduces position — should never trigger position-size block."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_sell_reduces_position_below_limit(self):
@@ -268,6 +289,7 @@ class TestOptionOrderSides(unittest.TestCase):
     """
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def _near_limit_position(self):
@@ -311,6 +333,7 @@ class TestRiskMetricsCounters(unittest.TestCase):
     """Verify internal counters advance correctly across calls."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_risk_checks_counter_increments(self):
@@ -352,6 +375,7 @@ class TestGetPositionMethods(unittest.TestCase):
     """Unit tests for get_position() and get_positions()."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_get_position_unknown_symbol_returns_none(self):
@@ -392,6 +416,7 @@ class TestGetPositionMethods(unittest.TestCase):
 
 class TestGetRiskMetrics(unittest.TestCase):
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_returns_none_when_no_cached_metrics(self):
@@ -408,6 +433,7 @@ class TestRiskLevelEscalation(unittest.TestCase):
     """Verify auto-escalation through LOW → MEDIUM → HIGH → CRITICAL."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def _calc(self):
@@ -471,6 +497,7 @@ class TestOptionsExposureTracking(unittest.TestCase):
     """Verify options (security_type='OPT') contributes to options_exposure."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_stk_position_does_not_add_to_options_exposure(self):
@@ -505,6 +532,7 @@ class TestZeroDivisionGuard(unittest.TestCase):
     """When total_exposure is 0, concentration must be 0 — no ZeroDivisionError."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_no_positions_no_error(self):
@@ -532,6 +560,7 @@ class TestOrderPriceFallback(unittest.TestCase):
     """When order.price is None, the manager falls back to position.market_price."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager({'max_total_exposure': 50000.0})
 
     def test_none_price_falls_back_to_market_price(self):
@@ -560,6 +589,7 @@ class TestTotalExposureBoundary(unittest.TestCase):
     """Exact boundary for max_total_exposure = 100_000 (default)."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_at_exposure_limit_allowed(self):
@@ -590,6 +620,7 @@ class TestDailyLossBoundary(unittest.TestCase):
     """Exact boundary for max_daily_loss = 10_000 (default)."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_pnl_exactly_at_negative_limit_allowed(self):
@@ -616,6 +647,7 @@ class TestRiskCheckResponseFields(unittest.TestCase):
     """Verify RiskCheckResponse fields are populated correctly."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_allowed_response_has_timestamp(self):
@@ -654,6 +686,7 @@ class TestGetStatus(unittest.TestCase):
     """Verify get_status() / get_metrics() return expected structures."""
 
     def setUp(self):
+        _patch_message_type()
         self.rm = _make_manager()
 
     def test_get_status_contains_required_keys(self):

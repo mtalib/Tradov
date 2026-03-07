@@ -95,9 +95,19 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
 # Patch MessageType into the E01 module so _register_handlers uses our enum
 # (E01 sets MessageType=None because B01_ConnectAPI no longer exists; tests
 # pass _MockConnectAPI which expects a real enum as the handler key.)
-import Spyder.SpyderE_Risk.SpyderE01_RiskManager as _e01_mod
-_e01_mod.MessageType = _MockMessageType
+# Patch MessageType into the E01 module so _register_handlers uses our enum
+# (E01 sets MessageType=None because B01_ConnectAPI no longer exists; tests
+# pass _MockConnectAPI which expects a real enum as the handler key.)
+# IMPORTANT: Patch __globals__ of _register_handlers directly, because
+# T112_ESeries replaces sys.modules["...SpyderE01_RiskManager"] with a fresh
+# exec'd module, so patching via 'import ... as _e01_mod' may patch a
+# *different* module object than the one RiskManager.__globals__ belongs to.
+RiskManager._register_handlers.__globals__["MessageType"] = _MockMessageType
 
+
+def _patch_message_type():
+    """Re-apply MessageType mock in case T112 reset it between tests."""
+    RiskManager._register_handlers.__globals__["MessageType"] = _MockMessageType
 
 # ==============================================================================
 # HELPERS
@@ -131,6 +141,9 @@ def _run_async(coro):
 
 class TestRiskManagerInit(unittest.TestCase):
     """Tests for RiskManager initialization."""
+
+    def setUp(self):
+        _patch_message_type()
 
     def test_01_init_creates_valid_instance(self):
         """RiskManager initialises with config stored and positions empty."""
@@ -170,6 +183,7 @@ class TestRiskCheckOrderAllowed(unittest.TestCase):
     """Tests for check_order_risk — order ALLOWED path."""
 
     def setUp(self):
+        _patch_message_type()
         self.api = _make_connect_api_mock()
         self.config = RiskConfig()
         self.rm = RiskManager(config=self.config, connect_api=self.api)
@@ -196,6 +210,7 @@ class TestRiskCheckOrderBlocked(unittest.TestCase):
     """Tests for check_order_risk — order BLOCKED paths."""
 
     def setUp(self):
+        _patch_message_type()
         self.api = _make_connect_api_mock()
         self.config = RiskConfig()
         self.rm = RiskManager(config=self.config, connect_api=self.api)
@@ -266,6 +281,7 @@ class TestRiskCheckOrderWarning(unittest.TestCase):
     """Tests for check_order_risk — order WARNING paths."""
 
     def setUp(self):
+        _patch_message_type()
         self.api = _make_connect_api_mock()
         # Use custom limits to easily trigger warnings
         self.config = RiskConfig(risk_limits={
@@ -316,6 +332,7 @@ class TestRiskMetricsCalculation(unittest.TestCase):
     """Tests for _calculate_risk_metrics."""
 
     def setUp(self):
+        _patch_message_type()
         self.api = _make_connect_api_mock()
         self.config = RiskConfig()
         self.rm = RiskManager(config=self.config, connect_api=self.api)
@@ -386,6 +403,7 @@ class TestPositionHandling(unittest.TestCase):
     """Tests for position update handling."""
 
     def setUp(self):
+        _patch_message_type()
         self.api = _make_connect_api_mock()
         self.config = RiskConfig()
         self.rm = RiskManager(config=self.config, connect_api=self.api)
@@ -427,6 +445,7 @@ class TestStatusAndMetrics(unittest.TestCase):
     """Tests for get_status and get_metrics."""
 
     def setUp(self):
+        _patch_message_type()
         self.api = _make_connect_api_mock()
         self.config = RiskConfig()
         self.rm = RiskManager(config=self.config, connect_api=self.api)

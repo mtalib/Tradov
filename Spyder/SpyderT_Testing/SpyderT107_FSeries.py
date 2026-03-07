@@ -75,7 +75,11 @@ sys.modules.setdefault("seaborn", types.ModuleType("seaborn"))
 # --- tqdm stub (F12 dependency) -----------------------------------------------
 _tqdm_mod = types.ModuleType("tqdm")
 _tqdm_mod.tqdm = lambda x, *a, **k: x
+_tqdm_auto_mod = types.ModuleType("tqdm.auto")
+_tqdm_auto_mod.tqdm = lambda x, *a, **k: x
+_tqdm_mod.__path__ = []  # mark as package so submodule lookup works
 sys.modules.setdefault("tqdm", _tqdm_mod)
+sys.modules.setdefault("tqdm.auto", _tqdm_auto_mod)
 
 # --- Ensure U03 DateTimeUtils stub is populated (T104 may have set an empty stub)
 _u03_key = "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"

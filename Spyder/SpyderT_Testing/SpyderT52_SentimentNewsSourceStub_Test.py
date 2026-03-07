@@ -52,7 +52,8 @@ sys.modules.setdefault(
 
 # Stub optional NLP libs so we can import without them installed
 for _mod_name in [
-    "transformers", "torch",
+    "transformers",
+    "torch", "torch.nn", "torch.optim", "torch.utils", "torch.utils.data",
     "textblob",
     "vaderSentiment", "vaderSentiment.vaderSentiment",
 ]:

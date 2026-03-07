@@ -52,6 +52,10 @@ sys.modules.setdefault("plotly.graph_objects", _plotly_go)
 sys.modules.setdefault("plotly.subplots", _plotly_sub)
 sys.modules.setdefault("plotly.express", _plotly_express)
 
+# --- torch stubs (N12 imports torch.nn / torch.optim) -----------------------
+for _torch_key in ["torch", "torch.nn", "torch.optim", "torch.utils", "torch.utils.data"]:
+    sys.modules.setdefault(_torch_key, MagicMock())
+
 # --- Spyder U-series stubs used by N-series ----------------------------------
 def _ensure_mod(key):
     """Create a stub module and all ancestor package stubs (prevents real __init__.py loading)."""
@@ -59,7 +63,12 @@ def _ensure_mod(key):
     for i in range(1, len(parts) + 1):
         ancestor = ".".join(parts[:i])
         if ancestor not in sys.modules:
-            sys.modules[ancestor] = types.ModuleType(ancestor)
+            m = types.ModuleType(ancestor)
+            real_dir = os.path.join(_ROOT, ancestor.replace(".", os.sep))
+            if os.path.isdir(real_dir):
+                m.__path__ = [real_dir]
+                m.__package__ = ancestor
+            sys.modules[ancestor] = m
     return sys.modules[key]
 
 _u01 = _ensure_mod("Spyder.SpyderU_Utilities.SpyderU01_Logger")

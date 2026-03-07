@@ -160,6 +160,14 @@ class RiskMetrics:
     blocked_orders: List[str] = field(default_factory=list)
 
 @dataclass
+class RiskProfile:
+    """Risk profile for strategy configurations."""
+    account_size: float = 100000.0
+    max_position_size: float = 0.02
+    max_portfolio_risk: float = 0.06
+    max_loss_per_trade: float = 0.01
+
+@dataclass
 class RiskCheckResponse:
     """Risk check response"""
     result: RiskCheckResult

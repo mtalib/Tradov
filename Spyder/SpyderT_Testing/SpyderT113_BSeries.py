@@ -36,75 +36,82 @@ _B_PKG_PATH = os.path.join(_ROOT, "Spyder", "SpyderB_Broker")
 
 
 def _ensure_mod(key):
-    """Create stub module + all ancestor package stubs."""
+    """Create stub module + all ancestor package stubs.
+
+    Returns (module, is_new) where is_new=True when the leaf was just created.
+    """
+    is_new = key not in sys.modules
     parts = key.split(".")
     for i in range(1, len(parts) + 1):
         ancestor = ".".join(parts[:i])
         if ancestor not in sys.modules:
             sys.modules[ancestor] = types.ModuleType(ancestor)
-    return sys.modules[key]
+    return sys.modules[key], is_new
 
 
 # ==============================================================================
 # Third-party stubs
 # ==============================================================================
 
-# ---- requests stub -----------------------------------------------------------
-_req_mod = types.ModuleType("requests")
-_req_mod.Session = MagicMock
-_req_mod.get = MagicMock(return_value=MagicMock())
-_req_mod.post = MagicMock(return_value=MagicMock())
-_req_mod.exceptions = types.ModuleType("requests.exceptions")
-_req_mod.exceptions.RequestException = Exception
-_req_mod.exceptions.Timeout = Exception
-_req_mod.exceptions.ConnectionError = Exception
-_req_mod.exceptions.HTTPError = Exception
-sys.modules["requests"] = _req_mod
-sys.modules["requests.exceptions"] = _req_mod.exceptions
-
-_req_adapt = types.ModuleType("requests.adapters")
-_req_adapt.HTTPAdapter = MagicMock
-sys.modules["requests.adapters"] = _req_adapt
-
-_urllib3_util = types.ModuleType("urllib3")
-_urllib3_retry = types.ModuleType("urllib3.util")
-_urllib3_retry_cls = types.ModuleType("urllib3.util.retry")
-_urllib3_retry_cls.Retry = MagicMock
-sys.modules["urllib3"] = _urllib3_util
-sys.modules["urllib3.util"] = _urllib3_retry
-sys.modules["urllib3.util.retry"] = _urllib3_retry_cls
+# ---- requests/urllib3 — use real packages (installed in .venv) ---------------
+# No stub needed; B40 imports the real requests at module level (no HTTP at import)
 
 # ---- prometheus_client stub --------------------------------------------------
-_prom = types.ModuleType("prometheus_client")
-_prom.Counter = MagicMock
-_prom.Gauge = MagicMock
-_prom.Histogram = MagicMock
-_prom.Summary = MagicMock
-_prom.Info = MagicMock
-_prom.CollectorRegistry = MagicMock
-_prom.start_http_server = MagicMock()
-sys.modules["prometheus_client"] = _prom
+if "prometheus_client" not in sys.modules:
+    _prom = types.ModuleType("prometheus_client")
+    _prom.Counter = MagicMock
+    _prom.Gauge = MagicMock
+    _prom.Histogram = MagicMock
+    _prom.Summary = MagicMock
+    _prom.Info = MagicMock
+    _prom.CollectorRegistry = MagicMock
+    _prom.start_http_server = MagicMock()
+    sys.modules["prometheus_client"] = _prom
 
-# ---- psutil stub -------------------------------------------------------------
-_psutil = types.ModuleType("psutil")
-_psutil.cpu_percent = MagicMock(return_value=10.0)
-_psutil.virtual_memory = MagicMock(return_value=MagicMock(percent=50.0))
-sys.modules["psutil"] = _psutil
+# ---- psutil stub (complete — later tests need Process, PROCFS_PATH, etc.) ----
+if "psutil" not in sys.modules:
+    _psutil = types.ModuleType("psutil")
+    _psutil.PROCFS_PATH = "/proc"
+    _psutil.LINUX = True
+    _psutil.POSIX = True
+    _psutil.cpu_percent = MagicMock(return_value=10.0)
+    _psutil.cpu_count = MagicMock(return_value=4)
+    _psutil.getloadavg = MagicMock(return_value=(1.0, 1.0, 1.0))
+    _psutil.pids = MagicMock(return_value=[])
+    _psutil.disk_usage = MagicMock(return_value=MagicMock(percent=50.0, total=100, used=50, free=50))
+    _psutil.net_io_counters = MagicMock(return_value=MagicMock(bytes_sent=0, bytes_recv=0))
+    _psutil.virtual_memory = MagicMock(return_value=MagicMock(
+        percent=50.0, total=8*1024**3, available=4*1024**3, used=4*1024**3,
+    ))
+    _psutil.swap_memory = MagicMock(return_value=MagicMock(percent=0.0, total=2*1024**3, used=0))
+    _psutil_proc = MagicMock()
+    _psutil_proc.memory_info.return_value = MagicMock(rss=100*1024**2, vms=200*1024**2)
+    _psutil_proc.cpu_percent.return_value = 5.0
+    _psutil_proc.status.return_value = "running"
+    _psutil.Process = MagicMock(return_value=_psutil_proc)
+    _psutil.NoSuchProcess = type("NoSuchProcess", (Exception,), {})
+    _psutil.AccessDenied = type("AccessDenied", (Exception,), {})
+    _psutil.process_iter = MagicMock(return_value=iter([]))
+    sys.modules["psutil"] = _psutil
+else:
+    _psutil = sys.modules["psutil"]
 
 # ---- ib_async stub -----------------------------------------------------------
-_ib_async = types.ModuleType("ib_async")
-_ib_async.IB = MagicMock
-_ib_async.Contract = MagicMock
-_ib_async.Order = MagicMock
-_ib_async.Trade = MagicMock
-_ib_async.Fill = MagicMock
-_ib_async.OrderStatus = MagicMock
-sys.modules["ib_async"] = _ib_async
+if "ib_async" not in sys.modules:
+    _ib_async = types.ModuleType("ib_async")
+    _ib_async.IB = MagicMock
+    _ib_async.Contract = MagicMock
+    _ib_async.Order = MagicMock
+    _ib_async.Trade = MagicMock
+    _ib_async.Fill = MagicMock
+    _ib_async.OrderStatus = MagicMock
+    sys.modules["ib_async"] = _ib_async
 
 # ---- sseclient stub (optional) -----------------------------------------------
-_sseclient = types.ModuleType("sseclient")
-_sseclient.SSEClient = MagicMock
-sys.modules["sseclient"] = _sseclient
+if "sseclient" not in sys.modules:
+    _sseclient = types.ModuleType("sseclient")
+    _sseclient.SSEClient = MagicMock
+    sys.modules["sseclient"] = _sseclient
 
 # ---- PySide6 stubs -----------------------------------------------------------
 class _AnyAttrModule(types.ModuleType):
@@ -137,8 +144,11 @@ for _key in [
     "Spyder.SpyderU_Utilities.SpyderU01_Logger",
     "SpyderU_Utilities.SpyderU01_Logger",
 ]:
-    _m = _ensure_mod(_key)
-    _m.SpyderLogger = _SpyderLoggerCls
+    _m, _new = _ensure_mod(_key)
+    if _new or not hasattr(_m, "SpyderLogger"):
+        _m.SpyderLogger = _SpyderLoggerCls
+    if _new or not hasattr(_m, "get_logger"):
+        _m.get_logger = _SpyderLoggerCls.get_logger
 
 # SpyderErrorHandler
 class _SpyderErrorHandlerCls:
@@ -150,25 +160,30 @@ for _key in [
     "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
     "SpyderU_Utilities.SpyderU02_ErrorHandler",
 ]:
-    _m = _ensure_mod(_key)
+    _m, _new = _ensure_mod(_key)
+    # Always override SpyderErrorHandler — other test files set it to MagicMock
+    # at collection time, but B04 needs a real constructor-callable class here.
     _m.SpyderErrorHandler = _SpyderErrorHandlerCls
-    _m.TradingError = type("TradingError", (Exception,), {})
+    if _new or not hasattr(_m, "TradingError"):
+        _m.TradingError = type("TradingError", (Exception,), {})
 
 # DateTimeUtils
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
     "SpyderU_Utilities.SpyderU03_DateTimeUtils",
 ]:
-    _m = _ensure_mod(_key)
-    _m.DateTimeUtils = MagicMock()
+    _m, _new = _ensure_mod(_key)
+    if _new or not hasattr(_m, "DateTimeUtils"):
+        _m.DateTimeUtils = MagicMock()
 
 # MathUtils
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU06_MathUtils",
     "SpyderU_Utilities.SpyderU06_MathUtils",
 ]:
-    _m = _ensure_mod(_key)
-    _m.MathUtils = MagicMock()
+    _m, _new = _ensure_mod(_key)
+    if _new or not hasattr(_m, "MathUtils"):
+        _m.MathUtils = MagicMock()
 
 # U40 RateLimiter (B40 imports `rate_limit` and `acquire_tradier`)
 def _rate_limit_decorator(func=None, *args, **kwargs):
@@ -182,9 +197,11 @@ for _key in [
     "Spyder.SpyderU_Utilities.SpyderU40_RateLimiter",
     "SpyderU_Utilities.SpyderU40_RateLimiter",
 ]:
-    _m = _ensure_mod(_key)
-    _m.rate_limit = _rate_limit_decorator
-    _m.acquire_tradier = MagicMock(return_value=True)
+    _m, _new = _ensure_mod(_key)
+    if _new or not hasattr(_m, "rate_limit"):
+        _m.rate_limit = _rate_limit_decorator
+    if _new or not hasattr(_m, "acquire_tradier"):
+        _m.acquire_tradier = MagicMock(return_value=True)
 
 # U41 CircuitBreaker (B40 imports `tradier_breaker` as decorator)
 def _tradier_breaker_decorator(func=None, *args, **kwargs):
@@ -198,9 +215,11 @@ for _key in [
     "Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker",
     "SpyderU_Utilities.SpyderU41_CircuitBreaker",
 ]:
-    _m = _ensure_mod(_key)
-    _m.tradier_breaker = _tradier_breaker_decorator
-    _m.CircuitBreaker = MagicMock
+    _m, _new = _ensure_mod(_key)
+    if _new or not hasattr(_m, "tradier_breaker"):
+        _m.tradier_breaker = _tradier_breaker_decorator
+    if _new or not hasattr(_m, "CircuitBreaker"):
+        _m.CircuitBreaker = MagicMock
 
 # A05 EventManager stub
 class _A05EventType(Enum):
@@ -226,11 +245,12 @@ for _key in [
     "Spyder.SpyderA_Core.SpyderA05_EventManager",
     "SpyderA_Core.SpyderA05_EventManager",
 ]:
-    _m = _ensure_mod(_key)
-    _m.EventType = _A05EventType
-    _m.Event = _A05Event
-    _m.EventManager = _A05EventManagerCls
-    _m.get_event_manager = staticmethod(_get_event_manager)
+    _m, _new = _ensure_mod(_key)
+    if _new or not hasattr(_m, "EventManager"):
+        _m.EventType = _A05EventType
+        _m.Event = _A05Event
+        _m.EventManager = _A05EventManagerCls
+        _m.get_event_manager = staticmethod(_get_event_manager)
 
 # ==============================================================================
 # SpyderB_Broker package pre-stubs
@@ -295,6 +315,20 @@ _b26 = _load_b_module("SpyderB26_PySideAsyncBridge.py", "Spyder.SpyderB_Broker.S
 # B30 — SPYOptionsChainManager (lazy ib_async + B08 stubs)
 # B30 has internal fallback when B08 is absent — just load
 _b30 = _load_b_module("SpyderB30_SPYOptionsChainManager.py", "Spyder.SpyderB_Broker.SpyderB30_SPYOptionsChainManager")
+
+# ==============================================================================
+# CLEANUP: Remove Spyder-internal stubs that should not persist to later tests.
+# B-series modules are now fully loaded; their decorators have been applied.
+# Other test files (T91, T46, T45 etc.) need the real U40/U41 implementations.
+# ==============================================================================
+_STUBS_TO_REMOVE = [
+    "Spyder.SpyderU_Utilities.SpyderU40_RateLimiter",
+    "SpyderU_Utilities.SpyderU40_RateLimiter",
+    "Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker",
+    "SpyderU_Utilities.SpyderU41_CircuitBreaker",
+]
+for _stub_key in _STUBS_TO_REMOVE:
+    sys.modules.pop(_stub_key, None)
 
 
 import pytest

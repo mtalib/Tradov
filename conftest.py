@@ -44,6 +44,18 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(config, items):
     """Modify test items after collection"""
+    import re
+
+    def _file_sort_key(item):
+        """Sort SpyderT*.py files numerically so SpyderT93 < SpyderT100."""
+        fname = os.path.basename(str(item.fspath))
+        m = re.match(r'SpyderT(\d+)', fname)
+        return int(m.group(1)) if m else 0
+
+    # Sort items numerically by SpyderT number so SpyderT1xx always runs
+    # after SpyderT09x, SpyderT08x, etc. (lexicographic order breaks this).
+    items.sort(key=_file_sort_key)
+
     # Auto-mark tests based on their location/name
     for item in items:
         # Mark integration tests

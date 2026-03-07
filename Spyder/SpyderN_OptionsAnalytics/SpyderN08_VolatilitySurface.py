@@ -39,6 +39,7 @@ from scipy import interpolate, optimize
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import plotly.graph_objects as go

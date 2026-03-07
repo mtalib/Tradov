@@ -59,10 +59,11 @@ _err_mod = types.ModuleType("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler")
 _err_mod.SpyderErrorHandler = MagicMock
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _err_mod
 
-# Stub U03 DateTimeUtils to export US_EASTERN
+# Stub U03 DateTimeUtils to export US_EASTERN and TradingTimeUtils
 _dt_mod = types.ModuleType("Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils")
 _dt_mod.US_EASTERN = "US/Eastern"
-sys.modules["Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _dt_mod
+_dt_mod.TradingTimeUtils = MagicMock
+sys.modules.setdefault("Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils", _dt_mod)
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS AND MODULE IMPORTS

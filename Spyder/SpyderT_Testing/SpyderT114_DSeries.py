@@ -40,7 +40,7 @@ def _ensure_mod(key, force=False):
 
     Args:
         key: sys.modules key to create/get.
-        force: If True, ALWAYS create a fresh Types.ModuleType stub for the
+        force: If True, ALWAYS create a fresh types.ModuleType stub for the
                leaf module and ASSIGN it to sys.modules (even if the key
                already has a real module).  This is used for 'Spyder.*'
                prefix keys so that D-series modules importing via the 'Spyder.'
@@ -59,7 +59,12 @@ def _ensure_mod(key, force=False):
     for i in range(1, len(parts)):
         ancestor = ".".join(parts[:i])
         if ancestor not in sys.modules:
-            sys.modules[ancestor] = types.ModuleType(ancestor)
+            m = types.ModuleType(ancestor)
+            real_dir = os.path.join(_ROOT, ancestor.replace(".", os.sep))
+            if os.path.isdir(real_dir):
+                m.__path__ = [real_dir]
+                m.__package__ = ancestor
+            sys.modules[ancestor] = m
     # Leaf module
     if force or is_new:
         new_mod = types.ModuleType(key)
@@ -140,6 +145,7 @@ for _key in [
     _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
     if _new:
         _m.SpyderLogger = _SpyderLoggerCls
+        _m.get_logger = _SpyderLoggerCls.get_logger
 
 # ---- U02 SpyderErrorHandler -------------------------------------------------
 class _ErrHandlerCls:
@@ -242,16 +248,35 @@ for _key in [
         _m.get_event_manager = staticmethod(_get_event_manager)
         _m.get_event_bus = staticmethod(_get_event_bus)
 
-# ---- E01 RiskManager --------------------------------------------------------
+# ---- E01 RiskManager: load from file directly (avoids Spyder __init__ chain) -
 for _key in [
     "Spyder.SpyderE_Risk.SpyderE01_RiskManager",
     "SpyderE_Risk.SpyderE01_RiskManager",
 ]:
-    _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
-    if _new:
-        _m.RiskProfile = MagicMock(return_value=MagicMock())
-        _m.RiskManager = MagicMock
-        _m.RiskLevel = MagicMock
+    if _key not in sys.modules:
+        _e01_path = os.path.join(_ROOT, "Spyder", "SpyderE_Risk", "SpyderE01_RiskManager.py")
+        try:
+            import importlib.util as _ilu_e01
+            _spec = _ilu_e01.spec_from_file_location(_key, _e01_path)
+            _mod = _ilu_e01.module_from_spec(_spec)
+            sys.modules[_key] = _mod
+            _spec.loader.exec_module(_mod)
+        except Exception:
+            _m, _new = _ensure_mod(_key, force=False)
+            if _new:
+                _m.RiskProfile = MagicMock(return_value=MagicMock())
+                _m.RiskManager = MagicMock
+                _m.RiskLevel = MagicMock
+                _m.DEFAULT_RISK_LIMITS = {
+                    'max_position_size': 1000,
+                    'max_total_exposure': 100000.0,
+                    'max_daily_loss': 10000.0,
+                    'max_single_order_size': 500,
+                    'max_orders_per_minute': 10,
+                    'max_concentration_ratio': 0.3,
+                    'max_options_exposure': 50000.0,
+                    'max_margin_usage': 0.8,
+                }
 
 # ---- E08 PositionGroupValidator ---------------------------------------------
 for _key in [
@@ -318,7 +343,6 @@ for _fname, _attrs in _C_STUBS.items():
 # ---- N-series (OptionsAnalytics) stubs --------------------------------------
 _N_OPT_STUBS = {
     "SpyderN07_OPRAGreeksHandler": {"OPRAGreeksHandler": MagicMock},
-    "SpyderN11_OptionsGreeksFlow": {"GreeksFlowAnalyzer": MagicMock},
 }
 
 for _fname, _attrs in _N_OPT_STUBS.items():
@@ -330,6 +354,21 @@ for _fname, _attrs in _N_OPT_STUBS.items():
         if _new:
             for _attr_name, _attr_val in _attrs.items():
                 setattr(_m, _attr_name, _attr_val)
+
+# N11 is handled specially: always ensure GreeksFlowAnalyzer exists (needed by
+# D09), but do NOT force-replace if the real module is already loaded (T108
+# imports from it at collection time and the real module is needed intact).
+for _key in [
+    "Spyder.SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow",
+    "SpyderN_OptionsAnalytics.SpyderN11_OptionsGreeksFlow",
+]:
+    _n11_mod, _n11_new = _ensure_mod(_key, force=False)
+    if not hasattr(_n11_mod, "GreeksFlowAnalyzer"):
+        _n11_mod.GreeksFlowAnalyzer = MagicMock
+    if not hasattr(_n11_mod, "OptionsGreeksFlowAnalyzer"):
+        _n11_mod.OptionsGreeksFlowAnalyzer = MagicMock
+    if not hasattr(_n11_mod, "OptionChainManager"):
+        _n11_mod.OptionChainManager = MagicMock
 
 # ---- N-series (Numerical) stubs ---------------------------------------------
 _N_NUM_STUBS = {

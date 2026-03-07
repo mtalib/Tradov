@@ -42,7 +42,12 @@ def _ensure_mod(key):
     for i in range(1, len(parts) + 1):
         ancestor = ".".join(parts[:i])
         if ancestor not in sys.modules:
-            sys.modules[ancestor] = types.ModuleType(ancestor)
+            m = types.ModuleType(ancestor)
+            real_dir = os.path.join(_ROOT, ancestor.replace(".", os.sep))
+            if os.path.isdir(real_dir):
+                m.__path__ = [real_dir]
+                m.__package__ = ancestor
+            sys.modules[ancestor] = m
     return sys.modules[key]
 
 
@@ -423,6 +428,9 @@ sys.modules.setdefault("SpyderL10_FeatureEngineering", _l10_mod)
 
 # ---------------------------------------------------------------------------
 # Load L13 — LSTMPricer (imports U01/U02, torch)
+# ensure torch submodules are stubbed so L13 can be imported without real torch
+for _torch_key in ["torch", "torch.nn", "torch.optim", "torch.utils", "torch.utils.data"]:
+    sys.modules.setdefault(_torch_key, MagicMock())
 # ---------------------------------------------------------------------------
 _l13_key = "Spyder.SpyderL_ML.SpyderL13_LSTMPricer"
 if _l13_key not in sys.modules:
