@@ -1752,7 +1752,7 @@ class TradingTimeUtils:
         # Start with next day if after market close or weekend
         next_open = dt.replace(hour=9, minute=30, second=0, microsecond=0)
 
-        if dt.time() >= datetime.time(16, 0) or dt.weekday() >= 5:
+        if dt.time() >= time(16, 0) or dt.weekday() >= 5:
             next_open += timedelta(days=1)
 
         # Skip weekends

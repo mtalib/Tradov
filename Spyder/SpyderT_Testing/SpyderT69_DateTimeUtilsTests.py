@@ -663,13 +663,11 @@ class TestTradingTimeUtils:
         result = TradingTimeUtils.is_market_hours(naive_dt)
         assert result is False
 
-    @pytest.mark.xfail(reason="U03 bug: datetime.time() called as descriptor")
     def test_get_next_market_open_returns_datetime(self):
         dt = datetime(2026, 1, 6, 7, 0)
         result = TradingTimeUtils.get_next_market_open(dt)
         assert isinstance(result, datetime)
 
-    @pytest.mark.xfail(reason="U03 bug: datetime.time() called as descriptor")
     def test_get_market_session_returns_string(self):
         result = TradingTimeUtils.get_market_session()
         assert isinstance(result, str)

@@ -418,11 +418,6 @@ class TestMarketStatusScenarios:
                 assert status == MarketStatus.HOLIDAY
                 break
 
-    @pytest.mark.xfail(
-        reason="U10 get_market_status compares tz-aware timestamp with naive datetime.combine() "
-               "inside the OPENING_SOON check, causing TypeError caught as CLOSED (upstream bug)",
-        strict=False,
-    )
     def test_opening_soon_status(self):
         cal = _fresh_calendar()
         # 9:05 on a trading Monday — should be OPENING_SOON but U10 returns CLOSED
@@ -431,11 +426,6 @@ class TestMarketStatusScenarios:
         status = cal.get_market_status(ts)
         assert status == MarketStatus.OPENING_SOON
 
-    @pytest.mark.xfail(
-        reason="U10 get_market_status compares tz-aware timestamp with naive datetime.combine() "
-               "inside the CLOSING_SOON check, causing TypeError caught as CLOSED (upstream bug)",
-        strict=False,
-    )
     def test_closing_soon_status(self):
         cal = _fresh_calendar()
         # 15:45 (last 30 min before close) on trading Monday — should be CLOSING_SOON but U10 returns CLOSED
