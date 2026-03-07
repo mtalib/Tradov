@@ -35,14 +35,38 @@ _D_PKG_PATH = os.path.join(_ROOT, "Spyder", "SpyderD_Strategies")
 _U_PKG_PATH = os.path.join(_ROOT, "Spyder", "SpyderU_Utilities")
 
 
-def _ensure_mod(key):
-    """Create stub module + all ancestor package stubs."""
+def _ensure_mod(key, force=False):
+    """Create stub module + all ancestor package stubs.
+
+    Args:
+        key: sys.modules key to create/get.
+        force: If True, ALWAYS create a fresh Types.ModuleType stub for the
+               leaf module and ASSIGN it to sys.modules (even if the key
+               already has a real module).  This is used for 'Spyder.*'
+               prefix keys so that D-series modules importing via the 'Spyder.'
+               namespace get our stubs rather than whatever the real package
+               loaded.  Previously-stored module object references (e.g.
+               T112's ``_e01``) are unaffected because they hold a direct
+               reference to the old object, not a sys.modules lookup.
+               If False (default) use setdefault — create only when absent.
+
+    Returns:
+        (module, is_new) where is_new is True when a fresh stub was created.
+    """
+    is_new = key not in sys.modules
+    # Create ancestor package stubs if they do not already exist.
     parts = key.split(".")
-    for i in range(1, len(parts) + 1):
+    for i in range(1, len(parts)):
         ancestor = ".".join(parts[:i])
         if ancestor not in sys.modules:
             sys.modules[ancestor] = types.ModuleType(ancestor)
-    return sys.modules[key]
+    # Leaf module
+    if force or is_new:
+        new_mod = types.ModuleType(key)
+        sys.modules[key] = new_mod
+        return new_mod, True
+    return sys.modules[key], False
+
 
 
 # ==============================================================================
@@ -64,23 +88,34 @@ for _pyside_key in [
     if _pyside_key not in sys.modules:
         sys.modules[_pyside_key] = _AnyAttrModule(_pyside_key)
 
-# Ensure critical Qt objects exist
-sys.modules["PySide6.QtCore"].QObject = MagicMock
-sys.modules["PySide6.QtCore"].Signal = MagicMock
-sys.modules["PySide6.QtCore"].QTimer = MagicMock
-sys.modules["PySide6.QtCore"].QThread = MagicMock
-sys.modules["PySide6.QtCore"].Qt = MagicMock()
-sys.modules["PySide6.QtCore"].QAbstractTableModel = MagicMock
-sys.modules["PySide6.QtCore"].QModelIndex = MagicMock
-sys.modules["PySide6.QtWidgets"].QWidget = MagicMock
+# Only set Qt stub attrs when the module is already OUR stub (not the real library).
+_qt_core_mod = sys.modules.get("PySide6.QtCore")
+if isinstance(_qt_core_mod, _AnyAttrModule):
+    _qt_core_mod.QObject = MagicMock
+    _qt_core_mod.Signal = MagicMock
+    _qt_core_mod.QTimer = MagicMock
+    _qt_core_mod.QThread = MagicMock
+    _qt_core_mod.Qt = MagicMock()
+    _qt_core_mod.QAbstractTableModel = MagicMock
+    _qt_core_mod.QModelIndex = MagicMock
+_qt_widgets_mod = sys.modules.get("PySide6.QtWidgets")
+if isinstance(_qt_widgets_mod, _AnyAttrModule):
+    _qt_widgets_mod.QWidget = MagicMock
 
-# matplotlib backend stub (used in D31)
+# matplotlib backend stub (used in D31) — only install if not already real.
 _mpl = sys.modules.setdefault("matplotlib", _AnyAttrModule("matplotlib"))
 _mpl_be = types.ModuleType("matplotlib.backends")
 _mpl_be_qt = types.ModuleType("matplotlib.backends.backend_qt5agg")
 _mpl_be_qt.FigureCanvasQTAgg = MagicMock
-sys.modules["matplotlib.backends"] = _mpl_be
-sys.modules["matplotlib.backends.backend_qt5agg"] = _mpl_be_qt
+if "matplotlib.backends" not in sys.modules:
+    sys.modules["matplotlib.backends"] = _mpl_be
+if "matplotlib.backends.backend_qt5agg" not in sys.modules:
+    sys.modules["matplotlib.backends.backend_qt5agg"] = _mpl_be_qt
+
+# pandas_ta stub — prevents D18 from importing real pandas_ta which sets
+# pd.options.mode.copy_on_write = True (breaking other tests' numpy arrays).
+if "pandas_ta" not in sys.modules:
+    sys.modules["pandas_ta"] = _AnyAttrModule("pandas_ta")
 
 # plotly stubs (for D31)
 for _plkey in ["plotly", "plotly.graph_objects", "plotly.express"]:
@@ -102,8 +137,9 @@ for _key in [
     "Spyder.SpyderU_Utilities.SpyderU01_Logger",
     "SpyderU_Utilities.SpyderU01_Logger",
 ]:
-    _m = _ensure_mod(_key)
-    _m.SpyderLogger = _SpyderLoggerCls
+    _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+    if _new:
+        _m.SpyderLogger = _SpyderLoggerCls
 
 # ---- U02 SpyderErrorHandler -------------------------------------------------
 class _ErrHandlerCls:
@@ -121,11 +157,12 @@ for _key in [
     "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
     "SpyderU_Utilities.SpyderU02_ErrorHandler",
 ]:
-    _m = _ensure_mod(_key)
-    _m.SpyderErrorHandler = _ErrHandlerCls
-    _m.TradingError = type("TradingError", (Exception,), {})
-    _m.DataValidationError = type("DataValidationError", (Exception,), {})
-    _m.SpyderException = type("SpyderException", (Exception,), {})
+    _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+    if _new:
+        _m.SpyderErrorHandler = _ErrHandlerCls
+        _m.TradingError = type("TradingError", (Exception,), {})
+        _m.DataValidationError = type("DataValidationError", (Exception,), {})
+        _m.SpyderException = type("SpyderException", (Exception,), {})
 
 # ---- U07 Constants — load REAL file (stdlib-only deps) ----------------------
 _u07_path = os.path.join(_U_PKG_PATH, "SpyderU07_Constants.py")
@@ -148,8 +185,9 @@ for _key in [
     "Spyder.SpyderU_Utilities.SpyderU13_TechnicalIndicators",
     "SpyderU_Utilities.SpyderU13_TechnicalIndicators",
 ]:
-    _m = _ensure_mod(_key)
-    _m.TechnicalIndicators = MagicMock
+    _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+    if _new:
+        _m.TechnicalIndicators = MagicMock
 
 # ---- A05 EventManager -------------------------------------------------------
 class _A05EventType(Enum):
@@ -185,33 +223,44 @@ def _get_event_manager():
     return _A05EventManagerCls()
 
 
+def _get_event_bus():
+    return _A05EventManagerCls()
+
+
 for _key in [
     "Spyder.SpyderA_Core.SpyderA05_EventManager",
     "SpyderA_Core.SpyderA05_EventManager",
 ]:
-    _m = _ensure_mod(_key)
-    _m.EventType = _A05EventType
-    _m.Event = _A05Event
-    _m.EventManager = _A05EventManagerCls
-    _m.get_event_manager = staticmethod(_get_event_manager)
+    # Only force-replace our own _AnyAttrModule stubs, not real modules from other test files
+    _a05_existing = sys.modules.get(_key)
+    _a05_force = _key.startswith("Spyder.") and isinstance(_a05_existing, _AnyAttrModule)
+    _m, _new = _ensure_mod(_key, force=_a05_force)
+    if _new or not hasattr(_m, "EventManager"):
+        _m.EventType = _A05EventType
+        _m.Event = _A05Event
+        _m.EventManager = _A05EventManagerCls
+        _m.get_event_manager = staticmethod(_get_event_manager)
+        _m.get_event_bus = staticmethod(_get_event_bus)
 
 # ---- E01 RiskManager --------------------------------------------------------
 for _key in [
     "Spyder.SpyderE_Risk.SpyderE01_RiskManager",
     "SpyderE_Risk.SpyderE01_RiskManager",
 ]:
-    _m = _ensure_mod(_key)
-    _m.RiskProfile = MagicMock(return_value=MagicMock())
-    _m.RiskManager = MagicMock
-    _m.RiskLevel = MagicMock
+    _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+    if _new:
+        _m.RiskProfile = MagicMock(return_value=MagicMock())
+        _m.RiskManager = MagicMock
+        _m.RiskLevel = MagicMock
 
 # ---- E08 PositionGroupValidator ---------------------------------------------
 for _key in [
     "Spyder.SpyderE_Risk.SpyderE08_PositionGroupValidator",
     "SpyderE_Risk.SpyderE08_PositionGroupValidator",
 ]:
-    _m = _ensure_mod(_key)
-    _m.PositionGroupValidator = MagicMock
+    _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+    if _new:
+        _m.PositionGroupValidator = MagicMock
 
 # ---- F-series stubs ---------------------------------------------------------
 _F_STUBS = {
@@ -244,9 +293,10 @@ for _fname, _attrs in _F_STUBS.items():
         f"Spyder.SpyderF_Analysis.{_fname}",
         f"SpyderF_Analysis.{_fname}",
     ]:
-        _m = _ensure_mod(_key)
-        for _attr_name, _attr_val in _attrs.items():
-            setattr(_m, _attr_name, _attr_val)
+        _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+        if _new:
+            for _attr_name, _attr_val in _attrs.items():
+                setattr(_m, _attr_name, _attr_val)
 
 # ---- C-series stubs ---------------------------------------------------------
 _C_STUBS = {
@@ -260,9 +310,10 @@ for _fname, _attrs in _C_STUBS.items():
         f"Spyder.SpyderC_MarketData.{_fname}",
         f"SpyderC_MarketData.{_fname}",
     ]:
-        _m = _ensure_mod(_key)
-        for _attr_name, _attr_val in _attrs.items():
-            setattr(_m, _attr_name, _attr_val)
+        _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+        if _new:
+            for _attr_name, _attr_val in _attrs.items():
+                setattr(_m, _attr_name, _attr_val)
 
 # ---- N-series (OptionsAnalytics) stubs --------------------------------------
 _N_OPT_STUBS = {
@@ -275,9 +326,10 @@ for _fname, _attrs in _N_OPT_STUBS.items():
         f"Spyder.SpyderN_OptionsAnalytics.{_fname}",
         f"SpyderN_OptionsAnalytics.{_fname}",
     ]:
-        _m = _ensure_mod(_key)
-        for _attr_name, _attr_val in _attrs.items():
-            setattr(_m, _attr_name, _attr_val)
+        _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+        if _new:
+            for _attr_name, _attr_val in _attrs.items():
+                setattr(_m, _attr_name, _attr_val)
 
 # ---- N-series (Numerical) stubs ---------------------------------------------
 _N_NUM_STUBS = {
@@ -290,19 +342,21 @@ for _fname, _attrs in _N_NUM_STUBS.items():
         f"Spyder.SpyderN_Numerical.{_fname}",
         f"SpyderN_Numerical.{_fname}",
     ]:
-        _m = _ensure_mod(_key)
-        for _attr_name, _attr_val in _attrs.items():
-            setattr(_m, _attr_name, _attr_val)
+        _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+        if _new:
+            for _attr_name, _attr_val in _attrs.items():
+                setattr(_m, _attr_name, _attr_val)
 
 # ---- P07 RenaissancePositionSizer stub (for D33) ----------------------------
 for _key in [
     "Spyder.SpyderP_PortfolioMgmt.SpyderP07_RenaissancePositionSizer",
     "SpyderP_PortfolioMgmt.SpyderP07_RenaissancePositionSizer",
 ]:
-    _m = _ensure_mod(_key)
-    _m.RenaissancePositionSizer = MagicMock
-    _m.PositionSizeMethod = MagicMock
-    _m.PositionSizeResult = MagicMock
+    _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
+    if _new:
+        _m.RenaissancePositionSizer = MagicMock
+        _m.PositionSizeMethod = MagicMock
+        _m.PositionSizeResult = MagicMock
 
 # ==============================================================================
 # SpyderD_Strategies package pre-stubs
