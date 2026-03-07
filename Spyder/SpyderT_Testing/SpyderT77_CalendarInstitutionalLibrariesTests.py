@@ -382,8 +382,11 @@ class TestErrorHandling10:
 
     def test_get_market_status_exception_returns_closed(self):
         cal = _fresh_calendar()
+        # Pass a known weekday timestamp so get_market_status() doesn't return
+        # WEEKEND before ever calling is_trading_day (which carries the exception).
+        weekday_ts = datetime(2024, 1, 2, 12, 0)  # Tuesday — not a holiday or weekend
         with patch.object(cal, "is_trading_day", side_effect=Exception("test error")):
-            result = cal.get_market_status()
+            result = cal.get_market_status(timestamp=weekday_ts)
         assert result == MarketStatus.CLOSED
 
     def test_get_market_session_exception_returns_closed(self):
