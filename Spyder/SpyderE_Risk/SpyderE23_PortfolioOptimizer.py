@@ -58,6 +58,13 @@ try:
 except ImportError:
     HAS_RISKFOLIO = False
 
+# Convex optimization (QP, mean-variance, risk-parity)
+try:
+    import cvxpy as cp
+    HAS_CVXPY = True
+except ImportError:
+    HAS_CVXPY = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -1428,74 +1435,106 @@ class PortfolioOptimizer:
     
     async def _optimize_minimum_variance(self, covariance_matrix: np.ndarray,
                                        parameters: OptimizationParameters) -> Dict[str, float]:
-        """Optimize portfolio for minimum variance."""
+        """
+        Optimize portfolio for minimum variance.
+
+        Uses CVXPY for a proper QP formulation when available (guaranteed
+        global optimum via interior-point solver); falls back to scipy SLSQP.
+        """
         try:
             n_assets = len(covariance_matrix)
-            
+            asset_names = self.returns_data.columns.tolist()
+
+            if HAS_CVXPY:
+                w = cp.Variable(n_assets)
+                Sigma = cp.Parameter((n_assets, n_assets), symmetric=True)
+                Sigma.value = covariance_matrix
+                objective = cp.Minimize(cp.quad_form(w, Sigma))
+                constraints = [
+                    cp.sum(w) == 1,
+                    w >= MIN_POSITION_WEIGHT,
+                    w <= MAX_POSITION_WEIGHT,
+                ]
+                prob = cp.Problem(objective, constraints)
+                prob.solve(solver=cp.CLARABEL, warm_start=True)
+                if prob.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE) and w.value is not None:
+                    return {asset_names[i]: float(w.value[i]) for i in range(n_assets)}
+                self.logger.warning("CVXPY min-variance: solver did not converge, falling back to scipy")
+
+            # Scipy fallback
             def objective(weights):
                 return np.dot(weights, np.dot(covariance_matrix, weights))
-            
-            # Constraints and bounds
+
             constraints = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
             bounds = [(MIN_POSITION_WEIGHT, MAX_POSITION_WEIGHT) for _ in range(n_assets)]
-            
-            # Initial guess
             x0 = np.ones(n_assets) / n_assets
-            
-            # Optimize
             result = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=constraints)
-            
+
             if result.success:
-                optimal_weights_array = result.x
-                asset_names = self.returns_data.columns.tolist()
-                optimal_weights = {asset_names[i]: optimal_weights_array[i] for i in range(n_assets)}
-                return optimal_weights
-            else:
-                return self._create_equal_weights(self.returns_data.columns)
-                
+                return {asset_names[i]: result.x[i] for i in range(n_assets)}
+            return self._create_equal_weights(self.returns_data.columns)
+
         except Exception as e:
             self.logger.error(f"Error in minimum variance optimization: {e}")
             return self._create_equal_weights(self.returns_data.columns)
-    
+
     async def _optimize_maximum_sharpe(self, expected_returns: np.ndarray,
                                      covariance_matrix: np.ndarray,
                                      parameters: OptimizationParameters) -> Dict[str, float]:
-        """Optimize portfolio for maximum Sharpe ratio."""
+        """
+        Optimize portfolio for maximum Sharpe ratio.
+
+        With CVXPY, uses the Markowitz homogeneous transformation to convert
+        the fractional programme into a QP (Lobo et al. 2007).
+        Falls back to scipy SLSQP.
+        """
         try:
             n_assets = len(expected_returns)
-            
+            asset_names = self.returns_data.columns.tolist()
+            rf = parameters.risk_free_rate
+
+            if HAS_CVXPY:
+                # Homogeneous variable y = w / (mu' w - rf), kappa = 1 / (mu' w - rf)
+                y = cp.Variable(n_assets, nonneg=True)
+                kappa = cp.Variable(nonneg=True)
+                excess = expected_returns - rf
+                Sigma = cp.Parameter((n_assets, n_assets), symmetric=True)
+                Sigma.value = covariance_matrix
+                objective = cp.Minimize(cp.quad_form(y, Sigma))
+                constraints = [
+                    excess @ y == 1,
+                    cp.sum(y) == kappa,
+                    y >= MIN_POSITION_WEIGHT * kappa,
+                    y <= MAX_POSITION_WEIGHT * kappa,
+                    kappa >= 0,
+                ]
+                prob = cp.Problem(objective, constraints)
+                prob.solve(solver=cp.CLARABEL, warm_start=True)
+                if prob.status in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE) and y.value is not None and float(kappa.value) > 1e-10:
+                    w_opt = y.value / float(kappa.value)
+                    return {asset_names[i]: float(w_opt[i]) for i in range(n_assets)}
+                self.logger.warning("CVXPY max-Sharpe: solver did not converge, falling back to scipy")
+
+            # Scipy fallback
             def objective(weights):
                 portfolio_return = np.dot(weights, expected_returns)
                 portfolio_risk = np.sqrt(np.dot(weights, np.dot(covariance_matrix, weights)))
-                excess_return = portfolio_return - parameters.risk_free_rate
-                
-                # Minimize negative Sharpe ratio
-                if portfolio_risk > 0:
-                    return -excess_return / portfolio_risk
-                else:
-                    return -excess_return
-            
-            # Constraints and bounds
+                excess_return = portfolio_return - rf
+                return -excess_return / portfolio_risk if portfolio_risk > 0 else -excess_return
+
             constraints = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
             bounds = [(MIN_POSITION_WEIGHT, MAX_POSITION_WEIGHT) for _ in range(n_assets)]
-            
-            # Initial guess
             x0 = np.ones(n_assets) / n_assets
-            
-            # Optimize
             result = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=constraints)
-            
+
             if result.success:
-                optimal_weights_array = result.x
-                asset_names = self.returns_data.columns.tolist()
-                optimal_weights = {asset_names[i]: optimal_weights_array[i] for i in range(n_assets)}
-                return optimal_weights
-            else:
-                return self._create_equal_weights(self.returns_data.columns)
-                
+                return {asset_names[i]: result.x[i] for i in range(n_assets)}
+            return self._create_equal_weights(self.returns_data.columns)
+
         except Exception as e:
             self.logger.error(f"Error in maximum Sharpe optimization: {e}")
             return self._create_equal_weights(self.returns_data.columns)
+
     
     async def _optimize_black_litterman(self, expected_returns: np.ndarray,
                                       covariance_matrix: np.ndarray,

@@ -53,6 +53,14 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import SpyderF_Analysis.SpyderF20_Indicators as talib
 TALIB_AVAILABLE = True
 
+# polars: high-performance columnar DataFrame for batch transforms
+try:
+    import polars as pl
+    _POLARS_AVAILABLE = True
+except ImportError:
+    pl = None  # type: ignore[assignment]
+    _POLARS_AVAILABLE = False
+
 try:
     import mlflow
     MLFLOW_AVAILABLE = True
@@ -455,12 +463,72 @@ class ModelDataPipeline:
             self.error_handler.handle_error(e, context="engineer_features")
             return FeatureSet(feature_names=[], feature_values=np.array([]), timestamps=pd.DatetimeIndex([]))
     
+    def batch_normalize_polars(
+        self,
+        data: pd.DataFrame,
+        columns: Optional[List[str]] = None,
+        method: str = "zscore",
+    ) -> pd.DataFrame:
+        """
+        High-performance batch normalisation using polars.
+
+        For large feature matrices polars is significantly faster than pandas
+        because it uses Arrow memory layout and Rust execution.  Falls back to
+        pandas when polars is not installed.
+
+        Args:
+            data: Pandas DataFrame of numeric features.
+            columns: Columns to normalise.  If None, all numeric columns.
+            method: 'zscore' (mean=0, std=1) or 'minmax' ([0, 1]).
+
+        Returns:
+            Normalised pandas DataFrame with the same index.
+        """
+        if data is None or data.empty:
+            return data
+
+        cols = columns or data.select_dtypes(include=[np.number]).columns.tolist()
+
+        if not _POLARS_AVAILABLE:
+            # Pandas fallback
+            result = data.copy()
+            if method == "zscore":
+                result[cols] = (result[cols] - result[cols].mean()) / (result[cols].std() + 1e-9)
+            else:
+                mn, mx = result[cols].min(), result[cols].max()
+                result[cols] = (result[cols] - mn) / (mx - mn + 1e-9)
+            return result
+
+        try:
+            pl_df = pl.from_pandas(data[cols].reset_index(drop=True))
+            if method == "zscore":
+                pl_df = pl_df.with_columns([
+                    ((pl.col(c) - pl.col(c).mean()) / (pl.col(c).std() + 1e-9)).alias(c)
+                    for c in cols
+                ])
+            else:
+                pl_df = pl_df.with_columns([
+                    ((pl.col(c) - pl.col(c).min()) / (pl.col(c).max() - pl.col(c).min() + 1e-9)).alias(c)
+                    for c in cols
+                ])
+            result = data.copy()
+            result[cols] = pl_df.to_pandas().values
+            return result
+        except Exception as exc:
+            self.logger.warning(f"polars batch normalisation failed, using pandas fallback: {exc}")
+            result = data.copy()
+            if method == "zscore":
+                result[cols] = (result[cols] - result[cols].mean()) / (result[cols].std() + 1e-9)
+            else:
+                mn, mx = result[cols].min(), result[cols].max()
+                result[cols] = (result[cols] - mn) / (mx - mn + 1e-9)
+            return result
+
     def _create_technical_feature_engineer(self) -> Callable:
         """Create technical indicator feature engineer."""
         def engineer_technical_features(data: pd.DataFrame) -> pd.DataFrame:
             try:
-                features = pd.DataFrame(index=data.index)
-                
+                features = pd.DataFrame(index=data.index)                
                 # Use Spyder technical indicators if available
                 if SPYDER_INDICATORS_AVAILABLE:
                     indicators = calculate_technical_indicators(

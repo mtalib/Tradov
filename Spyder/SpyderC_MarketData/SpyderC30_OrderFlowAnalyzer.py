@@ -49,6 +49,13 @@ import pandas as pd
 import numpy as np
 import requests
 
+# stumpy: Matrix Profile for pattern discovery in order flow time series
+try:
+    import stumpy
+    _STUMPY_AVAILABLE = True
+except ImportError:
+    _STUMPY_AVAILABLE = False
+
 # Databento (optional — real-time and historical tick data)
 try:
     import databento as db
@@ -1639,6 +1646,60 @@ class OrderFlowAnalyzer:
         if self._thread:
             self._thread.join(timeout=5)
         logger.info("OrderFlowAnalyzer stopped")
+
+    def detect_order_flow_anomalies(
+        self,
+        symbol: str,
+        window: int = 20,
+        top_k: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """
+        Use the stumpy Matrix Profile to find anomalous (discord) patterns in
+        net delta order flow.  Discords have the highest 1-nearest-neighbour
+        distance in Matrix-Profile space — i.e., they are the most unusual
+        sub-sequences seen in the time series.
+
+        Args:
+            symbol: Trading symbol to analyse.
+            window: Sub-sequence length for the Matrix Profile (default 20 ticks).
+            top_k: Number of top discords to return.
+
+        Returns:
+            List of dicts with keys ``index``, ``mp_distance``, ``start_time``.
+            Empty list when stumpy is unavailable or data is insufficient.
+        """
+        if not _STUMPY_AVAILABLE:
+            logger.debug("stumpy not available — skipping matrix-profile anomaly detection")
+            return []
+
+        with self._lock:
+            trades = list(self.flow_history.get(symbol, []))
+
+        if len(trades) < window * 2:
+            return []
+
+        try:
+            net_delta = np.array(
+                [t.size if t.sentiment == FlowDirection.BULLISH else -t.size for t in trades],
+                dtype=float,
+            )
+            mp = stumpy.stump(net_delta, m=window)
+            profile = mp[:, 0].astype(float)  # column 0 = Matrix Profile distances
+
+            # Discords = indices with highest MP distance
+            discord_indices = np.argsort(profile)[::-1][:top_k]
+            results = []
+            for idx in discord_indices:
+                ts = trades[int(idx)].timestamp if int(idx) < len(trades) else None
+                results.append({
+                    "index": int(idx),
+                    "mp_distance": float(profile[idx]),
+                    "start_time": ts,
+                })
+            return results
+        except Exception as exc:
+            logger.warning(f"Order flow matrix-profile anomaly detection failed: {exc}")
+            return []
 
     def _run_realtime(self):
         """Real-time tracking loop."""

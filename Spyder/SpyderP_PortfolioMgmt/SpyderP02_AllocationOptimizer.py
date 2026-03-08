@@ -58,11 +58,23 @@ from sklearn.cluster import KMeans
 import xgboost as xgb
 import lightgbm as lgb
 from scipy.optimize import minimize, differential_evolution
-import cvxpy as cp
-import cvxopt
-from pypfopt import EfficientFrontier, risk_models, expected_returns
-from pypfopt.discrete_allocation import DiscreteAllocation
-from pypfopt.objective_functions import L2_reg
+try:
+    import cvxpy as cp
+    HAS_CVXPY = True
+except ImportError:
+    HAS_CVXPY = False
+try:
+    import cvxopt
+    HAS_CVXOPT = True
+except ImportError:
+    HAS_CVXOPT = False
+try:
+    from pypfopt import EfficientFrontier, risk_models, expected_returns
+    from pypfopt.discrete_allocation import DiscreteAllocation
+    from pypfopt.objective_functions import L2_reg
+    HAS_PYPFOPT = True
+except ImportError:
+    HAS_PYPFOPT = False
 
 # ==============================================================================
 # LOCAL IMPORTS

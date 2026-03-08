@@ -23,7 +23,18 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-import json
+try:
+    import orjson as _orjson  # 3-10x faster JSON serialization
+    def _json_dumps(obj) -> bytes:
+        return _orjson.dumps(obj)
+    def _json_loads(data) -> Any:
+        return _orjson.loads(data)
+except ImportError:
+    import json as _json_std
+    def _json_dumps(obj) -> bytes:  # type: ignore[misc]
+        return _json_std.dumps(obj).encode('utf-8')
+    def _json_loads(data) -> Any:  # type: ignore[misc]
+        return _json_std.loads(data)
 import time
 from datetime import datetime, date
 from typing import Dict, List, Optional, Any, Union, Type, Callable, Set
@@ -449,14 +460,14 @@ class SerializationManager:
         # Choose serialization method
         if format in [SerializationFormat.JSON, SerializationFormat.COMPRESSED_JSON, 
                       SerializationFormat.ENCRYPTED_JSON]:
-            serialized = json.dumps(data).encode('utf-8')
+            serialized = _json_dumps(data)
         elif MSGPACK_AVAILABLE and format in [SerializationFormat.MSGPACK, 
                                                SerializationFormat.COMPRESSED_MSGPACK,
                                                SerializationFormat.ENCRYPTED_MSGPACK]:
             serialized = msgpack.packb(data)
         else:
             # Fallback to JSON
-            serialized = json.dumps(data).encode('utf-8')
+            serialized = _json_dumps(data)
         
         # Apply compression if needed
         if format in [SerializationFormat.COMPRESSED_JSON, SerializationFormat.COMPRESSED_MSGPACK]:
@@ -506,14 +517,14 @@ class SerializationManager:
         # Deserialize
         if format in [SerializationFormat.JSON, SerializationFormat.COMPRESSED_JSON, 
                       SerializationFormat.ENCRYPTED_JSON]:
-            message_dict = json.loads(data.decode('utf-8'))
+            message_dict = _json_loads(data)
         elif MSGPACK_AVAILABLE and format in [SerializationFormat.MSGPACK, 
                                                SerializationFormat.COMPRESSED_MSGPACK,
                                                SerializationFormat.ENCRYPTED_MSGPACK]:
             message_dict = msgpack.unpackb(data, raw=False)
         else:
             # Try JSON as fallback
-            message_dict = json.loads(data.decode('utf-8'))
+            message_dict = _json_loads(data)
         
         return ProtocolMessage.from_dict(message_dict)
 

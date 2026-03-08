@@ -24,6 +24,13 @@ import inspect
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+# Install uvloop as the asyncio event loop (2-4x faster on Linux/macOS)
+try:
+    import uvloop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+except ImportError:
+    pass  # Falls back to default asyncio event loop
+
 # Add project root to path (now need to go up 3 levels: SpyderA01_Main.py -> SpyderA_Core -> Spyder -> project_root)
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))

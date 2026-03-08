@@ -66,6 +66,13 @@ except ImportError:
     HAS_PYFOLIO = False
 
 try:
+    import quantstats as qs
+    HAS_QUANTSTATS = True
+except ImportError:
+    qs = None  # type: ignore[assignment]
+    HAS_QUANTSTATS = False
+
+try:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -212,6 +219,26 @@ class InstitutionalTearSheet:
                         empyrical.up_capture(r_aligned, b_aligned))
                     metrics['down_capture'] = float(
                         empyrical.down_capture(r_aligned, b_aligned))
+
+            # quantstats supplement: additional institutional metrics not in empyrical
+            if HAS_QUANTSTATS and len(returns) >= 30:
+                try:
+                    metrics['qs_sharpe'] = float(qs.stats.sharpe(returns))
+                    metrics['qs_sortino'] = float(qs.stats.sortino(returns))
+                    metrics['qs_max_drawdown'] = float(qs.stats.max_drawdown(returns))
+                    metrics['qs_cagr'] = float(qs.stats.cagr(returns))
+                    metrics['qs_volatility'] = float(qs.stats.volatility(returns))
+                    metrics['qs_win_rate'] = float(qs.stats.win_rate(returns))
+                    metrics['qs_best'] = float(qs.stats.best(returns))
+                    metrics['qs_worst'] = float(qs.stats.worst(returns))
+                    metrics['qs_avg_win'] = float(qs.stats.avg_win(returns))
+                    metrics['qs_avg_loss'] = float(qs.stats.avg_loss(returns))
+                    metrics['qs_payoff_ratio'] = float(qs.stats.payoff_ratio(returns))
+                    metrics['qs_profit_factor'] = float(qs.stats.profit_factor(returns))
+                    metrics['qs_serenity_index'] = float(qs.stats.serenity_index(returns))
+                    metrics['qs_kelly_criterion'] = float(qs.stats.kelly_criterion(returns))
+                except Exception as _qs_err:
+                    self.logger.debug(f"quantstats enrichment skipped: {_qs_err}")
 
         except Exception as e:
             self.logger.error(f"Error computing return metrics: {e}")

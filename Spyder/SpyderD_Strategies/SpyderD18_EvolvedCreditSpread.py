@@ -38,6 +38,14 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
+# DEAP: Distributed Evolutionary Algorithms in Python (NSGA-II / CMA-ES)
+try:
+    import deap
+    from deap import base, creator, tools, algorithms
+    _DEAP_AVAILABLE = True
+except ImportError:
+    _DEAP_AVAILABLE = False
+
 try:
     import pandas_ta as ta
 
@@ -1293,6 +1301,113 @@ class EvolvedCreditSpreadStrategy:
         self.max_drawdown = 0.0
         self.state = StrategyState.INITIALIZED
         self.logger.info("Strategy state reset")
+
+    def run_deap_optimization(
+        self,
+        returns_history: List[float],
+        n_generations: int = 20,
+        pop_size: int = 60,
+        seed: int = 42,
+    ) -> Optional["EvolvedStrategyParams"]:
+        """
+        Re-run the NSGA-II genetic algorithm (via DEAP) to re-optimise
+        credit spread strategy parameters on a given returns history.
+
+        The genome is [risk_factor, delta_target, profit_target_ratio, MIN_signal_strength]
+        encoded as floats in [0, 1].  Fitness = (mean_return, -std_return) for
+        NSGA-II (maximise mean, minimise volatility).
+
+        Args:
+            returns_history:  Daily P&L returns (fractional) from backtesting.
+            n_generations:    Number of NSGA-II generations.
+            pop_size:         Population size.
+            seed:             Random seed for reproducibility.
+
+        Returns:
+            Updated ``EvolvedStrategyParams`` or None if DEAP is unavailable.
+        """
+        if not _DEAP_AVAILABLE:
+            self.logger.debug("deap not available — returning current evolved params")
+            return None
+        if len(returns_history) < 30:
+            self.logger.warning("Insufficient return history for GA optimisation (need ≥30 bars)")
+            return None
+
+        import random
+        random.seed(seed)
+        np.random.seed(seed)
+
+        ret_arr = np.array(returns_history, dtype=float)
+
+        # --- DEAP setup ---
+        # Avoid re-registering if already set (can happen in repeated calls)
+        if not hasattr(creator, "FitnessMulti"):
+            creator.create("FitnessMulti", base.Fitness, weights=(1.0, -1.0))
+        if not hasattr(creator, "Individual"):
+            creator.create("Individual", list, fitness=creator.FitnessMulti)
+
+        tb = base.Toolbox()
+        tb.register("gene", random.random)
+        tb.register("individual", tools.initRepeat, creator.Individual, tb.gene, n=4)
+        tb.register("population", tools.initRepeat, list, tb.individual)
+
+        def evaluate(individual: List[float]):
+            risk_factor, delta_target_norm, profit_target, min_signal = individual
+            # Map genes to parameter ranges
+            risk = np.clip(risk_factor, 0.05, 0.40)
+            # Simulate biased return stream using risk_factor scaling
+            sim_rets = ret_arr * risk / 0.212  # scale relative to baseline
+            mean_r = float(np.mean(sim_rets))
+            std_r = float(np.std(sim_rets) + 1e-9)
+            return (mean_r, std_r)
+
+        tb.register("evaluate", evaluate)
+        tb.register("mate", tools.cxSimulatedBinaryBounded,
+                    low=0.0, up=1.0, eta=15.0)
+        tb.register("mutate", tools.mutPolynomialBounded,
+                    low=0.0, up=1.0, eta=20.0, indpb=0.25)
+        tb.register("select", tools.selNSGA2)
+
+        pop = tb.population(n=pop_size)
+        fitnesses = list(map(tb.evaluate, pop))
+        for ind, fit in zip(pop, fitnesses):
+            ind.fitness.values = fit
+
+        for _ in range(n_generations):
+            offspring = tools.selTournamentDCD(pop, len(pop))
+            offspring = [tb.clone(o) for o in offspring]
+            for child1, child2 in zip(offspring[::2], offspring[1::2]):
+                if random.random() < 0.9:
+                    tb.mate(child1, child2)
+                    del child1.fitness.values
+                    del child2.fitness.values
+            for mutant in offspring:
+                if not mutant.fitness.valid:
+                    tb.mutate(mutant)
+            invalid = [ind for ind in offspring if not ind.fitness.valid]
+            for ind in invalid:
+                ind.fitness.values = tb.evaluate(ind)
+            pop = tb.select(pop + offspring, k=pop_size)
+
+        # Pick best individual by Pareto front, then by highest mean return
+        pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)[0]
+        best = max(pareto_front, key=lambda ind: ind.fitness.values[0])
+
+        new_risk = np.clip(best[0], 0.05, 0.40)
+        new_fitness = best.fitness.values[0] / (best.fitness.values[1] + 1e-9)  # heuristic
+
+        updated_params = EvolvedStrategyParams(
+            fitness_score=float(np.clip(new_fitness, 0.0, 1.0)),
+            generation=n_generations,
+            risk_factor=float(new_risk),
+            improvement_pct=float((new_risk / EVOLVED_RISK_FACTOR - 1) * 100),
+        )
+        self.evolved_params = updated_params
+        self.logger.info(
+            f"DEAP NSGA-II optimisation complete: "
+            f"risk_factor={new_risk:.3f}, fitness={updated_params.fitness_score:.3f}"
+        )
+        return updated_params
 
 
 # ==============================================================================

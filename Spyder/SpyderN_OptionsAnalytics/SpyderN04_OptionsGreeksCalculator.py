@@ -20,6 +20,7 @@ Description:
 """
 
 import json
+import math
 import os
 import sys
 import threading
@@ -39,6 +40,17 @@ from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 from scipy import stats
 from scipy.optimize import minimize, minimize_scalar
+
+try:
+    from numba import njit
+    _NUMBA_AVAILABLE = True
+except ImportError:
+    def njit(*args, **kwargs):  # type: ignore[misc]
+        """No-op decorator when numba is not available."""
+        if callable(args[0]):
+            return args[0]
+        return lambda f: f
+    _NUMBA_AVAILABLE = False
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 # ==============================================================================
@@ -89,6 +101,60 @@ MAX_PORTFOLIO_THETA = -5000
 SPOT_SCENARIOS = [-10, -5, -2, -1, 0, 1, 2, 5, 10]  # Percentage moves
 VOL_SCENARIOS = [-30, -20, -10, 0, 10, 20, 30]  # Percentage vol changes
 TIME_SCENARIOS = [0, 1, 2, 5, 10, 20]  # Days forward
+
+# ==============================================================================
+# NUMBA-JIT BSM KERNEL
+# ==============================================================================
+
+@njit(cache=True)
+def _bsm_greeks_kernel(
+    S: float, K: float, T: float, sigma: float, r: float, is_call: bool, q: float
+) -> Tuple[float, float, float, float, float]:
+    """
+    Black-Scholes-Merton Greeks kernel, JIT-compiled by numba for maximum throughput.
+
+    Returns:
+        (delta, gamma, theta, vega, rho)
+    """
+    _INV_SQRT2PI = 0.3989422804014327  # 1 / sqrt(2*pi)
+
+    d1 = (math.log(S / K) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
+    d2 = d1 - sigma * math.sqrt(T)
+
+    # Standard normal CDF via erfc
+    N_d1 = math.erfc(-d1 / math.sqrt(2.0)) / 2.0
+    N_d2 = math.erfc(-d2 / math.sqrt(2.0)) / 2.0
+    Nn_d1 = math.erfc(d1 / math.sqrt(2.0)) / 2.0
+    Nn_d2 = math.erfc(d2 / math.sqrt(2.0)) / 2.0
+
+    # Standard normal PDF
+    n_d1 = _INV_SQRT2PI * math.exp(-0.5 * d1 * d1)
+
+    exp_qT = math.exp(-q * T)
+    exp_rT = math.exp(-r * T)
+
+    gamma = n_d1 * exp_qT / (S * sigma * math.sqrt(T))
+    vega = S * n_d1 * exp_qT * math.sqrt(T) / 100.0  # per 1% vol change
+
+    if is_call:
+        delta = exp_qT * N_d1
+        theta = (
+            -S * n_d1 * sigma * exp_qT / (2.0 * math.sqrt(T))
+            - r * K * exp_rT * N_d2
+            + q * S * exp_qT * N_d1
+        ) / 365.0
+        rho = K * T * exp_rT * N_d2
+    else:
+        delta = -exp_qT * Nn_d1
+        theta = (
+            -S * n_d1 * sigma * exp_qT / (2.0 * math.sqrt(T))
+            + r * K * exp_rT * Nn_d2
+            - q * S * exp_qT * Nn_d1
+        ) / 365.0
+        rho = -K * T * exp_rT * Nn_d2
+
+    return delta, gamma, theta, vega, rho
+
 
 # ==============================================================================
 # ENUMS
@@ -387,38 +453,9 @@ class OptionsGreeksCalculator:
                 "rho": 0.0,
             }
 
-        # Calculate d1 and d2
-        d1 = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-        d2 = d1 - sigma * np.sqrt(T)
-
-        # Standard normal CDF and PDF
-        N = stats.norm.cdf
-        n = stats.norm.pdf
-
-        # Calculate Greeks
-        if option_type == "CALL":
-            delta = np.exp(-q * T) * N(d1)
-            theta = (
-                -S * n(d1) * sigma * np.exp(-q * T) / (2 * np.sqrt(T))
-                - r * K * np.exp(-r * T) * N(d2)
-                + q * S * np.exp(-q * T) * N(d1)
-            )
-            rho = K * T * np.exp(-r * T) * N(d2)
-        else:  # PUT
-            delta = -np.exp(-q * T) * N(-d1)
-            theta = (
-                -S * n(d1) * sigma * np.exp(-q * T) / (2 * np.sqrt(T))
-                + r * K * np.exp(-r * T) * N(-d2)
-                - q * S * np.exp(-q * T) * N(-d1)
-            )
-            rho = -K * T * np.exp(-r * T) * N(-d2)
-
-        # Greeks same for both calls and puts
-        gamma = n(d1) * np.exp(-q * T) / (S * sigma * np.sqrt(T))
-        vega = S * n(d1) * np.exp(-q * T) * np.sqrt(T) / 100  # Divided by 100 for 1% change
-
-        # Theta is per day
-        theta = theta / 365
+        # Use numba-JIT kernel for hot-path performance
+        is_call = option_type == "CALL"
+        delta, gamma, theta, vega, rho = _bsm_greeks_kernel(S, K, T, sigma, r, is_call, q)
 
         return {"delta": delta, "gamma": gamma, "theta": theta, "vega": vega, "rho": rho}
 

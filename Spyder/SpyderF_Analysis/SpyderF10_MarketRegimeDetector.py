@@ -40,6 +40,12 @@ import numpy as np
 from scipy import stats
 from arch import arch_model  # For GARCH modeling
 
+try:
+    import ruptures as rpt  # Change-point detection for regime shifts
+    _RUPTURES_AVAILABLE = True
+except ImportError:
+    _RUPTURES_AVAILABLE = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -1387,6 +1393,60 @@ class MarketRegimeDetector:
             "vix_term_structure": 1.0 + np.random.randn() * 0.1,
             "volatility_skew": np.random.randn() * 0.2,
         }
+
+
+    # ==========================================================================
+    # CHANGE-POINT DETECTION (ruptures)
+    # ==========================================================================
+    def detect_change_points(
+        self,
+        signal: np.ndarray,
+        n_bkps: int = 5,
+        model: str = "rbf",
+        min_size: int = 10,
+    ) -> List[int]:
+        """
+        Detect structural break-points in a price/volatility signal using the
+        ruptures library (Pelt algorithm with RBF cost by default).
+
+        Args:
+            signal: 1-D numpy array of observations (returns, vola, etc.).
+            n_bkps: Maximum number of break-points to search for.
+            model: ruptures cost model — "rbf" (non-linear), "l2" (mean-shift),
+                   "l1" (robust), "ar" (auto-regressive).
+            min_size: Minimum segment length (samples).
+
+        Returns:
+            List of change-point indices (last index is len(signal)).
+        """
+        if not _RUPTURES_AVAILABLE:
+            self.logger.warning("ruptures not available — skipping change-point detection")
+            return []
+        try:
+            algo = rpt.Pelt(model=model, min_size=min_size).fit(signal)
+            breakpoints = algo.predict(pen=np.log(len(signal)) * signal.var())
+            return breakpoints
+        except Exception as e:
+            self.error_handler.handle_error(e, "detect_change_points")
+            return []
+
+    def detect_regime_change_points_from_history(self, n_bkps: int = 5) -> List[int]:
+        """
+        Run change-point detection on the internal VIX history buffer.
+
+        Returns:
+            List of change-point indices in the VIX history.
+        """
+        if len(self.vix_history) < 20:
+            return []
+        signal = np.array(list(self.vix_history), dtype=float)
+        bkps = self.detect_change_points(signal, n_bkps=n_bkps)
+        if bkps:
+            self.logger.info(
+                f"Ruptures found {len(bkps) - 1} regime break-points in VIX history "
+                f"at indices: {bkps[:-1]}"
+            )
+        return bkps
 
 
 # ==============================================================================

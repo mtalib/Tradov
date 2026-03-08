@@ -47,6 +47,14 @@ from plotly.subplots import make_subplots
 from fpdf import FPDF
 import xlsxwriter
 
+# quantstats: institutional-grade return analytics
+try:
+    import quantstats as qs
+    HAS_QUANTSTATS = True
+except ImportError:
+    qs = None  # type: ignore[assignment]
+    HAS_QUANTSTATS = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -378,15 +386,32 @@ class DailyTradingReport:
         realized_pnl = sum(trade.pnl for trade in trades if trade.exit_price > 0)
         unrealized_pnl = sum(trade.pnl for trade in trades if trade.exit_price == 0)
         commission = sum(trade.commission for trade in trades)
-        
-        return {
+
+        metrics = {
             'total_pnl': total_pnl,
             'realized_pnl': realized_pnl,
             'unrealized_pnl': unrealized_pnl,
             'commission': commission,
             'net_pnl': total_pnl - commission
         }
-    
+
+        # quantstats trade-level stats when returns series is available
+        if HAS_QUANTSTATS and len(trades) >= 10:
+            try:
+                pnl_series = pd.Series([t.pnl for t in trades])
+                # Normalise to fractional returns (avoid div-by-zero)
+                avg_notional = pnl_series.abs().mean() or 1.0
+                ret_series = pnl_series / avg_notional
+                metrics['qs_win_rate'] = float(qs.stats.win_rate(ret_series))
+                metrics['qs_avg_win'] = float(qs.stats.avg_win(ret_series))
+                metrics['qs_avg_loss'] = float(qs.stats.avg_loss(ret_series))
+                metrics['qs_payoff_ratio'] = float(qs.stats.payoff_ratio(ret_series))
+                metrics['qs_profit_factor'] = float(qs.stats.profit_factor(ret_series))
+            except Exception as _qs_err:
+                self.logger.debug(f"quantstats daily metrics skipped: {_qs_err}")
+
+        return metrics
+
     def _get_position_summary(self, report_date: date) -> Dict[str, int]:
         """Get position summary statistics"""
         # Query positions from database

@@ -12,3 +12,27 @@ alpha_vantage>=2.3.0
 pyfolio-reloaded>=0.9.5
 empyrical-reloaded>=0.5.7
 riskfolio-lib>=6.0.0
+
+# Convex Optimization (QP, mean-variance, risk-parity)
+cvxpy>=1.4.0
+
+# GARCH / EGARCH / HAR-RV volatility models
+arch>=7.0.0
+
+# Change-point detection for regime shifts
+ruptures>=1.1.7
+
+# Kalman filters with EM fitting
+pykalman>=0.9.7
+
+# Matrix Profile for time-series anomaly detection
+stumpy>=1.12.0
+
+# Factor / alpha signal IC and quantile analysis
+alphalens-reloaded>=0.4.3
+
+# One-call institutional tearsheets
+quantstats>=0.0.62
+
+# High-performance columnar data (Polars)
+polars>=0.20.0

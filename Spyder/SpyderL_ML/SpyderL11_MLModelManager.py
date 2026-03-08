@@ -47,6 +47,14 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 import joblib
 
+# MLflow experiment tracking (optional but preferred)
+try:
+    import mlflow
+    import mlflow.sklearn
+    HAS_MLFLOW = True
+except ImportError:
+    HAS_MLFLOW = False
+
 MODEL_BASE_DIR = Path.home() / ".spyder" / "models"
 MODEL_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -275,6 +283,23 @@ class MLModelManager:
             # Save model artifact
             model_path = model_version.get_file_path()
             joblib.dump(model, model_path)
+
+            # Log to MLflow (when available)
+            if HAS_MLFLOW:
+                try:
+                    mlflow.set_experiment(f"spyder_{name}")
+                    with mlflow.start_run(run_name=f"{name}_v{version}"):
+                        for metric_name, metric_val in performance_metrics.items():
+                            if isinstance(metric_val, (int, float)):
+                                mlflow.log_metric(metric_name, metric_val)
+                        mlflow.log_params({
+                            'model_id': model_id,
+                            'algorithm': config.algorithm.value,
+                            'lookback_period': config.lookback_period,
+                        })
+                        mlflow.log_artifact(str(model_path))
+                except Exception as _mlflow_exc:
+                    self.logger.debug(f"MLflow logging skipped: {_mlflow_exc}")
             
             # Calculate model hash
             model_hash = self._calculate_model_hash(model_path)

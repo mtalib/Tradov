@@ -84,6 +84,7 @@ except ImportError:
 # ==============================================================================
 try:
     from hmmlearn import hmm
+    from hmmlearn.hmm import GaussianHMM, GMMHMM
     HMM_AVAILABLE = True
 except ImportError:
     HMM_AVAILABLE = False
@@ -377,7 +378,8 @@ class HMMRegimeDetector:
     
     def _train_hmm(self, features: np.ndarray) -> Tuple[Any, HMMTrainingResult]:
         """
-        Train Hidden Markov Model using Baum-Welch algorithm.
+        Train Hidden Markov Model using Baum-Welch algorithm with multiple
+        random restarts to avoid local optima.
         
         Args:
             features: Feature matrix (observations x features)
@@ -385,24 +387,40 @@ class HMMRegimeDetector:
         Returns:
             Trained HMM model and training results
         """
-        self.logger.info("Training HMM model with Baum-Welch algorithm...")
+        self.logger.info("Training HMM model with Baum-Welch algorithm (multi-restart)...")
         
         try:
-            # Create HMM model
-            model = hmm.GaussianHMM(
-                n_components=self.n_states,
-                covariance_type="full",
-                n_iter=HMM_N_ITERATIONS,
-                tol=HMM_CONVERGENCE_THRESHOLD,
-                random_state=42,
-                verbose=False
-            )
+            best_model = None
+            best_ll = -np.inf
+            N_RESTARTS = 5  # Multiple restarts for global optimum
+            
+            for seed in range(N_RESTARTS):
+                try:
+                    candidate = hmm.GaussianHMM(
+                        n_components=self.n_states,
+                        covariance_type="full",
+                        n_iter=HMM_N_ITERATIONS,
+                        tol=HMM_CONVERGENCE_THRESHOLD,
+                        random_state=seed,
+                        verbose=False,
+                        init_params="stmc",
+                    )
+                    candidate.fit(features)
+                    ll = candidate.score(features)
+                    if ll > best_ll:
+                        best_ll = ll
+                        best_model = candidate
+                except Exception:
+                    continue
+            
+            if best_model is None:
+                raise RuntimeError("All HMM restarts failed")
+            
+            model = best_model
             
             # Train model
             start_time = datetime.now()
-            model.fit(features)
-            end_time = datetime.now()
-            training_time = (end_time - start_time).total_seconds()
+            training_time = (datetime.now() - start_time).total_seconds()
             
             # Calculate model metrics
             log_likelihood = model.score(features)
@@ -434,7 +452,8 @@ class HMMRegimeDetector:
             
             self.logger.info(
                 f"HMM trained: log_likelihood={log_likelihood:.2f}, "
-                f"BIC={bic:.2f}, AIC={aic:.2f}, converged={converged}"
+                f"BIC={bic:.2f}, AIC={aic:.2f}, converged={converged}, "
+                f"best_restart_seed={list(range(N_RESTARTS))[list(range(N_RESTARTS)).index(model.random_state) if hasattr(model, 'random_state') else 0]}"
             )
             
             return model, training_result

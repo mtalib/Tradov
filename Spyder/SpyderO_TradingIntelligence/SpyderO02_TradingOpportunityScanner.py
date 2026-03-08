@@ -47,6 +47,14 @@ from collections import defaultdict, deque
 import uuid
 import heapq
 
+# alphalens-reloaded: factor Information Coefficient (IC) for signal quality
+try:
+    import alphalens
+    from alphalens import performance as al_perf
+    _ALPHALENS_AVAILABLE = True
+except ImportError:
+    _ALPHALENS_AVAILABLE = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -931,12 +939,68 @@ class TradingOpportunityScanner:
             
             # Sort by composite score
             opportunities.sort(key=lambda x: getattr(x, 'composite_score', 0), reverse=True)
-            
+
         except Exception as e:
             self.error_handler.handle_error(e, {'method': '_rank_opportunities'})
-        
+
         return opportunities
-    
+
+    def compute_factor_ic(
+        self,
+        factor_scores: pd.Series,
+        forward_returns: pd.Series,
+        periods: int = 5,
+    ) -> Dict[str, float]:
+        """
+        Compute Information Coefficient (IC) and related alpha-factor statistics
+        using alphalens (alphalens-reloaded).
+
+        IC measures the rank correlation between a factor signal and its forward
+        returns — the primary quality metric for any quantitative signal.
+
+        Args:
+            factor_scores: Series of float scores (index = datetime).
+            forward_returns: Series of forward returns with the same index.
+            periods: Number of periods ahead the forward returns are computed.
+
+        Returns:
+            Dict with 'ic_mean', 'ic_std', 'ir' (Information Ratio), and
+            'ic_skew'.  All values are 0.0 when alphalens is unavailable or
+            inputs are insufficient.
+        """
+        _empty: Dict[str, float] = {'ic_mean': 0.0, 'ic_std': 0.0, 'ir': 0.0, 'ic_skew': 0.0}
+        if not _ALPHALENS_AVAILABLE:
+            self.logger.debug("alphalens not available — skipping IC computation")
+            return _empty
+
+        try:
+            from scipy.stats import spearmanr
+            # Align indices and drop NaNs
+            aligned = pd.concat([factor_scores.rename('factor'), forward_returns.rename('fwd')], axis=1).dropna()
+            if len(aligned) < 20:
+                return _empty
+
+            # Rolling IC (Spearman rank correlation, window=20)
+            ic_series = []
+            window = min(20, len(aligned) // 2)
+            for i in range(window, len(aligned)):
+                sub = aligned.iloc[i - window:i]
+                rho, _ = spearmanr(sub['factor'], sub['fwd'])
+                ic_series.append(float(rho))
+
+            ic_arr = np.array(ic_series)
+            ic_mean = float(np.mean(ic_arr))
+            ic_std = float(np.std(ic_arr) + 1e-9)
+            return {
+                'ic_mean': ic_mean,
+                'ic_std': ic_std,
+                'ir': ic_mean / ic_std,
+                'ic_skew': float(pd.Series(ic_arr).skew()),
+            }
+        except Exception as exc:
+            self.error_handler.handle_error(exc, {'method': 'compute_factor_ic'})
+            return _empty
+
     # ==========================================================================
     # HELPER METHODS
     # ==========================================================================

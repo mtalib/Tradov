@@ -35,6 +35,13 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+# pykalman: Kalman filter / smoother with EM parameter estimation
+try:
+    from pykalman import KalmanFilter
+    _PYKALMAN_AVAILABLE = True
+except ImportError:
+    _PYKALMAN_AVAILABLE = False
+
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
@@ -261,6 +268,16 @@ class MeanReversionIndicators:
             signals.loc[zscore > entry_threshold, 'signal'] = -1  # Short the spread
             signals.loc[zscore < -entry_threshold, 'signal'] = 1  # Long the spread
 
+            # Generate signals
+            signals = pd.DataFrame(index=price1.index)
+            signals['ratio'] = ratio
+            signals['zscore'] = zscore
+            signals['signal'] = 0
+
+            # Entry signals
+            signals.loc[zscore > entry_threshold, 'signal'] = -1  # Short the spread
+            signals.loc[zscore < -entry_threshold, 'signal'] = 1  # Long the spread
+
             # Exit signals (mean reversion occurred)
             signals.loc[abs(zscore) < exit_threshold, 'signal'] = 0
 
@@ -269,6 +286,48 @@ class MeanReversionIndicators:
         except Exception as e:
             self.error_handler.handle_error(e, {'method': 'statistical_arbitrage_signal'})
             return pd.DataFrame()
+
+    def kalman_smooth_price(
+        self,
+        prices: pd.Series,
+        n_iter: int = 10,
+    ) -> pd.Series:
+        """
+        Apply a Kalman smoother (pykalman) to a price series to separate signal
+        from noise.  Parameters are estimated via the EM algorithm.
+
+        Falls back to a simple rolling-mean when pykalman is not available.
+
+        Args:
+            prices: Raw price series (indexed by datetime or int).
+            n_iter:  Number of EM iterations for parameter estimation.
+
+        Returns:
+            Smoothed price series with the same index as ``prices``.
+        """
+        if prices is None or len(prices) < 5:
+            return prices
+
+        if not _PYKALMAN_AVAILABLE:
+            # Graceful fallback: rolling mean with a small window
+            return prices.rolling(window=5, min_periods=1).mean()
+
+        try:
+            obs = prices.values.reshape(-1, 1).astype(float)
+            kf = KalmanFilter(
+                transition_matrices=[1],
+                observation_matrices=[1],
+                initial_state_mean=obs[0],
+                initial_state_covariance=1,
+                observation_covariance=1,
+                transition_covariance=0.05,
+            )
+            kf = kf.em(obs, n_iter=n_iter)
+            state_means, _ = kf.smooth(obs)
+            return pd.Series(state_means.flatten(), index=prices.index, name=f"{prices.name}_kalman")
+        except Exception as exc:
+            self.error_handler.handle_error(exc, {'method': 'kalman_smooth_price'})
+            return prices.rolling(window=5, min_periods=1).mean()
 
 
 # ==============================================================================

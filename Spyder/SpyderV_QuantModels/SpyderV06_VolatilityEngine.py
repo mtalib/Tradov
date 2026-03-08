@@ -54,9 +54,23 @@ from scipy import stats, optimize
 from scipy.special import gamma as gamma_func
 from scipy.stats import norm, t
 from scipy.optimize import minimize, differential_evolution
-from numba import jit
+try:
+    from numba import jit
+except ImportError:
+    def jit(*args, **kwargs):  # type: ignore[misc]
+        if callable(args[0]):
+            return args[0]
+        return lambda f: f
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
+
+# Industry-standard GARCH / EGARCH / GJR-GARCH / HAR-RV models
+try:
+    from arch import arch_model
+    from arch.univariate import GARCH, EGARCH, EWMAVariance, RiskMetrics2006
+    _ARCH_AVAILABLE = True
+except ImportError:
+    _ARCH_AVAILABLE = False
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -661,18 +675,32 @@ class SpyderVolatilityEngine:
             self._set_default_parameters()
 
     async def _calibrate_garch(self) -> GARCHParameters:
-        """Calibrate GARCH(1,1) model parameters."""
+        """Calibrate GARCH(1,1) model parameters using arch library MLE when available."""
+        _DEFAULT = GARCHParameters(omega=0.00001, alpha=0.08, beta=0.90)
         if len(self.return_history) < 50:
-            return GARCHParameters(omega=0.00001, alpha=0.08, beta=0.90)
+            return _DEFAULT
 
         returns = np.array(self.return_history[-252:])  # Last year
 
-        # Initial parameter guess
-        initial_guess = [0.00001, 0.08, 0.90]
-        bounds = [(1e-8, 0.001), (0.001, 0.3), (0.1, 0.98)]
+        # --- arch library path (preferred: proper MLE via BHHH/SLSQP) ---
+        if _ARCH_AVAILABLE:
+            try:
+                returns_pct = returns * 100.0  # arch expects percentage returns
+                model = arch_model(returns_pct, vol="Garch", p=1, q=1, dist="Normal", rescale=False)
+                fit = model.fit(disp="off", show_warning=False)
+                omega = float(fit.params.get("omega", 1e-5)) / 1e4  # scale back
+                alpha = float(fit.params.get("alpha[1]", 0.08))
+                beta = float(fit.params.get("beta[1]", 0.90))
+                params = GARCHParameters(omega=omega, alpha=alpha, beta=beta)
+                if params.validate():
+                    return params
+            except Exception as e:
+                self.logger.warning(f"arch GARCH(1,1) calibration failed, falling back to scipy: {e}")
 
+        # --- scipy fallback ---
         try:
-            # Optimize GARCH likelihood
+            initial_guess = [0.00001, 0.08, 0.90]
+            bounds = [(1e-8, 0.001), (0.001, 0.3), (0.1, 0.98)]
             result = optimize.minimize(
                 _garch_likelihood,
                 initial_guess,
@@ -680,19 +708,40 @@ class SpyderVolatilityEngine:
                 bounds=bounds,
                 method="L-BFGS-B",
             )
-
             if result.success:
                 omega, alpha, beta = result.x
                 params = GARCHParameters(omega=omega, alpha=alpha, beta=beta)
-
                 if params.validate():
                     return params
-
         except Exception as e:
             self.logger.warning(f"GARCH calibration failed: {e}")
 
-        # Return default parameters if optimization fails
-        return GARCHParameters(omega=0.00001, alpha=0.08, beta=0.90)
+        return _DEFAULT
+
+    async def _calibrate_egarch(self) -> Optional[dict]:
+        """
+        Calibrate EGARCH(1,1) model via arch library.
+
+        Returns a dict with keys 'omega', 'alpha', 'gamma', 'beta' or None on failure.
+        EGARCH captures asymmetric leverage effects unlike symmetric GARCH.
+        """
+        if not _ARCH_AVAILABLE or len(self.return_history) < 100:
+            return None
+        try:
+            returns_pct = np.array(self.return_history[-252:]) * 100.0
+            model = arch_model(returns_pct, vol="EGARCH", p=1, o=1, q=1, dist="Normal", rescale=False)
+            fit = model.fit(disp="off", show_warning=False)
+            return {
+                "omega": float(fit.params.get("omega", 0.0)),
+                "alpha": float(fit.params.get("alpha[1]", 0.05)),
+                "gamma": float(fit.params.get("gamma[1]", -0.1)),  # leverage
+                "beta": float(fit.params.get("beta[1]", 0.92)),
+                "aic": float(fit.aic),
+                "bic": float(fit.bic),
+            }
+        except Exception as e:
+            self.logger.warning(f"EGARCH calibration failed: {e}")
+            return None
 
     async def _calibrate_heston(self) -> HestonParameters:
         """Calibrate Heston model parameters."""

@@ -21,3 +21,9 @@ urllib3>=1.26.0
 
 # Institutional Options Pricing
 quantlib-python>=1.31
+
+# High-performance async event loop
+uvloop>=0.19.0
+
+# High-performance JSON serialization
+orjson>=3.9.0

@@ -75,7 +75,10 @@ References:
 # ==============================================================================
 import os
 import time
-import json
+try:
+    import orjson as json  # 3-10x faster JSON; drop-in compatible for loads/dumps
+except ImportError:
+    import json
 import asyncio
 import threading
 from typing import Optional, Dict, Any, List, Callable
